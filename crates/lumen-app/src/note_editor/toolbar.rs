@@ -1,8 +1,3 @@
-//! The note editor's header (M5 slice 5, the owner's approved mock-up; since
-//! M9.5 S1 the clip editors' shared header, `app::clip_header`): the clip's
-//! colour bar, name and "N bars · N notes"; the Pointer/Draw tools; the grid
-//! chip; Quantize; and the Lane and Pop out icon buttons at the right.
-
 use std::sync::Arc;
 
 use eframe::egui::{Color32, Painter, Pos2, Rect, Ui};
@@ -15,22 +10,15 @@ use crate::app::clip_header::{HeaderStrip, icon_toggle};
 use crate::commands::Command;
 use crate::widgets::{self, raised};
 
-/// What the strip is drawn for (the clip editor's header is shared by both
-/// editors, so the facts travel together).
 pub(super) struct Strip<'a> {
     pub clip: &'a Arc<Clip>,
     pub colour: Color32,
-    /// The clip can be edited (it is not locked or frozen).
     pub editable: bool,
-    /// The track reads a drum map: the Keys toggle applies.
     pub mapped: bool,
-    /// The drum editor's view switch, on a track with a drum map (DV A).
     pub drum: Option<crate::drum_editor::View>,
 }
 
 impl App {
-    /// The strip: colour bar, name and counts, tools, grid, Quantize, Lane,
-    /// Keys (on a mapped track), Pop out.
     pub(super) fn editor_toolbar(
         &mut self,
         ui: &mut Ui,
@@ -64,20 +52,28 @@ impl App {
             if widgets::tip(response, tip, keys.as_ref(), None).clicked() {
                 ed.popped = !ed.popped;
             }
-            let mut shown = !ed.lane.hidden;
-            let response = icon_toggle(ui, "Lane", shown, glyphs::lane);
-            if widgets::tip(
-                response,
-                "Show the velocity and controller lane under the notes",
-                self.keymap.keys(Command::ToggleLane).as_ref(),
-                None,
-            )
-            .clicked()
-            {
-                shown = !shown;
+
+            if drum != Some(crate::drum_editor::View::Steps) {
+                let mut shown = !ed.lane.hidden;
+                let response = icon_toggle(ui, "Lane", shown, glyphs::lane);
+                if widgets::tip(
+                    response,
+                    "Show the velocity and controller lane under the notes",
+                    self.keymap.keys(Command::ToggleLane).as_ref(),
+                    None,
+                )
+                .clicked()
+                {
+                    shown = !shown;
+                }
+                ed.lane.hidden = !shown;
             }
-            ed.lane.hidden = !shown;
-            if mapped && drum != Some(crate::drum_editor::View::Lanes) {
+            if mapped
+                && !matches!(
+                    drum,
+                    Some(crate::drum_editor::View::Lanes | crate::drum_editor::View::Steps)
+                )
+            {
                 let mut hiding = ed.hide_unmapped;
                 let response = icon_toggle(ui, "Hide unmapped keys", hiding, glyphs::keys);
                 if widgets::tip(
@@ -95,16 +91,16 @@ impl App {
         };
         let mut strip = HeaderStrip::new(ui, toolbar, right);
         strip.title(&clip.name, &self.clip_counts(clip, editable), colour);
-        // The drum editor's view switch (DV A): the lanes or the piano roll.
         if let Some(view) = drum
             && let Some(picked) = strip.views(view)
             && let Some(track) = self.track_of_clip(clip.id)
+            && picked != view
         {
             ed.drum.set_view(track, picked);
             ed.framed_for = None;
-            // A gesture from the other view no longer means anything.
             ed.gesture = None;
             ed.drum.reorder = None;
+            ed.drum.steps.gesture = None;
         }
         let tips = [
             "Select, move and resize notes",
@@ -113,17 +109,19 @@ impl App {
         if let Some(tool) = strip.tools(self, ed.tool, tips) {
             ed.tool = tool;
         }
-        self.header_grid_chip(
-            &mut strip.row,
-            ed.time,
-            crate::app::clip_header::GridChip::Full,
-        );
+
+        if drum != Some(crate::drum_editor::View::Steps) {
+            self.header_grid_chip(
+                &mut strip.row,
+                ed.time,
+                crate::app::clip_header::GridChip::Full,
+            );
+        }
         if editable {
             self.quantize_button(&mut strip.row, ed, clip);
         }
     }
 
-    /// "8 bars · 17 notes", with "· locked" when the clip cannot be edited.
     fn clip_counts(&self, clip: &Clip, editable: bool) -> String {
         let meter = &self.transport.timeline.meter;
         let first = meter.bbt_at(clip.start);

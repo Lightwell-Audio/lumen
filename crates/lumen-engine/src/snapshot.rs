@@ -1,34 +1,22 @@
-//! Transport state published by the audio thread for the UI, as a seqlock
-//! over atomics: the audio thread never waits, and readers always see one
-//! consistent snapshot.
-
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering, fence};
 
 use lumen_core::time::Ticks;
 
-/// The transport as of the end of the last processed block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct TransportSnapshot {
     pub playing: bool,
-    /// Timeline sample of the next frame to play.
     pub sample: i64,
     pub ticks: Ticks,
-    /// The play marker: where Play starts from.
     pub marker: Ticks,
     pub sample_rate: u32,
-    /// Playing inside an enabled punch region.
     pub punching: bool,
-    /// Recording, or counting in to it.
     pub recording: bool,
-    /// While counting in: the frames left and the frames in all (the song
-    /// waits at the play marker); zero otherwise.
     pub count_in_left: i64,
     pub count_in_total: i64,
 }
 
 #[derive(Debug, Default)]
 pub(crate) struct Shared {
-    /// Odd while the audio thread is writing.
     sequence: AtomicU64,
     playing: AtomicBool,
     sample: AtomicI64,
@@ -42,7 +30,6 @@ pub(crate) struct Shared {
 }
 
 impl Shared {
-    /// Audio thread only (single writer). Never blocks.
     pub(crate) fn publish(&self, s: &TransportSnapshot) {
         let sequence = self.sequence.load(Ordering::Relaxed);
         self.sequence.store(sequence + 1, Ordering::Relaxed);
@@ -60,7 +47,6 @@ impl Shared {
         self.sequence.store(sequence + 2, Ordering::Release);
     }
 
-    /// Any thread. Retries while a write is in progress (a few nanoseconds).
     pub(crate) fn read(&self) -> TransportSnapshot {
         loop {
             let before = self.sequence.load(Ordering::Acquire);

@@ -1,14 +1,3 @@
-//! Recording audio (M9 slice R2, ADR-0102), end to end on the input test
-//! device, which plays a ramp (every frame holds its own number) so a file
-//! shows whether any frame was lost, repeated or moved.
-//!
-//! Record (F9) on an armed audio track writes one file as the input arrives;
-//! when recording stops the file is one clip from where recording began, as
-//! one undo step. Looping keeps one long file, saving copies the file into
-//! the project, and a crash in the middle leaves a file that the next start
-//! repairs and puts back on its track. The device runs below real time, so
-//! these wait for frames, never for time.
-
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
@@ -37,7 +26,6 @@ fn project() -> Project {
     )
 }
 
-/// Starts on the input device playing the ramp, with `project` opened.
 fn launch(
     name: &str,
     project: &Project,
@@ -70,13 +58,10 @@ fn clips_of(lumen: &Lumen, id: Id) -> Vec<std::sync::Arc<Clip>> {
         .clone()
 }
 
-/// Arms Vox, records until `frames` have been written, and stops.
 fn record(lumen: &mut Lumen, frames: u64) {
     record_checking(lumen, frames, |_| {});
 }
 
-/// As [`record`], and runs `while_recording` once the frames are written,
-/// before stopping.
 fn record_checking(lumen: &mut Lumen, frames: u64, while_recording: impl Fn(&App)) {
     lumen.click("Arm Vox");
     lumen.key(Modifiers::NONE, Key::F9);
@@ -88,7 +73,6 @@ fn record_checking(lumen: &mut Lumen, frames: u64, while_recording: impl Fn(&App
     });
     while_recording(lumen.app());
     lumen.key(Modifiers::NONE, Key::Space);
-    // The track may hold clips already: wait until the take is placed too.
     lumen.wait_for("the clip", |app| {
         !app.recording()
             && !app.audio_takes_placing()
@@ -101,8 +85,6 @@ fn record_checking(lumen: &mut Lumen, frames: u64, while_recording: impl Fn(&App
     });
 }
 
-/// Loads `path` and checks that its left channel is one unbroken stretch of
-/// the ramp. Returns its length.
 #[track_caller]
 fn assert_unbroken(path: &Path) -> usize {
     let audio = lumen_media::load(path, RATE, &AtomicBool::new(false), &mut |_| {})
@@ -111,7 +93,6 @@ fn assert_unbroken(path: &Path) -> usize {
     assert!(!left.is_empty(), "the file holds audio");
     for (n, pair) in left.windows(2).enumerate() {
         let step = f64::from(pair[1]) - f64::from(pair[0]);
-        // A millionth a frame, or the ramp starting over.
         assert!(
             (step - 1e-6).abs() < 2e-7 || step < -0.99,
             "frame {n} to {}: the ramp moved by {step}",
@@ -132,13 +113,11 @@ fn recording_an_armed_audio_track_is_one_clip_with_every_frame_and_one_undo() {
         clips_of(&lumen, GTR).is_empty(),
         "an unarmed track records nothing"
     );
-    // It begins where recording began, and runs as long as the file.
     assert_eq!(clips[0].start, Ticks::ZERO);
     let project = lumen.app().project();
     assert_eq!(project.media.len(), 1);
     let media = &project.media[0];
     assert!(media.frames >= 9_600, "{} frames", media.frames);
-    // 120 BPM at 48 kHz: a beat is 24,000 frames.
     let beats = media.frames as f64 / 24_000.0;
     let length = clips[0].length.0 as f64 / Ticks::quarters(1).0 as f64;
     assert!((length - beats).abs() < 0.001, "{length} beats for {beats}");
@@ -156,7 +135,6 @@ fn recording_an_armed_audio_track_is_one_clip_with_every_frame_and_one_undo() {
     assert_eq!(clips_of(&lumen, VOX).len(), 1, "and redo gives it back");
 }
 
-/// A clip of four beats that already sits on Vox, from an earlier take.
 fn project_with_old_clip() -> Project {
     use lumen_project::model::{ClipContent, Media};
     let mut p = project();
@@ -241,8 +219,6 @@ fn record_over_old_clip(name: &str, inside: bool) {
         "the old clip to play again where it is not covered",
         |app| app.audio_tracks_recorded_over().is_empty(),
     );
-    // Only the take's actual recorded span is replaced. An old prefix is
-    // kept if the first captured frame lands after zero, as is the suffix.
     let take = clips_of(&lumen, VOX)
         .into_iter()
         .find(|c| c.name != "Old")
@@ -279,10 +255,7 @@ fn looping_while_recording_keeps_one_long_file() {
     p.transport.loop_end = Ticks::quarters(1);
     p.transport.loop_enabled = true;
     let (mut lumen, _turn) = launch("loop", &p, |l| l);
-    // A beat is 24,000 frames: two passes and a tail long enough to offer.
     record_checking(&mut lumen, 62_000, |app| {
-        // What is drawn is the pass under way, which stays inside the loop
-        // (a block or two over, while the wrap is being noticed).
         let drawn = app.audio_take_drawn_frames(VOX).expect("a take is drawn");
         assert!(drawn <= 24_000 + 4_096, "{drawn} frames drawn");
     });
@@ -292,14 +265,10 @@ fn looping_while_recording_keeps_one_long_file() {
     assert!(media.frames >= 62_000);
     let path = lumen.app().media_file(media.id).expect("the file");
     assert_eq!(assert_unbroken(&path) as u64, media.frames);
-    // The file is one stretch, cut into passes of a beat (24,000 frames):
-    // the clip is the loop long and plays the last whole pass; stopping
-    // part-way into a pass leaves a partial one after it.
     assert_eq!(clips[0].length, Ticks::quarters(1), "exactly the loop");
     let takes = clips[0].takes.as_ref().expect("the passes are takes");
     assert!(takes.count >= 3, "{} takes", takes.count);
     assert!(takes.active + 2 >= takes.count, "a late, whole pass plays");
-    // Pass k begins 24,000 frames after pass k - 1 in the file.
     let offsets: Vec<i64> = (0..takes.count)
         .map(|k| {
             if k == takes.active {
@@ -350,7 +319,6 @@ fn a_take_of_a_loop_recording_swaps_undoes_and_survives_a_save() {
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert_eq!(offset(&clips_of(&lumen, VOX)[0]), last, "undone");
 
-    // The takes survive Save and open.
     let out = lumen.dir().join("Out").join("Out.lumen");
     lumen.app_mut().save_to(out.clone());
     lumen.wait_for("the save", |app| !app.is_dirty() && !app.is_busy());
@@ -369,7 +337,6 @@ fn a_take_of_a_loop_recording_swaps_undoes_and_survives_a_save() {
 #[test]
 fn punch_keeps_only_the_punched_range_in_the_file() {
     let mut p = project();
-    // 240 BPM at 48 kHz: a beat is 12,000 frames.
     p.tempo = vec![lumen_core::time::TempoPoint {
         at: Ticks::ZERO,
         bpm: 240.0,
@@ -385,7 +352,6 @@ fn punch_keeps_only_the_punched_range_in_the_file() {
     lumen.wait_for("the recording to begin", |app| {
         app.recording() && app.is_playing()
     });
-    // Input is heard a device latency after it is played: go well past it.
     lumen.wait_for("past the punch out", |app| {
         app.playhead() > Ticks::quarters(3) + Ticks(Ticks::quarters(1).0 / 4)
     });
@@ -427,7 +393,6 @@ fn punch_keeps_only_the_punched_range_in_the_file() {
 fn saving_copies_the_take_into_the_project_and_it_opens_again() {
     let (mut lumen, _turn) = launch("save", &project(), |l| l);
     record(&mut lumen, 9_600);
-    // Saved as a new project, in a folder of its own.
     let out = lumen.dir().join("Out").join("Out.lumen");
     lumen.app_mut().save_to(out.clone());
     lumen.wait_for("the save", |app| !app.is_dirty() && !app.is_busy());
@@ -467,10 +432,7 @@ fn a_crash_while_recording_leaves_a_take_the_next_start_puts_back() {
     lumen.wait_for("frames to be written", |app| {
         app.audio_take_frames(VOX).is_some_and(|f| f >= 12_000)
     });
-    // File appearance can precede the worker's handoff of the session lock.
-    // Let the app receive it before this simulated crash drops the app.
     lumen.wait_for("an autosave", |app| app.autosave_finished());
-    // The file is on disk, beside a note that it is unfinished.
     let recordings = lumen.dir().join("Recordings");
     let sidecars = || {
         std::fs::read_dir(&recordings)
@@ -487,7 +449,6 @@ fn a_crash_while_recording_leaves_a_take_the_next_start_puts_back() {
     let mut again = Lumen::start_with(dir, |l| l.with_input_device());
     again.recover();
     again.wait_for("the recovered project and its takes", |app| {
-        // The takes are read on a worker after the project opens.
         !app.is_busy() && !app.audio_takes_placing() && app.project().tracks.len() == 2
     });
     again.frames(10);
@@ -516,7 +477,6 @@ fn a_crash_while_recording_leaves_a_take_the_next_start_puts_back() {
         left, 1,
         "its note stays until a save holds the take (M9 review H3)"
     );
-    // One undo takes it away again.
     assert_eq!(again.app().undo_label(), Some("Record"));
 }
 
@@ -527,12 +487,8 @@ fn looping_over_a_clip_that_reaches_outside_the_loop_replaces_only_the_loop() {
     p.transport.loop_end = Ticks::quarters(4);
     p.transport.loop_enabled = true;
     let (mut lumen, _turn) = launch("over-loop", &p, |l| l);
-    // Two beats are 48,000 frames: record two passes and a half.
     record(&mut lumen, 3 * 48_000);
     let clips = clips_of(&lumen, VOX);
-    // The loop is beats 2 to 4 and recording began at the start of the song:
-    // the loop is a take of its own, the lead-in before it a clip of its own,
-    // and the passes are not laid end to end.
     let take = clips
         .iter()
         .find(|c| c.name != "Old" && !c.name.ends_with("lead-in"))
@@ -581,7 +537,6 @@ fn looping_over_a_clip_that_reaches_outside_the_loop_replaces_only_the_loop() {
     }
 }
 
-/// Moves the play marker to `quarters` by clicking the ruler.
 fn locate(lumen: &mut Lumen, quarters: i64) {
     use egui_kittest::kittest::Queryable;
     let ruler = lumen
@@ -595,15 +550,9 @@ fn locate(lumen: &mut Lumen, quarters: i64) {
     lumen.wait_for("the playhead", move |app| app.playhead() == target);
 }
 
-/// The owner's fifth run: a take begun half-way into a loop over an old
-/// clip. The old audio in the whole loop is silent from the first sample, so
-/// it is not heard when the playhead wraps to the loop's start; after Stop
-/// the late first pass is a take like the others and nothing old is left
-/// under the clip.
 #[test]
 fn a_take_begun_inside_a_loop_over_a_clip_silences_the_whole_loop_and_keeps_the_late_pass() {
     let mut p = project_with_old_clip();
-    // A beat is 24,000 frames: the loop is beats 2 to 4, two beats long.
     p.transport.loop_start = Ticks::quarters(2);
     p.transport.loop_end = Ticks::quarters(4);
     p.transport.loop_enabled = true;
@@ -614,14 +563,11 @@ fn a_take_begun_inside_a_loop_over_a_clip_silences_the_whole_loop_and_keeps_the_
     lumen.wait_for("the recording to begin", |app| {
         app.recording() && app.is_playing()
     });
-    // Before the playhead has reached the loop's end, the whole loop is
-    // already silent in what the engine plays.
     assert_eq!(
         lumen.app().audio_recorded_over(VOX),
         Some((Ticks::quarters(2), Some(Ticks::quarters(4)))),
         "the loop from its start, not from where recording began"
     );
-    // Half a pass, two whole passes and a little.
     lumen.wait_for("frames to be written", |app| {
         app.audio_take_frames(VOX)
             .is_some_and(|f| f >= 24_000 + 2 * 48_000 + 4_000)
@@ -653,8 +599,6 @@ fn a_take_begun_inside_a_loop_over_a_clip_silences_the_whole_loop_and_keeps_the_
         takes.count
     );
     assert_ne!(takes.active, 0, "a whole pass plays, not the late one");
-    // The late first pass is the file from its start (silence, then what was
-    // played from beat 3, the latency in), one loop before the second.
     let offset = |k: u32| match takes.other(k) {
         Some(lumen_project::model::Pass::Audio { offset, .. }) => *offset,
         None => match take.content {
@@ -696,18 +640,13 @@ fn clips_of_app(app: &App, id: Id) -> Vec<std::sync::Arc<Clip>> {
         .map_or_else(Vec::new, |t| t.clips.clone())
 }
 
-/// M9 review H3: a take that was stopped and placed, then a crash before any
-/// autosave held it, comes back from the autosave written before it; and a
-/// second crash right after Recover finds it again.
 #[test]
 fn a_take_placed_and_not_yet_autosaved_survives_a_crash_and_a_second_one() {
     let (mut lumen, _turn) = launch("crash-after-stop", &project(), |l| {
         l.autosaving_after(Duration::from_secs(1))
     });
-    // Arming is an edit: an autosave from before the take is written.
     lumen.click("Arm Vox");
     lumen.wait_for("an autosave", |app| app.autosave_finished());
-    // A short take, stopped and placed well inside the autosave's second.
     lumen.key(Modifiers::NONE, Key::F9);
     lumen.wait_for("frames to be written", |app| {
         app.audio_take_frames(VOX).is_some_and(|f| f >= 4_800)
@@ -740,8 +679,6 @@ fn a_take_placed_and_not_yet_autosaved_survives_a_crash_and_a_second_one() {
     let frames = again.app().project().media[0].frames;
     assert!(frames >= 4_800, "{frames}");
 
-    // Lumen stops again before anything is saved: the same take is offered
-    // and placed again, once.
     again.frames(5);
     let dir = again.crash();
     let again = recover(dir);
@@ -749,21 +686,14 @@ fn a_take_placed_and_not_yet_autosaved_survives_a_crash_and_a_second_one() {
     assert_eq!(again.app().project().media[0].frames, frames);
 }
 
-/// M9 review H4: a take recorded in a project with no unsaved changes is
-/// offered back after a crash.
 #[test]
 fn a_take_in_a_project_with_no_unsaved_changes_is_offered_back_after_a_crash() {
     let (mut lumen, _turn) = launch("crash-clean", &project(), |l| {
         l.autosaving_after(Duration::from_millis(50))
     });
-    // Armed and saved: the project has no unsaved changes, and the autosave
-    // written for the arming is gone with the save.
     lumen.click("Arm Vox");
     lumen.key(Modifiers::COMMAND, Key::S);
     lumen.wait_for("the save", |app| !app.is_dirty() && !app.is_busy());
-    // The arming's autosave may still be on its way to the disk (a slow
-    // one on Windows CI took more than ten frames): wait for it, so the
-    // autosave waited for below is the clean project's.
     lumen.wait_for("the arming's autosave to end", |app| {
         !app.autosave_writing()
     });
@@ -786,7 +716,6 @@ fn a_take_in_a_project_with_no_unsaved_changes_is_offered_back_after_a_crash() {
     assert!(again.app().project().media[0].frames >= 12_000);
 }
 
-/// A saved take lets its note go, and a project closed normally leaves none.
 #[test]
 fn a_saved_take_lets_its_note_go() {
     let (mut lumen, _turn) = launch("note-saved", &project(), |l| l);
@@ -808,9 +737,6 @@ fn a_saved_take_lets_its_note_go() {
     lumen.run_until("the note to go", |_| notes() == 0);
 }
 
-/// Sweep M9: a take whose sidecar a newer version of the app wrote is not
-/// read, placed or deleted, and recovery says in plain words that it was
-/// kept for that version.
 #[test]
 fn a_take_a_newer_version_wrote_is_kept_and_recovery_says_why() {
     let dir = TempDir::new("e2e-audio-record-newer-sidecar");
@@ -827,8 +753,6 @@ fn a_take_a_newer_version_wrote_is_kept_and_recovery_says_why() {
     std::fs::create_dir_all(&recordings).unwrap();
     let take = recordings.join("Vox.wav");
     std::fs::write(&take, b"RIFF").unwrap();
-    // A shape this build would read, except that its version says a newer
-    // build wrote it.
     let side =
         r#"{"version":2,"session":"crashed","track":21,"start":0,"rate":48000,"channels":1}"#;
     std::fs::write(recordings.join("Vox.wav.take"), side).unwrap();
@@ -857,10 +781,6 @@ fn a_take_a_newer_version_wrote_is_kept_and_recovery_says_why() {
     );
 }
 
-/// M9.5 S4d (the owner's W A): a clip recorded in Lumen follows the song's
-/// tempo from the start, made at the tempo it was played to, so it sounds
-/// as it was played until the tempo changes. "Follow the tempo" on the
-/// Editing page says whether the next one does.
 #[test]
 fn a_recorded_clip_follows_the_tempo_unless_the_setting_says_never() {
     use lumen_project::model::WarpMode;
@@ -891,7 +811,6 @@ fn a_recorded_clip_follows_the_tempo_unless_the_setting_says_never() {
     assert!(lumen.is_on("New audio clips: never follow the tempo"));
     lumen.key(Modifiers::NONE, Key::Escape);
     lumen.frames(30);
-    // Arming is still on; record again.
     lumen.key(Modifiers::NONE, Key::F9);
     lumen.wait_for("the recording to begin", |app| {
         app.recording() && app.is_playing()

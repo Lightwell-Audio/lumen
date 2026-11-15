@@ -1,15 +1,3 @@
-//! The map editor's table (M8 slice D1): one row per sound, every field of
-//! the model's `Sound` editable where it is shown, in the design system's
-//! controls.
-//!
-//! The table draws and says what the person did: it never edits the project
-//! itself (the window applies each [`Action`] as one named `Document` edit).
-//! Its columns are the model's fields in the order a kit reads them: the
-//! drawing and name, the input and output notes, the channel, mute and solo,
-//! the sound's own quantize and length, its choke group, its colour, the
-//! learn button and Remove. Every number is type-in, wheel and double-click
-//! (`widgets::number`); the menus are the design system's.
-
 use eframe::egui::{
     self, Align2, FontId, Id, Key, Modifiers, Rect, Sense, StrokeKind, Ui, pos2, vec2,
 };
@@ -24,14 +12,9 @@ use crate::theme;
 use crate::widgets::number::{self, Number};
 use crate::widgets::{Dropdown, Menu, letter_toggle, raised};
 
-/// One row's height: the lanes' row (`DV`, 2 x space::M + space::XS).
-/// A sound row's height: the drum editor's lane (one constant, review L2).
 pub(crate) const ROW: f32 = crate::drum_editor::geometry::ROW;
-/// The gap between columns.
 const GAP: f32 = 6.0;
-/// The icon column: the drawing, which is also the row's drag handle.
 const ICON: f32 = 26.0;
-/// The fixed columns right of the name.
 const IN: f32 = 48.0;
 const OUT: f32 = 48.0;
 const CH: f32 = 40.0;
@@ -42,11 +25,9 @@ const CHOKE: f32 = 44.0;
 const COLOUR: f32 = 22.0;
 const LEARN: f32 = 44.0;
 const REMOVE: f32 = 22.0;
-/// The height of a row's fields, and the least a name column is.
 const SMALL: f32 = 20.0;
 const NAME_LEAST: f32 = 80.0;
 
-/// Where each field is, for a table `width` wide.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Columns {
     pub name: (f32, f32),
@@ -64,8 +45,6 @@ pub(crate) struct Columns {
 }
 
 impl Columns {
-    /// The columns of a table `width` points wide; the name takes what the
-    /// fixed ones leave.
     pub fn of(width: f32) -> Self {
         let fixed = ICON
             + IN
@@ -108,7 +87,6 @@ impl Columns {
         }
     }
 
-    /// The least width a table takes: the fixed columns and a small name.
     #[cfg(test)]
     pub fn least_width() -> f32 {
         ICON + GAP
@@ -138,18 +116,12 @@ impl Columns {
     }
 }
 
-/// What the table is given.
 pub(crate) struct Input<'a> {
-    /// Every sound, in the map's order (the lanes').
     pub sounds: &'a [Sound],
-    /// The sound waiting for a note (by its input note), when one is.
     pub learning: Option<u8>,
-    /// The keyboard starts in the first row's name (the window just opened).
     pub focus_first: bool,
 }
 
-/// What the table remembers between frames: which row the keyboard is on and
-/// a drag in progress. Nothing of the project.
 #[derive(Debug, Clone, Copy, Default)]
 struct Scratch {
     focused: Option<usize>,
@@ -170,7 +142,6 @@ fn set_scratch(ui: &Ui, change: impl FnOnce(&mut Scratch)) {
     ui.data_mut(|d| d.insert_temp(scratch_id(), held));
 }
 
-/// Draws the table; the first thing the person did this frame.
 pub(crate) fn table(ui: &mut Ui, input: Input<'_>) -> Option<Action> {
     let width = ui.available_width();
     let cols = Columns::of(width);
@@ -201,7 +172,6 @@ pub(crate) fn table(ui: &mut Ui, input: Input<'_>) -> Option<Action> {
             egui::Stroke::new(theme::stroke::HAIRLINE, theme::p().border),
         );
     }
-    // A drag of a row's icon that ended over another row reorders it.
     let dragging = scratch(ui).drag;
     if let Some(from) = dragging {
         if ui.input(|i| i.pointer.any_released()) {
@@ -217,7 +187,6 @@ pub(crate) fn table(ui: &mut Ui, input: Input<'_>) -> Option<Action> {
             }
         } else {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
-            // Where it would land: the row under the pointer, lit.
             if let Some(at) = ui.ctx().pointer_latest_pos()
                 && rows.contains(at)
             {
@@ -232,7 +201,6 @@ pub(crate) fn table(ui: &mut Ui, input: Input<'_>) -> Option<Action> {
             }
         }
     }
-    // The keyboard's row: Alt+Up and Alt+Down move the sound there.
     let focused = focused.or(scratch(ui).focused);
     if let Some(index) = focused
         && input.sounds.len() > 1
@@ -259,8 +227,6 @@ pub(crate) fn table(ui: &mut Ui, input: Input<'_>) -> Option<Action> {
     action
 }
 
-/// The captions over the fields (DESIGN section 7: a table names its columns in its
-/// heading row).
 fn caption_row(ui: &mut Ui, cols: &Columns) {
     let width = ui.available_width();
     let (rect, _) = ui.allocate_exact_size(vec2(width, SMALL), Sense::hover());
@@ -298,7 +264,6 @@ fn caption_row(ui: &mut Ui, cols: &Columns) {
     at(cols.remove, REMOVE, "");
 }
 
-/// The ids of one row's widgets.
 struct RowIds {
     icon: Id,
     name: Id,
@@ -355,8 +320,6 @@ impl RowIds {
     }
 }
 
-/// The rectangle of a field `x` points into the row, `width` wide and
-/// [`SMALL`] tall, centred in the row.
 fn cell(row: Rect, x: f32, width: f32) -> Rect {
     Rect::from_center_size(
         pos2(row.left() + x + width / 2.0, row.center().y),
@@ -364,8 +327,6 @@ fn cell(row: Rect, x: f32, width: f32) -> Rect {
     )
 }
 
-/// The rectangle a dropdown takes in a row: the design system's control
-/// height, as tall as the row allows.
 fn dropdown_cell(row: Rect, x: f32, width: f32) -> Rect {
     let height = theme::size::CONTROL.min(row.height());
     Rect::from_center_size(
@@ -374,8 +335,6 @@ fn dropdown_cell(row: Rect, x: f32, width: f32) -> Rect {
     )
 }
 
-/// Draws a widget at `rect` rather than where the row's layout would put it
-/// (a dropdown is a control, not a painted field).
 fn at_rect<R>(ui: &mut Ui, rect: Rect, add: impl FnOnce(&mut Ui) -> R) -> R {
     ui.scope_builder(egui::UiBuilder::new().max_rect(rect), add)
         .inner
@@ -391,7 +350,6 @@ fn draw_row(
     row: &RowIds,
 ) -> Option<Action> {
     let mut action = None;
-    // The drawing: a click opens the grid of icons, a drag reorders the row.
     let icon_rect = Rect::from_center_size(
         pos2(rect.left() + ICON / 2.0, rect.center().y),
         vec2(SMALL, SMALL),
@@ -434,7 +392,6 @@ fn draw_row(
         });
     }
 
-    // The name, edited in place and applied when the field is left.
     let name_rect = Rect::from_min_size(
         pos2(rect.left() + cols.name.0, rect.center().y - SMALL / 2.0),
         vec2(cols.name.1, SMALL),
@@ -454,7 +411,6 @@ fn draw_row(
         });
     }
 
-    // The notes.
     if let Some(note) = number::number(
         ui,
         cell(rect, cols.input, IN),
@@ -497,7 +453,6 @@ fn draw_row(
             });
         }
     }
-    // The channel: 1 to 16 as a person counts them, or none for the track's.
     let channel_shown = match sound.channel {
         Some(c) => (c + 1).to_string(),
         None => "\u{2013}".to_owned(),
@@ -525,7 +480,6 @@ fn draw_row(
             });
         }
     }
-    // Mute and solo.
     if letter_toggle(
         ui,
         cell(rect, cols.mute, LETTER),
@@ -554,7 +508,6 @@ fn draw_row(
             on: !sound.solo,
         });
     }
-    // The sound's own quantize.
     let quantize = quantize_menu(
         ui,
         dropdown_cell(rect, cols.quantize, Q),
@@ -570,7 +523,6 @@ fn draw_row(
             quantize,
         });
     }
-    // The length override.
     if let Some(length) = length_menu(
         ui,
         dropdown_cell(rect, cols.length, LEN),
@@ -584,7 +536,6 @@ fn draw_row(
             length,
         });
     }
-    // The choke group.
     let choke_shown = sound
         .choke
         .map_or_else(|| "\u{2013}".to_owned(), |g| g.to_string());
@@ -611,7 +562,6 @@ fn draw_row(
             });
         }
     }
-    // The colour.
     let swatch = Rect::from_center_size(
         pos2(rect.left() + cols.colour + COLOUR / 2.0, rect.center().y),
         vec2(COLOUR - 4.0, SMALL - 4.0),
@@ -643,7 +593,6 @@ fn draw_row(
         }
         ui.close();
     }
-    // Learn: the next note played sets this sound's input note.
     let learning = input.learning == Some(sound.input);
     if word_button(
         ui,
@@ -658,7 +607,6 @@ fn draw_row(
     ) {
         action.get_or_insert(Action::Learn { input: sound.input });
     }
-    // Remove.
     let remove_rect = cell(rect, cols.remove, REMOVE);
     let response = ui
         .interact(remove_rect, row.remove, Sense::click())
@@ -691,10 +639,6 @@ fn draw_row(
     action
 }
 
-/// The name's field: a draft while it is edited, applied when it is left (or
-/// Enter, which leaves it), so a rename is one edit and Esc keeps the name.
-/// Tab and Enter then take the keyboard to `next` (the row's input note), so
-/// a row is edited from the keyboard without hunting for the field.
 fn name_field(
     ui: &mut Ui,
     id: Id,
@@ -708,15 +652,12 @@ fn name_field(
     let edit = id.with("edit");
     let had_focus = ui.ctx().memory(|m| m.has_focus(edit));
     let mut text = editing.clone().unwrap_or_else(|| current.to_owned());
-    // Read the keys before the field draws: a text field takes Enter and
-    // Escape for itself.
     let (advance, escape) = ui.input(|i| {
         (
             i.key_pressed(Key::Enter) || i.key_pressed(Key::Tab),
             i.key_pressed(Key::Escape),
         )
     });
-    // A field of the design system: a sunken well with the text in it.
     raised::paint_sunken(ui.painter(), rect, theme::radius::for_height(rect.height()));
     let response = ui.put(
         rect.shrink2(vec2(theme::space::XS, 2.0)),
@@ -742,8 +683,6 @@ fn name_field(
         return None;
     }
     if advance && living {
-        // Enter or Tab commits the name and takes the keyboard to the row's
-        // next field, so a row is edited without hunting for it.
         let text = text.trim().to_owned();
         ui.data_mut(|d| d.remove::<String>(draft));
         ui.ctx().memory_mut(|m| {
@@ -766,10 +705,6 @@ fn name_field(
     applied
 }
 
-/// The 5 x 3 grid of the fifteen drawings, in a menu under the icon. Returns
-/// the icon chosen this frame. Keyboard: the grid opens with its ring on the
-/// current icon, the arrows move between the cells (Tab too), Enter or Space
-/// chooses, Esc closes it; the pointer works as ever. Each cell is named.
 fn icon_popover(ui: &mut Ui, response: &egui::Response, id: Id, sound: &Sound) -> Option<DrumIcon> {
     const COLUMNS: usize = 5;
     let at_key = id.with("at");
@@ -791,12 +726,8 @@ fn icon_popover(ui: &mut Ui, response: &egui::Response, id: Id, sound: &Sound) -
             .map(|i| id.with(("cell", i)))
             .collect();
         let mut at: usize = ui.data(|d| d.get_temp::<usize>(at_key)).unwrap_or(current);
-        // The grid keeps its ring (and the keyboard, for a screen reader) on
-        // the cell it is at; the arrows and Tab are read below.
         ui.ctx()
             .memory_mut(|m| m.request_focus(cells[at.min(cells.len() - 1)]));
-        // The keys are read only once the grid is open: the Space or Enter
-        // that opened it must not choose a glyph in the same breath.
         if was_open {
             let (left, right, up, down, choose) = ui.input_mut(|i| {
                 (
@@ -887,7 +818,6 @@ fn icon_popover(ui: &mut Ui, response: &egui::Response, id: Id, sound: &Sound) -
         picked
     });
     if !was_open && Menu::is_open_for(ui.ctx(), response.id) {
-        // It opened this frame: the ring starts on the current icon.
         ui.data_mut(|d| d.insert_temp(opened_key, true));
         ui.data_mut(|d| d.insert_temp(at_key, current));
     } else if !Menu::is_open_for(ui.ctx(), response.id) {
@@ -899,8 +829,6 @@ fn icon_popover(ui: &mut Ui, response: &egui::Response, id: Id, sound: &Sound) -
     shown.flatten().map(DrumIcon::from)
 }
 
-/// The palette's colours, six to a row, as the track header's colour menu
-/// draws them. Returns `Some(Some(colour))` when a colour was picked.
 fn colour_grid(ui: &mut Ui, current: Color) -> Option<Option<Color>> {
     let mut picked = None;
     ui.horizontal_wrapped(|ui| {
@@ -929,7 +857,6 @@ fn colour_grid(ui: &mut Ui, current: Color) -> Option<Option<Color>> {
     picked.map(Some)
 }
 
-/// A small raised button with a word in it (Learn).
 fn word_button(ui: &mut Ui, rect: Rect, id: Id, label: &str, on: bool, name: &str) -> bool {
     let response = ui.interact(rect, id, Sense::click());
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name));
@@ -968,8 +895,6 @@ fn word_button(ui: &mut Ui, rect: Rect, id: Id, label: &str, on: bool, name: &st
     response.clicked()
 }
 
-/// The sound's quantize as a dropdown of the ladder at each feel, at `rect`.
-/// `None` when nothing was picked this frame; `Some(None)` picks "no grid".
 fn quantize_menu(
     ui: &mut Ui,
     rect: Rect,
@@ -984,8 +909,6 @@ fn quantize_menu(
         let mut values = vec![None];
         for feel in [Feel::Straight, Feel::Triplet, Feel::Dotted] {
             for size in Size::all() {
-                // A bar is straight only (review L8): it is not whole ticks in
-                // every meter, so no triplet or dotted bar is offered.
                 if matches!(size, Size::Bars(_)) && feel != Feel::Straight {
                     continue;
                 }
@@ -1005,8 +928,6 @@ fn quantize_menu(
     .map(|index| values.get(index).copied().flatten())
 }
 
-/// The sound's length override as a dropdown at `rect`. `None` when nothing
-/// was picked this frame; `Some(None)` picks "as played".
 fn length_menu(
     ui: &mut Ui,
     rect: Rect,
@@ -1038,7 +959,6 @@ fn length_menu(
     .map(|index| values.get(index).copied().flatten())
 }
 
-/// The lengths a sound can play for, as played first.
 fn length_values() -> Vec<Option<Ticks>> {
     vec![
         None,
@@ -1051,7 +971,6 @@ fn length_values() -> Vec<Option<Ticks>> {
     ]
 }
 
-/// A length as its note value, or as milliseconds when it is not a note's.
 fn length_text(length: Ticks) -> &'static str {
     let values = length_values();
     let labels = ["As played", "1/32", "1/16", "1/8", "1/4", "1/2", "1 bar"];
@@ -1061,7 +980,6 @@ fn length_text(length: Ticks) -> &'static str {
         .map_or("a length", |index| labels[index])
 }
 
-/// A sound's quantize as the table shows it: "16", "8T", "4D".
 fn quantize_short(size: Size, feel: Feel) -> String {
     let name = size.name();
     let name = name.strip_prefix("1/").unwrap_or(&name);
@@ -1072,7 +990,6 @@ fn quantize_short(size: Size, feel: Feel) -> String {
     }
 }
 
-/// The widgets' keycaps for a table hint (the window's footer).
 pub(crate) fn hint() -> &'static str {
     "Tab moves between fields; Alt+Up and Alt+Down move a sound; drag a sound's icon to move it"
 }
@@ -1087,7 +1004,6 @@ mod tests {
         let cols = Columns::of(width);
         assert_eq!(cols.name.0, ICON + GAP);
         assert!(cols.name.1 >= NAME_LEAST);
-        // Each field starts where the one before it ends, plus a gap.
         assert_eq!(cols.output, cols.input + IN + GAP);
         assert_eq!(cols.channel, cols.output + OUT + GAP);
         assert_eq!(cols.mute, cols.channel + CH + GAP);
@@ -1098,10 +1014,8 @@ mod tests {
         assert_eq!(cols.colour, cols.choke + CHOKE + GAP);
         assert_eq!(cols.learn, cols.colour + COLOUR + GAP);
         assert_eq!(cols.remove, cols.learn + LEARN + GAP);
-        // Everything ends at the table's right edge.
         let right = cols.remove + REMOVE;
         assert!((right - width).abs() < 0.01, "{right} against {width}");
-        // A wider table gives the room to the name, and nothing else moves.
         let wider = Columns::of(width + 100.0);
         assert_eq!(wider.name.1, cols.name.1 + 100.0);
         assert_eq!(wider.remove + REMOVE, right + 100.0);
@@ -1125,8 +1039,6 @@ mod tests {
 
     #[test]
     fn the_quantize_menu_offers_no_grid_then_each_feel_but_no_bar_feel() {
-        // The menu's own choices, built as `quantize_menu` builds them
-        // (review L8: a bar has no triplet or dotted feel).
         let mut labels = vec!["\u{2013}".to_owned()];
         let mut values = vec![None];
         for feel in [Feel::Straight, Feel::Triplet, Feel::Dotted] {
@@ -1141,7 +1053,6 @@ mod tests {
         assert_eq!(labels.len(), values.len());
         assert_eq!(labels[1], "8 bars");
         assert_eq!(labels[8], "16");
-        // Straight's ten sizes, then triplets and dots of the six note sizes.
         assert_eq!(labels.len(), 1 + 10 + 6 + 6);
         assert!(
             values.iter().all(
@@ -1150,8 +1061,6 @@ mod tests {
             ),
             "no triplet or dotted bar is offered"
         );
-        // 16's own place in the ladder, then its triplet and dot: the same
-        // note in the next two blocks of six.
         let at = 1 + Size::all()
             .iter()
             .position(|size| *size == Size::Note(16))

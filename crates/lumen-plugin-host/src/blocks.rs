@@ -1,8 +1,3 @@
-//! The host's audio thread: waits for blocks on the shared-memory link,
-//! processes them and publishes the answers. It shares the plugin instance
-//! with the control thread through one lock, so a configure or a state call
-//! waits for the block in progress and the other way round.
-
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
@@ -11,40 +6,20 @@ use crate::instance::{Instance, InstanceError};
 use crate::shm::sys::audio_thread_priority;
 use crate::shm::{Answer, BlockScratch, HostLink, Next, Outcome, Stopper};
 
-/// What the two threads share: the plugin and the generation it was last
-/// configured for.
 #[derive(Default)]
 pub(crate) struct Guarded {
     pub instance: Option<Instance>,
     pub generation: Option<u32>,
 }
 
-// SAFETY: an `Instance` holds COM pointers, which are not `Send` by type.
-// VST3 does not tie a plugin to a thread (its own host calls the audio
-// processor and the controller from different threads); it requires only that
-// calls are not made concurrently where the interface forbids it. The
-// instance moves between threads only inside this mutex, and everything that
-// sets the plugin up, tears it down or processes a block (the processor's and
-// the component's interfaces) is called with the lock held, so those calls
-// are serialised. The exception is deliberate and is the VST3 rule: the host's
-// control thread calls the controller and the component's state through
-// `instance::Controls`, clones of those pointers taken out of the instance,
-// without the lock while the audio thread processes. VST3 allows exactly
-// those calls from the main thread during processing. A clone lives for one
-// request on the control thread, which is also the only thread that ends the
-// instance (`State::finish`, after the audio thread has stopped), so no clone
-// outlives the object.
 unsafe impl Send for Guarded {}
 
 pub(crate) type Shared = Arc<Mutex<Guarded>>;
 
 pub(crate) fn lock(shared: &Shared) -> MutexGuard<'_, Guarded> {
-    // A poisoned lock means a thread panicked while holding it; panics on
-    // either thread end the process, so there is nobody left to observe it.
     shared.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// A running block loop and the means to end it.
 pub(crate) struct Blocks {
     stopper: Stopper,
     thread: Option<JoinHandle<()>>,
@@ -57,9 +32,6 @@ impl Blocks {
             .spawn(move || {
                 #[cfg(windows)]
                 crate::process::init_com(false);
-                // A panic here would end only this thread and leave a host
-                // that answers its pipe and never its blocks. End the process
-                // instead, so Lumen sees a crash and recovers.
                 if catch_unwind(AssertUnwindSafe(|| run(link, &shared))).is_err() {
                     std::process::abort();
                 }
@@ -70,7 +42,6 @@ impl Blocks {
         })
     }
 
-    /// Ends the loop and waits for it.
     pub fn stop(mut self) {
         self.finish();
     }
@@ -97,10 +68,6 @@ fn run(mut link: HostLink, shared: &Shared) {
     link.mark_ready();
     let mut timing = Timing::default();
     while let Next::Block(seq) = link.wait_for_block() {
-        // What is worth saying about this block, said once the plugin's lock
-        // is let go and the answer is out: a line to stderr must not make
-        // configure and state calls wait, and a failed write must not stop
-        // the block loop with the lock held.
         let mut said = None;
         let mut answer = Answer {
             seq,
@@ -152,8 +119,6 @@ fn run(mut link: HostLink, shared: &Shared) {
     }
 }
 
-/// What the plugin's blocks cost, said on stderr for the first few and for
-/// the slow ones, so a plugin that is given up on has left a record of why.
 #[derive(Default)]
 struct Timing {
     blocks: u64,
@@ -161,12 +126,9 @@ struct Timing {
 }
 
 impl Timing {
-    /// Longer than this is worth saying: well over what a small block allows.
     const SLOW: std::time::Duration = std::time::Duration::from_millis(3);
     const MOST_LINES: u32 = 12;
 
-    /// Counts a block, and returns what to say about it, if anything. Does
-    /// not say it: the caller does, away from any lock.
     fn note(&mut self, took: std::time::Duration, frames: u32) -> Option<Said> {
         let first = self.blocks < 2;
         self.blocks += 1;
@@ -182,7 +144,6 @@ impl Timing {
     }
 }
 
-/// A block worth a line on stderr.
 #[derive(Debug, PartialEq)]
 struct Said {
     block: u64,

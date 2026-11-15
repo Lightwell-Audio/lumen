@@ -1,13 +1,3 @@
-//! Capture MIDI (M9 slice R3, ADR-0104), end to end on the fake keyboard:
-//! notes played on a MIDI track while not recording are kept in memory, and
-//! Shift+F9 turns the newest phrase into a clip, as one undo step. Played
-//! while the song moved they land where they were heard; played while
-//! stopped, the first note lands on the playhead.
-//!
-//! Timing is checked loosely, for the reason `record.rs` gives: the test
-//! device does not pace its blocks to real time. Exact placement is the unit
-//! tests of `played.rs`.
-
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -23,7 +13,6 @@ fn shift_f9(lumen: &mut Lumen) {
     lumen.key(Modifiers::SHIFT, Key::F9);
 }
 
-/// Starts with an armed, empty MIDI track and a fake keyboard.
 fn start(name: &str) -> (Lumen, Keys) {
     let fake = keyboard();
     let project = project_of("Capture", vec![track(None, true)]);
@@ -32,7 +21,6 @@ fn start(name: &str) -> (Lumen, Keys) {
     (lumen, keys)
 }
 
-/// Plays a note and lets it go after a pause, so the device frames differ.
 fn tap(lumen: &mut Lumen, keys: &Keys, pitch: u8, held: Duration) {
     let before = lumen.app().played_messages();
     keys.on(pitch, 90);
@@ -76,7 +64,6 @@ fn notes_played_while_stopped_become_a_clip_on_the_playhead_in_one_undo_step() {
     );
     assert_eq!(lumen.app().undo_label(), Some("Capture MIDI"));
 
-    // Asked again, there is nothing new to capture.
     shift_f9(&mut lumen);
     assert_eq!(clips_of(&lumen).len(), 1, "a phrase is captured once");
 
@@ -92,8 +79,6 @@ fn notes_played_while_stopped_become_a_clip_on_the_playhead_in_one_undo_step() {
 
 #[test]
 fn a_phrase_on_a_mapped_track_keeps_the_maps_input_notes() {
-    // A kit whose kick plays note 40 for its input 36: a pad sends 40, and
-    // what is captured must be the note the clip stores, 36 (M8 D0 review M2).
     use std::sync::Arc;
 
     use lumen_project::model::{DrumIcon, DrumMap, Id, Sound};
@@ -137,7 +122,6 @@ fn notes_played_while_the_song_moves_are_captured_with_the_song() {
     assert_eq!(notes.len(), 1);
     assert_eq!(notes[0].pitch, 62);
     assert_eq!(notes[0].velocity, 100);
-    // Where the song was, not at the playhead it stopped on: after beat 0.
     assert!(
         notes[0].start > beats(0.25) && notes[0].start < beats(2.5),
         "{:?}",
@@ -192,7 +176,6 @@ fn nothing_is_kept_while_the_setting_is_off() {
     assert_eq!(lumen.app().played_messages(), 0);
     shift_f9(&mut lumen);
     assert!(clips_of(&lumen).is_empty());
-    // The command cannot run, and the palette says so.
     lumen.key(Modifiers::COMMAND, Key::K);
     lumen
         .harness

@@ -1,7 +1,3 @@
-//! Deterministic quality-bar scene shared by every renderer host, so hosts
-//! are compared on identical content: 200 tracks × 100 clips, 100,000
-//! notes, and a vector overlay (automation curves, knobs, meters).
-
 use vello::kurbo::{Affine, Arc, BezPath, Point, Rect, Stroke};
 use vello::peniko::{Color, Fill};
 
@@ -38,7 +34,6 @@ const PALETTE: [[u8; 3]; 8] = [
     [0xD4, 0x75, 0xB8],
 ];
 
-/// Arrangement clips; `row` is the track index.
 pub fn clip_instances() -> Vec<RectInstance> {
     let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
     let mut out = Vec::with_capacity(TRACKS * CLIPS_PER_TRACK);
@@ -59,7 +54,6 @@ pub fn clip_instances() -> Vec<RectInstance> {
     out
 }
 
-/// Piano-roll notes; `row` is `127 - pitch`.
 pub fn note_instances() -> Vec<RectInstance> {
     let mut rng = Rng(0x2545_F491_4F6C_DD1D);
     (0..NOTES)
@@ -80,9 +74,6 @@ pub fn note_instances() -> Vec<RectInstance> {
         .collect()
 }
 
-/// Builds the vector overlay for a `width × height` canvas at animation
-/// time `t` (0..1): 8 automation lanes of 2,000 points, 64 knobs and 64
-/// meters. Rebuilt every frame, as live meters and moving curves would be.
 pub fn vector_overlay(scene: &mut vello::Scene, width: f64, height: f64, t: f64) {
     let accent = Color::from_rgba8(0xF2, 0xC1, 0x4E, 255);
     let lanes = 8;

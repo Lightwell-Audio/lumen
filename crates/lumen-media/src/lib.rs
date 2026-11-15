@@ -1,15 +1,3 @@
-//! Audio files for playback (M2 slice 6): decode with symphonia (MPL-2.0,
-//! owner decision, used unmodified) and convert to the device's sample rate
-//! with rubato (MIT/Apache-2.0). The result lives in memory, or, for large
-//! sessions, is read from disk as it plays ([`stream`], M9 slice R6).
-//!
-//! Formats: WAV, AIFF, FLAC, MP3, Ogg Vorbis. AAC/M4A are deferred until
-//! their licensing is checked.
-//!
-//! Everything here is slow work for a background thread: it allocates, reads
-//! the disk and can take seconds. It takes a cancel flag and reports
-//! progress.
-
 pub mod detect;
 pub mod export;
 mod peaks;
@@ -39,7 +27,6 @@ use symphonia::core::formats::{FormatOptions, TrackType};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 
-/// Decoded audio, channel after channel (planar), ready to play.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Audio {
     pub sample_rate: u32,
@@ -47,8 +34,6 @@ pub struct Audio {
 }
 
 impl Audio {
-    /// Builds audio from per-channel samples. All channels must be the same
-    /// length; at least one is required.
     pub fn new(sample_rate: u32, channels: Vec<Vec<f32>>) -> Result<Self, MediaError> {
         let frames = channels.first().map(Vec::len).ok_or(MediaError::Empty)?;
         if channels.iter().any(|c| c.len() != frames) {
@@ -76,17 +61,14 @@ impl Audio {
         self.frames() as f64 / f64::from(self.sample_rate.max(1))
     }
 
-    /// The waveform peaks of this audio; `None` if cancelled.
     pub fn peaks(&self, cancel: &AtomicBool) -> Option<Peaks> {
         Peaks::build(&self.channels, cancel)
     }
 
-    /// The samples, channel after channel, without copying.
     pub fn into_channels(self) -> Vec<Vec<f32>> {
         self.channels
     }
 
-    /// Bytes of sample memory held.
     pub fn memory(&self) -> usize {
         self.channels() * self.frames() * std::mem::size_of::<f32>()
     }
@@ -94,18 +76,11 @@ impl Audio {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MediaError {
-    /// The file could not be opened or read.
     Io(String),
-    /// Not an audio format Lumen reads (or AAC/M4A, deferred).
     Unsupported(String),
-    /// The file is damaged.
     Decode(String),
-    /// No audio in the file.
     Empty,
     Cancelled,
-    /// The audio is not ready to be read yet (something it needs is still
-    /// being worked out in the background): ask again shortly. A page reader
-    /// that cannot wait answers this; it is not a failure.
     NotReady,
     Resample(String),
     Encode(String),
@@ -131,8 +106,6 @@ impl std::fmt::Display for MediaError {
 
 impl std::error::Error for MediaError {}
 
-/// Writes a small file whole: under a temporary name, then renamed into
-/// place, so a reader never sees half of it.
 pub(crate) fn write_new(path: &Path, bytes: &[u8]) -> Result<(), MediaError> {
     let failed = |e: std::io::Error| MediaError::Io(e.to_string());
     let temp = path.with_extension(format!("{}.writing", std::process::id()));
@@ -151,8 +124,6 @@ fn cancelled(cancel: &AtomicBool) -> Result<(), MediaError> {
     }
 }
 
-/// Decodes a whole file. `progress` receives 0.0–1.0 when the length is
-/// known up front.
 pub fn decode(
     path: &Path,
     cancel: &AtomicBool,
@@ -174,15 +145,8 @@ pub fn decode(
     Audio::new(rate, channels)
 }
 
-/// What [`read_blocks`] hands each block to: the file's rate and one slice
-/// per channel, all of one length.
 pub type Blocks<'s> = dyn FnMut(u32, &[&[f32]]) -> Result<(), MediaError> + 's;
 
-/// Reads `path` block by block without holding it whole (M9 slice R6), its
-/// first two channels: an uncompressed WAV, RF64 or AIFF file directly
-/// (RF64 is beyond the decoder), any other file decoded packet by packet.
-/// Fails with [`MediaError::Empty`] when the file holds no audio, and with
-/// [`MediaError::Cancelled`] when `cancel` is set.
 pub fn read_blocks(
     path: &Path,
     cancel: &AtomicBool,
@@ -191,15 +155,8 @@ pub fn read_blocks(
     read_blocks_from(path, 0, BLOCK_FRAMES, cancel, sink)
 }
 
-/// Frames per block [`read_blocks`] reads from an uncompressed file.
 const BLOCK_FRAMES: usize = 65_536;
 
-/// [`read_blocks`] from frame `start` of the file (at its own rate), in
-/// blocks of at most `block` frames from an uncompressed file (the
-/// browser's preview reads small ones, to start soon; M9 R7c). An
-/// uncompressed file is read from there; any other is decoded from its
-/// start and the frames before `start` are dropped. A `start` past the end
-/// hands nothing and succeeds.
 pub fn read_blocks_from(
     path: &Path,
     start: u64,
@@ -239,13 +196,8 @@ pub fn read_blocks_from(
     Ok(())
 }
 
-/// What [`decode_blocks`] hands each packet to: the file's rate, the planes
-/// and the frames in them.
 pub(crate) type Packets<'s> = dyn FnMut(u32, &[Vec<f32>], usize) -> Result<(), MediaError> + 's;
 
-/// Decodes `path` packet by packet: `sink` receives the file's rate and each
-/// packet's planes (one per channel, the first `frames` samples valid). Fails
-/// with [`MediaError::Empty`] when no audio was decoded.
 pub(crate) fn decode_blocks(
     path: &Path,
     cancel: &AtomicBool,
@@ -297,7 +249,6 @@ pub(crate) fn decode_blocks(
         }
         let buffer = match decoder.decode(&packet) {
             Ok(buffer) => buffer,
-            // A damaged packet: skip it, as players do.
             Err(DecodeError::DecodeError(_)) => continue,
             Err(e) => return Err(MediaError::Decode(e.to_string())),
         };
@@ -324,17 +275,13 @@ pub(crate) fn decode_blocks(
     Ok(())
 }
 
-/// What a file's header says, found without decoding it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Header {
     pub sample_rate: Option<u32>,
     pub channels: Option<usize>,
-    /// The length in frames, when the format records it.
     pub frames: Option<u64>,
 }
 
-/// Reads the header of `path`: quick, for checking a file against what a
-/// project knows of it (relinking).
 pub fn probe(path: &Path) -> Result<Header, MediaError> {
     let file = File::open(path).map_err(|e| MediaError::Io(e.to_string()))?;
     let stream = MediaSourceStream::new(Box::new(file), Default::default());
@@ -365,7 +312,6 @@ pub fn probe(path: &Path) -> Result<Header, MediaError> {
     })
 }
 
-/// Converts `audio` to `rate` (a copy when already at that rate).
 pub fn resample(audio: &Audio, rate: u32, cancel: &AtomicBool) -> Result<Audio, MediaError> {
     if audio.sample_rate == rate {
         return Ok(audio.clone());
@@ -400,7 +346,6 @@ pub fn resample(audio: &Audio, rate: u32, cancel: &AtomicBool) -> Result<Audio, 
     Audio::new(rate, planar)
 }
 
-/// Decodes `path` and converts it to `rate`. Progress covers both steps.
 pub fn load(
     path: &Path,
     rate: u32,

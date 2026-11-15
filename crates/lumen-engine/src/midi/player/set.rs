@@ -1,10 +1,7 @@
-//! A track list, sorted by id for carrying state into the next.
-
 use super::super::MidiTrack;
 
 pub(in crate::midi) struct MidiSet {
     pub(super) tracks: Vec<MidiTrack>,
-    /// `(id, index)` sorted by id.
     pub(super) by_id: Vec<(u64, u32)>,
 }
 
@@ -19,9 +16,6 @@ impl MidiSet {
         Self { tracks, by_id }
     }
 
-    /// Moves each plugin host this list holds into the same track's
-    /// stand-in in `newer` (same id, same kind, an instrument that has no
-    /// host), for a list that is skipped and freed unplayed. Real-time safe.
     pub(super) fn pass_hosts_to(&mut self, newer: &mut MidiSet) {
         for track in &mut self.tracks {
             let Some(mine) = track.instrument.as_mut().filter(|s| s.instrument.hosted()) else {
@@ -40,7 +34,6 @@ impl MidiSet {
         }
     }
 
-    /// Some track's instrument runs in a plugin host.
     pub(super) fn hosted(&self) -> bool {
         self.tracks.iter().any(|t| {
             t.instrument

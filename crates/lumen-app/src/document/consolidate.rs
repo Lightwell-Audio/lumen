@@ -1,6 +1,3 @@
-//! Consolidate (M7b slice E3): the document side. The rendering is the
-//! app's (`consolidate.rs`); the swap is `lumen_project::edit::consolidate`.
-
 use std::path::PathBuf;
 
 use lumen_project::edit::consolidate::{self, Baked};
@@ -10,12 +7,6 @@ use super::Document;
 use super::clips::fresh_ids;
 
 impl Document {
-    /// Replaces the clips each rendered file was made from with one clip that
-    /// plays it, and consolidates the MIDI clips in `midi_ids` (loops baked,
-    /// merged per track), all as one step. Returns the clips now standing for
-    /// the selection. A part whose clips changed while it rendered is left
-    /// alone; when nothing is applied nothing is recorded and the answer is
-    /// empty.
     pub fn consolidate_clips(&mut self, baked: &[Baked], midi_ids: &[Id]) -> Vec<Id> {
         let current: Vec<Baked> = baked
             .iter()

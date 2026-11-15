@@ -1,14 +1,3 @@
-//! Requests from later starts, and the guard that keeps a project from
-//! replacing a recording or an export under way (M9 R8, ADR-0117).
-//!
-//! A later start of Lumen hands its file to this one (`instance`). The
-//! window comes to the front and opens it through [`App::request`], the
-//! way File › Open does. While a recording, its takes' files or an export
-//! are not done, New, Open and templates wait in a notice instead of
-//! replacing the project: the guard sits in `request`, in `proceed` (which
-//! "Don't save" and the end of a save call directly) and again when the
-//! file arrives from its worker.
-
 use std::path::{Path, PathBuf};
 
 use eframe::egui;
@@ -18,45 +7,28 @@ use crate::instance::{Incoming, Reply, Request};
 use crate::widgets::raised;
 use crate::{App, files};
 
-/// What waits until the work under way is done.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Holding {
-    /// What was asked: New, Open with a file, or a template.
     pub(crate) next: Next,
-    /// Unsaved changes were already saved or discarded for it.
     choice_made: bool,
-    /// The project as it was when the choice was made: a take recorded
-    /// since is an unsaved change the choice did not cover.
     mark: u64,
 }
 
-/// A handed-over or dropped file, checked on a worker: the project path
-/// and whether it is the one open, or why it cannot open.
 pub(crate) struct Checked {
     incoming: Option<Incoming>,
-    /// The project that was open when the check started.
     compared: Option<PathBuf>,
     result: Result<(PathBuf, bool), String>,
 }
 
-/// Why opening waits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Busy {
-    /// A recording, or its takes' files still closing.
     Recording,
-    /// An audio export, offline or in real time.
     Export,
-    /// A save of this project: its destination asked for, plugins read or
-    /// the file written. What it writes is this project, so nothing may
-    /// replace it before then. A copy or a collect counts as one.
     Saving,
-    /// Another project is being read: what was asked for later goes after
-    /// it, rather than being dropped.
     Opening,
 }
 
 impl App {
-    /// What keeps another project from replacing this one now, if anything.
     pub(crate) fn busy_for_open(&self) -> Option<Busy> {
         if self.is_recording() || self.audio_takes_finishing() {
             Some(Busy::Recording)
@@ -75,17 +47,11 @@ impl App {
         }
     }
 
-    /// Holds `next` while a recording or an export is under way, and says
-    /// so; `true` when it held it. A later request replaces the one that
-    /// waits. Quit and the Open dialog are never held: closing has its own
-    /// prompt, and the dialog's answer comes back through `proceed`.
     pub(crate) fn holds(&mut self, next: &Next, choice_made: bool) -> bool {
         let mark = self.document.change_mark();
         self.hold(next, choice_made, mark)
     }
 
-    /// As [`App::holds`], with the change mark the save question's answer
-    /// covered (a file that arrives was asked for earlier).
     pub(crate) fn hold(&mut self, next: &Next, choice_made: bool, mark: u64) -> bool {
         let replaces = matches!(next, Next::New | Next::Open(Some(_)) | Next::Template(_));
         if !replaces || self.busy_for_open().is_none() {
@@ -100,9 +66,6 @@ impl App {
         true
     }
 
-    /// Goes on with what waited once nothing holds it: straight on if the
-    /// save question was answered and nothing changed since, else from the
-    /// start (the question again, if there are unsaved changes).
     pub(crate) fn release_holding(&mut self, ctx: &egui::Context) {
         if self.holding.is_none() || self.busy_for_open().is_some() {
             return;
@@ -117,8 +80,6 @@ impl App {
         }
     }
 
-    /// Takes the requests later starts sent, and the files checked for
-    /// them, answering each.
     pub(crate) fn poll_instance(&mut self, ctx: &egui::Context) {
         while let Some(incoming) = self.instance.as_ref().and_then(|i| i.next()) {
             self.take_request(ctx, incoming);
@@ -138,8 +99,6 @@ impl App {
         crate::trace::log(|| format!("instance: {request:?}"));
         match request {
             Request::Show => {
-                // The later start stopped waiting: it already said Lumen
-                // did not answer, so the request is dropped.
                 if incoming.answer(Reply::Accepted) {
                     come_to_front(ctx);
                 }
@@ -148,10 +107,6 @@ impl App {
         }
     }
 
-    /// Opens a project handed over or dropped: the same project only comes
-    /// to the front; another goes the way File › Open does. The file is
-    /// checked on a worker first: a slow or missing drive never holds the
-    /// window up.
     pub(crate) fn open_handed(&mut self, ctx: &egui::Context, path: PathBuf) {
         self.check(ctx, path, None);
     }
@@ -199,19 +154,15 @@ impl App {
             }
             come_to_front(ctx);
         }
-        // Another project may have opened while the file was checked: then
-        // it goes the usual way.
         if !same || self.document.path != checked.compared {
             self.request(ctx, Next::Open(Some(path)));
         }
     }
 
-    /// The notice for what waits: what opens, when, and the way out.
     pub(crate) fn holding_banner(&mut self, ui: &mut egui::Ui) {
         let Some(held) = self.holding.clone() else {
             return;
         };
-        // Released this frame by `release_holding`, or nothing holds it.
         let Some(busy) = self.busy_for_open() else {
             return;
         };
@@ -238,15 +189,12 @@ impl App {
         if cancel {
             self.holding = None;
         } else if stop {
-            // The take is placed before anything opens: `release_holding`
-            // goes on once its files are closed.
             self.transport.stop();
             ctx.request_repaint();
         }
     }
 }
 
-/// What the notice says. Read in full: it wraps.
 pub(crate) fn words(next: &Next, busy: Busy, recording: bool) -> String {
     let what = match next {
         Next::Open(Some(path)) => format!("{} opens", file_name(path)),
@@ -263,7 +211,6 @@ pub(crate) fn words(next: &Next, busy: Busy, recording: bool) -> String {
     format!("{what} {when}. Nothing is replaced before then.")
 }
 
-/// Says how many files of a drop were left out because it held a project.
 pub(crate) fn left_out_words(left: usize) -> String {
     let (files, were) = if left == 1 {
         ("file", "was")
@@ -280,7 +227,6 @@ fn file_name(path: &Path) -> String {
     )
 }
 
-/// The request's file, if it is a project that exists.
 fn project_file(path: &Path) -> Result<PathBuf, String> {
     if !files::is_project(path) {
         return Err(format!(
@@ -295,7 +241,6 @@ fn project_file(path: &Path) -> Result<PathBuf, String> {
     Ok(path.to_path_buf())
 }
 
-/// Whether two paths name one file (made canonical where they can be).
 fn same_file(a: &Path, b: &Path) -> bool {
     match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
         (Ok(a), Ok(b)) => a == b,
@@ -303,8 +248,6 @@ fn same_file(a: &Path, b: &Path) -> bool {
     }
 }
 
-/// Restores and focuses the window. The system may refuse the focus; the
-/// taskbar button then flashes.
 fn come_to_front(ctx: &egui::Context) {
     ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
     ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
@@ -314,7 +257,6 @@ fn come_to_front(ctx: &egui::Context) {
     ctx.request_repaint();
 }
 
-/// What stopped a file that was being read from replacing the project.
 pub(crate) fn interrupted(busy: Option<Busy>, what: &str) -> String {
     match busy {
         Some(Busy::Recording) => format!("A recording started while {what} was read"),
@@ -325,7 +267,6 @@ pub(crate) fn interrupted(busy: Option<Busy>, what: &str) -> String {
     }
 }
 
-/// When to try again: once the work under way is done.
 pub(crate) fn when_done(busy: Option<Busy>) -> &'static str {
     match busy {
         Some(Busy::Recording) => " when recording stops",

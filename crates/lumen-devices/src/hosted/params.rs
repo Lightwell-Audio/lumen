@@ -1,43 +1,22 @@
-//! The parameter changes of one block (M7 slice A3, ADR-0084): what a lane
-//! of a plugin's parameter becomes when the engine hands the host a block.
-//!
-//! Each queue is one parameter's `(sample offset, normalized value)` points
-//! in time order, the shape VST3 takes them in. The block is filled on the
-//! audio thread, so its room is fixed when it is made and a point that does
-//! not fit is refused and counted, never grown into.
-
-/// The most parameters that change in one block: the room of the shared
-/// region's default layout.
 pub const MOST_QUEUES: usize = 64;
 
-/// The most points in one block, over all its parameters.
 pub const MOST_POINTS: usize = 1024;
 
-/// A mark to go back to with [`ParamBlock::rewind`].
 #[derive(Debug, Clone, Copy)]
 pub struct Mark {
     queues: usize,
     points: usize,
 }
 
-/// The parameter changes of one block. Allocates once, in [`ParamBlock::new`].
 #[derive(Debug)]
 pub struct ParamBlock {
-    /// Each queue's parameter id, where its points end in `points`, and
-    /// whether it is a lane's points rather than the value the project holds
-    /// (M8 slice B1: a device that has to tell them apart cannot count
-    /// queues).
     queues: Vec<(u32, u32, bool)>,
     points: Vec<(u32, f64)>,
-    /// The block's frames: points are placed inside it.
     frames: u32,
-    /// Queues of this block given up on or cut down for want of room.
     dropped: u32,
 }
 
 impl ParamBlock {
-    /// A block with room for [`MOST_QUEUES`] parameters and [`MOST_POINTS`]
-    /// points. Allocates: call off the audio thread.
     pub fn new() -> Self {
         Self {
             queues: Vec::with_capacity(MOST_QUEUES),
@@ -47,15 +26,10 @@ impl ParamBlock {
         }
     }
 
-    /// Whether this block has the room [`ParamBlock::new`] gives it. The
-    /// placeholder ([`ParamBlock::none`]) has none: nothing is ever copied
-    /// into it, because a copy would allocate on the audio thread.
     pub fn has_room(&self) -> bool {
         self.queues.capacity() >= MOST_QUEUES && self.points.capacity() >= MOST_POINTS
     }
 
-    /// A block with no room, for a call that has nothing to say. Allocates
-    /// nothing.
     pub const fn none() -> Self {
         Self {
             queues: Vec::new(),
@@ -65,7 +39,6 @@ impl ParamBlock {
         }
     }
 
-    /// Starts a block of `frames`: nothing changes in it yet.
     pub fn start(&mut self, frames: usize) {
         self.queues.clear();
         self.points.clear();
@@ -77,12 +50,10 @@ impl ParamBlock {
         self.queues.is_empty()
     }
 
-    /// How many parameters change.
     pub fn len(&self) -> usize {
         self.queues.len()
     }
 
-    /// The `i`th parameter's id and its points.
     pub fn queue(&self, i: usize) -> (u32, &[(u32, f64)]) {
         let (id, end, _) = self.queues[i];
         let start = i
@@ -91,13 +62,10 @@ impl ParamBlock {
         (id, &self.points[start..end as usize])
     }
 
-    /// Whether the `i`th queue is a lane's points (a parameter's automation),
-    /// rather than the one value the project holds (M8 slice B1, ADR-0146).
     pub fn is_lane(&self, i: usize) -> bool {
         self.queues.get(i).is_some_and(|queue| queue.2)
     }
 
-    /// Where the block stands, to take back what is added after it.
     pub fn mark(&self) -> Mark {
         Mark {
             queues: self.queues.len(),
@@ -105,22 +73,15 @@ impl ParamBlock {
         }
     }
 
-    /// Takes back everything added since `mark`.
     pub fn rewind(&mut self, mark: Mark) {
         self.queues.truncate(mark.queues);
         self.points.truncate(mark.points);
     }
 
-    /// Starts a queue for parameter `id`: the value the project holds. False
-    /// when the block holds as many queues as it may.
     pub fn open(&mut self, id: u32) -> bool {
         self.push(id, false)
     }
 
-    /// Starts a queue for parameter `id` that carries a lane's points: what a
-    /// parameter's automation plays in this block (M8 slice B1, ADR-0146), so
-    /// a device can tell a lane from the value at rest without counting
-    /// queues.
     pub fn open_lane(&mut self, id: u32) -> bool {
         self.push(id, true)
     }
@@ -133,11 +94,6 @@ impl ParamBlock {
         true
     }
 
-    /// Adds a point to the open queue, `offset` frames into the block, in
-    /// time order: one at or before the last is replaced by it. A value
-    /// outside 0 to 1, or not a number, is brought in; an offset past the
-    /// block is put on its last frame. False when the block holds as many
-    /// points as it may.
     pub fn point(&mut self, offset: u32, value: f64) -> bool {
         if self.queues.is_empty() {
             return false;
@@ -165,7 +121,6 @@ impl ParamBlock {
         true
     }
 
-    /// Where the open queue's points start.
     fn queues_start(&self) -> usize {
         self.queues
             .len()
@@ -173,21 +128,15 @@ impl ParamBlock {
             .map_or(0, |before| self.queues[before].1 as usize)
     }
 
-    /// A queue was given up on or cut down to its two ends: it did not fit.
     pub fn note_cut(&mut self) {
         self.dropped = self.dropped.saturating_add(1);
     }
 
-    /// Queues given up on or cut down in this block.
     pub fn cut(&self) -> u32 {
         self.dropped
     }
 
-    /// Becomes a copy of `other`, within its own room.
     pub fn copy_from(&mut self, other: &ParamBlock) {
-        // The destination is a block made by `ParamBlock::new`, never the
-        // zero-capacity placeholder: growing it here would allocate on the
-        // audio thread (sweep Low).
         debug_assert!(
             self.has_room() || other.is_empty(),
             "an empty placeholder is never copied into: it has no room"
@@ -318,9 +267,6 @@ mod tests {
         assert!(ParamBlock::new().has_room());
     }
 
-    /// The placeholder takes an empty block and nothing else: a non-empty one
-    /// was caught in debug builds before it could grow the placeholder, and
-    /// the instrument's `automate` never offers it one (sweep Low).
     #[test]
     fn a_placeholder_takes_only_an_empty_block() {
         let mut placeholder = ParamBlock::none();

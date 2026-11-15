@@ -1,8 +1,3 @@
-//! Rows that glide (the interface audit's M2 and M3): a new track grows in
-//! from no height, and when tracks are reordered or deleted the rows below
-//! glide to their new places instead of jumping. A folding group's tracks
-//! glide shut in `rows` (their heights glide to none before they go).
-
 use std::collections::{HashMap, HashSet};
 
 use eframe::egui::{self, Id as EguiId};
@@ -11,14 +6,12 @@ use lumen_project::model::{Id, Project, TrackKind};
 use super::{Arrangement, Zone};
 use crate::motion;
 
-/// The memory a track's shown height glides in.
 pub(super) fn height_id(track: Id) -> EguiId {
     EguiId::new(("track height", track))
 }
 
 #[derive(Debug, Clone, Copy)]
 struct Glide {
-    /// How far from its place the row is drawn as the glide starts.
     from: f32,
     since: f64,
 }
@@ -26,17 +19,13 @@ struct Glide {
 #[derive(Debug, Default)]
 pub(super) struct RowGlides {
     session: Option<u64>,
-    /// Tracks seen in this document, so a new one can grow in.
     known: HashSet<Id>,
-    /// The scrolling tracks' order last frame.
     order: Vec<Id>,
-    /// Where each scrolling row was drawn last frame.
     drawn: HashMap<Id, f32>,
     gliding: HashMap<Id, Glide>,
 }
 
 impl RowGlides {
-    /// Points from its place row `id` is drawn at `now`.
     pub(super) fn offset(&self, id: Id, now: f64) -> f32 {
         let duration = f64::from(motion::time(motion::GLIDE));
         self.gliding.get(&id).map_or(0.0, |g| {
@@ -54,9 +43,6 @@ impl RowGlides {
 }
 
 impl Arrangement {
-    /// Notes new, moved and deleted tracks once a frame, before rows are
-    /// laid out: new tracks start from no height, and rows whose place
-    /// changed glide there from where they were drawn.
     pub fn begin_frame(
         &mut self,
         ctx: &egui::Context,
@@ -87,7 +73,6 @@ impl Arrangement {
         if duration > 0.0 {
             for track in &project.tracks {
                 if self.row_glides.known.insert(track.id) {
-                    // A new track grows in from no height.
                     motion::glide(ctx, height_id(track.id), 0.0, false);
                 }
             }

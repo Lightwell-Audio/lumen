@@ -1,32 +1,3 @@
-//! MIDI out to hardware (M5 slice 1, ADR-0045).
-//!
-//! A MIDI track set to a port sends its notes there instead of playing an
-//! instrument. The engine stamps each message with the device frame at which
-//! it should be heard (`RenderContext::stream`: the block, the frame in it,
-//! and the delay compensation's read ahead), and puts it on a lock-free
-//! queue. A thread here turns frames into wall-clock time and sends each
-//! message on time through `lumen-midi`:
-//!
-//! - the audio callback publishes `(frame, time)` at the start of every
-//!   block ([`StreamClock`]); callbacks only ever run late, so the thread
-//!   takes the earliest `time - frame / rate` seen lately as the time of
-//!   frame 0 ([`ClockMap`]) and adds the device's output latency, so the
-//!   hardware sounds when the audio of the same frame does;
-//! - messages wait in a [`Scheduler`], which also knows which notes it has
-//!   sent on, so a stop (a `Flush` from the engine), a port that went away
-//!   or a track that changed port can let go of exactly those.
-//!
-//! - MIDI clock (M5 slice 7) comes from the engine like any message; a
-//!   port's Sync delay moves its clock and transport messages (not its
-//!   notes) later or earlier ([`Order::Delays`]). An earlier one can only
-//!   be as early as the output latency: the thread cannot send before it
-//!   is told. A port left running when the stream stands still or the
-//!   sender ends gets Stop.
-//!
-//! Timing against real hardware is by construction, not measured here (no
-//! interface with a MIDI port is on the test machine); the scheduling and
-//! the clock mapping are tested with injected times.
-
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
@@ -38,34 +9,22 @@ use lumen_core::midi::{Kind, Msg};
 use lumen_engine::MidiOut;
 use lumen_midi::{Direction, MidiSender, PortId, Short};
 
-/// How many recent callbacks the clock mapping looks back over.
 const WINDOW: usize = 256;
-/// The thread's wake-up while messages wait or were lately sent, and when
-/// nothing has happened for a while.
 const BUSY: Duration = Duration::from_millis(1);
 const QUIET: Duration = Duration::from_millis(4);
-/// "Lately": this long after the last message.
 const LATELY: Duration = Duration::from_millis(500);
-/// The audio stream standing still this long (the device was lost, or Audio
-/// was switched off) lets go of every note sent on.
 const STALL: Duration = Duration::from_secs(1);
 
-/// Nanoseconds the frame `frame` lasts from frame 0 at `rate`.
 pub(crate) fn frame_ns(frame: u64, rate: u32) -> i64 {
     (u128::from(frame) * 1_000_000_000 / u128::from(rate.max(1))) as i64
 }
 
-/// What the audio callback tells the sender: where the stream is, and when
-/// that was. Written by one thread, read by another, through a sequence
-/// number so a read never mixes two blocks.
 pub struct StreamClock {
     epoch: Instant,
     seq: AtomicU64,
     frame: AtomicU64,
     nanos: AtomicU64,
     rate: AtomicU32,
-    /// The block's length in frames (live input is heard one block after
-    /// it is played, slice 2).
     block: AtomicU32,
 }
 
@@ -81,12 +40,10 @@ impl StreamClock {
         })
     }
 
-    /// Nanoseconds since the clock was made.
     pub fn now(&self) -> i64 {
         self.epoch.elapsed().as_nanos() as i64
     }
 
-    /// Nanoseconds from the clock's start to `at` (negative before it).
     pub fn nanos_of(&self, at: Instant) -> i64 {
         match at.checked_duration_since(self.epoch) {
             Some(after) => after.as_nanos() as i64,
@@ -94,14 +51,11 @@ impl StreamClock {
         }
     }
 
-    /// Called at the start of an audio block of `frames` with the frames
-    /// processed so far. Real-time safe: atomics and a clock read.
     pub fn publish(&self, frame: u64, frames: usize, rate: u32) {
         let nanos = self.epoch.elapsed().as_nanos() as i64;
         self.publish_at(frame, frames, rate, nanos);
     }
 
-    /// [`publish`](Self::publish) at a given time (tests inject times).
     pub fn publish_at(&self, frame: u64, frames: usize, rate: u32, nanos: i64) {
         self.seq.fetch_add(1, Ordering::AcqRel);
         self.frame.store(frame, Ordering::Release);
@@ -111,13 +65,11 @@ impl StreamClock {
         self.seq.fetch_add(1, Ordering::AcqRel);
     }
 
-    /// The instant `nanos` after the clock's start (tests).
     #[cfg(test)]
     pub fn instant_at(&self, nanos: i64) -> Instant {
         self.epoch + Duration::from_nanos(nanos.max(0) as u64)
     }
 
-    /// The latest block: `(frame, nanos, rate, frames)`.
     pub fn read_block(&self) -> Option<(u64, i64, u32, u32)> {
         for _ in 0..8 {
             let before = self.seq.load(Ordering::Acquire);
@@ -138,13 +90,11 @@ impl StreamClock {
         None
     }
 
-    /// The latest `(frame, nanos, rate)`, or `None` before the first block.
     fn read(&self) -> Option<(u64, i64, u32)> {
         self.read_block().map(|(f, n, r, _)| (f, n, r))
     }
 }
 
-/// Maps device frames to times: the earliest `time - frame` lately seen.
 #[derive(Default)]
 pub struct ClockMap {
     offsets: VecDeque<i64>,
@@ -152,7 +102,6 @@ pub struct ClockMap {
 }
 
 impl ClockMap {
-    /// Notes that frame `frame` began at `nanos`.
     pub fn observe(&mut self, frame: u64, nanos: i64, rate: u32) {
         if self.last == Some((frame, rate)) {
             return;
@@ -167,24 +116,17 @@ impl ClockMap {
         }
     }
 
-    /// When frame `frame` is heard, `latency_ns` after it is rendered.
     pub fn due(&self, frame: u64, rate: u32, latency_ns: i64) -> Option<i64> {
         let base = *self.offsets.iter().min()?;
         Some(base + frame_ns(frame, rate) + latency_ns)
     }
 }
 
-/// Messages waiting for their time, in order, with the notes sent on.
 #[derive(Default)]
 pub struct Scheduler {
     queue: BTreeMap<(i64, u64), (u16, Msg)>,
     seq: u64,
-    /// `(port, channel, key)` of notes sent on and not yet off, with how
-    /// many times: two sources (a clip and a live key or the piano roll's
-    /// preview) can sound one key, and each note-on is answered by one
-    /// note-off.
     sounding: HashMap<(u16, u8, u8), u32>,
-    /// Ports sent Start or Continue and not Stop since (bit per port).
     running: u64,
 }
 
@@ -194,7 +136,6 @@ impl Scheduler {
         self.queue.insert((due, self.seq), (port, msg));
     }
 
-    /// Takes what is due at `now`, in order.
     pub fn due(&mut self, now: i64) -> Vec<(u16, Msg)> {
         let mut out = Vec::new();
         while let Some(entry) = self.queue.first_entry()
@@ -208,9 +149,6 @@ impl Scheduler {
         out
     }
 
-    /// Records what `msg` does to the notes sent on; false for a note-off
-    /// for a note that is not sounding (a flush already let it go, or its
-    /// note-on never went out), which is not sent a second time.
     fn note(&mut self, port: u16, msg: Msg) -> bool {
         let bit = 1_u64.checked_shl(u32::from(port)).unwrap_or(0);
         match msg {
@@ -238,8 +176,6 @@ impl Scheduler {
         }
     }
 
-    /// Forgets everything waiting and returns the note-offs for the notes
-    /// sent on.
     pub fn flush(&mut self) -> Vec<(u16, Msg)> {
         self.queue.clear();
         let mut offs: Vec<(u16, Msg)> = self
@@ -253,8 +189,6 @@ impl Scheduler {
         offs
     }
 
-    /// Stop for every port whose clock is running (the stream stood
-    /// still, or the sender ends).
     pub fn stop_running(&mut self) -> Vec<(u16, Msg)> {
         let mut out = Vec::new();
         let mut left = std::mem::take(&mut self.running);
@@ -265,7 +199,6 @@ impl Scheduler {
         out
     }
 
-    /// A port went away: its messages and notes are forgotten.
     pub fn forget_port(&mut self, port: u16) {
         self.queue.retain(|_, (p, _)| *p != port);
         self.sounding.retain(|(p, _, _), _| *p != port);
@@ -278,32 +211,25 @@ impl Scheduler {
         self.queue.is_empty()
     }
 
-    /// A port's clock was started and not stopped.
     pub fn clock_running(&self) -> bool {
         self.running != 0
     }
 
-    /// Notes have been sent on and not yet off.
     pub fn has_sounding(&self) -> bool {
         !self.sounding.is_empty()
     }
 }
 
-/// What the app tells the thread.
 enum Order {
-    /// The port names the engine's port numbers stand for.
     Ports(Vec<String>),
-    /// Each port's Sync delay in nanoseconds, by port number (M5 slice 7).
     Delays(Vec<i64>),
 }
 
-/// The sender: owns the thread that times and sends MIDI to hardware.
 pub struct Output {
     orders: Sender<Order>,
     stop: Arc<AtomicBool>,
     latency: Arc<AtomicU32>,
     thread: Option<JoinHandle<()>>,
-    /// Waiting for the first port before the thread starts.
     parts: Option<Parts>,
     sent: Vec<String>,
     delays: Vec<i64>,
@@ -317,8 +243,6 @@ struct Parts {
 }
 
 impl Output {
-    /// `queue` is the engine's output; `sender` reaches the ports. The
-    /// thread starts when a track first names a port.
     pub fn new(
         queue: rtrb::Consumer<MidiOut>,
         sender: MidiSender,
@@ -341,8 +265,6 @@ impl Output {
         }
     }
 
-    /// Each port's Sync delay in milliseconds, by port number: its clock
-    /// and transport messages go that much later (earlier when negative).
     pub fn set_sync_delays(&mut self, ms: &[i32]) {
         let delays: Vec<i64> = ms.iter().map(|&ms| i64::from(ms) * 1_000_000).collect();
         if delays != self.delays {
@@ -351,13 +273,10 @@ impl Output {
         }
     }
 
-    /// The device's output latency in frames, which the hardware waits
-    /// for so it sounds with the audio.
     pub fn set_latency(&self, frames: u32) {
         self.latency.store(frames, Ordering::Relaxed);
     }
 
-    /// Tells the thread which port each of the engine's port numbers is.
     pub fn set_ports(&mut self, names: &[String]) {
         if names == self.sent.as_slice() {
             return;
@@ -385,15 +304,12 @@ impl Drop for Output {
 }
 
 fn run(mut parts: Parts, stop: &AtomicBool, latency: &AtomicU32) {
-    // Sends keep the audio clock's time, so the thread is scheduled like an
-    // audio thread: at normal priority a busy machine ran it 20 ms late.
     let _priority = lumen_audio::priority::ProAudio::join();
     let mut ports: Vec<PortId> = Vec::new();
     let mut delays: Vec<i64> = Vec::new();
     let mut map = ClockMap::default();
     let mut scheduler = Scheduler::default();
     let mut active = Instant::now();
-    // When the stream last moved, to notice it standing still.
     let mut moved = (0_u64, Instant::now());
     let send = |scheduler: &mut Scheduler, ports: &[PortId], port: u16, msg: Msg| {
         let Some(id) = ports.get(usize::from(port)) else {
@@ -468,7 +384,6 @@ fn run(mut parts: Parts, stop: &AtomicBool, latency: &AtomicU32) {
         let busy = !scheduler.is_empty() || active.elapsed() < LATELY;
         thread::sleep(if busy { BUSY } else { QUIET });
     }
-    // Let go of whatever is still sounding, and stop running clocks.
     let mut last = scheduler.flush();
     last.extend(scheduler.stop_running());
     for (port, msg) in last {
@@ -517,7 +432,6 @@ mod tests {
     #[test]
     fn two_sources_on_one_key_each_get_their_own_note_off() {
         let mut s = Scheduler::default();
-        // A clip's note and a preview on one key: on, on, off, off.
         s.push(0, 0, on(60));
         s.push(1, 0, on(60));
         s.push(2, 0, off(60));
@@ -528,7 +442,6 @@ mod tests {
             vec![(0, on(60)), (0, on(60)), (0, off(60)), (0, off(60))],
             "every note-on is answered, and a third off is not sent"
         );
-        // A flush answers every note-on still unanswered.
         s.push(0, 0, on(61));
         s.push(0, 0, on(61));
         s.due(10);
@@ -546,7 +459,6 @@ mod tests {
         assert!(s.clock_running());
         assert_eq!(s.stop_running(), vec![(2, Msg::STOP), (5, Msg::STOP)]);
         assert!(!s.clock_running());
-        // Stopped by the engine: nothing more to stop.
         s.push(20, 2, Msg::CONTINUE);
         s.push(30, 2, Msg::STOP);
         s.due(40);
@@ -558,11 +470,9 @@ mod tests {
         let mut s = Scheduler::default();
         s.push(0, 0, on(60));
         s.due(1);
-        // A stop lets it go; the engine's own note-off follows.
         assert_eq!(s.flush(), vec![(0, off(60))]);
         s.push(2, 0, off(60));
         assert!(s.due(10).is_empty(), "already released");
-        // Nor is the off of a note whose on never went out.
         s.push(3, 0, off(61));
         assert!(s.due(10).is_empty());
     }
@@ -594,15 +504,11 @@ mod tests {
     fn the_clock_map_takes_the_earliest_offset_so_late_callbacks_do_not_shift_time() {
         let mut map = ClockMap::default();
         assert_eq!(map.due(0, 48_000, 0), None);
-        // Blocks of 480 frames (10 ms), the third callback 4 ms late.
         map.observe(0, 1_000_000, 48_000);
         map.observe(480, 11_000_000, 48_000);
         map.observe(960, 24_000_000, 48_000);
         map.observe(1_440, 31_000_000, 48_000);
-        // Frame 0 was at 1 ms; frame 4,800 (100 ms later) at 101 ms, plus
-        // 5 ms of output latency.
         assert_eq!(map.due(4_800, 48_000, 5_000_000), Some(106_000_000));
-        // The same frame again changes nothing.
         map.observe(1_440, 1, 48_000);
         assert_eq!(map.due(0, 48_000, 0), Some(1_000_000));
     }
@@ -647,8 +553,6 @@ mod sender_tests {
         FakeControl::id(Direction::Output, name)
     }
 
-    /// A fake output "Synth" switched on for tracks, with the sender
-    /// running on port 0.
     fn rig() -> Rig {
         let fake = FakeControl::new();
         fake.plug(Direction::Output, "Synth");
@@ -700,9 +604,6 @@ mod sender_tests {
         let mut rig = rig();
         rig.output.set_latency(480);
         let base = Instant::now();
-        // Blocks of 128 frames at the pace of real time, as a device runs,
-        // each stamped with the time it began: a device's clock is exact,
-        // so only the sender's own lateness is measured.
         let running = Arc::new(AtomicBool::new(true));
         let ticker = {
             let (clock, running) = (Arc::clone(&rig.clock), Arc::clone(&running));
@@ -716,11 +617,9 @@ mod sender_tests {
                 }
             })
         };
-        // The engine publishes a block before it sends anything.
         while rig.clock.read().is_none() {
             thread::sleep(Duration::from_millis(1));
         }
-        // A note every 100 ms, each held for 50 ms, ten of them.
         for k in 1..=10_u64 {
             let key = 60 + k as u8;
             rig.queue
@@ -744,7 +643,6 @@ mod sender_tests {
                 Msg::note_off(0, key)
             };
             assert_eq!(bytes.as_slice(), expected.bytes(), "message {i}");
-            // Due at its frame's time plus the 10 ms of output latency.
             let frame = 4_800 * k + if on { 0 } else { 2_400 };
             let plan = base + Duration::from_micros(frame * 1_000_000 / 48_000 + 10_000);
             lateness.push(when.saturating_duration_since(plan));
@@ -755,12 +653,6 @@ mod sender_tests {
         }
         running.store(false, Ordering::Relaxed);
         ticker.join().unwrap();
-        // The sender keeps time to a few milliseconds; a shared CI runner
-        // (macOS measured a 5 ms median and a 17 ms worst; Windows, before
-        // the sender joined the Pro Audio class, a 22 ms median) can run
-        // any thread late, so both bounds leave room for that. The median still
-        // catches a sender that is systematically late; real timing is
-        // MT-MIDI-2 on hardware.
         lateness.sort();
         let (median, worst) = (lateness[lateness.len() / 2], lateness[lateness.len() - 1]);
         eprintln!("lateness: median {median:?}, worst {worst:?}");
@@ -770,10 +662,6 @@ mod sender_tests {
         );
         let allowed_lateness = Duration::from_millis(25);
         assert!(worst < allowed_lateness, "worst lateness {worst:?}");
-        // Spacing: the gaps between notes follow the frames (100 ms apart,
-        // each send up to the lateness above off; a wrong rule is far out).
-        // One note can be late and the next on time, shortening the gap by
-        // that lateness. Include the 1 ms early allowance checked above too.
         let gap = sent[2].2 - sent[0].2;
         assert!(
             gap.abs_diff(Duration::from_millis(100)) < allowed_lateness + Duration::from_millis(1),
@@ -786,7 +674,6 @@ mod sender_tests {
         let mut rig = rig();
         rig.clock.publish(0, 128, 48_000);
         rig.queue.push(at(0, Msg::note_on(2, 60, 90))).unwrap();
-        // Far in the future: never heard.
         rig.queue
             .push(at(480_000, Msg::note_on(2, 72, 90)))
             .unwrap();
@@ -807,7 +694,6 @@ mod sender_tests {
         rig.clock.publish(0, 128, 48_000);
         rig.queue.push(at(0, Msg::note_on(0, 60, 90))).unwrap();
         wait_for(&rig.fake, 1);
-        // The device is lost: no more blocks, and no note-off from the engine.
         let started = Instant::now();
         wait_for(&rig.fake, 2);
         let sent = rig.fake.sent();
@@ -834,7 +720,6 @@ mod sender_tests {
             1,
             "nothing is sent to a missing port"
         );
-        // It comes back and works again.
         rig.fake.plug(Direction::Output, "Synth");
         lumen_testkit::wait_until("the port to open again", || {
             rig._system.ports().iter().any(|p| p.open)
@@ -844,14 +729,10 @@ mod sender_tests {
         assert_eq!(rig.fake.sent().len(), 2);
     }
 
-    /// The owner's F4: a port's Sync delay moves its clock and transport
-    /// messages, not its notes; and a clock left running gets Stop when the
-    /// stream stands still.
     #[test]
     fn the_sync_delay_moves_the_clock_not_the_notes_and_a_stall_stops_it() {
         let mut rig = rig();
         rig.output.set_sync_delays(&[30]);
-        // Frame 0 is heard now; the clock goes 30 ms after it.
         let heard = Instant::now();
         rig.clock.publish(0, 128, 48_000);
         rig.queue.push(at(0, Msg::START)).unwrap();
@@ -860,12 +741,8 @@ mod sender_tests {
         let sent = rig.fake.sent_timed();
         assert_eq!(sent[0].1, Msg::note_on(0, 60, 90).bytes(), "the note first");
         assert_eq!(sent[1].1, Msg::START.bytes());
-        // Measured from the frame, not from the note: a sender woken late
-        // sends the note late too, which shortens the gap between them
-        // without moving the clock (seen on a busy CI machine).
         let after = sent[1].2 - heard;
         assert!(after >= Duration::from_millis(25), "{after:?}");
-        // The stream stands still: the note lets go and the clock stops.
         wait_for(&rig.fake, 4);
         let sent = rig.fake.sent();
         let tail: Vec<&[u8]> = sent[2..].iter().map(|(_, b)| b.as_slice()).collect();

@@ -1,12 +1,3 @@
-//! The Monitor badge on a MIDI track's header (M5 slice 2 fix, the owner's
-//! MA): a small speaker before M, shown only when Monitor is not Auto, so
-//! the name keeps its room. In is on (`Tone::On`: the accent on its muted
-//! fill, an accent hairline, no halo: a chosen setting, not something
-//! sounding); Off is the struck-through
-//! speaker in the hint grey. Auto shows nothing: it is set from the track
-//! menu, and the hollow ring on a selected Auto track stays. A click cycles
-//! In, Off, Auto.
-
 use eframe::egui::{self, Id as EguiId, Rect, Sense, Ui};
 use lumen_project::model::{Monitor, Track, TrackKind};
 
@@ -16,12 +7,10 @@ use crate::widgets::raised;
 use crate::{motion, theme, widgets};
 use eframe::emath::GuiRounding as _;
 
-/// Whether `track` shows the badge.
 pub(super) fn shown(track: &Track) -> bool {
     matches!(track.kind, TrackKind::Midi | TrackKind::Audio) && track.monitor != Monitor::Auto
 }
 
-/// Draws the badge in `rect`; returns the Monitor a click chose.
 pub(super) fn badge(
     ui: &mut Ui,
     rect: Rect,
@@ -47,8 +36,6 @@ pub(super) fn badge(
     let palette = theme::p();
     let hover = motion::hover(ui.ctx(), id.with("monitor hover"), response.hovered());
     let lit = motion::hover(ui.ctx(), id.with("monitor lit"), on);
-    // The design system's toggle (ADR-0052): raised; In is on, Off is the
-    // struck-through speaker in the hint grey.
     let face = raised::Face::new(look)
         .hover(hover)
         .pressed(response.is_pointer_button_down_on())

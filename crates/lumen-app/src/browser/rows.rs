@@ -1,22 +1,15 @@
-//! The browser's list as flat rows: what the catalog, the filters and the
-//! fold state make of it. Pure, so the whole behavior is tested without a
-//! window; `list.rs` paints and answers the pointer.
-
 use std::collections::HashSet;
 
 use lumen_plugin_catalog::catalog::{Catalog, Device, Query, Source};
 
 use super::view::{Chip, Selection, View};
 
-/// The most category chips offered.
 pub(crate) const MAX_CHIPS: usize = 12;
 
-/// One row. Indexes are into the catalog's `devices()` and `blocked()`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Row {
     Vendor {
         name: String,
-        /// Devices of this vendor that match.
         count: usize,
         folded: bool,
     },
@@ -26,24 +19,17 @@ pub(crate) enum Row {
         folded: bool,
     },
     Blocked(usize),
-    /// The reason and the actions, under the selected blocked module.
     BlockedNote(usize),
 }
 
-/// The rows, and what the controls above them need to know.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct Rows {
     pub list: Vec<Row>,
-    /// Category chips: name and how many devices match the words and type,
-    /// most first.
     pub chips: Vec<(String, usize)>,
-    /// Devices that match everything (words, type, chip), folded or not.
     pub matching: usize,
-    /// Devices in the catalog.
     pub total: usize,
 }
 
-/// The rows for `view` over `catalog`.
 pub(crate) fn rows(
     catalog: &Catalog,
     view: &View,
@@ -56,7 +42,6 @@ pub(crate) fn rows(
         kind: view.kind.kind(),
         only: None,
     };
-    // Everything that fits the words and the type: the chips count these.
     let fitting: Vec<&Device> = catalog.search(&query);
 
     let mut counts: Vec<(String, usize)> = Vec::new();
@@ -103,10 +88,8 @@ pub(crate) fn rows(
 
     let mut list = Vec::new();
     if matches!(view.chip, Chip::Recent) {
-        // Most recent first: grouping by vendor would lose the order.
         list.extend(shown.iter().map(|d| Row::Device(index(d))));
     } else {
-        // Groups by vendor, Lumen's own first, then by name.
         let mut groups: Vec<(String, bool, Vec<&Device>)> = Vec::new();
         for device in &shown {
             let builtin = device.source == Source::Builtin;
@@ -125,15 +108,12 @@ pub(crate) fn rows(
             b.1.cmp(&a.1)
                 .then_with(|| a.0.to_lowercase().cmp(&b.0.to_lowercase()))
         });
-        // One spelling per vendor, from the whole catalog, so a header does
-        // not change with what the filters leave in it.
         let spelled = catalog.vendors();
         for (vendor, _, members) in groups {
             let vendor = spelled
                 .iter()
                 .find(|(v, _)| v.eq_ignore_ascii_case(&vendor))
                 .map_or(vendor, |(v, _)| v.clone());
-            // Searching opens every group: a hit must not hide in a fold.
             let folded = words.is_empty() && view.is_folded(&vendor);
             list.push(Row::Vendor {
                 name: vendor,
@@ -146,8 +126,6 @@ pub(crate) fn rows(
         }
     }
 
-    // Blocked modules sit at the end, only when nothing but words narrows
-    // the list: a chip or a type is about devices.
     if view.chip == Chip::All && view.kind == super::view::TypeFilter::All {
         let needle = words.to_lowercase();
         let blocked: Vec<usize> = catalog
@@ -191,8 +169,6 @@ pub(crate) fn rows(
     }
 }
 
-/// Whether the catalog holds nothing of the person's own: only Lumen's
-/// devices, and nothing blocked. The browser's "no plugins found yet" case.
 pub(crate) fn none_found(catalog: &Catalog) -> bool {
     catalog.blocked().is_empty()
         && catalog
@@ -201,8 +177,6 @@ pub(crate) fn none_found(catalog: &Catalog) -> bool {
             .all(|d| d.source == Source::Builtin)
 }
 
-/// What selecting `row` selects; `None` for a row that is not selectable (a
-/// blocked module's note).
 pub(crate) fn selection_of(catalog: &Catalog, row: &Row) -> Option<Selection> {
     match row {
         Row::Vendor { name, .. } => Some(Selection::Vendor(name.to_lowercase())),
@@ -215,9 +189,6 @@ pub(crate) fn selection_of(catalog: &Catalog, row: &Row) -> Option<Selection> {
     }
 }
 
-/// Where the selection goes `delta` selectable rows on (negative: back),
-/// stopping at either end. From nothing, down goes to the first row and up
-/// to the last. `None` when there is nothing to select.
 pub(crate) fn neighbour(
     catalog: &Catalog,
     list: &[Row],
@@ -335,7 +306,6 @@ mod tests {
             [
                 "[Lumen 1]",
                 "Synth",
-                // "alpha" and "Alpha" are one vendor.
                 "[Alpha 3]",
                 "Deep Bass",
                 "Room Reverb",

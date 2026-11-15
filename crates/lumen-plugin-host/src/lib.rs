@@ -1,20 +1,3 @@
-//! The plugin host. A plugin runs in a `lumen-plugin-host` process, never in
-//! Lumen's own, so a crash or a hang costs one device and not the session
-//! (ADR-0005). This crate holds both sides:
-//!
-//! - the host side: [`Module`] loads a VST3 module with the operating
-//!   system's loader, [`Instance`] runs one plugin, [`server`] answers
-//!   requests for it;
-//! - the Lumen side: [`client::HostProcess`] starts a host process and talks
-//!   to it with deadlines, and says how a host that stopped ended.
-//!
-//! [`protocol`] is the versioned, bounded message format between them.
-//!
-//! Two paths join them. A pair of pipes carries the control traffic (load,
-//! configure, state, parameters) and the protocol checks. Blocks of audio
-//! cross [`shm`]: a block of shared memory and a wake-up in each direction,
-//! opened with [`protocol::Request::Attach`].
-
 mod blocks;
 mod com;
 pub mod editor;

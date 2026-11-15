@@ -1,8 +1,3 @@
-//! The Files page's folders (M9 R7): where projects start, and the cache of
-//! converted audio and peaks with its limit, its size and Clear. A folder
-//! choice goes through the system's folder dialog; nothing is moved or
-//! copied.
-
 use eframe::egui::{self, Ui};
 use lumen_core::product::PRODUCT_NAME;
 
@@ -12,7 +7,6 @@ use crate::widgets::{hint, section};
 use crate::{App, settings, theme, widgets};
 
 impl App {
-    /// Where New, Open and Save as start.
     pub(super) fn projects_folder_row(&mut self, ui: &mut Ui, marks: &Marks) {
         section(ui, "Projects");
         let shown = self
@@ -34,7 +28,6 @@ impl App {
         marks.row(ui, "files.associate", |ui| self.association_row(ui));
     }
 
-    /// The cache: its folder, its limit, how full it is, and Clear.
     pub(super) fn cache_rows(&mut self, ui: &mut Ui, marks: &Marks) {
         section(ui, "Cache");
         let ctx = ui.ctx().clone();
@@ -105,13 +98,11 @@ impl App {
         self.previous_cache_row(ui, &ctx);
     }
 
-    /// The folder left behind by a change of folder, offered for Clear once.
     fn previous_cache_row(&mut self, ui: &mut Ui, ctx: &egui::Context) {
         let Some(previous) = self.previous_cache_dir() else {
             return;
         };
         if self.cache.previous_size == Some(0) {
-            // Nothing of the cache's is left there: nothing to offer.
             self.keep_previous_cache();
             return;
         }
@@ -150,14 +141,11 @@ impl App {
     }
 }
 
-/// What a folder's line asked for.
 enum Asked {
     Choose,
     Standard,
 }
 
-/// A folder's line: its path, cut short before the buttons, Choose… and,
-/// when a folder was chosen, Standard to go back to the standard one.
 fn path_line(ui: &mut Ui, path: &str, name: &str, chosen: bool) -> Option<Asked> {
     let width = ui.available_width();
     ui.allocate_ui_with_layout(

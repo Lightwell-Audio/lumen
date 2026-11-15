@@ -1,7 +1,3 @@
-//! Programs and preset files through a real host process: the lists a
-//! plugin offers, choosing one, the edit controller's own state, and a
-//! preset file written from one plugin and read into another.
-
 mod support;
 
 use lumen_plugin_host::preset::{Preset, info_xml};
@@ -23,7 +19,6 @@ fn play(host: &mut lumen_plugin_host::client::HostProcess) -> Vec<f32> {
         .clone()
 }
 
-/// The controller state of the test plugin: a tag and a view value.
 fn view(value: f64) -> Vec<u8> {
     let mut bytes = b"LTV1".to_vec();
     bytes.extend_from_slice(&value.to_le_bytes());
@@ -42,7 +37,6 @@ fn a_plugin_lists_its_programs_and_the_parameter_that_selects_them() {
         lists[0].programs,
         vec!["Square, quiet", "Saw, loud", "Saw, half"]
     );
-    // The plugin's text for the selecting parameter names the program.
     assert_eq!(host.param_text(PROGRAM, 0.5, SLOW).unwrap(), "Saw, loud");
     let (_, params) = host.parameters(SLOW).unwrap();
     let selector = params.iter().find(|p| p.id == PROGRAM).unwrap();
@@ -62,13 +56,10 @@ fn choosing_a_program_changes_what_is_heard_and_is_reported() {
     let before = play(&mut host);
     assert!(before[1..60].iter().all(|&s| s.abs() == 0.5), "{before:?}");
 
-    // Program 0 is a quiet square wave.
     host.set_param(PROGRAM, 0.0, SLOW).unwrap();
     let quiet = play(&mut host);
     assert!(quiet[1..60].iter().all(|&s| s.abs() == 0.25), "{quiet:?}");
 
-    // The plugin changed its level and wave itself: Lumen is told, in order,
-    // and told that values changed beyond them.
     let taken = host.take_edits(SLOW).unwrap();
     let mine = |id| {
         taken
@@ -80,7 +71,6 @@ fn choosing_a_program_changes_what_is_heard_and_is_reported() {
     assert_eq!((mine(LEVEL), mine(WAVE)), (1, 1), "{:?}", taken.list);
     assert!(taken.list.iter().any(|e| e.kind == EditKind::Dirty));
 
-    // And the controller's values follow.
     let (_, params) = host.parameters(SLOW).unwrap();
     let value = |id| params.iter().find(|p| p.id == id).unwrap().value;
     assert_eq!(
@@ -96,14 +86,11 @@ fn the_controller_keeps_a_state_of_its_own() {
     host.set_controller_state(view(0.125), SLOW).unwrap();
     assert_eq!(host.controller_state(SLOW).unwrap(), view(0.125));
 
-    // Bytes the controller did not write are refused and change nothing; the
-    // connection goes on.
     assert!(host.set_controller_state(vec![1, 2, 3], SLOW).is_err());
     assert!(host.set_controller_state(view(7.0), SLOW).is_err());
     assert!(host.set_controller_state(view(f64::NAN), SLOW).is_err());
     assert_eq!(host.controller_state(SLOW).unwrap(), view(0.125));
 
-    // The component's state does not carry it.
     let state = host.state(SLOW).unwrap();
     host.set_controller_state(view(0.75), SLOW).unwrap();
     host.set_state(state, SLOW).unwrap();
@@ -122,8 +109,6 @@ fn a_preset_file_from_one_plugin_sets_up_another() {
     let mut a = instrument("presets");
     a.set_param(LEVEL, 0.25, SLOW).unwrap();
     a.set_controller_state(view(0.125), SLOW).unwrap();
-    // The processor hears a value at the start of its next block, and its
-    // state holds it from then on.
     play(&mut a);
     let file = Preset {
         class_id: [7; 16],
@@ -133,7 +118,6 @@ fn a_preset_file_from_one_plugin_sets_up_another() {
     }
     .to_bytes();
 
-    // A second, fresh plugin reads the file back.
     let mut b = instrument("presets");
     let preset = Preset::parse(&file).unwrap();
     assert_eq!(preset.class_id, [7; 16]);
@@ -151,7 +135,6 @@ fn a_preset_file_from_one_plugin_sets_up_another() {
 fn a_file_that_is_not_this_plugins_state_is_refused_and_the_plugin_keeps_its_sound() {
     let mut host = instrument("presets");
     host.set_param(LEVEL, 0.75, SLOW).unwrap();
-    // A well-formed file whose state was made for something else.
     let file = Preset {
         class_id: [7; 16],
         component: vec![9; 40],
@@ -182,8 +165,6 @@ fn a_midi_program_change_selects_the_program_through_the_program_parameter() {
     let mut host = instrument("presets");
     host.process(64, vec![], vec![program_event(4, 0)], vec![], SLOW)
         .unwrap();
-    // The controller hears it, the plugin sets its own level and wave, and
-    // the processor hears those in the next block.
     let taken = host.take_edits(SLOW).unwrap();
     assert!(
         taken

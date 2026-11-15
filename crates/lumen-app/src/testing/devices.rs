@@ -1,6 +1,3 @@
-//! Test seams for plugin devices (M6): hosting, cards, parameters, presets,
-//! editors and the browser's device lists.
-
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -11,9 +8,6 @@ use crate::App;
 use crate::document::find_device;
 
 impl App {
-    /// What the callback benchmark came to, once it has ended: the text
-    /// report, whether it passed and how many callbacks it measured, or why
-    /// it could not run.
     pub fn callback_report(&self) -> Option<Result<(String, bool, u64), String>> {
         self.callback_report.as_ref().map(|result| match result {
             Ok(r) => Ok((r.text(), r.pass(), r.callbacks)),
@@ -21,22 +15,15 @@ impl App {
         })
     }
 
-    /// The name of the sound the card of `device` shows (the field), and
-    /// whether it is marked changed; none when the card has no field or no
-    /// sound was chosen.
     pub fn device_preset(&self, device: Id) -> Option<(String, bool)> {
         let look = self.field_look(device)?;
         look.name.map(|name| (name, look.changed))
     }
 
-    /// Whether the card of `device` shows a preset field.
     pub fn device_has_preset_field(&self, device: Id) -> bool {
         self.field_look(device).is_some()
     }
 
-    /// Gives a plugin effect a sidechain input, and the light of `track`'s
-    /// sidechain a level (0 to 1) and, when `silent_seconds` is over two
-    /// while the song plays, the warning ring: screenshots of the card's row.
     pub fn give_device_sidechain(
         &mut self,
         device: Id,
@@ -48,45 +35,34 @@ impl App {
         self.chain.sidechain.pretend(track, level, silent_seconds);
     }
 
-    /// Gives a plugin instrument `extra` outputs besides its main one, as if
-    /// its host had listed them: screenshots of the card's outputs row.
     pub fn give_device_outputs(&mut self, device: Id, extra: &[&str]) {
         self.hosting.pretend_outputs(device, extra);
     }
 
-    /// How lit the sidechain light of the shown track is, 0 to 1.
     pub fn sidechain_light(&self, track: Id) -> f32 {
         self.chain.sidechain.level_of(track)
     }
 
-    /// The folders "Show presets folder" opened, oldest first.
     pub fn revealed_folders(&self) -> Vec<PathBuf> {
         self.chain.presets.revealed.clone()
     }
 
-    /// The files "Show in file manager" opened, oldest first (the audio
-    /// editor's File chip and the Project media tab's Reveal).
     pub fn revealed_files(&self) -> Vec<PathBuf> {
         self.media_pool.revealed.clone()
     }
 
-    /// Whether Lumen is in safe mode, and whether it is offering it.
     pub fn safe_mode(&self) -> (bool, bool) {
         (self.safe.on, self.safe.offer)
     }
 
-    /// How many plugin hosts exist.
     pub fn plugin_hosts(&self) -> usize {
         self.hosting.host_count()
     }
 
-    /// Loads one plugin in safe mode, as its card's "Load this plugin" will.
     pub fn load_one(&mut self, device: Id) {
         self.load_one_plugin(device);
     }
 
-    /// How a plugin device's host is doing: `loading`, `ready`, `failed: ...`
-    /// or `missing`; none when the project holds no such device.
     pub fn device_state(&self, device: Id) -> Option<String> {
         use crate::hosting::State;
         self.hosting.state(device).map(|s| match s {
@@ -98,16 +74,10 @@ impl App {
         })
     }
 
-    /// The longest block a plugin device was promised (the device's block,
-    /// at most the engine's), once its host has linked.
     pub fn device_promised_frames(&self, device: Id) -> Option<u32> {
         self.hosting.promised(device)
     }
 
-    /// Shows the audio panel's block budget with these plugins, whatever
-    /// runs, for screenshots: a block of `block_us` that used `used_us`, and
-    /// each plugin's name, place, work and wait (microseconds a block) and
-    /// missed blocks. Held for an hour.
     pub fn pretend_budget(
         &mut self,
         block_us: u64,
@@ -139,8 +109,6 @@ impl App {
         });
     }
 
-    /// Shows a plugin device as `loading`, `ready`, `failed` or `missing`
-    /// whatever its host is doing (screenshots of every card face).
     pub fn pretend_device_state(&mut self, device: Id, state: &str) {
         use crate::hosting::State;
         self.hosting.pretend(
@@ -157,8 +125,6 @@ impl App {
         );
     }
 
-    /// Gives a plugin device a program list, a chosen sound (changed or not)
-    /// and preset files, without a host (screenshots of the preset menu).
     pub fn give_device_presets(
         &mut self,
         device: Id,
@@ -183,13 +149,10 @@ impl App {
             .pretend(device, chosen, Some(baseline), files);
     }
 
-    /// Opens the preset menu of a card (screenshots).
     pub fn open_preset_menu_of(&mut self, ctx: &egui::Context, device: Id) {
         self.open_preset_menu(ctx, device, false);
     }
 
-    /// Says a plugin device failed `count` times just now and that its last
-    /// good state is `age_seconds` old (screenshots of the failed card).
     pub fn pretend_failures(&mut self, device: Id, count: usize, age_seconds: Option<u64>) {
         self.hosting.pretend_failures(
             device,
@@ -198,16 +161,12 @@ impl App {
         );
     }
 
-    /// Shows safe mode (and, when `offer`, its offer) without a host: for
-    /// screenshots.
     pub fn pretend_safe_mode(&mut self, on: bool, offer: bool) {
         self.safe.on = on;
         self.safe.offer = offer;
         self.hosting.set_safe(on);
     }
 
-    /// Gives a plugin device a picture of `width` by `height` pixels from
-    /// `pixel(x, y)`, as if its bundle held one (screenshots of the card).
     pub fn give_device_picture(
         &mut self,
         ctx: &egui::Context,
@@ -241,8 +200,6 @@ impl App {
             .put(ctx, &class, image);
     }
 
-    /// How a plugin device's own picture stands: `none`, `loading`, `absent`
-    /// or `ready` (the card shows it when ready).
     pub fn device_picture(&self, device: Id) -> &'static str {
         let class = self
             .document
@@ -261,83 +218,61 @@ impl App {
         }
     }
 
-    /// The latency a plugin device last reported, in frames.
     pub fn device_latency(&self, device: Id) -> Option<u32> {
         self.hosting.latency(device)
     }
 
-    /// Blocks this device's current host missed. Reads without resetting
-    /// the audio budget counters, for diagnosing timing-sensitive scenarios.
     pub fn device_late_blocks(&self, device: Id) -> Option<u32> {
         self.hosting.late_blocks(device)
     }
 
-    /// Starts a failed device's host again, as its card's Reload will.
     pub fn reload_device(&mut self, device: Id) {
         self.hosting.reload(device);
     }
 
-    /// Starts a failed device's host again with no sound of its own, as its
-    /// card's "Reload without sound" will.
     pub fn reload_device_clean(&mut self, device: Id) {
         self.hosting.reload_clean(device);
     }
 
-    /// Ends a device's host as a crash would leave it (the user ending a plugin
-    /// that stopped answering).
     pub fn end_device_host(&mut self, device: Id) {
         self.hosting.end_plugin(device);
     }
 
-    /// How often running plugins are read for a checkpoint.
     pub fn set_checkpoint_every(&mut self, every: Duration) {
         self.hosting.set_checkpoint_every(every);
     }
 
-    /// Whether a device's plugin has stopped three times in two minutes.
     pub fn device_keeps_failing(&self, device: Id) -> bool {
         self.hosting.keeps_failing(device)
     }
 
-    /// How long ago a device's last good state was read, if one was.
     pub fn device_last_good_age(&self, device: Id) -> Option<Duration> {
         self.hosting.last_good_age(device)
     }
 
-    /// Removes a device from a track, as the interface will (one undo step).
     pub fn remove_device(&mut self, track: Id, device: Id) {
         let _ = self.document.remove_device(track, device);
     }
 
-    /// Folds a card to a strip, or opens it again (a view, not an edit).
     pub fn fold_device(&mut self, device: Id) {
         self.toggle_fold_of(device);
     }
 
-    /// Moves a device to a track: right after `after` on it, or at the end.
-    /// A drag will do this (one undo step).
     pub fn move_device(&mut self, from: Id, device: Id, to: Id, after: Option<Id>) {
         let slot = after.map_or(crate::document::Slot::End, crate::document::Slot::After);
         let _ = self.document.move_device(from, device, to, slot);
     }
 
-    /// Copies a device to a track, placed like [`Self::move_device`]; returns
-    /// the copy's id.
     pub fn copy_device(&mut self, from: Id, device: Id, to: Id, after: Option<Id>) -> Option<Id> {
         let slot = after.map_or(crate::document::Slot::End, crate::document::Slot::After);
         self.document.copy_device(from, device, to, slot).ok()
     }
 
-    /// Sets a plugin's parameter (normalized) as the interface's controls will:
-    /// the project holds the value, and one drag is one undo step.
     pub fn set_device_param(&mut self, device: Id, id: u32, value: f64) {
         self.document.override_param(device, id);
         self.set_device_param_at_rest(device, id, value);
     }
 
-    /// Sets the value the project holds for a plugin's parameter without
-    /// moving a control: what a loaded program or a patch does. A lane that
-    /// drives the parameter is not taken over.
     pub fn set_device_param_at_rest(&mut self, device: Id, id: u32, value: f64) {
         let _ = self.document.set_device_params(
             device,
@@ -347,19 +282,14 @@ impl App {
         );
     }
 
-    /// Frames the project's devices ring on after its sound stops (M8 slice
-    /// B3): the automatic tail an export or a bounce adds.
     pub fn project_tail(&self) -> u64 {
         crate::builtin::tail_frames(self.project(), 48_000)
     }
 
-    /// Frames one track's own devices ring on after its sound stops.
     pub fn track_tail(&self, track: Id) -> u64 {
         crate::builtin::track_tail_frames(self.project(), track, 48_000)
     }
 
-    /// The programs a device's plugin offers: each list's name and its
-    /// programs' names.
     pub fn device_programs(&self, device: Id) -> Vec<(String, Vec<String>)> {
         self.hosting
             .programs(device)
@@ -368,13 +298,10 @@ impl App {
             .collect()
     }
 
-    /// Chooses a program as the card's preset menu will.
     pub fn choose_program(&mut self, device: Id, list: usize, program: usize) {
         self.load_program(device, list, program);
     }
 
-    /// Loads a preset file's bytes into a device's plugin as the card's preset
-    /// menu will; what the file is wrong with is the error.
     pub fn load_preset_from_bytes(
         &mut self,
         device: Id,
@@ -386,32 +313,24 @@ impl App {
         Ok(())
     }
 
-    /// The parameter values the project holds for a device, by id.
     pub fn device_params(&self, device: Id) -> Vec<(u32, f64)> {
         crate::document::find_device(self.document.project(), device)
             .map(|(_, d)| d.params.iter().map(|(&k, &v)| (k, v)).collect())
             .unwrap_or_default()
     }
 
-    /// Gives a device a parameter list as if its plugin had listed it, for
-    /// screenshots of the card's strip: `(title, value, text)` each.
     pub fn give_device_parameters(&mut self, device: Id, list: &[(&str, f64, &str)]) {
         self.hosting.pretend_parameters(device, list);
     }
 
-    /// Gives a device stepped parameters after those it has (screenshots of
-    /// the switches and choosers): `(title, steps, value, choices)` each.
     pub fn give_device_stepped(&mut self, device: Id, list: &[(&str, i32, f64, &[&str])]) {
         self.hosting.pretend_stepped(device, list);
     }
 
-    /// The parameter ids on a device's card strip, in order.
     pub fn strip_parameters(&self, device: Id) -> Vec<u32> {
         self.strip_ids(device)
     }
 
-    /// The words of each step of a stepped parameter: a plugin's as it has
-    /// said them, a built-in's from its table (M8 slice B0).
     pub fn device_choices(&self, device: Id, parameter: u32) -> Vec<String> {
         match find_device(self.document.project(), device) {
             Some((_, d)) => self.parameter_choices(d, parameter),
@@ -419,34 +338,23 @@ impl App {
         }
     }
 
-    /// Whether the built-in effect of `device` is attached to the mixer: the
-    /// audio thread is playing it (M8 slice B0).
     pub fn builtin_attached(&self, device: Id) -> bool {
         self.builtin.attached(device)
     }
 
-    /// Whether `device` is a built-in effect this build runs.
     pub fn is_builtin(&self, device: Id) -> bool {
         find_device(self.document.project(), device)
             .is_some_and(|(_, d)| crate::builtin::is_builtin(d))
     }
 
-    /// Puts a picture in a built-in's analyser, as a live signal would, for a
-    /// screenshot: a shot has no project that plays, so this is the only way
-    /// its face can show a mist (M8 slice B1). The window itself is tested
-    /// with a real tone in `lumen-devices`.
     pub fn pretend_spectrum(&mut self, device: Id, db: &[f32]) {
         self.chain.pretend_spectrum = Some((device, db.to_vec()));
     }
 
-    /// Picks band `index` (0-based) of a face, as clicking its point does.
     pub fn pick_band(&mut self, device: Id, index: usize) {
         self.chain.bands.insert(device, index);
     }
 
-    /// Sets what a built-in device's gain-reduction meter reads, as if the
-    /// audio thread had just published it (M8 slice B2): for a picture with
-    /// reduction showing, without playing anything.
     pub fn pretend_reduction(&mut self, device: Id, decibels: f32, level_db: f32) {
         self.builtin.pretend_reduction(
             device,
@@ -457,61 +365,42 @@ impl App {
         );
     }
 
-    /// Whether a built-in device has a gain-reduction meter (M8 slice B2).
     pub fn has_meter(&self, device: Id) -> bool {
         self.builtin.has_meter(device)
     }
 
-    /// The gain reduction a built-in device's meter last read, in decibels
-    /// (M8 slice B2): what its face drew.
     pub fn builtin_reduction(&self, device: Id) -> f32 {
         self.builtin
             .reading(device)
             .map_or(0.0, |reading| reading.reduction_db)
     }
 
-    /// How long ago, in seconds, the person heard sound enter a built-in
-    /// device's line (OR-8), with the audio device's latency and the project's
-    /// delay compensation taken off: what a card's picture starts its echoes
-    /// from. `None` for a device with no such clock, and before any sound has
-    /// entered it.
     pub fn builtin_since(&self, device: Id) -> Option<f32> {
         self.builtin.since(device, self.heard_latency())
     }
 
-    /// Puts exactly these parameters on the device's strip, as a person does
-    /// from the panel.
     pub fn show_on_strip(&mut self, device: Id, ids: &[u32]) {
         self.chain.shown.insert(device, ids.to_vec());
     }
 
-    /// Sends a parameter value to the device's plugin as a control in its own
-    /// window would, with no edit of the project.
     pub fn poke_plugin(&mut self, device: Id, id: u32, value: f64) {
         self.hosting.poke_param(device, id, value);
     }
 
-    /// How many values Lumen has sent the device's plugin to match the project.
     pub fn values_sent_to(&self, device: Id) -> u32 {
         self.hosting.values_sent(device)
     }
 
-    /// Whether the device's plugin window is open but hidden because the
-    /// Devices tab shows another track.
     pub fn editor_hidden(&self, device: Id) -> bool {
         self.hosting.editor_hidden(device)
     }
 
-    /// Where a plugin's window is remembered to open, by the device's class:
-    /// `(x, y, width, height)`.
     pub fn editor_place(&self, device: Id) -> Option<(i32, i32, u32, u32)> {
         let class = self.hosting.class(device)?;
         let p = self.settings.plugins.editors.get(class)?;
         Some((p.x, p.y, p.width, p.height))
     }
 
-    /// Remembers a window place for the device's plugin, as if it had been
-    /// left there.
     pub fn set_editor_place(&mut self, device: Id, place: (i32, i32, u32, u32)) {
         if let Some(class) = self.hosting.class(device).map(str::to_owned) {
             self.settings.plugins.remember_editor(
@@ -527,9 +416,6 @@ impl App {
         }
     }
 
-    /// Sets how a device's plugin window looks on its card, for screenshots:
-    /// `open`, `opening`, `stuck`, `none` (no editor) or `closed`; `learn`
-    /// also turns Learn on.
     pub fn give_device_editor(&mut self, device: Id, state: &str, learn: bool) {
         use crate::hosting::EditorState;
         let state = match state {
@@ -545,22 +431,18 @@ impl App {
         }
     }
 
-    /// Whether Learn is on for the device.
     pub fn learning(&self, device: Id) -> bool {
         self.chain.learning == Some(device)
     }
 
-    /// How many changed plugins could not be read for the save.
     pub fn unread_plugins(&self) -> usize {
         self.hosting.unread()
     }
 
-    /// A parameter's value as far as the host bridge knows it.
     pub fn device_param_known(&self, device: Id, id: u32) -> Option<f64> {
         self.hosting.value(device, id)
     }
 
-    /// The titles of a running plugin's parameters, in its order.
     pub fn device_param_titles(&self, device: Id) -> Vec<String> {
         self.hosting
             .parameters(device)
@@ -569,28 +451,22 @@ impl App {
             .collect()
     }
 
-    /// Bypasses or turns on a device, as the interface will.
     pub fn set_device_bypass(&mut self, track: Id, device: Id, bypass: bool) {
         let _ = self.document.set_device_bypass(track, device, bypass);
     }
 
-    /// A scan, or the first read of the plugin list, is under way.
     pub fn plugins_busy(&self) -> bool {
         self.plugins.busy()
     }
 
-    /// What the browser's scan line says is happening, in words.
     pub fn plugin_status(&self) -> String {
         format!("{:?}", self.plugins.status())
     }
 
-    /// When a scan waits for the running one to end, the folders it will
-    /// check that the running one does not.
     pub fn plugin_scan_waiting(&self) -> Option<Vec<std::path::PathBuf>> {
         self.plugins.waiting().map(|w| w.folders().to_vec())
     }
 
-    /// The installed plugins (not Lumen's own devices), by name.
     pub fn plugin_names(&self) -> Vec<String> {
         self.plugins
             .catalog()
@@ -601,7 +477,6 @@ impl App {
             .collect()
     }
 
-    /// The modules Lumen will not load, by name.
     pub fn blocked_plugins(&self) -> Vec<String> {
         self.plugins
             .catalog()
@@ -611,29 +486,22 @@ impl App {
             .collect()
     }
 
-    /// The ids of the favorite devices, as the settings keep them.
     pub fn favorite_devices(&self) -> Vec<String> {
         self.settings.plugins.favorites.clone()
     }
 
-    /// Chooses a card in the Devices tab, as clicking it would.
     pub fn choose_card(&mut self, device: Id) {
         self.chain.selected = Some(device);
     }
 
-    /// The card chosen in the Devices tab, if one is.
     pub fn chosen_card(&self) -> Option<Id> {
         self.chain.selected
     }
 
-    /// The ids of the recently chosen devices, most recent first.
     pub fn recent_devices(&self) -> Vec<String> {
         self.settings.plugins.recents.clone()
     }
 
-    /// Fills the browser as if a scan had found `modules`: each a vendor and
-    /// its classes (a name and VST3 subcategories such as "Fx|Reverb"), and
-    /// `blocked` modules that timed out. For the look audit; nothing loads.
     pub fn pretend_plugins(&mut self, modules: &[(&str, &[(&str, &str)])], blocked: &[&str]) {
         use lumen_plugin_catalog::cache::{Cache, ClassRecord, Entry, Reason, Result};
         use lumen_plugin_catalog::stamp::Stamp;
@@ -687,7 +555,6 @@ impl App {
         self.plugins.pretend(cache);
     }
 
-    /// The id of the device selected in the browser, if one is.
     pub fn selected_device(&self) -> Option<String> {
         match &self.browser.view.selected {
             Some(crate::browser::view::Selection::Device(id)) => Some(id.clone()),

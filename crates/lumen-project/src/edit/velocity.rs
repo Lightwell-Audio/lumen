@@ -1,23 +1,3 @@
-//! Velocity edits (M5 slice 4a): the velocity lane's operations as pure
-//! functions over a clip's note list. The app wraps each in one undo step,
-//! so everything here is tested without a window.
-//!
-//! # The selection contract
-//!
-//! As in [`super::notes`], notes are picked by **index** into the clip's
-//! `notes`. Each function takes the picked indices and returns the indices
-//! it set, sorted and without repeats.
-//!
-//! - Indices out of range or repeated are ignored; order does not matter.
-//! - A velocity is always kept in `1..=127`: below 1 it is raised to 1,
-//!   above 127 lowered to 127. Velocity 0 is a note-off in MIDI, so these
-//!   functions never silence a note; mute it with [`super::notes::mute`].
-//! - Only velocities change. Start, length, pitch, mute and the order of the
-//!   list stay as they are, so the indices returned, and any the caller
-//!   holds, stay valid after the edit.
-//! - [`at_start`] and [`stems`] group notes by start time: the velocity
-//!   lane draws one stem per start, and widens a pick to the whole chord.
-
 use std::collections::BTreeMap;
 
 use lumen_core::curve::Curve;
@@ -26,18 +6,13 @@ use lumen_core::time::Ticks;
 use super::notes::picked;
 use crate::model::Note;
 
-/// The lowest velocity a note can have.
 const LOW: i64 = 1;
-/// The highest velocity a note can have.
 const HIGH: i64 = 127;
 
-/// `v` brought into the valid velocity range.
 fn valid(v: i64) -> u8 {
     v.clamp(LOW, HIGH) as u8
 }
 
-/// Sets every picked note's velocity to `velocity` (clamped to 1..=127),
-/// muted notes included. Returns the picked indices.
 pub fn set(notes: &mut [Note], selection: &[usize], velocity: u8) -> Vec<usize> {
     let picked = picked(selection, notes.len());
     let velocity = valid(i64::from(velocity));
@@ -47,11 +22,6 @@ pub fn set(notes: &mut [Note], selection: &[usize], velocity: u8) -> Vec<usize> 
     picked
 }
 
-/// Sets each listed note's velocity (clamped to 1..=127). Entries are applied
-/// in order, so a later entry for the same index wins. Indices out of range
-/// are ignored. Returns the indices that were set, sorted and without
-/// repeats; a note named here is returned even if it already had that
-/// velocity. Used when a drag draws across several stems.
 pub fn set_each(notes: &mut [Note], changes: &[(usize, u8)]) -> Vec<usize> {
     let mut changed = Vec::with_capacity(changes.len());
     for &(i, velocity) in changes {
@@ -65,9 +35,6 @@ pub fn set_each(notes: &mut [Note], changes: &[(usize, u8)]) -> Vec<usize> {
     changed
 }
 
-/// Adds `delta` to each picked note's velocity, clamped to 1..=127. A note
-/// already at a limit that the delta pushes past it stays there. Returns the
-/// picked indices.
 pub fn offset(notes: &mut [Note], selection: &[usize], delta: i32) -> Vec<usize> {
     let picked = picked(selection, notes.len());
     for &i in &picked {
@@ -76,9 +43,6 @@ pub fn offset(notes: &mut [Note], selection: &[usize], delta: i32) -> Vec<usize>
     picked
 }
 
-/// Multiplies each picked note's velocity by `percent / 100`, rounded to the
-/// nearest whole value (halves go up), then clamped to 1..=127: 0 percent
-/// gives 1, not silence. Returns the picked indices.
 pub fn scale(notes: &mut [Note], selection: &[usize], percent: u32) -> Vec<usize> {
     let picked = picked(selection, notes.len());
     for &i in &picked {
@@ -88,15 +52,6 @@ pub fn scale(notes: &mut [Note], selection: &[usize], percent: u32) -> Vec<usize
     picked
 }
 
-/// Sets each picked note's velocity from a line across time, shaped by
-/// `curve`: the velocity goes from `from.1` at `from.0` to `to.1` at `to.0`,
-/// with the time of each note mapped to `0..=1` between them and held at
-/// the ends outside. The result is rounded to the nearest velocity and
-/// clamped to 1..=127. If `to` is earlier than `from` the two swap places.
-///
-/// When the two times are equal there is no line: notes before that time
-/// take `from`'s velocity, notes at or after it take `to`'s (the values as
-/// passed, so `to` wins at the time itself). Returns the picked indices.
 pub fn ramp(
     notes: &mut [Note],
     selection: &[usize],
@@ -123,15 +78,11 @@ pub fn ramp(
             let level = f64::from(curve.at(along.clamp(0.0, 1.0) as f32));
             f64::from(from.1) + (f64::from(to.1) - f64::from(from.1)) * level
         };
-        // A float cast saturates, and NaN becomes 0, which `valid` raises to 1.
         notes[i].3 = valid(velocity.round() as i64);
     }
     picked
 }
 
-/// The indices of every note (any pitch) that starts at the same tick as
-/// note `index`, `index` included, ascending. Empty if `index` is out of
-/// range.
 pub fn at_start(notes: &[Note], index: usize) -> Vec<usize> {
     let Some(note) = notes.get(index) else {
         return Vec::new();
@@ -145,8 +96,6 @@ pub fn at_start(notes: &[Note], index: usize) -> Vec<usize> {
         .collect()
 }
 
-/// The notes grouped by start tick, in time order. Each group's indices are
-/// ascending. The notes need not be sorted.
 pub fn stems(notes: &[Note]) -> Vec<(Ticks, Vec<usize>)> {
     let mut by_start: BTreeMap<Ticks, Vec<usize>> = BTreeMap::new();
     for (i, note) in notes.iter().enumerate() {
@@ -163,7 +112,6 @@ mod tests {
         Ticks::quarters(n)
     }
 
-    /// A one-quarter note at quarter `start`, unmuted.
     fn note(start: i64, pitch: u8, velocity: u8) -> Note {
         Note::new(q(start), q(1), pitch, velocity)
     }
@@ -173,7 +121,6 @@ mod tests {
         n
     }
 
-    /// Everything but the velocity: start, length, pitch and mute.
     fn shape(notes: &[Note]) -> Vec<(Ticks, Ticks, u8, bool)> {
         notes
             .iter()
@@ -185,8 +132,6 @@ mod tests {
         notes.iter().map(|n| n.velocity()).collect()
     }
 
-    /// A chord of three at quarter 0, one note at 1 and one at 2; the
-    /// chord's top note is muted. Sorted by (start, pitch).
     fn sample() -> Vec<Note> {
         vec![
             note(0, 60, 40),
@@ -214,7 +159,6 @@ mod tests {
         assert_eq!(notes[0].velocity(), 1);
         set(&mut notes, &[0], 255);
         assert_eq!(notes[0].velocity(), 127);
-        // The muted note is set like the others, and stays muted.
         set(&mut notes, &[2], 10);
         assert_eq!((notes[2].velocity(), notes[2].muted()), (10, true));
     }
@@ -246,7 +190,6 @@ mod tests {
         assert_eq!(offset(&mut notes, &[0, 3], 10), [0, 3]);
         assert_eq!(velocities(&notes), [50, 60, 80, 110, 120]);
         assert_eq!(shape(&notes), before);
-        // Repeats and out-of-range indices add once and are ignored.
         assert_eq!(offset(&mut notes, &[1, 1, 7], -5), [1]);
         assert_eq!(velocities(&notes), [50, 55, 80, 110, 120]);
     }
@@ -258,12 +201,10 @@ mod tests {
         assert_eq!(velocities(&notes), [127, 25]);
         offset(&mut notes, &[0, 1], -200);
         assert_eq!(velocities(&notes), [1, 1]);
-        // At a limit and pushed past it: stays at the limit.
         let mut notes = vec![note(0, 60, 127), note(1, 60, 1)];
         offset(&mut notes, &[0], 5);
         offset(&mut notes, &[1], -5);
         assert_eq!(velocities(&notes), [127, 1]);
-        // Extreme deltas do not overflow.
         offset(&mut notes, &[0], i32::MAX);
         offset(&mut notes, &[1], i32::MIN);
         assert_eq!(velocities(&notes), [127, 1]);
@@ -282,17 +223,14 @@ mod tests {
         ];
         assert_eq!(scale(&mut notes, &[0], 50), [0]);
         assert_eq!(notes[0].velocity(), 50);
-        // 3 * 0.5 = 1.5 rounds up to 2; 5 * 0.5 = 2.5 rounds up to 3.
         assert_eq!(scale(&mut notes, &[1, 2, 3], 50), [1, 2, 3]);
         assert_eq!(velocities(&notes), [50, 2, 3, 5, 80]);
-        // Clamped at 127, and 0 percent gives 1, not silence.
         scale(&mut notes, &[4], 200);
         assert_eq!(notes[4].velocity(), 127);
         scale(&mut notes, &[4], 0);
         assert_eq!(notes[4].velocity(), 1);
         scale(&mut notes, &[0], u32::MAX);
         assert_eq!(notes[0].velocity(), 127);
-        // 100 percent changes nothing; out-of-range indices are ignored.
         scale(&mut notes, &[3], 100);
         assert_eq!(notes[3].velocity(), 5);
         assert!(scale(&mut notes, &[99], 10).is_empty());
@@ -325,8 +263,6 @@ mod tests {
             &Curve::LINEAR,
         );
         assert_eq!(sel, [0, 1, 2, 4]);
-        // At 0, 1 and 2 quarters: 20, 40, 60. Past the end holds at 100.
-        // Note 3 is not picked, so it keeps its velocity.
         assert_eq!(velocities(&notes), [20, 40, 60, 1, 100]);
         assert_eq!(shape(&notes), before);
     }
@@ -335,8 +271,6 @@ mod tests {
     fn ramp_follows_the_curve_and_slow_bends_below_the_line() {
         let mut notes = vec![note(0, 60, 1), note(2, 60, 1)];
         ramp(&mut notes, &[0, 1], (q(0), 20), (q(4), 100), &Curve::SLOW);
-        // Halfway in time SLOW is at 0.25 of the way up: 20 + 80 * 0.25 = 40,
-        // below the straight line's 60.
         assert_eq!(notes[1].velocity(), 40);
         assert!(notes[1].velocity() < 60);
         assert_eq!(notes[0].velocity(), 20);
@@ -374,7 +308,6 @@ mod tests {
             (q(2), 90),
             &Curve::LINEAR,
         );
-        // Before the time: from's velocity. At and after it: to's.
         assert_eq!(velocities(&notes), [10, 90, 90]);
     }
 
@@ -383,8 +316,6 @@ mod tests {
         let mut notes = vec![note(0, 60, 1), note(4, 60, 1)];
         ramp(&mut notes, &[0, 1], (q(0), 0), (q(4), 255), &Curve::LINEAR);
         assert_eq!(velocities(&notes), [1, 127]);
-        // 10 to 12 over three quarters: 10.67 at 1 quarter rounds to 11,
-        // 11.33 at 2 quarters rounds to 11.
         let mut notes = vec![
             note(0, 60, 1),
             note(1, 60, 1),
@@ -418,7 +349,6 @@ mod tests {
             stems(&notes),
             [(q(0), vec![0, 1, 2]), (q(1), vec![3]), (q(2), vec![4])]
         );
-        // The notes need not be sorted: groups still come in time order.
         let scrambled = vec![note(2, 60, 1), note(0, 64, 1), note(2, 67, 1)];
         assert_eq!(stems(&scrambled), [(q(0), vec![1]), (q(2), vec![0, 2])]);
         assert!(stems(&[]).is_empty());

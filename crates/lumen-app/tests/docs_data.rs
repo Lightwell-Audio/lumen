@@ -1,13 +1,3 @@
-//! Writes the tables the user documentation's reference is generated from
-//! (docs/USER_DOCS.md §5.1) as JSON: every command with its keys on both
-//! systems, the command areas, every Preferences row and page, and the
-//! transport bar's and app menu's controls. `site/docs/build.sh` runs it
-//! before the site is built; the files are not committed.
-//!
-//! ```text
-//! DOCS_DATA=site/docs/data cargo test -p lumen-app --test docs_data -- --ignored
-//! ```
-
 #[path = "shared/controls.rs"]
 mod controls;
 
@@ -44,8 +34,6 @@ fn export() {
             .id
     };
     let controls = |place: &str, list: &[(&str, Has)]| -> Vec<Value> {
-        // `Each` rows are the test's own template and recent file, not
-        // controls a reader has.
         list.iter()
             .filter_map(|(name, has)| match has {
                 Has::Command(command) => {
@@ -61,7 +49,6 @@ fn export() {
     write(&dir, "controls.json", json!({ "controls": all }));
 }
 
-/// `DOCS_DATA`, read from the repository root when relative.
 fn data_dir() -> PathBuf {
     let dir = PathBuf::from(
         std::env::var_os("DOCS_DATA").expect("set DOCS_DATA to the site's data folder"),

@@ -1,12 +1,3 @@
-//! The drum editor's lanes (M8 D2): a clip on a track with a drum map opens as
-//! one lane a sound; a hit is drawn, erased, moved, copied, boxed, nudged and
-//! given a velocity; the lanes' own mute, solo and order are the map's; Q uses
-//! a lane's own grid; Hide unused and the view switch are commands; and the
-//! arrangement draws a mapped clip as drum rows.
-//!
-//! The gesture points come from the editor's own geometry (`App::drum_hit_point`
-//! and the lane's name points), so a test clicks where a person would.
-
 use eframe::egui::{Key, Modifiers, Pos2, vec2};
 use egui_kittest::kittest::Queryable;
 use lumen_core::grid::{Feel, Size};
@@ -22,7 +13,6 @@ fn q(beats: i64) -> Ticks {
     Ticks::quarters(beats)
 }
 
-/// A two-bar clip of a kick, a snare and closed hats on the 808-style map.
 fn kit_project() -> Project {
     let notes = vec![
         Note::new(Ticks::ZERO, Ticks(60), 36, 110),
@@ -43,11 +33,8 @@ fn kit_project() -> Project {
     project
 }
 
-/// Half a quarter note in ticks.
 const PPQ_HALF: i64 = lumen_core::time::PPQ / 2;
 
-/// Starts Lumen on the kit project, opens its clip in the lanes, and gives the
-/// panel the room the lanes need.
 fn launch(name: &str) -> (Lumen, Id) {
     let project = kit_project();
     let clip = project.tracks[0].clips[0].id;
@@ -59,6 +46,8 @@ fn launch(name: &str) -> (Lumen, Id) {
     lumen.frames(30);
     lumen.app_mut().set_detail_size(520.0);
     lumen.app_mut().open_clip_editor(clip);
+
+    lumen.app_mut().show_the_lanes_view();
     lumen.frames(30);
     (lumen, clip)
 }
@@ -100,7 +89,6 @@ fn a_mapped_clip_opens_as_one_lane_a_sound_in_the_maps_order() {
     let (lumen, _) = launch("lanes-open");
     assert_eq!(lumen.app().drum_view_shown(), Some("lanes"));
     assert!(lumen.shows("Drum lanes: Drums"), "the lanes are the editor");
-    // Every sound of the map, in its order, not only the three played.
     let lanes = lumen.app().open_drum_lanes();
     let map = map(&lumen);
     assert_eq!(lanes.len(), map.sounds.len());
@@ -111,8 +99,6 @@ fn a_mapped_clip_opens_as_one_lane_a_sound_in_the_maps_order() {
             .map(|s| s.name.as_str())
             .collect::<Vec<_>>()
     );
-    // Each lane says what it holds for a screen reader, and its M and S are
-    // there.
     assert!(lumen.shows("Kick lane, 2 hits"));
     assert!(lumen.shows("Snare lane, 2 hits"));
     assert!(lumen.shows("Closed Hat lane, 2 hits"));
@@ -131,7 +117,6 @@ fn a_click_on_a_lane_auditions_it_and_a_vertical_drag_on_a_hit_sets_its_velocity
     assert!(lumen.app().audition_sounding(), "the sound was heard");
     lumen.app_mut().release_audition();
 
-    // Pick the snare hit on beat 2, then drag up: its velocity, not its lane.
     let at = hit(&lumen, q(1), 38);
     lumen.click_at(at, Modifiers::NONE);
     assert_eq!(lumen.app().editor_picked().len(), 1);
@@ -161,7 +146,6 @@ fn the_draw_tool_adds_a_hit_and_removes_one_in_its_lane() {
     let (mut lumen, clip) = launch("lanes-draw");
     lumen.key(Modifiers::NONE, Key::B);
     assert!(lumen.app().editor_draw_tool());
-    // A kick on beat 4 in the kick lane's row.
     let at = hit(&lumen, q(4), 36);
     lumen.click_at(at, Modifiers::NONE);
     assert!(
@@ -169,7 +153,6 @@ fn the_draw_tool_adds_a_hit_and_removes_one_in_its_lane() {
         "a hit was added to the kick's lane"
     );
     assert_eq!(lumen.app().undo_label(), Some("Draw note"));
-    // Clicking the hit again removes it.
     let at = hit(&lumen, q(4), 36);
     lumen.click_at(at, Modifiers::NONE);
     assert!(note_at(&lumen, clip, 36, q(4)).is_none());
@@ -187,14 +170,12 @@ fn a_hit_moves_along_its_lane_and_a_copy_leaves_the_original() {
     let at = hit(&lumen, q(1), 38);
     lumen.click_at(at, Modifiers::NONE);
     let zoom = lumen.app().editor_view().expect("the view").zoom as f32;
-    // One beat right, staying in the snare's lane.
     lumen.drag(at, at + vec2(zoom, 0.0), Modifiers::NONE);
     assert!(
         note_at(&lumen, clip, 38, q(2)).is_some(),
         "moved a beat later, still the snare: {:?}",
         notes_of(&lumen, clip)
     );
-    // One drag is one undo step (review round 2, L6).
     assert_eq!(lumen.app().undo_label(), Some("Move note"));
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert!(
@@ -222,8 +203,6 @@ fn a_hit_moves_along_its_lane_and_a_copy_leaves_the_original() {
 #[test]
 fn a_box_picks_the_hits_it_covers_and_the_arrows_nudge_them() {
     let (mut lumen, clip) = launch("lanes-box");
-    // A box over both hat hits, in the closed hat's row: from empty space at
-    // the row's left edge to just past the second hit.
     let body = lumen.app().editor_body().expect("the lanes drew");
     let row = hit(&lumen, Ticks::ZERO, 42);
     let from = Pos2::new(body.left() + 2.0, row.y - 12.0);
@@ -235,7 +214,6 @@ fn a_box_picks_the_hits_it_covers_and_the_arrows_nudge_them() {
         .filter(|n| n.pitch() == 42)
         .map(|n| n.start())
         .collect();
-    // The keyboard over the editor, as after a click in it.
     lumen.harness.hover_at(to);
     lumen.frames(3);
     lumen.key(Modifiers::NONE, Key::ArrowRight);
@@ -253,12 +231,9 @@ fn a_box_picks_the_hits_it_covers_and_the_arrows_nudge_them() {
 #[test]
 fn quantize_uses_the_lanes_own_grid() {
     let (mut lumen, clip) = launch("lanes-quantize");
-    // The snare's lane gets a quarter-note grid.
     lumen
         .app_mut()
         .set_lane_quantize(38, Size::Note(4), Feel::Straight);
-    // Draw a snare 3/4 of a beat after beat 2: a 1/16 of the editor's grid,
-    // off the lane's quarters.
     let at = hit(&lumen, q(1) + Ticks(3 * lumen_core::time::PPQ / 4), 38);
     lumen.key(Modifiers::NONE, Key::B);
     lumen.click_at(at, Modifiers::NONE);
@@ -269,7 +244,6 @@ fn quantize_uses_the_lanes_own_grid() {
         .find(|n| n.start() != q(1) && n.start() != q(3))
         .expect("a drawn snare");
     assert_eq!(drawn.start(), q(1) + Ticks(3 * lumen_core::time::PPQ / 4));
-    // It is picked after drawing: Q takes it to the lane's own quarter.
     lumen.key(Modifiers::NONE, Key::Q);
     assert!(
         note_at(&lumen, clip, 38, q(2)).is_some(),
@@ -350,7 +324,6 @@ fn the_view_switch_shows_the_piano_roll_and_back() {
 #[test]
 fn the_arrangement_draws_a_mapped_clip_as_drum_rows() {
     let (mut lumen, clip) = launch("lanes-arrangement");
-    // The lanes keep most of the panel: fold it away to see the arrangement.
     lumen.key(Modifiers::SHIFT, Key::Tab);
     lumen.frames(30);
     let picture = lumen
@@ -359,7 +332,6 @@ fn the_arrangement_draws_a_mapped_clip_as_drum_rows() {
         .expect("the clip is in view");
     assert_eq!(picture.0, 3, "one row a sound the clip plays");
     assert!(picture.1 > 0, "its hits are cells: {picture:?}");
-    // The same clip with its map taken off draws the mini piano roll again.
     lumen.app_mut().detach_the_drum_map();
     lumen.frames(30);
     assert!(
@@ -370,9 +342,6 @@ fn the_arrangement_draws_a_mapped_clip_as_drum_rows() {
 
 #[test]
 fn the_deepest_zoom_keeps_the_drum_picture_narrow() {
-    // Review H1: the arrangement's picture is gathered for the visible part
-    // only, and a mark stays a few points wide however deep the zoom. (The
-    // frame-time claim is the ignored bench's, never an E2E's.)
     let notes: Vec<Note> = (0..2_000_i64)
         .map(|i| Note::new(Ticks(i * 3), Ticks(2), [36, 38, 42][i as usize % 3], 100))
         .collect();
@@ -399,8 +368,6 @@ fn the_deepest_zoom_keeps_the_drum_picture_narrow() {
         normal.0 > 0 && normal.1 > 0,
         "rows and cells at the normal zoom: {normal:?}"
     );
-    // Deep in, as a player zoomed to a hit would: 4,000 points a beat, so the
-    // clip's body is tens of thousands of points wide.
     lumen.app_mut().set_view_to(0.0, 4000.0);
     lumen.frames(20);
     let (rows, cells, widest) = lumen
@@ -421,9 +388,7 @@ fn the_deepest_zoom_keeps_the_drum_picture_narrow() {
 
 #[test]
 fn a_press_below_the_last_lane_draws_nothing() {
-    // Review M1: no row below the last lane (and none in a map with no lanes).
     let (mut lumen, clip) = launch("lanes-below");
-    // Hide unused leaves three lanes, so there is ground below them.
     palette(&mut lumen, "Hide unused lanes");
     lumen.frames(10);
     assert_eq!(lumen.app().open_drum_lanes().len(), 3);
@@ -441,10 +406,7 @@ fn a_press_below_the_last_lane_draws_nothing() {
 
 #[test]
 fn a_box_takes_a_hits_diamond_not_its_length() {
-    // Review M2: a box in the lanes takes the diamonds (a hit is its diamond),
-    // not the note's length bar.
     let (mut lumen, clip) = launch("lanes-box-diamond");
-    // A long snare: draw one and drag it two beats long.
     lumen.key(Modifiers::NONE, Key::B);
     let from = hit(&lumen, q(4), 38);
     lumen.drag(
@@ -463,7 +425,6 @@ fn a_box_takes_a_hits_diamond_not_its_length() {
         .app()
         .drum_hit_point(long.start(), 38)
         .expect("in view");
-    // A box over the tail only: nothing.
     let tail = diamond + vec2(lumen.app().editor_view().unwrap().zoom as f32, 0.0);
     lumen.drag(
         tail - vec2(6.0, 6.0),
@@ -474,7 +435,6 @@ fn a_box_takes_a_hits_diamond_not_its_length() {
         lumen.app().editor_picked().is_empty(),
         "the length bar is not a handle"
     );
-    // A box over the diamond: the hit.
     lumen.drag(
         diamond - vec2(8.0, 6.0),
         diamond + vec2(8.0, 6.0),
@@ -485,8 +445,6 @@ fn a_box_takes_a_hits_diamond_not_its_length() {
 
 #[test]
 fn the_picked_lanes_mute_is_a_command_and_the_toggle_takes_space() {
-    // Review M4: the mute is a command (keyboard only), and the M toggle
-    // activates on Space when focused.
     let (mut lumen, _) = launch("lanes-keys");
     let at = hit(&lumen, q(1), 38);
     lumen.click_at(at, Modifiers::NONE);
@@ -495,9 +453,6 @@ fn the_picked_lanes_mute_is_a_command_and_the_toggle_takes_space() {
     assert_eq!(lumen.app().undo_label(), Some("Mute drum sound"));
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert!(!map(&lumen).sound(38).expect("snare").mute);
-    // The M under the pointer, reached from the keyboard: Tab to it (the
-    // harness focuses the node), then Space toggles it (review M4). A mouse
-    // click leaves Space the transport's, so the toggle never eats play/stop.
     let mute = lumen.app().drum_toggle_point(38, false).expect("the M");
     lumen.harness.get_by_label("Mute Snare").focus();
     lumen.frames(2);
@@ -512,19 +467,15 @@ fn the_picked_lanes_mute_is_a_command_and_the_toggle_takes_space() {
         !map(&lumen).sound(38).expect("snare").mute,
         "and Space again unmutes it"
     );
-    // A click still toggles it, and leaves the keyboard where it was.
     lumen.click_at(mute, Modifiers::NONE);
     assert!(map(&lumen).sound(38).expect("snare").mute);
 }
 
 #[test]
 fn the_rolls_row_height_survives_opening_a_drum_clip() {
-    // Review M5: a drum clip never writes the roll's row height.
     let (mut lumen, _) = launch("lanes-row-height");
     lumen.app_mut().set_editor_row_height(24.0);
     lumen.frames(3);
-    // Reopen the clip: a drum clip frames itself without touching the roll's
-    // height.
     let clip = lumen.app().editor_open_clip().expect("the clip");
     lumen.app_mut().close_the_clip_editor();
     lumen.frames(3);
@@ -535,7 +486,6 @@ fn the_rolls_row_height_survives_opening_a_drum_clip() {
 
 #[test]
 fn quantize_says_the_lanes_grid_only_when_a_lane_had_one() {
-    // Review L3: the toast does not claim each lane's grid when none had one.
     let (mut lumen, _) = launch("lanes-toast");
     let at = hit(&lumen, q(1), 38);
     lumen.click_at(at, Modifiers::NONE);
@@ -556,8 +506,6 @@ fn quantize_says_the_lanes_grid_only_when_a_lane_had_one() {
 
 #[test]
 fn the_view_commands_say_whether_the_map_or_the_view_is_missing() {
-    // Review L4: a clip on a track with no drum map is told that, not told
-    // that the lanes are the view already.
     let notes = vec![Note::new(Ticks::ZERO, Ticks(60), 60, 100)];
     let project = project_of(
         "Plain",
@@ -584,9 +532,6 @@ fn the_view_commands_say_whether_the_map_or_the_view_is_missing() {
             "{name}"
         );
     }
-    // On a mapped clip in Lanes, the lanes are the view already and Keys can
-    // be shown; in Keys it is the other way round, and Hide unused needs the
-    // lanes.
     let (mut lumen, _) = launch("lanes-reasons");
     let ctx = lumen.harness.ctx.clone();
     assert_eq!(
@@ -610,7 +555,7 @@ fn the_view_commands_say_whether_the_map_or_the_view_is_missing() {
     );
     assert_eq!(
         lumen.app().command_reason(&ctx, "Hide unused lanes"),
-        Some("Show the drum lanes first")
+        Some("Show the drum lanes or the steps first")
     );
     assert_eq!(
         lumen.app().command_reason(&ctx, "Show the drum lanes"),
@@ -620,9 +565,6 @@ fn the_view_commands_say_whether_the_map_or_the_view_is_missing() {
 
 #[test]
 fn the_editors_menu_switches_the_view_and_lists_only_what_applies() {
-    // Review round 2, M4 and L4: the menu's Lanes/Keys rows go through the
-    // command's switch (so the other view is framed on the clip's notes), and
-    // the lane mute and solo rows are listed only while a lane is picked.
     let (mut lumen, _) = launch("lanes-menu");
     let body = lumen.app().editor_body().expect("the lanes drew");
     let menu_at = Pos2::new(body.left() + 320.0, body.center().y);
@@ -634,13 +576,11 @@ fn the_editors_menu_switches_the_view_and_lists_only_what_applies() {
     );
     lumen.key(Modifiers::NONE, Key::Escape);
     lumen.frames(3);
-    // A picked hit lists them.
     let at = hit(&lumen, q(1), 38);
     lumen.click_at(at, Modifiers::NONE);
     lumen.right_click(menu_at);
     lumen.frames(3);
     assert!(lumen.shows("Mute the picked lane"), "a lane is picked");
-    // The view row switches to Keys and frames the clip's notes.
     lumen.click("Show the piano roll (Keys)");
     lumen.frames(20);
     assert_eq!(lumen.app().drum_view_shown(), Some("keys"));
@@ -650,7 +590,6 @@ fn the_editors_menu_switches_the_view_and_lists_only_what_applies() {
         roll.contains(snare),
         "Keys opens on the clip's notes, not at the top: {snare:?} in {roll:?}"
     );
-    // And back through the menu, in Lanes.
     lumen.right_click(menu_at);
     lumen.frames(3);
     lumen.click("Show the drum lanes");

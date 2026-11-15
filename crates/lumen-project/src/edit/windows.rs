@@ -4,8 +4,6 @@ use crate::model::{Clip, ClipContent, Project};
 
 use super::{in_window, shift_events, shift_notes};
 
-/// The part of `clip` inside `[a, b)`, or `None` if they do not meet. It
-/// keeps `clip`'s id; give it a new one if both parts stay.
 pub fn slice(project: &Project, tempo: &TempoMap, clip: &Clip, a: Ticks, b: Ticks) -> Option<Clip> {
     let start = clip.start.max(a);
     let end = (clip.start + clip.length).min(b);
@@ -21,7 +19,6 @@ pub fn slice(project: &Project, tempo: &TempoMap, clip: &Clip, a: Ticks, b: Tick
 
     let looping = clip.loop_length.is_some_and(|period| period.0 > 0);
     if cut > Ticks::ZERO && !looping {
-        // The other passes of a loop recording move with the one that plays.
         let seconds = tempo.seconds_at(start) - tempo.seconds_at(clip.start);
         super::takes::advance(&mut part, cut, seconds, None, &|at| in_window(clip, at));
     }
@@ -33,12 +30,8 @@ pub fn slice(project: &Project, tempo: &TempoMap, clip: &Clip, a: Ticks, b: Tick
         ClipContent::Audio { .. } => {
             if cut > Ticks::ZERO && !looping {
                 part.audio_phase_seconds += tempo.seconds_at(start) - tempo.seconds_at(clip.start);
-                // Keep the integer media anchor unchanged. The app converts
-                // this source-time phase at the active device rate.
             }
             if cut > Ticks::ZERO && !looping {
-                // A warped clip's map is measured from its start: the cut
-                // moves the start, so the markers move back with it.
                 if let Some(warp) = &mut part.warp {
                     warp.shift(Ticks::ZERO - cut);
                 }
@@ -63,9 +56,6 @@ pub fn slice(project: &Project, tempo: &TempoMap, clip: &Clip, a: Ticks, b: Tick
         }
     }
 
-    // Loop envelopes remain in canonical loop-local coordinates. The engine
-    // uses loop_phase when reading them; shifting them here would apply the
-    // phase twice.
     if !looping {
         part.envelopes.shift(Ticks::ZERO - cut);
     }

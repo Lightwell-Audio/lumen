@@ -1,8 +1,3 @@
-//! Parallax and Afterglow through the engine (M8 slice B3): a synced echo
-//! follows the song's own tempo map to the sample, both devices play the same
-//! audio at every block size and in an offline render as in playback, their
-//! golden renders are pinned, and their tails ring on after a Stop.
-
 use std::sync::Arc;
 
 use lumen_core::meter::{Meter, MeterMap};
@@ -24,7 +19,6 @@ const MASTER: u64 = 100;
 const TRACK: u64 = 1;
 const DEVICE: u64 = 7;
 
-/// The normalised value of `id` at `value` in its own units.
 fn value(table: &'static [params::ParamInfo], id: u32, value: f32) -> f32 {
     params::find(table, id)
         .expect("a parameter of the table")
@@ -35,8 +29,6 @@ fn note(index: usize) -> f32 {
     index as f32 / 6.0
 }
 
-/// A clip on `track` that is silence with one sample of `value` at each of
-/// `at`, long enough for any render here.
 fn impulses(track: u64, at: &[(usize, f32)]) -> Clip {
     let mut left = vec![0.0; 480_000];
     for &(frame, value) in at {
@@ -58,7 +50,6 @@ fn impulses(track: u64, at: &[(usize, f32)]) -> Clip {
     }
 }
 
-/// A clip of a steady tone on `track`.
 fn tone(track: u64, level: f32) -> Clip {
     let left = vec![level; 480_000];
     Clip {
@@ -77,7 +68,6 @@ fn tone(track: u64, level: f32) -> Clip {
     }
 }
 
-/// A clip of two tones and a spike: what a golden render is pinned from.
 fn rich(track: u64) -> Clip {
     let mut left = vec![0.0; 480_000];
     for (k, sample) in left.iter_mut().enumerate() {
@@ -102,7 +92,6 @@ fn rich(track: u64) -> Clip {
     }
 }
 
-/// The routing: a track with one built-in device on it, into the master.
 fn routing(values: Vec<(u32, f32)>, lane: Option<ParamLane>) -> Routing {
     let mut track = NodeSpec::unity(TRACK, Destination::Node(MASTER));
     track.devices = vec![Device::Builtin {
@@ -149,12 +138,10 @@ impl Rig {
         self.transport.send(Command::Play).unwrap();
     }
 
-    /// Renders `frames` in blocks of `block`; returns the left channel.
     fn run(&mut self, frames: usize, block: usize) -> Vec<f32> {
         self.run_stereo(frames, block).0
     }
 
-    /// Renders `frames` in blocks of `block`; returns both channels.
     fn run_stereo(&mut self, frames: usize, block: usize) -> (Vec<f32>, Vec<f32>) {
         let mut data = vec![0.0; 2 * block];
         let mut out = (Vec::with_capacity(frames), Vec::with_capacity(frames));
@@ -170,8 +157,6 @@ impl Rig {
     }
 }
 
-/// The delay's values for a quarter-note echo at full wet, no feedback, with
-/// `extra` on top.
 fn delay_values(extra: &[(u32, f32)]) -> Vec<(u32, f32)> {
     delay::TABLE
         .iter()
@@ -193,7 +178,6 @@ fn delay_values(extra: &[(u32, f32)]) -> Vec<(u32, f32)> {
         .collect()
 }
 
-/// Where and how loud the loudest frame of `samples[from..]` is.
 fn loudest(samples: &[f32], from: usize) -> (usize, f32) {
     let mut at = from;
     let mut level = 0.0f32;
@@ -206,8 +190,6 @@ fn loudest(samples: &[f32], from: usize) -> (usize, f32) {
     (at, level)
 }
 
-/// 120 BPM until sample 96000 (four quarters in), then 60: the tempo map a
-/// delay follows.
 fn changing_tempo() -> Timeline {
     let tempo = TempoMap::new(vec![
         TempoPoint::step(Ticks::ZERO, 120.0),
@@ -219,9 +201,6 @@ fn changing_tempo() -> Timeline {
 
 #[test]
 fn a_synced_echo_follows_the_song_s_tempo_map_to_the_sample() {
-    // An impulse a millisecond in (past the play fade), and another at the
-    // tempo change: the first echoes at 25000 (a quarter at 120), the second
-    // at 144000 (a quarter at 60, from 96000).
     let clip = impulses(TRACK, &[(1_000, 1.0), (96_000, 1.0)]);
     let routing = routing(delay_values(&[]), None);
     let mut rig = rig(
@@ -242,7 +221,6 @@ fn a_synced_echo_follows_the_song_s_tempo_map_to_the_sample() {
 
 #[test]
 fn both_devices_play_the_same_audio_at_every_block_size_in_the_engine() {
-    // The same feedback lane, drawn in seconds, at 64, 97, 128, 512 and 1024.
     let lane = AutoLane::new(vec![
         AutoPoint {
             at: 0,
@@ -286,8 +264,6 @@ fn both_devices_play_the_same_audio_at_every_block_size_in_the_engine() {
             );
         }
     }
-    // The lane is really heard: the first echo (the feedback still at 0.3) is
-    // louder than the train after the lane has fallen to 0.1.
     let loud = whole[24_000..26_000]
         .iter()
         .fold(0.0f32, |m, s| m.max(s.abs()));
@@ -411,9 +387,6 @@ fn an_offline_render_plays_what_playback_plays_with_a_reverb() {
     );
     assert_eq!(ended, Ended::Done);
     assert_eq!(rendered.len(), 12_000);
-    // Bit for bit, after the first few frames the render's fade-in shapes: the
-    // lines are read by whole frames and a fraction (`line::read_behind`), so
-    // the lead-in a render plays first cannot change what a read returns.
     for (frame, (a, b)) in live.iter().zip(&rendered).enumerate().skip(300) {
         assert_eq!(
             a.to_bits(),
@@ -425,8 +398,6 @@ fn an_offline_render_plays_what_playback_plays_with_a_reverb() {
 
 #[test]
 fn a_delay_s_tail_rings_on_after_a_stop() {
-    // A tone heard, then Stop: the echoes carry on, and the engine says it is
-    // still sounding (the mixer's answer is the effect's tail).
     let routing = routing(
         delay_values(&[(delay::FEEDBACK, 0.7), (delay::MIX, 0.5)]),
         None,
@@ -471,9 +442,6 @@ fn a_reverb_s_tail_rings_on_after_a_stop() {
     assert!(after > 1e-3, "the tail is heard: {after}");
 }
 
-/// What a golden render is pinned by: twenty samples, its level (the sum of
-/// |x|) and its energy (the sum of x²). A golden is frozen: one that differs
-/// from its pin was changed on purpose, and the pin moves in the same commit.
 struct Golden {
     pins: [f32; 20],
     level: f64,
@@ -503,7 +471,6 @@ fn check_golden(heard: &[f32], golden: &Golden, what: &str) {
     );
 }
 
-/// A delay with a feedback lane, rendered for the golden.
 fn delay_golden_render() -> Vec<f32> {
     let lane = AutoLane::new(vec![
         AutoPoint {
@@ -541,7 +508,6 @@ fn delay_golden_render() -> Vec<f32> {
     rig.run(5_000, 128)
 }
 
-/// A reverb with a decay lane, rendered for the golden.
 fn reverb_golden_render() -> Vec<f32> {
     let lane = AutoLane::new(vec![
         AutoPoint {
@@ -577,9 +543,6 @@ fn reverb_golden_render() -> Vec<f32> {
 
 #[test]
 fn ping_pong_bounces_a_centred_clip_between_the_sides() {
-    // OR-8 through the mixer: the values the project holds (not a lane) put
-    // Ping at 1, and a centred impulse comes out of the left, then the right,
-    // half the feedback down each time.
     let clip = impulses(TRACK, &[(2_000, 1.0)]);
     let values = delay_values(&[
         (delay::TIME, value(delay::TABLE, delay::TIME, 100.0)),

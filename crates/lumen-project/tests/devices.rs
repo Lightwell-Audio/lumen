@@ -1,8 +1,3 @@
-//! Format v17 (M6 slice 2): what a saved device holds. A VST3 device keeps
-//! its component and controller state, its version and its last reported
-//! timing; a plugin says whether it is an instrument or an effect. Old files
-//! mean what they always meant, and a damaged file is refused with a reason.
-
 use std::path::PathBuf;
 
 use lumen_project::model::{
@@ -50,8 +45,6 @@ fn track(id: u64, kind: TrackKind, devices: Vec<Device>) -> Track {
     track
 }
 
-/// The model the v17 golden file must always load as. Never change it: when
-/// the format moves on, this test proves old projects still open.
 fn golden_v17_expected() -> Project {
     let mut synth = instrument(1001);
     synth.state = vec![1, 2, 3, 4];
@@ -158,8 +151,6 @@ fn reported_latency_follows_the_sample_rate() {
     assert_eq!(reported.latency_at(44_100), 118, "rounded up, never early");
 }
 
-/// Serializes a valid project, lets `damage` break the first track's
-/// devices in the JSON, and returns why loading it was refused.
 fn refused(project: &Project, damage: impl FnOnce(&mut Vec<Value>)) -> String {
     let mut document: Value = serde_json::from_slice(&to_bytes(project).unwrap()).unwrap();
     let devices = document["project"]["tracks"][0]["devices"]
@@ -185,8 +176,6 @@ fn keys() -> Project {
 
 #[test]
 fn a_track_has_one_instrument_wherever_it_sits() {
-    // An effect before the instrument is tolerated on load: an older file may
-    // hold one, and every older file opens. Edits refuse it (the Document).
     let mut document: Value = serde_json::from_slice(&to_bytes(&keys()).unwrap()).unwrap();
     document["project"]["tracks"][0]["devices"]
         .as_array_mut()
@@ -252,9 +241,6 @@ fn damaged_device_data_is_refused_with_a_reason() {
     assert!(why.contains("plugin-only"), "{why}");
 }
 
-// Format v18 (M6 slice 3): the view remembers which device cards are folded.
-
-/// The model the v18 golden file must always load as. Never change it.
 fn golden_v18_expected() -> Project {
     let mut project = golden_v17_expected();
     project.name = "Golden v18".into();
@@ -289,10 +275,6 @@ fn older_projects_have_no_folded_cards_and_none_are_written_when_there_are_none(
     );
 }
 
-// Format v19 (M6 slice 4): a device holds parameter values over its saved
-// state, and the view remembers which parameters a card's strip shows.
-
-/// The model the v19 golden file must always load as. Never change it.
 fn golden_v19_expected() -> Project {
     let mut project = golden_v18_expected();
     project.name = "Golden v19".into();
@@ -325,9 +307,6 @@ fn older_projects_hold_no_parameter_values_and_none_are_written_when_there_are_n
                 .tracks
                 .iter()
                 .flat_map(|t| &t.devices)
-                // The synth is the one device whose values a later migration
-                // gives it (v36, M8 slice B4): it played a preset's name
-                // before, and its sound is its values from v36 on.
                 .filter(|d| !d.is_synth())
                 .all(|d| d.params.is_empty()),
             "{old}"
@@ -344,7 +323,6 @@ fn parameter_values_that_cannot_be_a_plugins_are_refused_with_a_reason() {
     let refused = |edit: &dyn Fn(&mut Project)| {
         let mut project = golden_v19_expected();
         edit(&mut project);
-        // Saving refuses it; and so would loading a file that said so.
         to_bytes(&project)
             .expect_err("must be refused when saved")
             .to_string()
@@ -359,7 +337,6 @@ fn parameter_values_that_cannot_be_a_plugins_are_refused_with_a_reason() {
         track.devices[1].params.insert(9, f64::NAN);
     });
     assert!(why.contains("parameter values"), "{why}");
-    // A built-in device holds none of this.
     let why = refused(&|p| {
         let track = std::sync::Arc::make_mut(&mut p.tracks[0]);
         track.devices[0].plugin = PluginRef::Builtin {
@@ -372,7 +349,6 @@ fn parameter_values_that_cannot_be_a_plugins_are_refused_with_a_reason() {
         p.view.shown_params.insert(Id(1002), (0..300).collect());
     });
     assert!(why.contains("strip"), "{why}");
-    // And the view cannot name devices without end.
     let why = refused(&|p| {
         p.view.folded_devices = (0..70_000).map(Id).collect();
     });
@@ -383,9 +359,6 @@ fn parameter_values_that_cannot_be_a_plugins_are_refused_with_a_reason() {
     assert!(why.contains("too many devices"), "{why}");
 }
 
-// Format v20 (M6 slice 6): an effect takes a sidechain from another track.
-
-/// The model the v20 golden file must always load as. Never change it.
 fn golden_v20_expected() -> Project {
     use lumen_project::model::{Sidechain, SidechainTap};
     let mut project = golden_v19_expected();
@@ -449,26 +422,19 @@ fn a_sidechain_that_cannot_work_is_refused_with_a_reason() {
         std::sync::Arc::make_mut(&mut p.tracks[1]).devices[0].sidechain = Some(key(1010));
     });
     assert!(why.contains("its own track"), "{why}");
-    // A source that was deleted is kept, so undoing the delete restores it.
     let mut gone = golden_v20_expected();
     std::sync::Arc::make_mut(&mut gone.tracks[1]).devices[0].sidechain = Some(key(77));
     assert!(to_bytes(&gone).is_ok());
-    // Keys on one track from the other, and back: the routing would feed back.
     let why = refused(&|p| {
         std::sync::Arc::make_mut(&mut p.tracks[0]).devices[1].sidechain = Some(key(1010));
     });
     assert!(why.contains("feeds back"), "{why}");
-    // An instrument takes none.
     let why = refused(&|p| {
         std::sync::Arc::make_mut(&mut p.tracks[0]).devices[0].sidechain = Some(key(1010));
     });
     assert!(why.contains("instrument takes no sidechain"), "{why}");
 }
 
-// Format v21 (M6 slice 6): an audio track plays an output of a plugin
-// instrument.
-
-/// The model the v21 golden file must always load as. Never change it.
 fn golden_v21_expected() -> Project {
     use lumen_project::model::PluginOutput;
     let mut project = golden_v20_expected();
@@ -535,15 +501,11 @@ fn a_plugin_output_that_cannot_be_played_is_refused_with_a_reason() {
     let why =
         refused(&|p| std::sync::Arc::make_mut(&mut p.tracks[3]).plugin_output = play(1001, 1));
     assert!(why.contains("same plugin output"), "{why}");
-    // A device that is no longer there is kept: the track says so.
     let mut gone = golden_v21_expected();
     std::sync::Arc::make_mut(&mut gone.tracks[2]).plugin_output = play(9_999, 1);
     assert!(to_bytes(&gone).is_ok());
 }
 
-// Format v22 (M7 slice A0): a track holds automation lanes.
-
-/// The model the v22 golden file must always load as. Never change it.
 fn golden_v22_expected() -> Project {
     use lumen_core::automation::{Lane, Point, Shape};
     use lumen_core::curve::Curve;
@@ -678,8 +640,6 @@ fn lanes_that_cannot_play_are_refused_with_a_reason() {
             .collect();
     });
     assert!(why.contains("more than"), "{why}");
-    // A lane whose send or device is gone is kept: undoing the deletion
-    // brings the target back.
     let mut kept = golden_v22_expected();
     std::sync::Arc::make_mut(&mut kept.tracks[1])
         .automation
@@ -690,8 +650,6 @@ fn lanes_that_cannot_play_are_refused_with_a_reason() {
 #[test]
 fn a_lane_out_of_time_order_is_a_damaged_file() {
     let text = String::from_utf8(to_bytes(&golden_v22_expected()).unwrap()).unwrap();
-    // Move a later point of the fader lane (8 quarter notes) before its
-    // neighbours.
     let eight = format!("\"at\": {}", lumen_core::time::PPQ * 8);
     let damaged = text.replacen(&eight, "\"at\": 1", 1);
     assert_ne!(text, damaged);
@@ -699,9 +657,6 @@ fn a_lane_out_of_time_order_is_a_damaged_file() {
     assert!(error.to_string().contains("not after"), "{error}");
 }
 
-// Format v23 (M7 slice A5): the project holds controller mappings.
-
-/// The model the v23 golden file must always load as. Never change it.
 fn golden_v23_expected() -> Project {
     use lumen_project::automation::Target;
     use lumen_project::mapping::Mapping;

@@ -1,9 +1,3 @@
-//! Controls that follow their lane (M7 slice A4a, D5): a fader, pan, trim,
-//! send or mute whose lane plays shows the value the lane has at the playhead,
-//! stopped or playing, and one the user has taken over (D7) shows its own value
-//! and an amber ring, the look the owner chose (A). The interface asks the lane
-//! (`Lane::value_at`); it never reads the value back from the engine.
-
 use eframe::egui::{Color32, Rect, Stroke, StrokeKind, Ui};
 use lumen_project::automation::Target;
 use lumen_project::model::Track;
@@ -14,8 +8,6 @@ use crate::document::{Document, Overrides};
 use crate::theme;
 
 impl AutoView {
-    /// The value `track`'s lane for `target` has at the playhead, when the lane
-    /// plays: on, and not taken over.
     pub(crate) fn following(&self, over: &Overrides, track: &Track, target: Target) -> Option<f32> {
         let entry = track.lane(target).filter(|l| over.plays(track, l))?;
         entry.lane.value_at(self.at)
@@ -23,30 +15,22 @@ impl AutoView {
 }
 
 impl Arrangement {
-    /// What the control for `target` shows: its lane's value at the playhead
-    /// when the lane plays, else `own`.
     pub(crate) fn shown(&self, doc: &Document, track: &Track, target: Target, own: f32) -> f32 {
         self.auto
             .following(doc.overrides(), track, target)
             .unwrap_or(own)
     }
 
-    /// Whether the user has taken `track`'s lane for `target` over.
-    /// A lane that is being written is taken over to be recorded, not to be
-    /// left: it does not show as overridden.
     pub(crate) fn taken_over(&self, doc: &Document, track: &Track, target: Target) -> bool {
         doc.overrides().contains(track.id, target)
             && !self.auto.recording.contains(&(track.id, target))
     }
 }
 
-/// The amber ring around a control whose lane the user has taken over.
 pub(crate) fn ring(ui: &Ui, rect: Rect) {
     ring_with(ui, rect, theme::p().warning);
 }
 
-/// A ring of `color` around a control: amber for a lane taken over, record
-/// red for one being written.
 pub(crate) fn ring_with(ui: &Ui, rect: Rect, color: Color32) {
     ui.painter().rect_stroke(
         rect,
@@ -56,8 +40,6 @@ pub(crate) fn ring_with(ui: &Ui, rect: Rect, color: Color32) {
     );
 }
 
-/// The amber ring around a round control (a knob) whose lane the user has
-/// taken over.
 pub(crate) fn ring_round(ui: &Ui, rect: Rect) {
     ui.painter().circle_stroke(
         rect.center(),
@@ -66,7 +48,6 @@ pub(crate) fn ring_round(ui: &Ui, rect: Rect) {
     );
 }
 
-/// [`ring_round`] in `color`.
 pub(crate) fn ring_round_with(ui: &Ui, rect: Rect, color: Color32) {
     ui.painter().circle_stroke(
         rect.center(),
@@ -75,7 +56,6 @@ pub(crate) fn ring_round_with(ui: &Ui, rect: Rect, color: Color32) {
     );
 }
 
-/// A mute lane's value as the button shows it: muted from one half up.
 pub(crate) fn muted(value: f32) -> bool {
     value >= 0.5
 }

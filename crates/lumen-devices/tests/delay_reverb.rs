@@ -1,9 +1,3 @@
-//! Parallax (the stereo delay) and Afterglow (the reverb), M8 slice B3: what
-//! they do to the audio, that a synced echo lands on the beat and follows a
-//! tempo change, that the reverb's decay is the time it says, that the same
-//! audio comes out at every block size, and that nothing allocates while they
-//! run.
-
 use lumen_devices::delay::{self, Delay};
 use lumen_devices::params;
 use lumen_devices::reverb::{self, Reverb};
@@ -13,20 +7,16 @@ lumen_rt::install_guarded_allocator!();
 
 const RATE: u32 = 48_000;
 
-/// The normalised value of `id` at `value` in its own units.
 fn at(table: &'static [params::ParamInfo], id: u32, value: f32) -> f32 {
     params::find(table, id)
         .expect("a parameter of the table")
         .normalised(value)
 }
 
-/// The note choice's value (0 is Free): index / 6.
 fn note(index: usize) -> f32 {
     index as f32 / 6.0
 }
 
-/// A block: every parameter at rest, `set`'s values (normalised) on top, and
-/// the lanes' points.
 #[derive(Clone)]
 struct BlockBuilder {
     frames: usize,
@@ -77,7 +67,6 @@ impl BlockBuilder {
     }
 }
 
-/// The values of every parameter of `table`, `set`'s (normalised) on top.
 fn table_block(
     table: &'static [params::ParamInfo],
     frames: usize,
@@ -94,9 +83,6 @@ fn table_block(
     block
 }
 
-/// Runs `device` over `lead` frames of silence, then `signal` (one sample per
-/// frame, both sides), a block at a time. `bpm_at` gives the tempo at a
-/// timeline sample, `lanes` the block's parameters. Returns left and right.
 fn run_device(
     device: &mut dyn Effect,
     lead: usize,
@@ -136,12 +122,10 @@ fn run_device(
     (left, right)
 }
 
-/// 120 BPM everywhere: the reference tempo.
 fn steady_120(_: usize) -> f32 {
     120.0
 }
 
-/// A delay run with `set`, over silence for `lead` frames, then `signal`.
 fn delay_run(set: &[(u32, f32)], lead: usize, signal: &[f32], bpm: f32, block: usize) -> Vec<f32> {
     let set = set.to_vec();
     let mut device = Delay::new();
@@ -150,7 +134,6 @@ fn delay_run(set: &[(u32, f32)], lead: usize, signal: &[f32], bpm: f32, block: u
     run_device(&mut device, lead, signal, block, &bpm_at, &lanes).0
 }
 
-/// A reverb run with `set`, over the signal.
 fn reverb_run(set: &[(u32, f32)], signal: &[f32], block: usize) -> (Vec<f32>, Vec<f32>) {
     let set = set.to_vec();
     let mut device = Reverb::new();
@@ -158,7 +141,6 @@ fn reverb_run(set: &[(u32, f32)], signal: &[f32], block: usize) -> (Vec<f32>, Ve
     run_device(&mut device, 0, signal, block, &steady_120, &lanes)
 }
 
-/// Where and how loud the loudest frame of `samples[from..]` is.
 fn loudest(samples: &[f32], from: usize) -> (usize, f32) {
     let mut at = from;
     let mut level = 0.0f32;
@@ -171,8 +153,6 @@ fn loudest(samples: &[f32], from: usize) -> (usize, f32) {
     (at, level)
 }
 
-/// The RT60 of an impulse response: the slope of its energy decay between
-/// −5 dB and −35 dB, turned into the time of 60 dB (the standard estimate).
 fn measured_rt60(response: &[f32], rate: u32) -> f32 {
     let mut energy = 0.0f64;
     let mut decay = vec![0.0f64; response.len()];
@@ -200,8 +180,6 @@ fn measured_rt60(response: &[f32], rate: u32) -> f32 {
 
 #[test]
 fn the_two_tables_are_pinned_and_every_id_is_stable_and_unique() {
-    // Ids and defaults are frozen: a change here is a change to what saved
-    // projects play, and is deliberate.
     let delay_table: Vec<(u32, &str, f32)> = delay::TABLE
         .iter()
         .map(|p| (p.id, p.name, p.normalised(p.default)))
@@ -239,7 +217,6 @@ fn the_two_tables_are_pinned_and_every_id_is_stable_and_unique() {
             assert!(info.default >= info.low && info.default <= info.high);
         }
     }
-    // The notes the delay offers, in order: Free first, then the tempo's.
     assert_eq!(
         delay::TABLE[1].choices,
         ["Free", "1/32", "1/16", "1/8", "1/4", "1/2", "1/1"]
@@ -291,8 +268,6 @@ fn a_value_reads_in_its_own_words_and_is_read_back() {
 
 #[test]
 fn every_description_reports_the_tail_its_running_instance_does() {
-    // At its defaults: a fresh instance's tempo and rate are the reference the
-    // description is worked out at.
     for (name, table) in [(delay::NAME, delay::TABLE), (reverb::NAME, reverb::TABLE)] {
         let defaults: Vec<(u32, f32)> = table
             .iter()
@@ -303,8 +278,6 @@ fn every_description_reports_the_tail_its_running_instance_does() {
         assert_eq!((description.tail)(&defaults), fresh.tail(), "{name}");
         assert_eq!((description.latency)(&defaults), fresh.latency(), "{name}");
     }
-    // Its tails move with its settings: a longer time, more feedback, a longer
-    // decay and the mix all show in it.
     let delay_tail = |set: &[(u32, f32)]| {
         let values: Vec<(u32, f32)> = delay::TABLE
             .iter()
@@ -370,8 +343,6 @@ fn every_description_reports_the_tail_its_running_instance_does() {
     };
     assert!(reverb_tail(4.0, 50.0) > reverb_tail(0.5, 50.0));
     assert_eq!(reverb_tail(4.0, 0.0), 0);
-    // And a running instance's tail follows the tempo it has played at: a
-    // quarter note at 60 BPM is twice the tail of one at 120.
     let mut slow = Delay::new();
     let set = [
         (delay::NOTE, quarter),
@@ -393,7 +364,6 @@ fn every_description_reports_the_tail_its_running_instance_does() {
 
 #[test]
 fn a_synced_echo_lands_on_the_beat_to_the_sample() {
-    // Four at 120 BPM is 24000 frames at 48 kHz, exactly.
     let mut signal = vec![0.0; 60_000];
     signal[0] = 1.0;
     let heard = delay_run(
@@ -410,7 +380,6 @@ fn a_synced_echo_lands_on_the_beat_to_the_sample() {
     let (at_frame, level) = loudest(&heard, 1);
     assert_eq!(at_frame, 24_000, "the echo is on the beat: {level}");
     assert!((level - 1.0).abs() < 1e-4, "and the whole impulse: {level}");
-    // An eighth of a note is 12000 frames: half a quarter at 120 BPM.
     let mut signal = vec![0.0; 20_000];
     signal[0] = 1.0;
     let heard = delay_run(
@@ -429,8 +398,6 @@ fn a_synced_echo_lands_on_the_beat_to_the_sample() {
 
 #[test]
 fn a_synced_echo_follows_a_tempo_change() {
-    // A quarter note, 120 BPM until sample 96000, then 60: the sound at the
-    // change lands one new beat later, sample for sample.
     let bpm_at = |sample: usize| if sample < 96_000 { 120.0 } else { 60.0 };
     let mut signal = vec![0.0; 160_000];
     signal[0] = 1.0;
@@ -450,8 +417,6 @@ fn a_synced_echo_follows_a_tempo_change() {
     let (at_frame, level) = loudest(&heard, 96_001);
     assert_eq!(at_frame, 144_000, "the echo after the change: {level}");
     assert!((level - 1.0).abs() < 1e-3, "{level}");
-    // No click: the output never steps between neighbouring frames by more
-    // than the impulse itself (the glide slides the read point).
     let worst = heard
         .windows(2)
         .map(|w| (w[1] - w[0]).abs())
@@ -461,7 +426,6 @@ fn a_synced_echo_follows_a_tempo_change() {
 
 #[test]
 fn the_feedback_decays_the_repeats_by_its_percent() {
-    // 100 ms, half the feedback: 1, 0.5, 0.25 at 4800-frame intervals.
     let lead = 2_000;
     let mut signal = vec![0.0; 40_000];
     signal[0] = 1.0;
@@ -485,11 +449,6 @@ fn the_feedback_decays_the_repeats_by_its_percent() {
 
 #[test]
 fn ping_pong_alternates_the_repeats_between_the_sides() {
-    // A centred impulse, 100 ms a repeat, half the feedback: the first repeat
-    // is the left's, the next the right's, each half the one before. Before
-    // OR-8 Ping only crossed the two feedback lines, and a centred sound is
-    // the same on both of them, so crossing it back onto itself changed
-    // nothing: every repeat stood on both sides.
     let lead = 2_000;
     let mut signal = vec![0.0; 40_000];
     signal[0] = 1.0;
@@ -526,8 +485,6 @@ fn ping_pong_alternates_the_repeats_between_the_sides() {
             far[at_frame]
         );
     }
-    // And the same audio at every block size: nothing in the bounce depends on
-    // where the blocks fall.
     for block in [64usize, 97, 256] {
         let mut device = Delay::new();
         let lanes = move |_: usize, n: usize| table_block(delay::TABLE, n, &set);
@@ -543,8 +500,6 @@ fn ping_pong_alternates_the_repeats_between_the_sides() {
 
 #[test]
 fn ping_off_keeps_the_two_sides_the_same() {
-    // With Ping down the device is what it always was: a sound on both sides
-    // repeats on both, and nothing crosses to the other side.
     let lead = 2_000;
     let mut signal = vec![0.0; 40_000];
     signal[0] = 1.0;
@@ -573,10 +528,6 @@ fn ping_off_keeps_the_two_sides_the_same() {
 
 #[test]
 fn a_step_of_ping_does_not_click() {
-    // A centred 311 Hz tone (a 100 ms repeat lands a third of a cycle away
-    // from it, so the two sides' repeats are never in phase) with Ping stepped
-    // from off to on and back mid-stream. The parameter glides, so no frame
-    // steps further than the tone's own one and a half times.
     let tone: Vec<f32> = (0..24_000)
         .map(|k| (std::f32::consts::TAU * 311.0 * k as f32 / RATE as f32).sin() * 0.4)
         .collect();
@@ -607,9 +558,6 @@ fn a_step_of_ping_does_not_click() {
 
 #[test]
 fn the_repeat_clock_says_how_long_ago_sound_entered() {
-    // The card's picture draws its echoes by this (OR-8): a burst after
-    // silence starts the clock at its first loud frame, a sustained sound does
-    // not restart it, and a new burst after a gap does.
     let (mut device, clock) = Delay::build();
     assert_eq!(
         clock.seconds(),
@@ -647,8 +595,6 @@ fn the_repeat_clock_says_how_long_ago_sound_entered() {
     }
     let at = |end: usize| clocks[end / 128 - 1].1;
     assert_eq!(at(896), None, "nothing has entered the lines yet");
-    // The burst starts at frame 1000, inside the block ending at 1024: the
-    // clock counts from that frame to the block's last one.
     let first = at(1_024).expect("the entrance is seen");
     assert!(
         (first - 24.0 / RATE as f32).abs() < 1e-9,
@@ -659,8 +605,6 @@ fn the_repeat_clock_says_how_long_ago_sound_entered() {
         (next - first - 128.0 / RATE as f32).abs() < 1e-9,
         "a sound still entering does not restart it: {first} then {next}"
     );
-    // By the second burst the clock has run to nearly a sixth of a second and
-    // starts again at its first loud frame.
     let before = at(7_936).expect("the clock runs on through silence");
     assert!(before > 0.14, "the clock runs on: {before}");
     let second = at(8_064).expect("the second entrance is seen");
@@ -668,16 +612,12 @@ fn the_repeat_clock_says_how_long_ago_sound_entered() {
         (second - 64.0 / RATE as f32).abs() < 1e-9,
         "a gap is a new entrance: {second}"
     );
-    // A jump in playback clears it: what was ringing is gone.
     device.reset();
     assert_eq!(clock.seconds(), None, "a reset forgets the entrance");
 }
 
 #[test]
 fn the_loop_s_high_cut_darkens_the_repeats() {
-    // An impulse, 100 ms a repeat, a strong feedback: the tenth echo has been
-    // through the loop's high cut nine times, so at 500 Hz it is gone where an
-    // open loop still has it.
     let lead = 2_000;
     let mut signal = vec![0.0; 60_000];
     signal[0] = 1.0;
@@ -712,8 +652,6 @@ fn the_loop_s_high_cut_darkens_the_repeats() {
 
 #[test]
 fn freeze_holds_the_loop_without_new_sound() {
-    // Feed 220 Hz, freeze, then feed nothing: the loop still rings, and the
-    // tail it reports is the ten-second cap rather than for ever.
     let mut signal: Vec<f32> = (0..40_000)
         .map(|k| (std::f32::consts::TAU * 220.0 * k as f32 / RATE as f32).sin() * 0.4)
         .collect();
@@ -794,7 +732,6 @@ fn a_reverb_makes_a_stereo_tail_and_width_moves_it() {
     assert!(side < 1e-5, "at zero width the tail is mono: {side}");
 }
 
-/// A lane's value at an absolute frame: straight between its points.
 fn curve_at(points: &[(u32, f32)], frame: usize) -> f32 {
     let after = points.partition_point(|p| p.0 as usize <= frame);
     let Some(before) = after.checked_sub(1) else {
@@ -811,9 +748,6 @@ fn curve_at(points: &[(u32, f32)], frame: usize) -> f32 {
     }
 }
 
-/// The points a lane gives one block, as the engine fills them: where it is at
-/// the block's first frame, each of its points inside the block, and where it
-/// has got to at its last.
 fn window(points: &[(u32, f32)], done: usize, n: usize) -> Vec<(u32, f32)> {
     let mut entries: Vec<(usize, f32)> = vec![(0, curve_at(points, done))];
     for &(at, value) in points {
@@ -833,8 +767,6 @@ fn window(points: &[(u32, f32)], done: usize, n: usize) -> Vec<(u32, f32)> {
 
 #[test]
 fn both_devices_play_the_same_audio_at_every_block_size() {
-    // A tone with a moving parameter lane: the same frames at 64, 97, 128, 512
-    // and 1024.
     let signal: Vec<f32> = (0..12_000)
         .map(|k| {
             let t = k as f32 / RATE as f32;
@@ -884,8 +816,6 @@ fn a_block_with_automation_never_touches_the_heap() {
     let mut right = vec![0.25; 4_096];
     let mut delay_device = Delay::new();
     let mut reverb_device = Reverb::new();
-    // The blocks are built before the guard: what is guarded is the devices'
-    // own work while they run.
     let delay_events = table_block(delay::TABLE, 256, &[])
         .lane(delay::FEEDBACK, &[(0, 0.2), (120, 0.9)])
         .build();
@@ -922,8 +852,6 @@ fn a_block_with_automation_never_touches_the_heap() {
 
 #[test]
 fn a_new_device_reports_its_description_s_tail_before_any_block() {
-    // The unit the engine reads the running instance's tail in after a Stop:
-    // before a block it is the reference tempo and rate, as the description.
     for name in [delay::NAME, reverb::NAME] {
         let table = lumen_devices::effect_params(name).unwrap();
         let defaults: Vec<(u32, f32)> = table

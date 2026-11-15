@@ -1,10 +1,3 @@
-//! Preferences (M9 R7, the owner's PW A): one window of pages, Audio to
-//! Appearance, with a list of the pages at the left and a search above it
-//! that finds any row by a word. The window between frames lives here, with
-//! the rows search knows and the outline that marks the row a search led
-//! to; the app draws the window (`app/preferences/window.rs`) and the pages
-//! that change its own settings (`app/preferences/pages.rs`).
-
 use std::cell::Cell;
 
 use eframe::egui::{self, Ui};
@@ -14,7 +7,6 @@ use crate::{motion, theme};
 pub mod audio;
 pub mod midi;
 
-/// A page of Preferences, in the order the list shows them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Page {
     #[default]
@@ -53,7 +45,6 @@ impl Page {
         }
     }
 
-    /// What the page holds, said on hover over its name in the list.
     pub fn tip(self) -> &'static str {
         match self {
             Page::Audio => "The audio device, its format and channels, latency and the test tone",
@@ -68,8 +59,6 @@ impl Page {
     }
 }
 
-/// A row search can find: its key (which the page that draws it names), its
-/// page, the name a result shows, and other words that find it.
 #[derive(Debug)]
 pub struct Row {
     pub key: &'static str,
@@ -87,9 +76,6 @@ const fn row(key: &'static str, page: Page, name: &'static str, words: &'static 
     }
 }
 
-/// Every row search can find, page by page. A row's key is drawn by its
-/// page through [`Marks::row`]; the E2E suite checks each is drawn, and a
-/// test here that each has words.
 pub const ROWS: &[Row] = &[
     row(
         "audio.driver",
@@ -369,10 +355,6 @@ pub const ROWS: &[Row] = &[
     ),
 ];
 
-/// The rows that match `query`, best first: rows whose name starts with it,
-/// then those whose name holds it, then those found by their other words
-/// or their page's name; in page order within each. Every word of the
-/// query must be found. Nothing for an empty query.
 pub fn search(query: &str) -> Vec<&'static Row> {
     let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
     if words.is_empty() {
@@ -397,20 +379,16 @@ pub fn search(query: &str) -> Vec<&'static Row> {
             Some((rank, row))
         })
         .collect();
-    // A stable sort keeps the page order inside a rank.
     found.sort_by_key(|(rank, _)| *rank);
     found.into_iter().map(|(_, row)| row).collect()
 }
 
-/// How the window fits the room the app's window leaves: its width, and
-/// whether the page list folds into a menu above the page.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Fit {
     pub width: f32,
     pub folded: bool,
 }
 
-/// The fit for `room` points of width.
 pub fn fit(room: f32) -> Fit {
     let width = room.clamp(theme::size::PREFERENCES_LEAST, theme::size::PREFERENCES);
     Fit {
@@ -419,32 +397,24 @@ pub fn fit(room: f32) -> Fit {
     }
 }
 
-/// The row a search led to, outlined for a moment.
 #[derive(Debug, Clone, Copy)]
 struct Mark {
     key: &'static str,
-    /// When it was chosen (input time, seconds).
     since: f64,
-    /// It has yet to be scrolled into view.
     scroll: bool,
 }
 
-/// The window between frames (not saved; the page is remembered for the
-/// session).
 #[derive(Default)]
 pub struct Window {
     pub open: bool,
     pub page: Page,
     pub query: String,
     mark: Option<Mark>,
-    /// The search field takes the keyboard on the next frame.
     pub focus_search: bool,
-    /// The Audio page's device lists and loopback card.
     pub audio: audio::State,
 }
 
 impl Window {
-    /// Opens the window on the page shown last.
     pub fn show(&mut self) {
         if !self.open {
             self.focus_search = true;
@@ -452,23 +422,18 @@ impl Window {
         self.open = true;
     }
 
-    /// Opens the window on `page`.
     pub fn show_page(&mut self, page: Page) {
         self.show();
         self.page = page;
         self.query.clear();
     }
 
-    /// Opens the window at the loopback helper, on the Audio page.
     pub fn show_measure(&mut self) {
         self.show_page(Page::Audio);
-        // The helper is the point: the keyboard stays with the app (Space
-        // still plays), not with the search.
         self.focus_search = false;
         self.audio.open_measure();
     }
 
-    /// Goes to the page of `row`, a search result, and marks the row.
     pub fn choose(&mut self, row: &Row, now: f64) {
         self.page = row.page;
         self.query.clear();
@@ -479,8 +444,6 @@ impl Window {
         });
     }
 
-    /// The mark to draw this frame, at `now`; a mark that has had its time
-    /// goes.
     pub fn marks(&mut self, now: f64) -> Marks {
         let shown = motion::NOTE.as_secs_f32();
         let fade = motion::time(motion::BASE);
@@ -502,9 +465,6 @@ impl Window {
         }
     }
 
-    /// Notes what drawing `marks` did: the row, once scrolled to, stays put.
-    /// A mark chosen while drawing (a result clicked) is a newer one, still
-    /// to be scrolled to: only the mark that was drawn is changed.
     pub fn marked(&mut self, marks: &Marks) {
         if let Some(mark) = &mut self.mark
             && marks.since == Some(mark.since)
@@ -513,27 +473,20 @@ impl Window {
         }
     }
 
-    /// The row marked now, if any.
     pub fn marked_row(&self) -> Option<&'static str> {
         self.mark.map(|m| m.key)
     }
 }
 
-/// The row a search led to, as the pages draw it.
 #[derive(Debug, Default)]
 pub struct Marks {
     key: Option<&'static str>,
-    /// When the mark drawn was chosen: which mark this is.
     since: Option<f64>,
-    /// 1 while shown, falling to 0 as it fades.
     strength: f32,
     scroll: Cell<bool>,
 }
 
 impl Marks {
-    /// Draws the row `key` with `add`; when it is the marked row, outlines
-    /// it (a shape, so the mark does not rest on colour alone) and, the
-    /// first time, scrolls it into view.
     pub fn row<R>(&self, ui: &mut Ui, key: &'static str, add: impl FnOnce(&mut Ui) -> R) -> R {
         let drawn = ui.scope(add);
         crate::testing::coverage::row_drawn(ui.ctx(), key);
@@ -609,7 +562,6 @@ mod tests {
         let wide = fit(1200.0);
         assert_eq!(wide.width, theme::size::PREFERENCES);
         assert!(!wide.folded);
-        // 960 × 540 at 200% leaves 480 points, less the window's margins.
         let small = fit(440.0);
         assert_eq!(small.width, 440.0);
         assert!(small.folded);
@@ -620,10 +572,8 @@ mod tests {
     fn a_result_chosen_while_another_mark_is_drawn_still_scrolls_to_its_row() {
         let mut window = Window::default();
         window.choose(search("buffer")[0], 10.0);
-        // The buffer's row is drawn and scrolled to.
         let drawn = window.marks(10.1);
         drawn.scroll.set(false);
-        // In the same frame, the test tone is chosen.
         window.choose(search("test tone")[0], 10.1);
         window.marked(&drawn);
         let next = window.marks(10.2);

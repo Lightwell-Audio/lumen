@@ -1,9 +1,3 @@
-//! Standard MIDI Files (M5 slice 7, ADR-0062): a file dropped between
-//! tracks makes a MIDI track per part, one dropped on a MIDI track or
-//! imported onto one is a clip there; the file's tempo and meter are only
-//! offered (F2); a damaged file says why; Export MIDI file… and Export MIDI
-//! clip… write what plays, read back note for note.
-
 use std::path::PathBuf;
 
 use eframe::egui::{Event, Key, Modifiers, pos2};
@@ -16,7 +10,6 @@ use lumen_project::testing::TempDir;
 use super::Lumen;
 use super::properties::select;
 
-/// A hand-made file from `tests/smf/` (see `make.py`).
 fn sample(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/smf")
@@ -41,7 +34,6 @@ fn notes(project: &Project, track: usize) -> Vec<Note> {
         .collect()
 }
 
-/// Runs a command by its name from the palette.
 fn palette(lumen: &mut Lumen, name: &str) {
     lumen.key(Modifiers::COMMAND, Key::K);
     lumen.key(Modifiers::COMMAND, Key::A);
@@ -77,7 +69,6 @@ fn a_file_dropped_on_empty_lanes_makes_a_track_per_part_and_offers_its_tempo() {
     );
     assert_eq!(project.tempo.len(), 1, "the project's tempo is untouched");
 
-    // The banner offers the file's tempo and meter; one click takes them.
     assert!(
         lumen
             .harness
@@ -101,8 +92,6 @@ fn a_file_dropped_on_empty_lanes_makes_a_track_per_part_and_offers_its_tempo() {
 fn a_file_dropped_or_imported_onto_a_midi_track_is_one_clip_there() {
     let mut lumen = Lumen::start("smf-onto-track");
     let groove = sample("groove-480.mid");
-    // Ctrl+Shift+T adds a MIDI track and selects it; Import puts the file
-    // on it at the playhead, every part in one clip.
     lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::T);
     lumen.frames(30);
     lumen.app_mut().answer_next_dialog(vec![groove.clone()]);
@@ -119,7 +108,6 @@ fn a_file_dropped_or_imported_onto_a_midi_track_is_one_clip_there() {
     assert_eq!(notes(&project, 0).len(), all, "every part");
     assert_eq!(lumen.app().undo_label(), Some("Import groove-480"));
 
-    // Dropped on the track's lane further on: a second clip there.
     let ctx = lumen.harness.ctx.clone();
     let r = lumen.app().clip_rect(&ctx, clip.id).expect("in view");
     let smpte = sample("smpte-25.mid");
@@ -145,8 +133,6 @@ fn a_damaged_or_type_2_file_says_why_and_adds_nothing() {
     );
 }
 
-/// Export writes what plays, and reading the file back gives the same
-/// notes; the demo's looping clips come out as real repeats.
 #[test]
 fn exported_files_read_back_as_they_play() {
     let dir = TempDir::new("e2e-smf-export");
@@ -184,16 +170,13 @@ fn exported_files_read_back_as_they_play() {
         ]
     );
     assert_eq!(file.tempo, demo.tempo);
-    // The Pad's one clip does not loop: its two notes, as they are.
     assert_eq!(notes(&demo, 1), file.tracks[1].notes);
-    // The chords loop every four bars over eight: twice the notes.
     let chords = match &demo.tracks[0].clips[0].content {
         ClipContent::Midi { notes, .. } => notes.len(),
         ClipContent::Audio { .. } => 0,
     };
     assert_eq!(file.tracks[0].notes.len(), chords * 2);
 
-    // One clip, from its menu's command: a type 0 file starting at zero.
     let pad = lumen.app().project().tracks[1].clips[0].id;
     select(&mut lumen, pad);
     let clip_out = lumen.dir().join("pad");
@@ -209,8 +192,6 @@ fn exported_files_read_back_as_they_play() {
     assert_eq!(first.start(), Ticks::ZERO);
 }
 
-/// Two same-pitch notes overlap, and the short second note ends after the
-/// long first note. Their note-offs therefore need FIFO pairing on import.
 #[test]
 fn exporting_and_reimporting_overlapping_same_pitch_notes_keeps_durations() {
     let dir = TempDir::new("e2e-smf-overlapping");
@@ -252,7 +233,6 @@ fn exporting_and_reimporting_overlapping_same_pitch_notes_keeps_durations() {
         });
         assert_eq!(read(&out).tracks[0].notes, expected, "{command}");
 
-        // Reimport the actual exported bytes through the dropped-file flow.
         let mut imported = Lumen::start(&format!("smf-{name}-reimport"));
         imported.drop_files(std::slice::from_ref(&out));
         imported.wait_for("the imported MIDI track", |app| {
@@ -263,8 +243,6 @@ fn exporting_and_reimporting_overlapping_same_pitch_notes_keeps_durations() {
     }
 }
 
-/// Owner's imported-ocarina report: sample rounding must not hide a note
-/// when Play begins exactly at its onset, including the second E5.
 #[test]
 fn imported_notes_sound_when_play_starts_exactly_at_their_onsets() {
     use std::time::Duration;
@@ -282,7 +260,6 @@ fn imported_notes_sound_when_play_starts_exactly_at_their_onsets() {
         lumen.key(Modifiers::COMMAND, Key::A);
         lumen.harness.event(Event::Text(position.into()));
         lumen.key(Modifiers::NONE, Key::Enter);
-        // The engine reports the tick nearest the located sample.
         lumen.wait_for("the note onset", |app| {
             (app.playhead().0 - Ticks::quarters(beat).0).abs() < 100
         });

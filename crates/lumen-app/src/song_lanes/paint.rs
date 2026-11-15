@@ -1,8 +1,3 @@
-//! What the tempo and meter lanes look like (M7 slice A6). The lanes are
-//! tinted like automation lanes, so they read as lanes and not as tracks;
-//! bar lines run through both so a change is seen against the bars it
-//! moves.
-
 use eframe::egui::{Align2, FontId, Painter, Rect, Stroke, pos2};
 use lumen_core::meter::MeterMap;
 use lumen_core::time::{Ticks, bpm_at};
@@ -14,10 +9,8 @@ use super::{Band, Picked, Which};
 use crate::arrangement::auto_view::draw_point;
 use crate::theme;
 
-/// What the lanes need to be drawn.
 pub(crate) struct Look<'a> {
     pub project: &'a Project,
-    /// The song's bars, as the transport has them.
     pub meter: &'a MeterMap,
     pub playhead: Ticks,
     pub picked: Option<Picked>,
@@ -25,10 +18,7 @@ pub(crate) struct Look<'a> {
     pub scale: Scale,
 }
 
-/// Bars narrower than this (points) get no line, so a zoomed-out song is not
-/// a wall of lines.
 const LEAST_BAR: f32 = 8.0;
-/// The most bar lines drawn.
 const MOST_BARS: i64 = 600;
 
 pub(crate) fn draw(painter: &Painter, band: &Band, look: &Look<'_>) {
@@ -43,7 +33,6 @@ pub(crate) fn draw(painter: &Painter, band: &Band, look: &Look<'_>) {
     bar_lines(&painter, band, look);
 }
 
-/// The name column: each lane's name and what is in force at the playhead.
 fn corner(painter: &Painter, band: &Band, look: &Look<'_>) {
     let palette = theme::p();
     painter.rect_filled(band.corner, 0.0, palette.raised);
@@ -77,7 +66,6 @@ fn corner(painter: &Painter, band: &Band, look: &Look<'_>) {
     );
 }
 
-/// The lane's wash and its two edges.
 fn wash(painter: &Painter, rect: Rect, strength: f32) {
     let palette = theme::p();
     painter.rect_filled(rect, 0.0, palette.accent.gamma_multiply(strength));
@@ -98,8 +86,6 @@ fn tempo_lane(painter: &Painter, plane: &Plane, look: &Look<'_>) {
         return;
     }
     let scale = look.scale;
-    // The line: the tempo playing at the left edge, then each change. A step
-    // holds its tempo and jumps; a ramp slopes to the next change.
     let first = points.partition_point(|p| plane.x(p.at) < rect.left());
     let playing = |x: f32| plane.y(scale, bpm_at(points, plane.ticks_at(x)));
     let mut y = playing(rect.left());
@@ -138,7 +124,6 @@ fn tempo_lane(painter: &Painter, plane: &Plane, look: &Look<'_>) {
             look.picked == Some(me),
             look.hover == Some(me),
         );
-        // The value, beside the point, unless the next change is too close.
         let text = bpm_text(point.bpm);
         let room = points
             .get(i + 1)
@@ -162,7 +147,6 @@ fn meter_lane(painter: &Painter, plane: &Plane, look: &Look<'_>) {
     let points = &look.project.meter;
     let font = FontId::monospace(theme::size::MONO_SMALL);
     let radius = theme::radius::SMALL;
-    // The meter in force at the left edge, when its chip has scrolled away.
     let in_force = points
         .partition_point(|p| plane.x(p.at) <= rect.left())
         .saturating_sub(1);
@@ -217,8 +201,6 @@ fn meter_lane(painter: &Painter, plane: &Plane, look: &Look<'_>) {
     }
 }
 
-/// A line at each bar, through both lanes; none when bars are too narrow or
-/// too many to tell apart.
 fn bar_lines(painter: &Painter, band: &Band, look: &Look<'_>) {
     let rect = Rect::from_x_y_ranges(
         band.tempo.rect.x_range(),

@@ -1,10 +1,3 @@
-//! Clip editing on the lanes: a clip's header moves it (Ctrl+drag copies), its body
-//! selects a time range, and a drag in empty lanes selects a time range on
-//! the tracks it spans (ADR-0049; Ctrl+Shift+drag draws a clip marquee
-//! instead). A range and the track selection travel together. Clicks select
-//! (Ctrl toggles, Shift adds). Everything snaps to the grid (Alt places
-//! freely), and every drag is one undo step.
-
 use std::collections::BTreeSet;
 
 use eframe::egui::{self, CursorIcon, Modifiers, Pos2, Rect};
@@ -24,7 +17,6 @@ use lumen_project::edit;
 
 use crate::{App, ruler, widgets};
 
-/// The editing commands on clips and time ranges (slice 6b).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Edit {
     Cut,
@@ -37,7 +29,6 @@ pub(crate) enum Edit {
 }
 
 impl Edit {
-    /// The command that runs this edit, for its name and shortcut.
     pub(crate) fn command(self) -> Command {
         match self {
             Edit::Cut => Command::Cut,
@@ -51,7 +42,6 @@ impl Edit {
     }
 }
 
-/// What the lanes' right-click menu is for: what was right-clicked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum MenuFor {
     Clips,
@@ -60,7 +50,6 @@ pub(crate) enum MenuFor {
     Lanes,
 }
 
-/// Where the earliest of `clips` starts.
 fn clips_start(project: &lumen_project::model::Project, clips: &[Id]) -> Option<Ticks> {
     project
         .tracks
@@ -72,12 +61,6 @@ fn clips_start(project: &lumen_project::model::Project, clips: &[Id]) -> Option<
 }
 
 impl App {
-    /// Moves the clip selection with an arrow key (M3 review H2): from the
-    /// clip the keys last chose, while it is selected, else the first
-    /// selected clip; `extend` adds the clip reached instead of selecting
-    /// it alone. With nothing further that way, the clip it starts from is
-    /// selected alone (so Ctrl+A then an arrow reaches one clip). The view
-    /// follows it.
     pub(crate) fn step_clips(&mut self, step: ClipStep, extend: bool) {
         let chosen = &self.arrangement.clips;
         let Some(from) = self
@@ -102,9 +85,6 @@ impl App {
         self.nav.steps.push(ViewStep::ShowClip(to));
     }
 
-    /// Clip selection, moving, copying, marquees and time ranges, from the
-    /// lanes' `response` (click and drag). Draws the snap guide and the
-    /// hint; the selection itself is drawn with the lanes.
     pub(super) fn hit(
         &self,
         ctx: &egui::Context,
@@ -121,7 +101,6 @@ impl App {
         )
     }
 
-    /// Whether `p` is inside the time range.
     pub(super) fn in_range(&self, ctx: &egui::Context, canvas: Rect, p: Pos2) -> bool {
         let Some(range) = &self.arrangement.range else {
             return false;
@@ -136,7 +115,6 @@ impl App {
         (range.start..range.end).contains(&at) && track.is_some_and(|t| range.tracks.contains(&t))
     }
 
-    /// The track whose lane is at `p`, if any.
     pub(super) fn lane_track(&self, ctx: &egui::Context, canvas: Rect, p: Pos2) -> Option<Id> {
         let project = self.document.project();
         let pending = self.lanes.pending().len();
@@ -148,7 +126,6 @@ impl App {
         ruler::ticks_at(self.nav.view.beat_at(canvas.left(), x))
     }
 
-    /// What a drag starting at `origin` does.
     pub(super) fn start_gesture(
         &mut self,
         ctx: &egui::Context,
@@ -168,8 +145,6 @@ impl App {
             .is_some_and(|t| t.frozen.is_some());
         if frozen && (hit.handle.is_some() || hit.edge.is_some() || hit.region != ClipRegion::Body)
         {
-            // The history would refuse the edit; saying so up front keeps the
-            // clip from being dragged around for nothing (the owner's FR2).
             let name = self.document.project().tracks[hit.track].name.clone();
             self.say_frozen(&name);
             return None;
@@ -224,7 +199,6 @@ impl App {
         self.selected_clips_now();
         let grabbed = Arrangement::grab(self.document.project(), &self.arrangement.clips);
         if !grabbed.iter().any(|g| g.clip == hit.clip) {
-            // The clip under the pointer is locked.
             return None;
         }
         let copies = modifiers
@@ -240,9 +214,6 @@ impl App {
         })
     }
 
-    /// What a drag from empty lane space does (ADR-0049): a time range from
-    /// the press down to the pointer's track, or, with Ctrl+Shift, a marquee
-    /// that keeps the clips already selected when Shift or Ctrl is held.
     pub(super) fn empty_lane_gesture(
         &mut self,
         ctx: &egui::Context,
@@ -302,7 +273,6 @@ impl App {
                 let to = self.ticks_at(canvas, p.x);
                 self.arrangement.gesture = Some(Gesture::Zoom { from, to });
             }
-            // Aimed and painted by `aim_draw`, which `clip_editing` calls.
             Gesture::Draw { .. } => {}
             Gesture::Move {
                 base,
@@ -400,7 +370,6 @@ impl App {
                     self.snapped(self.ticks_at(canvas, p.x), free),
                 );
                 let range = TimeRange::between(project, a, b, track, row.unwrap_or(track));
-                // The range's tracks are the selected ones (ADR-0049).
                 self.arrangement.selected =
                     range.as_ref().map(|r| r.tracks.clone()).unwrap_or_default();
                 self.arrangement.range = range;
@@ -411,7 +380,6 @@ impl App {
         }
     }
 
-    /// Splits selected clips at `at`, or clips in the selected range at both edges.
     pub(crate) fn split_at(&mut self, at: Ticks) {
         let (clips, points) = if let Some(range) = &self.arrangement.range {
             let clips = self
@@ -447,7 +415,6 @@ impl App {
         }
     }
 
-    /// Clips (or a range) were just selected: tracks and locators are not.
     pub(super) fn selected_clips_now(&mut self) {
         if !self.arrangement.clips.is_empty() {
             self.arrangement.selected.clear();
@@ -455,16 +422,9 @@ impl App {
         }
     }
 
-    /// The lanes' right-click menu, for what was clicked (the owner's A):
-    /// clips get the clip edits and properties, a time range its edits,
-    /// empty lanes Paste and the grid. Commands that cannot run are left
-    /// out rather than greyed.
     pub(crate) fn lanes_menu(&mut self, ui: &mut egui::Ui) {
         match self.menu_for {
             MenuFor::Clips => {
-                // The owner's A (the interface audit's M5): edits, then the
-                // clip's name and colour, its states, its sound, export and
-                // properties, each group under a divider.
                 use Edit::{Copy, Cut, Delete, Duplicate};
                 self.edit_items(ui, &[Cut, Copy, Duplicate, Delete]);
                 ui.separator();
@@ -472,8 +432,6 @@ impl App {
                     self.context_command(ui, Command::SplitNotes, "Split");
                     self.context_command(ui, Command::GlueNotes, "Join");
                     self.context_command(ui, Command::UnloopClips, "Unloop");
-                    // These act on audio only: a MIDI-only selection does not
-                    // list them.
                     if self.selection_has_audio() {
                         self.context_command(ui, Command::ReverseClips, "Reverse");
                         self.context_command(ui, Command::InvertPolarity, "Invert polarity");
@@ -506,7 +464,6 @@ impl App {
             }
             MenuFor::Lanes => {
                 if self.can_edit(Edit::Paste) {
-                    // Where the lanes were right-clicked, not the playhead.
                     let run = Edit::Paste.command();
                     let keys = self.keymap.keys(run);
                     if widgets::menu_item(ui, run.name(), keys.as_ref(), true).clicked()
@@ -535,9 +492,6 @@ impl App {
         }
     }
 
-    /// The Takes submenu for the selected clip that has takes (a loop
-    /// recording keeps every pass): one row for each take, then the commands.
-    /// A selection with no takes lists nothing.
     fn takes_menu(&mut self, ui: &mut egui::Ui) {
         let held = self
             .document
@@ -587,7 +541,6 @@ impl App {
         });
     }
 
-    /// Menu items for the `commands` that can run now; whether any could.
     fn edit_items(&mut self, ui: &mut egui::Ui, commands: &[Edit]) -> bool {
         let mut any = false;
         for &command in commands {
@@ -604,7 +557,6 @@ impl App {
         any
     }
 
-    /// Whether `command` can run now, for menus.
     pub(crate) fn can_edit(&self, command: Edit) -> bool {
         let chosen = !self.arrangement.clips.is_empty() || self.arrangement.range.is_some();
         match command {
@@ -614,7 +566,6 @@ impl App {
         }
     }
 
-    /// Runs an editing command on the clip selection or the time range.
     pub(crate) fn edit(&mut self, command: Edit) {
         let project = self.document.project();
         let range = self.arrangement.range.clone();
@@ -644,9 +595,6 @@ impl App {
                 let Some(clipboard) = self.clipboard.clone() else {
                     return;
                 };
-                // Into the range if there is one; otherwise at the playhead,
-                // on the first selected track, the track last clicked in the
-                // lanes, or where it was copied from.
                 let (at, track) = match &range {
                     Some(r) => (r.start, r.tracks.first().and_then(|&t| index_of(t))),
                     None => (
@@ -670,7 +618,6 @@ impl App {
                 let Some(copied) = copied else {
                     return;
                 };
-                // Right after the selection, on the same tracks.
                 let at = match &range {
                     Some(r) => r.end,
                     None => clips_start(project, &clips).unwrap_or_default() + copied.length,
@@ -700,14 +647,10 @@ impl App {
         }
     }
 
-    /// Pastes and selects what was pasted: the new clips, or, for a copied
-    /// range, the same range where it landed.
     fn paste(&mut self, clipboard: &edit::Clipboard, at: Ticks, track: usize, label: &str) {
         let pasted = self.document.paste(label, clipboard, at, track);
         let project = self.document.project();
         if clipboard.range {
-            // The pasted range is selected on the tracks it landed on, as a
-            // range drag selects its tracks (ADR-0049).
             let landed = edit::landing_tracks(project, clipboard, track);
             let range = TimeRange::over(project, at, at + clipboard.length, &landed);
             self.arrangement.selected =

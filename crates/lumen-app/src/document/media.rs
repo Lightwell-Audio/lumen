@@ -1,6 +1,3 @@
-//! The media pool's edits (M9 slice R4b, ADR-0106): putting a file back where
-//! the project lost it, and dropping the entries nothing plays.
-
 use std::path::PathBuf;
 
 use lumen_project::edit::media;
@@ -9,12 +6,6 @@ use lumen_project::model::Id;
 use super::Document;
 
 impl Document {
-    /// Says that media `id` is the file at `path` on this machine. Nothing in
-    /// the song changes, so it is not an undo step, but the project has
-    /// unsaved changes: its next save writes the new path. The library loads
-    /// the file on its own, and the clips that play it sound again.
-    ///
-    /// Returns false, changing nothing, when the project has no such media.
     pub fn relink(&mut self, id: Id, path: PathBuf) -> bool {
         if !self.history.project().media.iter().any(|m| m.id == id) {
             return false;
@@ -27,9 +18,6 @@ impl Document {
         true
     }
 
-    /// Drops from the project's media the entries of `ids` that no clip and no
-    /// frozen track plays, as one step. The files are not touched. Returns how
-    /// many were dropped; when none were, nothing is recorded.
     pub fn remove_unused_media(&mut self, ids: &[Id]) -> usize {
         let mut removed = 0;
         let label = match ids {

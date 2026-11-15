@@ -1,5 +1,3 @@
-//! Save a copy and Collect and save (M9 slice R4, ADR-0105).
-
 use std::path::Path;
 
 use eframe::egui::{Event, Key, Modifiers};
@@ -7,8 +5,6 @@ use lumen_app::testing::{PROJECT_EXTENSION, project_file};
 
 use super::{Lumen, wav};
 
-/// Runs a command by name through the palette, as a user without a shortcut
-/// does.
 pub(super) fn command(lumen: &mut Lumen, name: &str) {
     lumen.key(Modifiers::COMMAND, Key::K);
     lumen.harness.event(Event::Text(name.into()));
@@ -17,7 +13,6 @@ pub(super) fn command(lumen: &mut Lumen, name: &str) {
     assert!(!lumen.app().palette_open());
 }
 
-/// A project with one clip of `kick.wav`, a file outside any project folder.
 pub(super) fn with_outside_audio(name: &str) -> (Lumen, std::path::PathBuf) {
     let mut lumen = Lumen::start(name);
     std::fs::create_dir_all(lumen.dir().join("Downloads")).unwrap();
@@ -29,9 +24,6 @@ pub(super) fn with_outside_audio(name: &str) -> (Lumen, std::path::PathBuf) {
     (lumen, kick)
 }
 
-/// Whether the open project's file is `path`. The worker names it by its
-/// resolved path, which differs from the temp folder's spelling (Windows
-/// short names, macOS's /private/var): the same file is what counts.
 fn is_at(lumen: &Lumen, path: &Path) -> bool {
     let resolved = |p: &Path| std::fs::canonicalize(p).ok();
     lumen
@@ -52,7 +44,6 @@ fn imported(project_file: &Path) -> std::path::PathBuf {
 #[test]
 fn a_copy_holds_all_the_audio_and_leaves_the_open_project_as_it_was() {
     let (mut lumen, kick) = with_outside_audio("copy-whole");
-    // Copying into projects is off: a copy takes the audio anyway.
     lumen.app_mut().set_copy_imported(false);
     assert!(lumen.app().is_dirty());
     assert_eq!(lumen.app().project_path(), None);
@@ -72,14 +63,12 @@ fn a_copy_holds_all_the_audio_and_leaves_the_open_project_as_it_was() {
         "{:?}",
         lumen.app().note()
     );
-    // The open project has not moved, been saved, or been remembered.
     assert_eq!(lumen.app().project_path(), None);
     assert!(lumen.app().is_dirty());
     assert!(lumen.app().recent_projects().is_empty());
     assert_eq!(lumen.app().undo_label(), Some("Import kick"), "no edit");
     assert!(kick.is_file(), "the original is untouched");
 
-    // The copy stands alone: a fresh Lumen opens it with the originals gone.
     std::fs::remove_file(&kick).unwrap();
     let dir = lumen.crash();
     let mut again = Lumen::start_with(dir, |launch| launch.opening(copy.clone()));
@@ -143,7 +132,6 @@ fn collect_and_save_gathers_outside_audio_into_the_project_and_saves() {
         lumen.app().note()
     );
 
-    // The project holds what it plays: reopened without the original.
     std::fs::remove_file(&kick).unwrap();
     let dir = lumen.crash();
     let mut again = Lumen::start_with(dir, |launch| launch.opening(path.clone()));

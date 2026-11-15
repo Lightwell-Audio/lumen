@@ -1,27 +1,17 @@
-//! A card's menu, and its "Move to track" and "Copy to track" rows.
-
 use super::*;
 
-/// What a card's menu offers for its device.
 pub(super) struct CardMenu {
     pub(super) id: Id,
     pub(super) bypass: bool,
     pub(super) folded: bool,
-    /// The compact card: its menu also holds what the full card shows
-    /// (the preset, Learn, every parameter, the window).
     pub(super) compact: bool,
-    /// A running plugin's preset: the sound's name, when one was chosen.
     pub(super) preset: Option<Option<String>>,
-    /// How many parameters a running plugin lists.
     pub(super) parameters: usize,
     pub(super) learning: bool,
-    /// A running plugin with a window: whether it is open.
     pub(super) window: Option<bool>,
 }
 
 impl App {
-    /// A card's menu (right-click, or the compact card's name). True when a
-    /// row was chosen.
     pub(super) fn card_menu(&mut self, ui: &mut Ui, track: Id, menu: &CardMenu) -> bool {
         let ctx = ui.ctx().clone();
         self.chain.selected = Some(menu.id);
@@ -73,8 +63,6 @@ impl App {
 }
 
 impl App {
-    /// "Move to track" and "Copy to track" in a card's menu: the tracks that
-    /// can take the chosen device.
     fn send_menus(&mut self, ui: &mut Ui, here: Id) {
         let targets = self.send_targets();
         for (copy, label) in [(false, "Move to track"), (true, "Copy to track")] {
@@ -84,7 +72,6 @@ impl App {
                     ui.add_enabled(false, egui::Label::new("No track can take it"));
                 }
                 for (id, name) in &targets {
-                    // Moving to its own track is reordering, not this.
                     let enabled = copy || *id != here;
                     if widgets::menu_item(ui, name, None, enabled).clicked() {
                         chosen = Some(*id);

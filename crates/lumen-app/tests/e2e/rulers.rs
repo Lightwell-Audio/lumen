@@ -1,6 +1,3 @@
-//! The rulers (layout A): the time ruler's format, and dragging the bar
-//! ruler to zoom and scroll without moving the playhead.
-
 use eframe::egui::vec2;
 use egui_kittest::kittest::Queryable;
 use lumen_core::time::Ticks;
@@ -28,7 +25,6 @@ fn dragging_the_ruler_zooms_and_scrolls_but_does_not_locate() {
     let before = lumen.app().view();
     let at = lumen.harness.get_by_label(RULER).rect().center();
 
-    // Down zooms in, holding the grabbed beat under the pointer.
     lumen.harness.hover_at(at);
     lumen.harness.drag_at(at);
     lumen.frames(2);
@@ -42,7 +38,6 @@ fn dragging_the_ruler_zooms_and_scrolls_but_does_not_locate() {
     assert!(after.zoom > before.zoom * 2.0, "{before:?} -> {after:?}");
     assert_eq!(lumen.app().playhead(), Ticks::ZERO, "a drag is not a click");
 
-    // Up zooms back out.
     lumen.harness.hover_at(at);
     lumen.harness.drag_at(at);
     lumen.frames(2);

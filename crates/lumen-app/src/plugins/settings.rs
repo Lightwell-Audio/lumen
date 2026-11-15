@@ -1,9 +1,3 @@
-//! What the user keeps about plugins, in the app settings file
-//! (`settings.plugins`): the folders to search besides the standard ones,
-//! favorites, recently chosen devices and whether to scan at start. An
-//! added section with defaults, so older files read as before (no version
-//! change).
-
 use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
@@ -12,21 +6,13 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PluginSettings {
-    /// Scan in the background when Lumen starts (the owner's choice).
     pub scan_at_startup: bool,
-    /// Folders searched besides the standard ones.
     pub folders: Vec<String>,
-    /// Device ids (`vst3:<class id>`, `builtin:synth`), in the order added.
     pub favorites: Vec<String>,
-    /// Device ids, most recent first, at most [`Self::MAX_RECENTS`].
     pub recents: Vec<String>,
-    /// Where each plugin's own window was last, by class id (M6 slice 4f): it
-    /// opens there next time, whatever the project.
     pub editors: BTreeMap<String, EditorPlace>,
 }
 
-/// A plugin window's place: its outer top-left corner and the size of its
-/// content, in physical pixels at `dpi`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EditorPlace {
     pub x: i32,
@@ -75,7 +61,6 @@ impl Default for PluginSettings {
 impl PluginSettings {
     pub const MAX_RECENTS: usize = 12;
 
-    /// Adds `id` to the favorites or removes it; true if it is one now.
     pub fn toggle_favorite(&mut self, id: &str) -> bool {
         if let Some(at) = self.favorites.iter().position(|f| f == id) {
             self.favorites.remove(at);
@@ -90,19 +75,14 @@ impl PluginSettings {
         self.favorites.iter().cloned().collect()
     }
 
-    /// Puts `id` first among the recents.
     pub fn touch(&mut self, id: &str) {
         self.recents.retain(|r| r != id);
         self.recents.insert(0, id.to_owned());
         self.recents.truncate(Self::MAX_RECENTS);
     }
 
-    /// The most places kept (a library has hundreds of plugins; a person has
-    /// opened some dozens of windows).
     pub const MAX_EDITORS: usize = 500;
 
-    /// Remembers where `class`'s window is. True when that changed what is
-    /// kept. A window with no size or an absurd one is not a place.
     pub fn remember_editor(&mut self, class: &str, place: EditorPlace) -> bool {
         if place.width == 0 || place.height == 0 || place.width > 16_384 || place.height > 16_384 {
             return false;
@@ -117,11 +97,8 @@ impl PluginSettings {
         true
     }
 
-    /// The most folders, favorites and recents a file may hold.
     pub const MAX_LISTED: usize = 4_096;
 
-    /// Cuts what a file holds to what the app keeps: a damaged or crafted
-    /// settings file cannot make the lists grow without end.
     pub fn bound(&mut self) {
         self.folders.truncate(Self::MAX_LISTED);
         self.favorites.truncate(Self::MAX_LISTED);
@@ -131,7 +108,6 @@ impl PluginSettings {
         }
     }
 
-    /// Adds a search folder; false if it is already there.
     pub fn add_folder(&mut self, path: &Path) -> bool {
         let text = path.to_string_lossy().into_owned();
         if self.folders.contains(&text) {
@@ -141,7 +117,6 @@ impl PluginSettings {
         true
     }
 
-    /// Forgets a search folder; false if it was not there.
     pub fn remove_folder(&mut self, folder: &str) -> bool {
         let before = self.folders.len();
         self.folders.retain(|f| f != folder);
@@ -204,7 +179,6 @@ mod tests {
         let flat = EditorPlace { height: 0, ..place };
         assert!(!s.remember_editor("vst3:CD", flat));
         assert!(!s.editors.contains_key("vst3:CD"));
-        // And it survives the file.
         let text = serde_json::to_string(&s).unwrap();
         let back: PluginSettings = serde_json::from_str(&text).unwrap();
         assert_eq!(back.editors["vst3:AB"], moved);

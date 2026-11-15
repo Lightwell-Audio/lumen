@@ -1,9 +1,3 @@
-//! Built-in effects in the app (M8 slice B0): Prism, the utility device, from
-//! the command that adds it to its card's knobs, All parameters, automation
-//! lanes, MIDI learn, overriding a lane and giving it back, presets and copying
-//! it to another track. Everything a plugin's card does, done by a device that
-//! is Lumen's own code.
-
 use std::time::Duration;
 
 use eframe::egui::{Event, Key, Modifiers, Pos2, pos2, vec2};
@@ -20,7 +14,6 @@ use lumen_project::testing::TempDir;
 use super::lane_view::{peak, run_command, tone};
 use super::{Lumen, wav};
 
-/// The built-in device the first track has, if it has one.
 fn prism(lumen: &Lumen, track: usize) -> Option<Id> {
     lumen
         .app()
@@ -33,8 +26,6 @@ fn prism(lumen: &Lumen, track: usize) -> Option<Id> {
         .map(|d| d.id)
 }
 
-/// Starts with a tone on one audio track, selected, and Prism added to it by
-/// the command (as a person runs it from the palette).
 fn launched(name: &str) -> (Lumen, Id, Id) {
     let (mut lumen, track) = tone(name);
     run_command(&mut lumen, "Add Prism");
@@ -54,7 +45,6 @@ fn at(lumen: &Lumen, label: &str) -> Pos2 {
     lumen.harness.get_by_label_contains(label).rect().center()
 }
 
-/// What the app is playing now: the loudest frame of a moment.
 fn heard(lumen: &mut Lumen) -> f32 {
     lumen
         .listen(Duration::from_millis(120), 1_000)
@@ -79,9 +69,7 @@ fn the_command_puts_prism_on_the_track_named_as_its_own_device_with_eight_knobs(
     lumen.wait_for("the audio thread to have it", |app| {
         app.builtin_attached(device)
     });
-    // The card says the device's own name.
     assert!(lumen.shows("Prism on tone"), "the card's spoken name");
-    // The eight knobs are the table's, in its order.
     assert_eq!(
         lumen.app().strip_parameters(device),
         [
@@ -122,7 +110,6 @@ fn dragging_the_gain_makes_the_track_quieter_and_is_one_undo_step() {
     let after = heard(&mut lumen);
     assert!(after < before * 0.9, "quieter: {before} then {after}");
 
-    // One undo takes the whole drag back.
     lumen.key(Modifiers::COMMAND, Key::Z);
     lumen.frames(20);
     let back = param(&lumen, device, GAIN).expect("the gain is still there");
@@ -143,7 +130,6 @@ fn a_value_typed_on_the_knob_is_read_at_once_and_is_one_undo_step() {
     lumen.key(Modifiers::NONE, Key::Enter);
     lumen.frames(10);
     let gain = param(&lumen, device, GAIN).expect("the gain is set");
-    // −6 dB of −60 to +24 is 0.6429.
     assert!((gain - 0.6429).abs() < 1e-3, "{gain}");
     assert_eq!(lumen.app().undo_label(), Some("Change Gain"));
     lumen.frames(5);
@@ -154,7 +140,6 @@ fn a_value_typed_on_the_knob_is_read_at_once_and_is_one_undo_step() {
     lumen.key(Modifiers::COMMAND, Key::Z);
     lumen.frames(8);
 
-    // What it does not understand changes nothing, and says so.
     lumen
         .harness
         .get_by_label_contains("Gain, parameter")
@@ -181,8 +166,6 @@ fn all_parameters_lists_the_eight_and_offers_no_star_on_a_face() {
     let (mut lumen, _, device) = launched("builtin-panel");
     lumen.click("All parameters (8)");
     lumen.frames(10);
-    // A set piece draws its own controls: there is no strip to star a
-    // parameter onto (M8 slice B2, review M6), so the panel says where they are.
     assert!(
         lumen.shows("All 8 parameters"),
         "the panel counts every parameter"
@@ -204,8 +187,6 @@ fn all_parameters_lists_the_eight_and_offers_no_star_on_a_face() {
 fn a_switch_reads_its_own_words_and_its_click_is_one_undo_step() {
     let (mut lumen, _, device) = launched("builtin-switch");
     lumen.show_whole_cards();
-    // The card's pill is the left polarity ("\u{00D8} L"); swap lives in All
-    // parameters.
     lumen.click("\u{00D8} L (Polarity L)");
     lumen.frames(10);
     assert_eq!(param(&lumen, device, POLARITY_L), Some(1.0));
@@ -225,7 +206,6 @@ fn a_switch_off_the_card_is_in_all_parameters_and_is_one_undo_step() {
     lumen.show_whole_cards();
     lumen.click("All parameters (8)");
     lumen.frames(10);
-    // A row's bar is dragged: to its right end is On.
     let bar = lumen
         .harness
         .get_by_label_contains("Swap L/R, parameter")
@@ -245,7 +225,6 @@ fn a_switch_off_the_card_is_in_all_parameters_and_is_one_undo_step() {
     assert_eq!(param(&lumen, device, SWAP), Some(0.0));
 }
 
-/// A lane of Prism's gain from the top to silence over two quarters.
 fn gain_lane() -> Lane {
     Lane::new(vec![
         Point::new(Ticks::ZERO, 0.7142857),
@@ -266,7 +245,6 @@ fn a_lane_drives_the_gain_it_is_taken_over_by_a_drag_and_given_back() {
         .give_lane(track, target, gain_lane())
         .unwrap();
     lumen.frames(20);
-    // The knob's menu shows the lane it drives.
     lumen.right_click(at(&lumen, "Gain, parameter"));
     lumen.click("Automate");
     lumen.frames(30);
@@ -277,12 +255,10 @@ fn a_lane_drives_the_gain_it_is_taken_over_by_a_drag_and_given_back() {
     lumen.key(Modifiers::NONE, Key::Space);
     assert!(quiet < 0.01, "the lane fades it out: {quiet}");
 
-    // Moving the knob takes the lane over: the control's own value is heard.
     let knob = at(&lumen, "Gain, parameter");
     lumen.drag(knob, knob + vec2(0.0, -40.0), Modifiers::NONE);
     lumen.frames(20);
     assert!(lumen.app().lane_taken_over(track, target));
-    // And the lane's Re-enable button gives it back.
     let reenable = lumen
         .harness
         .get_by_label_contains("Re-enable")
@@ -308,12 +284,9 @@ fn the_lane_names_the_device_and_its_parameter() {
         .give_lane(track, target, gain_lane())
         .unwrap();
     lumen.frames(20);
-    // The knob's menu shows the lane it drives.
     lumen.right_click(at(&lumen, "Gain, parameter"));
     lumen.click("Automate");
     lumen.frames(30);
-    // The lane reads as the device and the parameter, from the table the
-    // chooser lists: "Prism · Gain".
     assert!(
         lumen
             .harness
@@ -393,7 +366,6 @@ fn a_preset_is_saved_from_the_card_and_loaded_back_as_one_undo_step() {
     lumen.show_whole_cards();
     lumen.frames(10);
 
-    // Save as… from the card's own field.
     lumen.click("Preset of Prism");
     lumen.frames(5);
     lumen.click("Save as…");
@@ -404,15 +376,12 @@ fn a_preset_is_saved_from_the_card_and_loaded_back_as_one_undo_step() {
         .type_text("Bright");
     lumen.key(Modifiers::NONE, Key::Enter);
     let root = format!("{} Presets", lumen_core::product::PRODUCT_NAME);
-    // The folder is the device's stable saved name, not its personality's: a
-    // renamed personality never orphans a person's presets (review L5).
     let folder = presets.join(root).join("utility");
     lumen.wait_for("the preset file", move |_| {
         folder.join("Bright.lumenpreset").is_file()
     });
     lumen.frames(10);
 
-    // Change the gain, then take the sound back from the file's row.
     lumen
         .harness
         .get_by_label_contains("Gain, parameter")
@@ -437,7 +406,6 @@ fn a_preset_is_saved_from_the_card_and_loaded_back_as_one_undo_step() {
             .any(|(id, v)| *id == GAIN && (*v - 0.714).abs() < 0.01)
     });
     assert_eq!(lumen.app().undo_label(), Some("Load Bright"));
-    // One undo puts the changed sound back.
     lumen.key(Modifiers::COMMAND, Key::Z);
     lumen.frames(10);
     let back = param(&lumen, device, GAIN).expect("a value");
@@ -471,12 +439,9 @@ fn the_card_copies_to_another_track_with_its_values() {
     assert!(lumen.app().is_builtin(copy));
     lumen.wait_for("the copy at work", |app| app.builtin_attached(copy));
     let gain = param(&lumen, copy, GAIN).expect("the copy's gain");
-    // −12 dB of −60 to +24.
     assert!((gain - 0.571).abs() < 0.01, "{gain}");
 }
 
-/// M4: the track's own menu adds Prism, so the device is reachable without the
-/// browser or the palette — one undo step, as the command is.
 #[test]
 fn the_track_menu_adds_prism_to_that_track() {
     let (mut lumen, track) = tone("builtin-menu");
@@ -497,7 +462,6 @@ fn the_track_menu_adds_prism_to_that_track() {
     lumen.wait_for("the audio thread to have it", |app| {
         app.builtin_attached(device)
     });
-    // The device went to the track the menu was opened on.
     assert_eq!(
         lumen
             .app()
@@ -511,15 +475,11 @@ fn the_track_menu_adds_prism_to_that_track() {
     assert!(lumen.shows("Prism on tone"));
 }
 
-/// M4: the tray's own menu offers Prism too — in its empty state and past the
-/// last card — so the chain panel can grow without the browser.
 #[test]
 fn the_device_trays_menu_adds_prism_too() {
     let (mut lumen, track) = tone("builtin-tray-menu");
-    // Open the Devices tab and make the tray tall, as a person would.
     lumen.show_whole_cards();
     lumen.frames(20);
-    // The tray is empty: its menu offers Prism.
     let browse = lumen.harness.get_by_label("Browse devices").rect();
     let room = Pos2::new(browse.right() + 120.0, browse.center().y + 40.0);
     lumen.right_click(room);
@@ -547,11 +507,9 @@ fn the_device_trays_menu_adds_prism_too() {
             .map(|t| t.devices.len()),
         Some(1)
     );
-    // Past the last card the menu is there still.
     lumen.show_whole_cards();
     lumen.frames(20);
     let card = lumen.harness.get_by_label_contains("Prism on tone").rect();
-    // Past the output chip, in the room the tray keeps after the last card.
     let past = Pos2::new(card.right() + 300.0, card.center().y);
     lumen.right_click(past);
     lumen.frames(5);
@@ -563,13 +521,9 @@ fn the_device_trays_menu_adds_prism_too() {
     assert!(lumen.app().is_builtin(device));
 }
 
-/// M1: the card's power button means something for a built-in too. Bypassed,
-/// the device is not run and the track plays its dry signal; turned on again it
-/// glides back in. Neither click clicks.
 #[test]
 fn the_power_button_bypasses_prism_and_the_dry_signal_comes_back() {
     let (mut lumen, _, device) = launched("builtin-power");
-    // −12 dB, typed, so the device changes the sound plainly.
     lumen
         .harness
         .get_by_label_contains("Gain, parameter")
@@ -625,7 +579,6 @@ fn a_value_changed_on_prism_is_saved_with_the_project_and_is_back_after_a_reopen
     let changed = param(&lumen, device, GAIN).expect("the gain moved");
     assert!(changed < 0.62, "dragged down: {changed}");
 
-    // The save is not refused for the values a built-in holds.
     let path = lumen_app::testing::project_file(lumen.dir(), "Prism song");
     lumen.app_mut().save_to(path.clone());
     lumen.wait_for("the save", |app| !app.is_busy() && !app.is_dirty());
@@ -646,8 +599,6 @@ fn a_value_changed_on_prism_is_saved_with_the_project_and_is_back_after_a_reopen
 fn the_set_pieces_all_link_opens_all_parameters_and_its_header_has_the_power_and_preset() {
     let (mut lumen, _, _) = launched("builtin-footer");
     lumen.show_whole_cards();
-    // The header: the power button and the Preset pill; the quiet "All 8"
-    // link opens every parameter.
     assert!(lumen.harness.query_by_label("Power Prism").is_some());
     assert!(lumen.harness.query_by_label("Preset of Prism").is_some());
     lumen.click("All parameters (8)");
@@ -658,26 +609,21 @@ fn the_set_pieces_all_link_opens_all_parameters_and_its_header_has_the_power_and
     );
 }
 
-/// The two handles of Prism's beams are Tab stops with names; dragging one is
-/// the Width dial's own edit, as one undo step.
 #[test]
 fn dragging_the_beams_on_the_screen_sets_the_width_as_one_undo_step() {
     let (mut lumen, _, device) = launched("builtin-beams");
     lumen.show_whole_cards();
     let was = param(&lumen, device, WIDTH).expect("the width is there");
     let handle = at(&lumen, "Beam spread, upper (Width)");
-    // Up opens the fan, down closes it.
     lumen.drag(handle, handle + vec2(0.0, -20.0), Modifiers::NONE);
     let wider = param(&lumen, device, WIDTH).expect("the width moved");
     assert!(wider > was, "dragged up: {was} then {wider}");
     assert_eq!(lumen.app().undo_label(), Some("Change Width"));
-    // One undo takes the whole drag back.
     lumen.key(Modifiers::COMMAND, Key::Z);
     lumen.frames(8);
     let back = param(&lumen, device, WIDTH).expect("the width is still there");
     assert!((back - was).abs() < 1e-6, "back at {was}: {back}");
 
-    // The lower handle moves the same Width the other way round.
     let handle = at(&lumen, "Beam spread, lower (Width)");
     lumen.drag(handle, handle + vec2(0.0, -20.0), Modifiers::NONE);
     let narrower = param(&lumen, device, WIDTH).expect("the width moved");

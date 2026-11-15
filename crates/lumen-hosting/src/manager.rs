@@ -1,8 +1,3 @@
-//! The set of plugin devices that have a host (M6 slice 2c): who is loading,
-//! who is running, who failed. The interface thread calls [`Manager::want`],
-//! [`Manager::forget`] and the rest, which never wait for a plugin, and
-//! [`Manager::poll`] each frame for what the host threads have to say.
-
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -12,19 +7,15 @@ use lumen_plugin_host::protocol::{Aux, EditorBounds};
 
 use crate::process::{Captured, Gate, Happened, Process, Start, Tag};
 
-/// Plugins loading at once.
 const LOADS_AT_ONCE: usize = 4;
 
-/// What happened to a device's host.
 #[derive(Debug)]
 pub struct Event {
-    /// The device's id in the project.
     pub device: u64,
     pub happened: Happened,
 }
 
 struct Entry {
-    /// Which start of this device messages are wanted from.
     serial: u64,
     start: Start,
     process: Process,
@@ -37,13 +28,10 @@ pub struct Manager {
     out: Sender<(Tag, Happened)>,
     incoming: Receiver<(Tag, Happened)>,
     wake: Arc<dyn Fn() + Send + Sync>,
-    /// The keys every host takes from its plugin's window.
     keys: Vec<u8>,
 }
 
 impl Manager {
-    /// `wake` is called from a host thread whenever it has something to say
-    /// (the app asks for a repaint).
     pub fn new(wake: impl Fn() + Send + Sync + 'static) -> Self {
         let (out, incoming) = mpsc::channel();
         Self {
@@ -57,8 +45,6 @@ impl Manager {
         }
     }
 
-    /// Starts a host for `device` in the background, ending the one it had.
-    /// The answer comes through [`Manager::poll`].
     pub fn want(&mut self, device: u64, start: Start) -> std::io::Result<()> {
         let serial = self.next_serial;
         self.next_serial += 1;
@@ -72,7 +58,6 @@ impl Manager {
         if !self.keys.is_empty() {
             process.capture_keys(self.keys.clone());
         }
-        // Replacing the entry drops the old process, which quits.
         self.entries.insert(
             device,
             Entry {
@@ -84,17 +69,12 @@ impl Manager {
         Ok(())
     }
 
-    /// Asks the device's plugin for its state; the answer comes from
-    /// [`Manager::poll`] as [`crate::Happened::State`].
     pub fn capture(&self, device: u64) {
         if let Some(entry) = self.entries.get(&device) {
             entry.process.capture();
         }
     }
 
-    /// Starts the device's host again from `state` (the saved state, or a
-    /// fresher one) with `values` set over it (the card's Reload after a
-    /// crash, which should come back with the work since the project loaded).
     pub fn reload_from(
         &mut self,
         device: u64,
@@ -114,27 +94,20 @@ impl Manager {
         }
     }
 
-    /// How many devices have a host (running, loading or failed).
     pub fn len(&self) -> usize {
         self.entries.len()
     }
 
-    /// Whether no device has a host.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
-    /// Asks the device's plugin for every parameter's value; the answer comes
-    /// from [`Manager::poll`] as [`crate::Happened::Values`].
     pub fn refresh(&self, device: u64) {
         if let Some(entry) = self.entries.get(&device) {
             entry.process.refresh();
         }
     }
 
-    /// Loads a state into the device's running plugin (a preset, or the
-    /// project's state after an undo), then `values` over it; the answer
-    /// comes from [`Manager::poll`] as [`crate::Happened::Loaded`].
     pub fn load_state(
         &self,
         device: u64,
@@ -147,9 +120,6 @@ impl Manager {
         }
     }
 
-    /// Makes `state` what a host started again for the device starts from: a
-    /// state the plugin took ([`crate::Happened::Loaded`] said so), which a
-    /// card's Reload after a crash should come back to.
     pub fn keep_state(&mut self, device: u64, state: Captured) {
         if let Some(entry) = self.entries.get_mut(&device) {
             entry.start.state = state.component;
@@ -160,8 +130,6 @@ impl Manager {
         }
     }
 
-    /// Starts the device's host again with the same settings (the card's
-    /// Reload).
     pub fn reload(&mut self, device: u64) -> std::io::Result<bool> {
         match self.entries.get(&device).map(|e| e.start.clone()) {
             Some(start) => self.want(device, start).map(|()| true),
@@ -169,14 +137,10 @@ impl Manager {
         }
     }
 
-    /// Ends the device's host now (owner's C3: a removed device keeps
-    /// nothing running). What it said before is dropped.
     pub fn forget(&mut self, device: u64) {
         self.entries.remove(&device);
     }
 
-    /// Asks every host for a fresh link at `rate` with blocks of at most
-    /// `frames`: a new engine, or the device's block size changed.
     pub fn relink_all(&mut self, rate: f64, frames: u32) {
         for entry in self.entries.values_mut() {
             entry.start.rate = rate;
@@ -185,8 +149,6 @@ impl Manager {
         }
     }
 
-    /// Asks one host for a fresh link at `rate` with blocks of at most
-    /// `frames`: the plugin asked to be restarted.
     pub fn relink(&mut self, device: u64, rate: f64, frames: u32) {
         if let Some(entry) = self.entries.get_mut(&device) {
             entry.start.rate = rate;
@@ -195,9 +157,6 @@ impl Manager {
         }
     }
 
-    /// As [`Manager::relink`], with these auxiliary buses on from now on (a
-    /// sidechain chosen, an extra output turned on): the host is set up
-    /// again with them.
     pub fn relink_with(&mut self, device: u64, rate: f64, frames: u32, aux: Aux) {
         if let Some(entry) = self.entries.get_mut(&device) {
             entry.start.rate = rate;
@@ -207,73 +166,54 @@ impl Manager {
         }
     }
 
-    /// Sets a parameter of the device's plugin (normalized, 0 to 1). The
-    /// plugin's controller is told and the processor hears it at the start of
-    /// its next block. Does nothing for a device with no host.
     pub fn set_param(&self, device: u64, id: u32, value: f64) {
         if let Some(entry) = self.entries.get(&device) {
             entry.process.set_param(id, value);
         }
     }
 
-    /// Asks the device's plugin for its text for a value; the answer comes
-    /// from [`Manager::poll`] as [`crate::Happened::Text`].
     pub fn param_text(&self, device: u64, id: u32, value: f64) {
         if let Some(entry) = self.entries.get(&device) {
             entry.process.param_text(id, value);
         }
     }
 
-    /// Asks the device's plugin for its text for each of `values` of one
-    /// parameter (the steps of a list).
     pub fn param_texts(&self, device: u64, id: u32, values: Vec<f64>) {
         if let Some(entry) = self.entries.get(&device) {
             entry.process.param_texts(id, values);
         }
     }
 
-    /// Asks the device's plugin to read `text` the user typed for a
-    /// parameter; the answer comes from [`Manager::poll`] as
-    /// [`crate::Happened::Typed`].
     pub fn param_value(&self, device: u64, id: u32, text: String) {
         if let Some(entry) = self.entries.get(&device) {
             entry.process.param_value(id, text);
         }
     }
 
-    /// Opens the device's plugin editor window, at `bounds` if given; the news
-    /// comes from [`Manager::poll`] as [`crate::Happened::Editor`].
     pub fn open_editor(&self, device: u64, bounds: Option<EditorBounds>) {
         if let Some(entry) = self.entries.get(&device) {
             entry.process.open_editor(bounds);
         }
     }
 
-    /// Closes the device's plugin editor window.
     pub fn close_editor(&self, device: u64) {
         if let Some(entry) = self.entries.get(&device) {
             entry.process.close_editor();
         }
     }
 
-    /// Hides the device's plugin editor window without closing it, or shows
-    /// it again.
     pub fn show_editor(&self, device: u64, visible: bool) {
         if let Some(entry) = self.entries.get(&device) {
             entry.process.show_editor(visible);
         }
     }
 
-    /// Ends the device's host, for a plugin whose window stopped answering.
     pub fn end(&self, device: u64) {
         if let Some(entry) = self.entries.get(&device) {
             entry.process.end();
         }
     }
 
-    /// Has every host take `keys` (virtual-key codes) from its plugin's
-    /// window when pressed alone, now and when started; empty gives them back.
-    /// The presses come from [`Manager::poll`] as [`crate::Happened::Key`].
     pub fn capture_keys(&mut self, keys: Vec<u8>) {
         if keys == self.keys {
             return;
@@ -284,18 +224,14 @@ impl Manager {
         self.keys = keys;
     }
 
-    /// Whether `device` has a host started for it (loading, running or failed).
     pub fn has(&self, device: u64) -> bool {
         self.entries.contains_key(&device)
     }
 
-    /// The devices that have a host started.
     pub fn devices(&self) -> impl Iterator<Item = u64> + '_ {
         self.entries.keys().copied()
     }
 
-    /// What the host threads said since the last call. Messages from a
-    /// start that was replaced or forgotten are left out.
     pub fn poll(&mut self) -> Vec<Event> {
         let mut events = Vec::new();
         while let Ok(((device, serial), happened)) = self.incoming.try_recv() {
@@ -310,11 +246,6 @@ impl Manager {
         events
     }
 
-    /// Asks every host to quit and waits for them, up to `grace` in all:
-    /// when Lumen closes. Every host is asked at once; one that is still
-    /// loading its plugin cannot hear it until the plugin has loaded, and is
-    /// not waited for past the grace (its process ends with Lumen's, and its
-    /// thread with the load's own deadline).
     pub fn shutdown(&mut self, grace: Duration) {
         let entries: Vec<Entry> = self.entries.drain().map(|(_, e)| e).collect();
         for entry in &entries {
@@ -325,7 +256,6 @@ impl Manager {
             while !entry.process.ended() && Instant::now() < end {
                 std::thread::sleep(Duration::from_millis(5));
             }
-            // A host that has not ended is let go: dropping asks it again.
         }
     }
 }
@@ -337,8 +267,6 @@ mod tests {
 
     use super::*;
 
-    /// A start whose host program does not exist: its thread says it failed
-    /// at once.
     fn missing() -> Start {
         Start::new(
             PathBuf::from("/nonexistent/lumen-plugin-host"),
@@ -363,8 +291,6 @@ mod tests {
     fn what_a_replaced_start_says_is_not_heard() {
         let mut manager = Manager::new(|| {});
         manager.want(7, missing()).unwrap();
-        // The device is started again before anyone polled: the first
-        // start's thread still says it failed, and that is stale.
         manager.want(7, missing()).unwrap();
         let heard = drain_for(&mut manager, Duration::from_millis(600));
         assert_eq!(

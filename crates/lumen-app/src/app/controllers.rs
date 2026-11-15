@@ -1,9 +1,3 @@
-//! Controllers moving controls (M7 slice A5, D8): the controller messages the
-//! live feed tapped are drained each frame; one heard while a control is
-//! waiting to learn becomes its mapping, and the others move the controls
-//! they are mapped to as a hand on them would. A controller is held while its
-//! messages keep coming, which is how Touch knows when it was let go of.
-
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
@@ -16,10 +10,8 @@ use crate::App;
 use crate::arrangement::auto_scale as scale;
 use crate::live_tap::Tap;
 
-/// How long after its last message a controller counts as still held.
 const HOLD: Duration = Duration::from_millis(300);
 
-/// The last controller message heard, for the Mappings window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Last {
     pub channel: u8,
@@ -27,48 +19,33 @@ pub(crate) struct Last {
     pub value: u8,
 }
 
-/// The state of MIDI learn and mapped controls.
 #[derive(Default)]
 pub(crate) struct Controllers {
-    /// The interface's end of the controller tap, once the live feed is
-    /// handed to the engine.
     pub(crate) tap: Option<Tap>,
-    /// The control waiting for a controller to move: the next one heard is
-    /// its mapping.
     pub(crate) learning: Option<(Id, Target)>,
     pub(crate) last: Option<Last>,
-    /// The Mappings window is open.
     pub(crate) window: bool,
-    /// Mapped controls moved lately, and when.
     held: BTreeMap<(Id, Target), Instant>,
-    /// The controllers the feed was last told to keep from the engine.
     taken: Vec<(u8, u8)>,
 }
 
 impl Controllers {
-    /// Whether a mapped control is being held: a gesture is open.
     pub(crate) fn holding(&self) -> bool {
         !self.held.is_empty()
     }
 
-    /// Lets go of what belongs to the project that was open: a control waiting
-    /// for a controller, the last one heard and the controls held. The tap and
-    /// the open Mappings window stay.
     pub(crate) fn forget_project(&mut self) {
         self.learning = None;
         self.last = None;
         self.held.clear();
     }
 
-    /// How many messages the tap had no room for.
     pub(crate) fn dropped(&self) -> u64 {
         self.tap.as_ref().map_or(0, Tap::dropped)
     }
 }
 
 impl App {
-    /// Takes the controller messages heard since the last frame. Call it
-    /// before the recorder, so the moves are this frame's.
     pub(crate) fn update_controllers(&mut self, ctx: &egui::Context) {
         let mut heard = Vec::new();
         let mut notes = Vec::new();
@@ -76,7 +53,6 @@ impl App {
             tap.drain(|h| heard.push(h));
             tap.drain_notes(|n| notes.push(n.key));
         }
-        // The map editor's Learn takes the next note played (M8 D1).
         for key in notes {
             self.drum_map_heard(key);
         }
@@ -89,8 +65,6 @@ impl App {
                 value: h.value,
             });
             if let Some((track, target)) = self.controllers.learning.take() {
-                // The message that taught it is not a move: the control stays
-                // where it is until the controller moves again.
                 self.map_heard(track, target, h.channel, h.number);
                 continue;
             }
@@ -111,7 +85,6 @@ impl App {
         self.release_controllers(ctx, now);
     }
 
-    /// Lets go of the controls whose controllers have been quiet.
     fn release_controllers(&mut self, ctx: &egui::Context, now: Instant) {
         let quiet: Vec<(Id, Target)> = self
             .controllers
@@ -132,8 +105,6 @@ impl App {
         }
     }
 
-    /// Tells the live feed which controllers mappings move, so the engine's
-    /// input does not get them too.
     fn keep_taken_from_engine(&mut self) {
         let taken: Vec<(u8, u8)> = self
             .document
@@ -150,7 +121,6 @@ impl App {
         }
     }
 
-    /// Maps controller `number` on `channel` to `track`'s `target`, and says so.
     fn map_heard(&mut self, track: Id, target: Target, channel: u8, number: u8) {
         match self.document.set_mapping(track, target, channel, number) {
             Ok(()) => {
@@ -164,7 +134,6 @@ impl App {
         }
     }
 
-    /// What a control is called: the track and the control, "Bass · Volume".
     pub(crate) fn control_name(&self, track: Id, target: Target) -> String {
         let project = self.document.project();
         let owner = lumen_project::routing::all_tracks(project)
@@ -176,12 +145,10 @@ impl App {
         )
     }
 
-    /// Waits for a controller to move, to map it to `track`'s `target`.
     pub(crate) fn start_learning(&mut self, track: Id, target: Target) {
         self.controllers.learning = Some((track, target));
     }
 
-    /// Stops waiting for a controller.
     pub(crate) fn stop_learning(&mut self) -> bool {
         self.controllers.learning.take().is_some()
     }

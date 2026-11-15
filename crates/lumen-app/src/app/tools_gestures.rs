@@ -1,5 +1,3 @@
-//! Direct manipulation of arrangement clips and time ranges.
-
 use std::collections::BTreeSet;
 
 use eframe::egui::{self, CursorIcon, Rect};
@@ -34,7 +32,6 @@ impl App {
                 .input(|i| i.pointer.press_origin())
                 .or(response.interact_pointer_pos())
         {
-            // A drag shows its own hover (a trim rail, a handle), if any.
             self.arrangement.hover = None;
             self.arrangement.gesture =
                 if self.arrangement.tool == super::tools::ArrangementTool::Split {
@@ -115,16 +112,12 @@ impl App {
                 copies: Some(ids), ..
             }) = &self.arrangement.gesture
             {
-                // The copies are what was dropped: they stay selected.
                 self.arrangement.clips = ids.iter().copied().collect();
             }
             self.arrangement.gesture = None;
             self.arrangement.marquee = None;
         }
 
-        // A double-click resets a handle; on a MIDI clip it opens the clip
-        // editor; on an empty spot of a MIDI track's lane it makes a
-        // one-bar clip there (snapped) and opens it (M5 slice 3c).
         if self.arrangement.tool == super::tools::ArrangementTool::Pointer
             && response.double_clicked()
             && let Some(p) = response.interact_pointer_pos()
@@ -194,8 +187,6 @@ impl App {
                 return;
             }
             let hit = self.hit(&ctx, p, canvas);
-            // A click on a clip's header (its title strip) locates to the
-            // clip's start rather than to the clicked spot.
             let header_start = hit
                 .filter(|h| h.region == ClipRegion::Header && h.handle.is_none())
                 .and_then(|h| {
@@ -218,11 +209,6 @@ impl App {
             }
             self.arrangement.range = None;
             self.selected_clips_now();
-            // While stopped, a plain lane click also locates (snapped;
-            // Alt places freely), and a click on a clip's header locates to
-            // the clip's start. While playing, selecting or editing clips
-            // must leave playback running from its current place. Ctrl and
-            // Shift clicks only build a selection.
             if !adding {
                 if !self.transport.state().playing {
                     let target = header_start
@@ -230,17 +216,11 @@ impl App {
                     self.transport.locate(target.max(Ticks::ZERO));
                     self.transport.follow_paused = true;
                 }
-                // The clicked track is where Paste lands now; the headers'
-                // selection gives way to it.
                 self.arrangement.insert = self.lane_track(&ctx, canvas, p);
                 self.arrangement.selected.clear();
             }
         }
 
-        // A right-click decides what the menu is for (the owner's A, after
-        // MT-APP-14 run 2): inside the time range, the range; on a clip,
-        // the clips (a clip that is not selected is selected first, so the
-        // menu acts on what was clicked); elsewhere, the lanes.
         if response.secondary_clicked()
             && let Some(p) = response.interact_pointer_pos()
         {
@@ -261,8 +241,6 @@ impl App {
             };
         }
 
-        // The H1 hover: which region is under the pointer, and what it does.
-        // Not while a menu is open: the hint would sit on it.
         if self.arrangement.gesture.is_some() || egui::Popup::is_any_open(&ctx) {
             return;
         }
@@ -327,8 +305,6 @@ impl App {
             return;
         }
         let Some(hit) = self.hit(&ctx, p, canvas) else {
-            // Empty lanes (M4 slice 0: what a drag does is in the info line,
-            // not by the pointer).
             self.set_info(
                 Info::new("Lanes")
                     .on(Held::NONE, Mouse::Drag, "select time")
@@ -370,13 +346,11 @@ impl App {
             return;
         };
         let name = format!("\u{201C}{}\u{201D}", clip.name);
-        // What was done to it, so the marks on a thin clip are read out.
         let marked = |what: String| match Marks::of(clip).words() {
             Some(marks) => format!("{what} \u{00B7} {marks}"),
             None => what,
         };
         let slip = modifiers.command && modifiers.alt;
-        // The cursor shows what a drag does now; the info line says it all.
         let (cursor, info) = match (hit.edge, hit.region) {
             _ if clip.locked => (
                 CursorIcon::NotAllowed,

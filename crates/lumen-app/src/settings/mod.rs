@@ -1,14 +1,3 @@
-//! User settings that survive restarts: the audio device and the metronome
-//! (M2 slice 8), the appearance (M3 slice 2), changed shortcuts and the
-//! palette's recent commands (M3 slice 7), and the record settings (M5
-//! slice 6c, in `record_settings.rs`). Preferences proper (paths and the
-//! rest) join them in M9.
-//!
-//! The file is versioned JSON in the user's settings folder. It is written
-//! atomically (to a temporary file, flushed, then renamed), so a crash never
-//! leaves it half-written. A file that cannot be read is moved aside as
-//! `settings.json.bad` and Lumen starts with defaults, saying why.
-
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -24,19 +13,12 @@ use crate::recording::record_settings::RecordSettings;
 
 pub(crate) mod browser;
 
-/// The file's version. A section added with defaults does not change it (an
-/// older file reads as before; ADR-0079); a field removed or given another
-/// meaning does, with a migration.
 pub const VERSION: u32 = 1;
 
-/// The device chosen in the audio settings.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AudioSettings {
-    /// `asio`, `wasapi`, `exclusive` or `cpal`.
     pub driver: String,
-    /// The backend's stable device id.
     pub device_id: String,
-    /// Shown when the device is missing.
     pub device_name: String,
     #[serde(default)]
     pub sample_rate: Option<u32>,
@@ -44,15 +26,10 @@ pub struct AudioSettings {
     pub buffer_frames: Option<u32>,
     #[serde(default)]
     pub input_channels: Vec<usize>,
-    /// Every input the device has is open, so any audio track can record from
-    /// any of them (M9 slice R1); `input_channels` then lists none. An added
-    /// field, no version change: files without it open every input.
     #[serde(default = "yes")]
     pub all_inputs: bool,
     #[serde(default = "stereo")]
     pub output_channels: Vec<usize>,
-    /// The cue pair (M4 slice 4, the owner's O1): opened after the main
-    /// pair. Empty: no cue. An added field, no version change.
     #[serde(default)]
     pub cue_channels: Vec<usize>,
 }
@@ -70,14 +47,10 @@ fn stereo() -> Vec<usize> {
 pub struct Metronome {
     pub enabled: bool,
     pub volume: f32,
-    /// `Beep` or `Wood`.
     pub sound: String,
-    /// `main` or `cue` (M4 slice 4: an added field, main by default).
     pub output: String,
 }
 
-/// The cue pair's first channel: the main pair comes first, then the cue
-/// pair (the owner's O1).
 pub const CUE_CHANNEL: u16 = 2;
 
 impl Default for Metronome {
@@ -111,47 +84,28 @@ impl From<&Metronome> for MetronomeSettings {
                 .into_iter()
                 .find(|s| s.name() == m.sound)
                 .unwrap_or_default(),
-            // On a device without a cue pair, the engine plays it on the
-            // main pair.
             channel: if m.output == "cue" { CUE_CHANNEL } else { 0 },
         }
     }
 }
 
-/// How mixing controls behave (M4 slice 4): an added section with
-/// defaults, so older files read as before (no version change).
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Mixing {
-    /// A click on Solo adds the track to what is soloed, and Ctrl+click
-    /// solos it alone (the owner's D2: off by default).
     pub additive_solo: bool,
-    /// The master's Solo/Cue switch is on Cue: the S buttons cue tracks to
-    /// the cue pair (the owner's C1).
     pub cue_mode: bool,
-    /// The cue bus's level, in dB.
     pub cue_volume_db: f32,
-    /// Meters in their track's colour rather than the accent (the owner's
-    /// M2, a setting; M1, the accent, by default). M4 slice 5, an added
-    /// field.
     pub track_colour_meters: bool,
 }
 
-/// The theme a new settings file starts with (`theme::Appearance`'s
-/// default, by its key; a theme test keeps the two together).
 pub const DEFAULT_THEME: &str = "dark";
 
-/// Theme, motion and UI scale (`docs/DESIGN.md`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Appearance {
-    /// `dark`, `light` or `system`.
     pub theme: String,
     pub reduce_motion: bool,
-    /// 1.0 = 100%.
     pub ui_scale: f32,
-    /// The info line along the bottom of the window (M4 slice 0): an
-    /// added field, on unless turned off.
     pub info_line: bool,
 }
 
@@ -166,7 +120,6 @@ impl Default for Appearance {
     }
 }
 
-/// UI scales offered in the app menu.
 pub const UI_SCALES: [f32; 5] = [1.0, 1.25, 1.5, 1.75, 2.0];
 
 impl Appearance {
@@ -179,16 +132,12 @@ impl Appearance {
     }
 }
 
-/// How the arrangement follows the playhead while playing (M3 slice 4d;
-/// owner: page by default, on).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Follow {
     Off,
-    /// The view jumps a page when the playhead reaches the right edge.
     #[default]
     Page,
-    /// The view scrolls under a playhead that stays in place.
     Continuous,
 }
 
@@ -202,21 +151,12 @@ impl Follow {
     }
 }
 
-/// Projects: recently opened, and whether saving copies audio in.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Projects {
-    /// Newest first, at most ten.
     pub recent: Vec<String>,
-    /// Copy imported audio from outside the project folder into
-    /// `Samples/Imported` when saving.
     pub copy_imported: bool,
-    /// Where New, Open and Save as start (M9 R7; an added field). `None` is
-    /// `Documents/Lumen/Projects`.
     pub folder: Option<String>,
-    /// The person wants `.lumen` files to open with Lumen (M9 R8; an added
-    /// field). The first-run Ready step's default; the registry, not this,
-    /// decides what the Preferences row shows.
     pub associate_files: bool,
 }
 
@@ -231,26 +171,17 @@ impl Default for Projects {
     }
 }
 
-/// The cache of converted audio and waveform peaks (M9 R7; an added
-/// section).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Cache {
-    /// The folder Lumen keeps its cache folder in; `None` is the standard
-    /// place, beside the autosaves. Read at start.
     pub folder: Option<String>,
-    /// Gigabytes the cache holds before the oldest entries are cleared.
     pub limit_gb: u32,
-    /// A cache folder left behind by a change of folder, offered for Clear
-    /// once (Lumen never clears it unasked).
     pub previous: Option<String>,
 }
 
 impl Cache {
-    /// The limits offered, in gigabytes.
     pub const LIMITS_GB: [u32; 5] = [5, 10, 20, 50, 100];
 
-    /// The limit in bytes.
     pub fn limit(&self) -> u64 {
         u64::from(self.limit_gb) * 1_000_000_000
     }
@@ -260,17 +191,12 @@ impl Default for Cache {
     fn default() -> Self {
         Self {
             folder: None,
-            // The owner's C A.
             limit_gb: 20,
             previous: None,
         }
     }
 }
 
-/// Commands (M3 slice 7): the shortcuts changed from the defaults, by
-/// command id ("edit.duplicate": ["Ctrl+D"]; an empty list means none),
-/// and the palette's recent commands, newest first. An added field with a
-/// default, so older files read as before (no version change).
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Commands {
@@ -278,22 +204,16 @@ pub struct Commands {
     pub recent: Vec<String>,
 }
 
-/// What the user switched on for one MIDI port (M5 slice 0). Ports are
-/// found by direction and name, and stay remembered while unplugged.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MidiPort {
-    /// `input` or `output`.
     pub direction: String,
     pub name: String,
     #[serde(default)]
     pub track: bool,
     #[serde(default)]
     pub remote: bool,
-    /// An output that gets MIDI clock (M5 slice 7; an added field).
     #[serde(default, skip_serializing_if = "is_false")]
     pub sync: bool,
-    /// How much later than the song the clock goes, in milliseconds,
-    /// −20 to +50 (the owner's F4; an added field).
     #[serde(default, skip_serializing_if = "is_zero")]
     pub sync_delay_ms: i32,
 }
@@ -306,14 +226,10 @@ fn is_zero(n: &i32) -> bool {
     *n == 0
 }
 
-/// The MIDI page of the settings: an added field with a default, so older
-/// files read as before (no version change).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Midi {
     pub ports: Vec<MidiPort>,
-    /// The piano roll plays a note while it is drawn or changes pitch
-    /// (M5 slice 3d; an added field, on by default).
     pub audition: bool,
 }
 
@@ -335,54 +251,24 @@ pub struct Settings {
     pub appearance: Appearance,
     pub projects: Projects,
     pub follow: Follow,
-    /// The time ruler's format (M3 slice 5b).
     pub time_format: crate::timefmt::TimeFormat,
     pub commands: Commands,
     pub mixing: Mixing,
     pub midi: Midi,
-    /// The count-in, record-only metronome and Overdub (M5 slice 6c): an
-    /// added section with defaults, so older files read as before (no
-    /// version change).
     pub record: RecordSettings,
-    /// Plugin folders, favorites and recents (M6 slice 1): an added section
-    /// with defaults, so older files read as before (no version change).
     pub plugins: crate::plugins::PluginSettings,
-    /// How clip edits treat automation (M7 slice A7): an added section with
-    /// defaults, so older files read as before (no version change).
     pub editing: Editing,
-    /// What Bounce did last (M7b slice E4): an added section with defaults,
-    /// so older files read as before (no version change).
     pub bounce: BounceChoices,
-    /// How audio files play (M9 slice R6): an added section with defaults,
-    /// so older files read as before (no version change).
     pub playback: Playback,
-    /// What the recording offset was measured with, when it came from the
-    /// loopback helper (M9 slice R2b): the audio settings say so when the
-    /// device in use differs. An added field, no version change.
     pub offset_measured: Option<MeasuredWith>,
-    /// The cache's folder and limit (M9 R7): an added section with
-    /// defaults, so older files read as before (no version change).
     pub cache: Cache,
-    /// The first-run window was finished or closed (M9 R7b). An added
-    /// field: a file without it was written before the window existed, by
-    /// someone already set up, so it reads as done; only a start with no
-    /// settings at all (the defaults) has it false.
     #[serde(default = "yes")]
     pub setup_done: bool,
-    /// The browser's open tab (M9 R7c): an added section with defaults, so
-    /// older files read as before (no version change).
     pub browser: browser::Browser,
-    /// The clip editor's quantize options, so Q after a restart does what
-    /// it did before: an added section with defaults, so older files read
-    /// as before (no version change).
     pub quantize: QuantizeChoices,
-    /// Where the pop-out clip editor was last, in points: an added field
-    /// (no version change).
     pub clip_editor_window: Option<WindowPlace>,
 }
 
-/// A window's place: its outer top-left corner and the size of its inside,
-/// in points.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct WindowPlace {
     pub x: f32,
@@ -391,10 +277,6 @@ pub struct WindowPlace {
     pub height: f32,
 }
 
-/// The quantize popover's settings, as words and fractions: `grid` is a note
-/// value ("1/16") or none for the editing grid; `kind` is `straight`,
-/// `triplet` or `dotted`; `mode` is `start`, `end`, `both` or `length`.
-/// A word Lumen does not know reads as the default.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct QuantizeChoices {
@@ -419,10 +301,8 @@ impl Default for QuantizeChoices {
     }
 }
 
-/// The device setup a loopback measurement was taken on.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MeasuredWith {
-    /// `asio`, `wasapi`, `exclusive` or `cpal`.
     pub driver: String,
     pub device_id: String,
     pub device_name: String,
@@ -431,8 +311,6 @@ pub struct MeasuredWith {
 }
 
 impl MeasuredWith {
-    /// The same driver, device, rate and buffer: a measurement on one holds
-    /// for the other. The device's name is only for showing.
     pub fn same_setup(&self, other: &MeasuredWith) -> bool {
         self.driver == other.driver
             && self.device_id == other.device_id
@@ -441,13 +319,9 @@ impl MeasuredWith {
     }
 }
 
-/// How audio files play.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Playback {
-    /// "Play audio from disk": long files stream rather than load into
-    /// memory. On by default since the soak and MT-STREAM-1 passed (the
-    /// owner's S6 A, 2026-10-28); a file that says off stays off.
     pub from_disk: bool,
 }
 
@@ -457,15 +331,11 @@ impl Default for Playback {
     }
 }
 
-/// The choices in Bounce's popover, remembered (the owner's B1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct BounceChoices {
-    /// Replace the track's audio; off puts the file on a new track.
     pub replace: bool,
-    /// The track's devices, fader and pan are in the file.
     pub effects: bool,
-    /// What rings on after the end is in the file.
     pub tail: bool,
 }
 
@@ -479,38 +349,21 @@ impl Default for BounceChoices {
     }
 }
 
-/// How clip edits treat automation, how much history and autosave keep, and
-/// what new tracks start with.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Editing {
-    /// A clip that moves, is copied or is deleted leaves the track's
-    /// automation where it is (the owner's E3: off by default, so the points
-    /// under a clip go with it).
     pub lock_envelopes: bool,
-    /// Undo steps a project keeps, from the next project opened or made
-    /// (M9 R7; an added field).
     pub undo_steps: usize,
-    /// Seconds from the first unsaved change to the autosave (M9 R7; an
-    /// added field).
     pub autosave_seconds: u64,
-    /// What new tracks start with (M9 R7; an added field).
     pub new_tracks: NewTracks,
-    /// The audio editor moves a cut edge to the nearest quiet frame within
-    /// 5 ms (M9.5 S2b, the owner's ZC A: off by default; an added field).
     #[serde(skip_serializing_if = "is_false")]
     pub zero_crossings: bool,
-    /// Whether new audio clips follow the song's tempo (M9.5 S4d, the
-    /// owner's W A: loops and recordings by default; an added field).
     pub follow_tempo: crate::document::FollowTempo,
 }
 
 impl Editing {
-    /// The undo depths offered. More is not offered until its memory is
-    /// measured.
     pub const UNDO_STEPS: [usize; 3] = [1_000, 5_000, 10_000];
 
-    /// The autosave interval.
     pub fn autosave(&self) -> std::time::Duration {
         std::time::Duration::from_secs(self.autosave_seconds)
     }
@@ -529,14 +382,10 @@ impl Default for Editing {
     }
 }
 
-/// What new tracks start with.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct NewTracks {
-    /// An audio track's monitoring: `in`, `auto` or `off`.
     pub audio_monitor: Monitor,
-    /// A MIDI track's instrument: the synth's preset id (`poly`, `keys`
-    /// ...), or `null` for none.
     pub midi_instrument: Option<String>,
 }
 
@@ -550,8 +399,6 @@ impl Default for NewTracks {
 }
 
 impl NewTracks {
-    /// What the document gives new tracks; an unknown preset is the
-    /// default one.
     pub fn for_document(&self) -> crate::document::NewTracks {
         crate::document::NewTracks {
             monitor: self.audio_monitor,
@@ -563,8 +410,6 @@ impl NewTracks {
     }
 }
 
-/// The choice in `offered` nearest to `value`: a value written by hand
-/// becomes one the window shows.
 fn nearest(value: u64, offered: &[u64]) -> u64 {
     offered
         .iter()
@@ -574,7 +419,6 @@ fn nearest(value: u64, offered: &[u64]) -> u64 {
 }
 
 impl Settings {
-    /// Brings values written by hand within what Preferences offers.
     fn bound(&mut self) {
         self.plugins.bound();
         let editing = &mut self.editing;
@@ -620,9 +464,6 @@ impl Default for Settings {
     }
 }
 
-/// Defaults for someone whose settings file could not be used: not a new
-/// user, so the first-run window stays closed (the warning says what
-/// happened).
 fn defaults_after_a_bad_file() -> Settings {
     Settings {
         setup_done: true,
@@ -630,9 +471,6 @@ fn defaults_after_a_bad_file() -> Settings {
     }
 }
 
-/// The settings file: `%APPDATA%\Lumen` on Windows, `~/Library/Application
-/// Support/Lumen` on macOS, `$XDG_CONFIG_HOME/lumen` (or `~/.config/lumen`)
-/// on Linux.
 pub fn default_path() -> Option<PathBuf> {
     let dir = if cfg!(windows) {
         PathBuf::from(std::env::var_os("APPDATA")?).join(PRODUCT_NAME)
@@ -649,9 +487,6 @@ pub fn default_path() -> Option<PathBuf> {
     Some(dir.join("settings.json"))
 }
 
-/// Reads the settings without changing anything on disk: defaults when
-/// they cannot be read. For a start that is not the instance (M9 R8),
-/// which only needs the theme and the interface size.
 pub fn peek(path: &Path) -> Settings {
     std::fs::read_to_string(path)
         .ok()
@@ -664,8 +499,6 @@ pub fn peek(path: &Path) -> Settings {
         .unwrap_or_default()
 }
 
-/// Reads the settings, or defaults when there are none. A file that cannot
-/// be read is moved aside and the reason returned, to show the user.
 pub fn load(path: &Path) -> (Settings, Option<String>) {
     let text = match std::fs::read_to_string(path) {
         Ok(text) => text,
@@ -683,9 +516,6 @@ pub fn load(path: &Path) -> (Settings, Option<String>) {
             (settings, None)
         }
         Ok(settings) => {
-            // Defaults are used, and the first change would write them over
-            // this file: keep it aside, where the newer version can have it
-            // back.
             let aside = path.with_extension("json.newer");
             let kept = match std::fs::rename(path, &aside) {
                 Ok(()) => format!("it was kept as {}", aside.display()),
@@ -714,19 +544,14 @@ pub fn load(path: &Path) -> (Settings, Option<String>) {
     }
 }
 
-/// Writes the settings atomically.
 pub fn save(path: &Path, settings: &Settings) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
     let text = serde_json::to_string_pretty(settings).map_err(std::io::Error::other)?;
-    // Flushed to disk before it replaces the old file, as a project is.
     lumen_project::write_atomic(path, text.as_bytes())
 }
 
-/// Saves settings on a background thread, one save at a time and in order,
-/// so the UI never waits on the disk (audit H1). Dropping it finishes any
-/// save still queued.
 pub struct Writer {
     queue: Option<std::sync::mpsc::Sender<(PathBuf, Settings)>>,
     errors: std::sync::mpsc::Receiver<String>,
@@ -752,9 +577,6 @@ impl Writer {
                 thread: Some(thread),
             },
             Err(error) => {
-                // There is nothing to send the settings to: the line the
-                // interface already shows for a failed write carries this
-                // one, and nothing tries to save over it.
                 let _ = failed.send(format!(
                     "its writer could not start: {error}. Try again, or restart if this keeps \
                      happening."
@@ -774,7 +596,6 @@ impl Writer {
         }
     }
 
-    /// A save that failed since the last call, to show the user.
     pub fn failure(&self) -> Option<String> {
         self.errors.try_recv().ok()
     }
@@ -782,7 +603,6 @@ impl Writer {
 
 impl Drop for Writer {
     fn drop(&mut self) {
-        // Closing the queue ends the thread once queued saves are done.
         self.queue = None;
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
@@ -983,7 +803,6 @@ mod tests {
         assert_eq!(load(&path), (Settings::default(), None));
     }
 
-    /// M9 R7b: only a start with no settings file is a first start.
     #[test]
     fn only_a_start_without_settings_is_a_first_start() {
         let dir = temp_dir("first-start");
@@ -1003,8 +822,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// A file from before R7's Preferences reads the new settings as
-    /// today's values (no version change).
     #[test]
     fn a_file_from_before_preferences_reads_the_new_settings_as_defaults() {
         let dir = temp_dir("preferences-missing");
@@ -1030,8 +847,6 @@ mod tests {
         assert_eq!(settings.cache.limit(), 20_000_000_000);
     }
 
-    /// Values written by hand become the nearest the window offers, and an
-    /// unknown preset the default one; `null` is no instrument.
     #[test]
     fn hand_written_values_are_brought_within_the_choices() {
         let dir = temp_dir("preferences-bounds");
@@ -1089,7 +904,6 @@ mod tests {
         let warning = warning.unwrap();
         assert!(warning.contains("newer version"), "{warning}");
         assert!(warning.contains("settings.json.newer"), "{warning}");
-        // The first change saves over the path, as the app does.
         save(&path, &settings).unwrap();
         assert_eq!(
             std::fs::read_to_string(dir.join("settings.json.newer")).unwrap(),
@@ -1114,7 +928,6 @@ mod tests {
         assert_eq!(settings.metronome.volume, 0.8);
         assert_eq!(settings.metronome.sound, "Beep");
         assert_eq!(settings.audio, None);
-        // Files from before slice 4d: Follow on, by page (owner's default).
         assert_eq!(settings.follow, Follow::Page);
     }
 
@@ -1150,9 +963,6 @@ mod tests {
         assert!(settings.record.overdub);
     }
 
-    /// Audio plays from disk unless a file says otherwise (the owner's S6 A):
-    /// a file from before the switch existed plays from disk, one that turned
-    /// it off keeps it off.
     #[test]
     fn audio_plays_from_disk_unless_the_file_turned_it_off() {
         assert!(Settings::default().playback.from_disk);

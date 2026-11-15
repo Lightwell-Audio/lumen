@@ -1,5 +1,3 @@
-//! Recovery behaviour of the audio supervisor, against the scriptable backend.
-
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -28,7 +26,6 @@ fn config(buffer: Option<u32>) -> StreamConfig {
     }
 }
 
-/// A callback that writes a tone and counts blocks.
 fn system(control: &FakeControl) -> (AudioSystem, Arc<AtomicU64>) {
     let blocks = Arc::new(AtomicU64::new(0));
     let counter = Arc::clone(&blocks);
@@ -105,7 +102,6 @@ fn an_unplugged_device_is_reported_lost_and_restored_when_it_returns() {
         Some(DeviceEvent::Lost(AudioError::DeviceNotPresent(_)))
     ));
     assert_eq!(audio.status().state(), State::Lost);
-    // While lost, retries keep failing quietly and no audio runs.
     std::thread::sleep(Duration::from_millis(100));
     assert_eq!(audio.try_event(), None);
     let frozen = blocks.load(Ordering::Relaxed);
@@ -121,9 +117,6 @@ fn an_unplugged_device_is_reported_lost_and_restored_when_it_returns() {
     wait_for_blocks(&blocks, frozen + 5);
 }
 
-/// MT-AUDIO-1 on a Focusrite interface: the driver accepted a reopen while
-/// the hardware was still gone, then failed at once. That must not show up
-/// as a Restored/Lost flip-flop.
 #[test]
 fn a_reopen_that_fails_at_once_is_not_reported_restored() {
     let control = FakeControl::new();
@@ -181,7 +174,7 @@ fn a_bad_configuration_falls_back_to_the_working_one() {
         audio.wait_event(WAIT),
         Some(DeviceEvent::Started(_))
     ));
-    audio.configure(config(Some(100))); // not a power of two: unsupported
+    audio.configure(config(Some(100)));
     match audio.wait_event(WAIT) {
         Some(DeviceEvent::ConfigFailed {
             error: AudioError::Unsupported(_),
@@ -252,7 +245,6 @@ fn load_is_measured() {
     );
 }
 
-/// The starvation check over 200 ms windows.
 fn watching() -> Timing {
     Timing {
         starvation_window: Some(Duration::from_millis(200)),
@@ -284,7 +276,6 @@ fn wait_for_dropouts(audio: &AudioSystem, at_least: u64) {
 
 #[test]
 fn a_driver_delivering_slower_than_real_time_counts_dropouts() {
-    // 64 frames every 4th poll of 2 ms: about 8,000 frames a second at 48 kHz.
     let control = FakeControl::new();
     control.set(|d| d.deliver_every = 4);
     let audio = spawn(&control, watching());
@@ -294,13 +285,11 @@ fn a_driver_delivering_slower_than_real_time_counts_dropouts() {
         Some(DeviceEvent::Started(_))
     ));
     wait_for_dropouts(&audio, 1);
-    // Told apart from skipped buffers.
     assert_eq!(audio.status().slow_dropouts(), audio.status().dropouts());
 }
 
 #[test]
 fn a_healthy_driver_counts_no_dropouts() {
-    // 1,024 frames every poll: far faster than real time.
     let control = FakeControl::new();
     let audio = spawn(&control, watching());
     audio.configure(config(Some(1_024)));
@@ -322,7 +311,6 @@ fn skipped_driver_buffers_count_as_dropouts_and_reset_clears_them() {
         Some(DeviceEvent::Started(_))
     ));
     std::thread::sleep(Duration::from_millis(30));
-    // The driver position jumps two buffers ahead: two buffers were skipped.
     control.set(|d| d.skip_frames = 512);
     wait_for_dropouts(&audio, 2);
     std::thread::sleep(Duration::from_millis(30));
@@ -334,10 +322,6 @@ fn skipped_driver_buffers_count_as_dropouts_and_reset_clears_them() {
 
 #[test]
 fn a_driver_reset_is_not_counted_as_dropouts() {
-    // Owner (M4 slice 1): changing the Focusrite's buffer size added dozens
-    // of dropouts each time. Its ASIO driver keeps counting samples through
-    // the reset, so the reopened stream's position is far ahead of where
-    // the last block ended; that gap is a restart, not lost audio.
     let control = FakeControl::new();
     let audio = spawn(&control, fast());
     audio.configure(config(Some(128)));
@@ -356,15 +340,12 @@ fn a_driver_reset_is_not_counted_as_dropouts() {
     ));
     std::thread::sleep(Duration::from_millis(50));
     assert_eq!(audio.status().dropouts(), 0);
-    // Skipped buffers after the reset still count.
     control.set(|d| d.skip_frames = 256);
     wait_for_dropouts(&audio, 2);
 }
 
 #[test]
 fn a_driver_resync_is_not_counted_as_dropouts() {
-    // ASIO drivers ask the host to resync when their sample position jumps
-    // (the block after reports none): a discontinuity, not lost audio.
     let control = FakeControl::new();
     let audio = spawn(&control, fast());
     audio.configure(config(Some(256)));
@@ -403,8 +384,6 @@ fn switching_drivers_moves_the_running_callback_to_the_new_one() {
         Some(DeviceEvent::Started(info)) => assert_eq!(info.buffer_frames, 512),
         other => panic!("expected Started on the new driver, got {other:?}"),
     }
-    // The same callback (its block counter) keeps running, now on the
-    // second device.
     let before = blocks.load(Ordering::Relaxed);
     wait_for_blocks(&blocks, before + 5);
     assert_eq!(second.opens(), 1);
@@ -415,7 +394,6 @@ fn switching_drivers_moves_the_running_callback_to_the_new_one() {
 fn after_a_switch_the_first_event_is_the_new_drivers() {
     let (first, second) = (FakeControl::new(), FakeControl::new());
     let (mut audio, _) = system(&first);
-    // The old driver starts and says so; nobody reads it before the switch.
     audio.configure(config(Some(128)));
     let next = second.clone();
     audio
@@ -434,7 +412,6 @@ fn after_a_switch_the_first_event_is_the_new_drivers() {
 
 #[test]
 fn a_switch_says_when_the_audio_is_handed_over_and_gives_up_on_a_driver_that_holds_on() {
-    // A driver that lets go: `handed` is told before the new one opens.
     let (first, second) = (FakeControl::new(), FakeControl::new());
     let (mut audio, _) = system(&first);
     audio.configure(config(None));
@@ -449,7 +426,6 @@ fn a_switch_says_when_the_audio_is_handed_over_and_gives_up_on_a_driver_that_hol
         .unwrap();
     assert!(handed.get());
 
-    // One that does not: the switch gives up after the handover's deadline.
     assert!(matches!(
         audio.wait_event(WAIT),
         Some(DeviceEvent::Started(_))

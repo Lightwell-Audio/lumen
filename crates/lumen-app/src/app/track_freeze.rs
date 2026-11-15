@@ -1,13 +1,3 @@
-//! Freeze, unfreeze and flatten (M7b slice E5, ADR-0098). Freeze renders each
-//! selected audio and MIDI track, from its first clip to its last with the tail
-//! that rings on, with its instrument, devices, trim and polarity (the owner's
-//! FR1), into a file the track then plays; the render runs on the bounce worker
-//! (`bounce::Render`, `Bake::Sound`) with the plugins read first, progress in
-//! the toast and Esc to stop. A frozen track is read-only (FR2, enforced by the
-//! history); Unfreeze gives it back exactly, and Flatten (FR3) turns it into a
-//! plain audio track holding the file. Tracks whose sound depends on other
-//! tracks are refused with the reason (FR4).
-
 use std::time::Instant;
 
 use eframe::egui;
@@ -18,32 +8,24 @@ use crate::App;
 use crate::bounce::{Bake, Job, Poll, Render, remove_files};
 use crate::export::render_audio::RenderAudio;
 
-/// Why the tempo and the time signature do not change while a track is frozen
-/// (the history refuses it; tap tempo says so before its run starts).
 pub(crate) const FROZEN_TIMING: &str = "Tempo and time signature can't change while a track is \
      frozen, as its file would stay behind the music. Unfreeze the frozen tracks first";
 
-/// How long the plugins are waited for before a freeze starts with the states
-/// it has.
 const PLUGIN_READ_WAIT: std::time::Duration = std::time::Duration::from_secs(4);
 
-/// A freeze while the plugins are being read.
 pub(crate) struct Waiting {
     parts: Vec<Part>,
     refused: Vec<(String, Refusal)>,
     since: Instant,
 }
 
-/// A render under way.
 pub(crate) struct Running {
     render: Render,
     parts: Vec<Part>,
     refused: Vec<(String, Refusal)>,
-    /// Each track's devices with the plugin states the render started from.
     states: Vec<(Id, Vec<Device>)>,
 }
 
-/// The refusals as one sentence each, read in full.
 fn refusals(refused: &[(String, Refusal)]) -> String {
     refused
         .iter()
@@ -53,8 +35,6 @@ fn refusals(refused: &[(String, Refusal)]) -> String {
 }
 
 impl App {
-    /// The tracks a track command acts on: the selected tracks, else the
-    /// tracks of the selected clips, else the tracks of the time range.
     pub(crate) fn track_targets(&self) -> Vec<Id> {
         if !self.arrangement.selected.is_empty() {
             return self.arrangement.selected.clone();
@@ -80,7 +60,6 @@ impl App {
             .unwrap_or_default()
     }
 
-    /// Whether any target is a track that Freeze could act on.
     pub(crate) fn can_freeze_targets(&self) -> bool {
         let targets = self.track_targets();
         self.document.project().tracks.iter().any(|t| {
@@ -90,7 +69,6 @@ impl App {
         })
     }
 
-    /// The targets that are frozen.
     pub(crate) fn frozen_targets(&self) -> Vec<Id> {
         let targets = self.track_targets();
         self.document
@@ -102,7 +80,6 @@ impl App {
             .collect()
     }
 
-    /// Whether a bounce or a freeze is rendering, which a freeze waits for.
     pub(crate) fn rendering_tracks(&self) -> bool {
         self.bouncing.is_some()
             || self.bounce_waiting.is_some()
@@ -110,7 +87,6 @@ impl App {
             || self.freeze_waiting.is_some()
     }
 
-    /// The Freeze command.
     pub(crate) fn freeze_selected_tracks(&mut self, ctx: &egui::Context) {
         if self.rendering_tracks() {
             self.say(crate::app::commands::wait::FREEZE.to_owned());
@@ -139,7 +115,6 @@ impl App {
             });
             return;
         }
-        // Audio has to be loaded for the clip player to render it.
         let audio = RenderAudio::of_tracks(
             &self.lanes,
             self.document.project(),
@@ -166,15 +141,12 @@ impl App {
         self.launch_freeze(found.parts, refused, ctx);
     }
 
-    /// Hands the parts to the worker, with the project as the plugins hold it.
     fn launch_freeze(
         &mut self,
         parts: Vec<Part>,
         refused: Vec<(String, Refusal)>,
         ctx: &egui::Context,
     ) {
-        // The files are made at the project's rate; the worker reads the
-        // audio again when the device runs at another.
         let audio = RenderAudio::of_tracks(
             &self.lanes,
             self.document.project(),
@@ -236,8 +208,6 @@ impl App {
         });
     }
 
-    /// Follows the freeze: waits for the plugins to be read, shows progress,
-    /// stops on Esc, and freezes the tracks when it is done. Call every frame.
     pub(crate) fn poll_freeze(&mut self, ctx: &egui::Context) {
         if let Some(waiting) = &self.freeze_waiting {
             if !self.typing && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
@@ -287,8 +257,6 @@ impl App {
         }
     }
 
-    /// Freezes the tracks with their files as one step, and says what
-    /// happened.
     fn finish_freeze(&mut self, running: Running, made: Vec<crate::bounce::Rendered>) {
         let Running {
             parts,
@@ -300,7 +268,6 @@ impl App {
         let baked: Vec<Baked> = made
             .iter()
             .filter_map(|r| {
-                // The file's own rate: the project's, not the device's.
                 let rate = r.media.sample_rate;
                 let part = parts.iter().find(|p| p.track == r.track)?.clone();
                 let from = timeline.sample_at(part.end, rate);
@@ -324,7 +291,6 @@ impl App {
             self.say("The tracks changed while freezing: nothing was changed".to_owned());
             return;
         }
-        // The files of tracks that changed meanwhile are not kept.
         let kept: Vec<_> = made
             .iter()
             .filter(|r| !done.contains(&r.track))
@@ -350,7 +316,6 @@ impl App {
             .map_or_else(String::new, |t| t.name.clone())
     }
 
-    /// The Unfreeze command.
     pub(crate) fn unfreeze_selected_tracks(&mut self) {
         let targets = self.frozen_targets();
         let done = self.document.unfreeze_tracks(&targets);
@@ -361,7 +326,6 @@ impl App {
         });
     }
 
-    /// The Flatten command.
     pub(crate) fn flatten_selected_tracks(&mut self) {
         let targets = self.frozen_targets();
         let done = self.document.flatten_tracks(&targets);
@@ -372,8 +336,6 @@ impl App {
         });
     }
 
-    /// Says why an edit did nothing when it tried to change a frozen track
-    /// (the owner's FR2). Call every frame.
     pub(crate) fn say_frozen_refusals(&mut self) {
         let refused = self.document.take_refused();
         if refused.is_empty() {

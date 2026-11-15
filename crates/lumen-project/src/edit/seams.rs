@@ -1,26 +1,3 @@
-//! Notes that carry on across a seam (ADR-0058).
-//!
-//! A clip is a window onto its notes (ADR-0056), so a note running past a
-//! clip's end is cut there. When the next clip on the track begins exactly
-//! where that one ends (a **seam**: an Overdub begun inside a clip, or a
-//! clip cut in two) and holds the same note, the note **carries on**: it sounds, and
-//! is drawn, through the seam until it ends or the next clip does, and on
-//! through further seams that hold it too. "The same note" is a note of the
-//! same pitch and velocity starting at the same arrangement time, which the
-//! next clip keeps hidden before its start, and which sounds no later than
-//! the note it continues: the copy a split leaves in the right piece, or the
-//! one an Overdub carries into its new clip (`record::carry`). A clip that
-//! does not hold it (a clip moved up against another, a note cut short
-//! where a new one was played) cuts it at the seam, as before. A recorded
-//! note kept hidden before a take's window (`record::capture_parts`) is not
-//! a copy: it may share an old note's start and pitch, but runs longer or
-//! was struck at another velocity, so it stays hidden and the old note
-//! stops at the seam.
-//!
-//! Only clips that do not loop meet at seams: a loop's repeats begin again
-//! at every repeat, so nothing crosses them. Muted clips and muted notes
-//! carry nothing.
-
 use lumen_core::time::Ticks;
 
 use crate::model::{Clip, ClipContent, Note, Track};
@@ -32,9 +9,6 @@ fn notes(clip: &Clip) -> &[Note] {
     }
 }
 
-/// Whether notes can carry on from `prev`, which plays `prev_length` of
-/// itself, into `next`: both are unmuted MIDI clips that do not loop, and
-/// `next` begins where `prev` stops.
 pub fn is_seam(prev: &Clip, prev_length: Ticks, next: &Clip) -> bool {
     let plain = |c: &Clip| {
         !c.muted
@@ -44,13 +18,7 @@ pub fn is_seam(prev: &Clip, prev_length: Ticks, next: &Clip) -> bool {
     plain(prev) && plain(next) && prev.start + prev_length == next.start
 }
 
-/// The notes of `next` (by index) that carry on notes sounding up to the
-/// seam with `prev`. `prev` plays `prev_length` of itself, and `carried`
-/// are the notes it carries on from the clip before it. Call only where
-/// [`is_seam`] holds.
 pub fn carried_on(prev: &Clip, prev_length: Ticks, carried: &[usize], next: &Clip) -> Vec<usize> {
-    // Every note sounding up to the seam: its arrangement start, pitch,
-    // velocity and arrangement end.
     let reaching: Vec<(Ticks, u8, u8, Ticks)> = notes(prev)
         .iter()
         .enumerate()
@@ -74,12 +42,6 @@ pub fn carried_on(prev: &Clip, prev_length: Ticks, carried: &[usize], next: &Cli
         .iter()
         .enumerate()
         .filter(|&(_, n)| {
-            // A copy of the note never sounds past it: a split leaves the
-            // same note, an Overdub carries it as long as it was heard. A
-            // hidden recorded note that only shares its start and pitch
-            // (one played before a punch-in) is longer, or struck at
-            // another velocity, so it stays hidden. Explicit provenance
-            // also excludes an identical or shorter hidden capture.
             let end = next.start + n.end().min(next.length);
             !n.muted()
                 && n.carries_on()
@@ -94,9 +56,6 @@ pub fn carried_on(prev: &Clip, prev_length: Ticks, carried: &[usize], next: &Cli
         .collect()
 }
 
-/// For each clip of `track` (by index, in the track's order), the notes it
-/// carries on from the clip before it: what plays and is drawn from its
-/// start, beside the notes in its window.
 pub fn carried(track: &Track) -> Vec<Vec<usize>> {
     let mut out: Vec<Vec<usize>> = vec![Vec::new(); track.clips.len()];
     for i in 1..track.clips.len() {
@@ -163,7 +122,6 @@ mod tests {
 
     #[test]
     fn a_split_note_carries_on_into_the_right_piece_and_beyond() {
-        // A note from 2 to 11 split at 4 and 8: each piece keeps it.
         let t = track(vec![
             clip(1, 0, 4, vec![note(2, 9, 60), note(0, 1, 62)]),
             clip(2, 4, 4, vec![note(-2, 9, 60), note(-4, 1, 62)]),
@@ -174,19 +132,16 @@ mod tests {
 
     #[test]
     fn a_note_carries_on_only_into_a_clip_that_holds_it_where_they_meet() {
-        // The next clip holds the note at another time, or another pitch.
         let other = track(vec![
             clip(1, 0, 4, vec![note(2, 4, 60)]),
             clip(2, 4, 4, vec![note(-1, 4, 60), note(-2, 4, 61)]),
         ]);
         assert_eq!(carried(&other), of(&[&[], &[]]));
-        // A gap between them.
         let apart = track(vec![
             clip(1, 0, 4, vec![note(2, 4, 60)]),
             clip(2, 5, 4, vec![note(-3, 4, 60)]),
         ]);
         assert_eq!(carried(&apart), of(&[&[], &[]]));
-        // The note ends before the seam.
         let short = track(vec![
             clip(1, 0, 4, vec![note(2, 1, 60)]),
             clip(2, 4, 4, vec![note(-2, 4, 60)]),
@@ -218,22 +173,16 @@ mod tests {
 
     #[test]
     fn a_hidden_note_that_outlasts_or_outplays_the_one_reaching_the_seam_is_not_carried() {
-        // The old note sounds 1 to 3; the next clip begins at 2 and keeps a
-        // recorded note hidden from 1 with the same pitch (a take begun
-        // before a punch-in). It runs to 5, past the old note: not a copy.
         let longer = track(vec![
             clip(1, 0, 2, vec![note(1, 2, 60)]),
             clip(2, 2, 2, vec![note(-1, 4, 60)]),
         ]);
         assert_eq!(carried(&longer), of(&[&[], &[]]));
-        // Struck at another velocity, it is another note too.
         let softer = track(vec![
             clip(1, 0, 2, vec![note(1, 2, 60)]),
             clip(2, 2, 2, vec![Note::new(q(-1), q(2), 60, 30)]),
         ]);
         assert_eq!(carried(&softer), of(&[&[], &[]]));
-        // A copy that ends sooner, as an Overdub carries what was heard,
-        // or that runs on only past the clip's end, still carries.
         let heard = track(vec![
             clip(1, 0, 2, vec![note(1, 4, 60)]),
             clip(2, 2, 2, vec![note(-1, 3, 60)]),

@@ -1,8 +1,3 @@
-//! Clip edits (M3 slice 6): moving, copying, trimming, slipping, fades and
-//! gain, deleting, ranges and paste. Each is one undo step through the
-//! history's `apply`; drags pass a merge key and redo their edit from the
-//! project as the drag found it.
-
 use std::sync::Arc;
 
 use std::ops::RangeInclusive;
@@ -14,22 +9,14 @@ use lumen_project::model::{Clip, ClipContent, Color, Id, Project};
 
 use super::{Document, plural};
 
-/// Clip gain, in dB: from silence (shown as −∞) to +12 dB.
 pub const CLIP_GAIN: RangeInclusive<f32> = -60.0..=12.0;
 
 impl Document {
-    /// Puts clips at new places (M3 slice 6): each [`ClipMove`] moves that
-    /// clip to its start on its track, starting from `base`, the project as
-    /// the drag found it, so every frame of a drag is the same edit redone
-    /// (one undo step with `merge`). Moved clips cut away what they cover
-    /// (owner, slice 6c). Locked clips, and moves to tracks
-    /// that do not exist, are left out.
     pub fn move_clips(&mut self, base: &Project, moves: &[ClipMove], merge: Option<&str>) {
         let label = plural(moves.len(), "Move clip", "Move {} clips");
         self.place_moves(&label, base, moves, merge);
     }
 
-    /// [`Document::move_clips`] under another step name (Nudge).
     pub(super) fn place_moves(
         &mut self,
         label: &str,
@@ -51,9 +38,6 @@ impl Document {
         });
     }
 
-    /// Puts copies of clips at new places, as Ctrl+drag does: the copy of
-    /// `moves[i].clip` gets the id `ids[i]`. Like [`Document::move_clips`],
-    /// from `base`, and the copies cut away what they cover.
     pub fn copy_clips(
         &mut self,
         base: &Project,
@@ -97,9 +81,6 @@ impl Document {
         });
     }
 
-    /// Trims `clip`'s `edge` to `to` (slice 6c), from `base`; with
-    /// `looping`, the end extends by repeating the clip. The trimmed clip
-    /// cuts away what it now covers.
     pub fn trim_clip(
         &mut self,
         base: &Project,
@@ -110,9 +91,6 @@ impl Document {
         merge: Option<&str>,
     ) {
         let label = if looping { "Loop clip" } else { "Trim clip" };
-        // A crossfade at this clip's end keeps its length when the end is
-        // dragged on: the clip after it is trimmed to match, and would
-        // otherwise take the crossfade's length with it.
         let crossing = (edge == edit::Edge::End && !looping)
             .then(|| {
                 let track = base
@@ -138,10 +116,6 @@ impl Document {
         });
     }
 
-    /// Changes `clip`'s loop by `change`, from `base` (the audio editor's
-    /// brace, M9.5 D21): the clip stays where it is and plays the same frames
-    /// up to its first repeat. Nothing happens when the change does not apply.
-    /// Returns whether it did.
     pub fn set_clip_loop(
         &mut self,
         base: &Project,
@@ -174,7 +148,6 @@ impl Document {
         true
     }
 
-    /// Slides `clip`'s content `by` inside it, from `base` (Ctrl+Alt+drag).
     pub fn slip_clip(&mut self, base: &Project, clip: Id, by: Ticks, merge: Option<&str>) {
         self.history.apply("Slip clip", merge, |project| {
             *project = base.clone();
@@ -183,8 +156,6 @@ impl Document {
         });
     }
 
-    /// Sets the fade at `clip`'s `edge` to `length` (slice 6d), kept within
-    /// what the clip's other fade leaves of it. A drag passes `merge`.
     pub fn set_fade_length(&mut self, clip: Id, edge: Edge, length: Ticks, merge: Option<&str>) {
         let label = match edge {
             Edge::Start => "Fade in",
@@ -199,7 +170,6 @@ impl Document {
                         c.fade_in.length = room(c.fade_out.length);
                         c.fade_in.offset = Ticks::ZERO;
                         c.fade_in.span = Ticks::ZERO;
-                        // An ordinary fade-in takes the place of a crossfade.
                         c.crossfade = false;
                     }
                     Edge::End => {
@@ -213,8 +183,6 @@ impl Document {
         });
     }
 
-    /// The curve [`Self::set_fade_curve`] would change for `clip`'s fade at
-    /// `edge`: at a crossfade's left clip, the one the next clip keeps.
     pub fn fade_curve(&self, clip: Id, edge: Edge) -> Option<Curve> {
         let project = self.project();
         let (id, edge) = crossfade_curve_owner(project, clip, edge);
@@ -229,17 +197,12 @@ impl Document {
         })
     }
 
-    /// Sets the curve of the fades at `edge` of `clips` (the bend dot, the
-    /// right-click menu). Locked clips stay as they are, and a curve that
-    /// leaves its square is refused.
     pub fn set_fade_curve(&mut self, clips: &[Id], edge: Edge, curve: Curve, merge: Option<&str>) {
         if !curve.is_valid() {
             return;
         }
         self.history.apply("Fade curve", merge, |project| {
             for &id in clips {
-                // The fade-out of a clip that ends a crossfade is the curve
-                // of the crossfade, which the next clip keeps as its fade-in.
                 let (id, edge) = crossfade_curve_owner(project, id, edge);
                 replace_clip(project, id, |c| {
                     let mut c = c.clone();
@@ -261,7 +224,6 @@ impl Document {
         });
     }
 
-    /// Sets the gain of the audio `clips` to `db`, within [`CLIP_GAIN`].
     pub fn set_clip_gain(&mut self, clips: &[Id], db: f32, merge: Option<&str>) {
         let db = db.clamp(*CLIP_GAIN.start(), *CLIP_GAIN.end());
         self.history.apply("Clip gain", merge, |project| {
@@ -277,8 +239,6 @@ impl Document {
         });
     }
 
-    /// Mutes or unmutes clips (slice 6e; locked ones too: a lock keeps a
-    /// clip in place, not silent).
     pub fn set_clips_muted(&mut self, ids: &[Id], muted: bool) {
         let label = match (muted, ids.len()) {
             (true, 1) => "Mute clip".to_owned(),
@@ -289,8 +249,6 @@ impl Document {
         self.edit_clips(&label, ids, |c| c.muted = muted);
     }
 
-    /// Locks or unlocks clips: locked clips cannot be moved, trimmed,
-    /// faded or deleted.
     pub fn set_clips_locked(&mut self, ids: &[Id], locked: bool) {
         let label = match (locked, ids.len()) {
             (true, 1) => "Lock clip".to_owned(),
@@ -301,7 +259,6 @@ impl Document {
         self.edit_clips(&label, ids, |c| c.locked = locked);
     }
 
-    /// Renames a clip (empty names are ignored).
     pub fn rename_clip(&mut self, id: Id, name: &str) {
         let name = name.trim();
         if name.is_empty() {
@@ -310,14 +267,11 @@ impl Document {
         self.edit_clips("Rename clip", &[id], |c| c.name = name.to_owned());
     }
 
-    /// Gives clips their own colour, or, with `None`, the track's again.
     pub fn recolor_clips(&mut self, ids: &[Id], color: Option<Color>) {
         let label = plural(ids.len(), "Change clip color", "Change {} clips' color");
         self.edit_clips(&label, ids, |c| c.color = color);
     }
 
-    /// Changes each of the clips `ids`, locked or not, as one step; clips
-    /// the change leaves as they were are not touched.
     fn edit_clips(&mut self, label: &str, ids: &[Id], change: impl Fn(&mut Clip)) {
         self.history.apply(label, None, |project| {
             for track in &mut project.tracks {
@@ -335,8 +289,6 @@ impl Document {
         });
     }
 
-    /// Deletes clips; locked ones stay. Their media stays in the project
-    /// (the media pool, M9).
     pub fn delete_clips(&mut self, ids: &[Id]) {
         let label = plural(ids.len(), "Delete clip", "Delete {} clips");
         let follow = !self.lock_envelopes;
@@ -361,8 +313,6 @@ impl Document {
         });
     }
 
-    /// Empties `[a, b)` on `tracks` (a time range's Delete, or its Cut):
-    /// clips are cut back at its edges or split around it.
     pub fn clear_range(&mut self, label: &str, tracks: &[Id], a: Ticks, b: Ticks) {
         let next = &mut self.next_id;
         self.history.apply(label, None, |project| {
@@ -370,7 +320,6 @@ impl Document {
         });
     }
 
-    /// Deletes `[a, b)` from the whole song (Delete Time).
     pub fn delete_time(&mut self, a: Ticks, b: Ticks) {
         let next = &mut self.next_id;
         self.history.apply("Delete time", None, |project| {
@@ -378,7 +327,6 @@ impl Document {
         });
     }
 
-    /// Inserts `length` of silence at `at` across the whole song.
     pub fn insert_time(&mut self, at: Ticks, length: Ticks) {
         let next = &mut self.next_id;
         self.history.apply("Insert time", None, |project| {
@@ -386,9 +334,6 @@ impl Document {
         });
     }
 
-    /// Pastes `clipboard` at `at` from the track with index `track`,
-    /// overwriting what is there, as one step named `label` ("Paste",
-    /// "Duplicate"). Returns the new clips' ids.
     pub fn paste(
         &mut self,
         label: &str,
@@ -408,7 +353,6 @@ impl Document {
         pasted
     }
 
-    /// Deletes clips as a Cut (the clipboard holds them).
     pub fn cut_clips(&mut self, ids: &[Id]) {
         let label = plural(ids.len(), "Cut clip", "Cut {} clips");
         let follow = !self.lock_envelopes;
@@ -434,8 +378,6 @@ impl Document {
     }
 }
 
-/// Where the curve of `clip`'s fade at `edge` is kept: with the next clip
-/// when it is the crossfade that clip ends.
 fn crossfade_curve_owner(project: &Project, clip: Id, edge: Edge) -> (Id, Edge) {
     if edge == Edge::End
         && let Some(track) = project
@@ -450,7 +392,6 @@ fn crossfade_curve_owner(project: &Project, clip: Id, edge: Edge) -> (Id, Edge) 
     (clip, edge)
 }
 
-/// Replaces the unlocked clip `id` with `change` of it.
 pub(super) fn replace_clip(project: &mut Project, id: Id, change: impl FnOnce(&Clip) -> Clip) {
     for track in &mut project.tracks {
         if let Some(i) = track.clips.iter().position(|c| c.id == id && !c.locked) {
@@ -462,10 +403,6 @@ pub(super) fn replace_clip(project: &mut Project, id: Id, change: impl FnOnce(&C
     }
 }
 
-/// What each clip that moves or is copied takes of its track's automation:
-/// from where it is in `base` to the track and start it is going to. A clip
-/// that does not move, is locked or goes to a track that is not there takes
-/// nothing.
 fn carries_of(
     base: &Project,
     goes: impl Iterator<Item = (Id, Id, Ticks)>,
@@ -489,7 +426,6 @@ fn carries_of(
     .collect()
 }
 
-/// Where a clip goes: a track and a start.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ClipMove {
     pub clip: Id,
@@ -497,9 +433,6 @@ pub struct ClipMove {
     pub start: Ticks,
 }
 
-/// Moves each clip in `moves` to its track and start, keeping every
-/// track's clips in time order. Locked clips, and moves to tracks that do
-/// not exist, are left out, so no clip is ever lost.
 fn place_clips(project: &mut Project, moves: &[ClipMove]) {
     let tracks: Vec<Id> = project.tracks.iter().map(|t| t.id).collect();
     let target = |c: &Arc<Clip>| {
@@ -531,7 +464,6 @@ fn place_clips(project: &mut Project, moves: &[ClipMove]) {
     }
 }
 
-/// New ids from a document's counter, for edits that make clips.
 pub(super) fn fresh_ids(next: &mut u64) -> impl FnMut() -> Id + '_ {
     move || {
         let id = Id(*next);
@@ -540,8 +472,6 @@ pub(super) fn fresh_ids(next: &mut u64) -> impl FnMut() -> Id + '_ {
     }
 }
 
-/// After the clip `left` was trimmed on, puts the crossfade of length
-/// `length` back into `right` if `right` still starts where `left` ends.
 fn keep_crossfade(project: &mut Project, left: Id, right: Id, length: Ticks) {
     let Some(track) = project
         .tracks
@@ -583,7 +513,6 @@ mod tests {
         ]);
         let tracks: Vec<Id> = doc.project().tracks.iter().map(|t| t.id).collect();
         let kick = doc.project().tracks[0].clips[0].id;
-        // A drag: three frames, one step; the kick ends on the snare's track.
         let base = doc.project().clone();
         for q in [1, 2, 8] {
             let to = ClipMove {
@@ -609,7 +538,6 @@ mod tests {
             "one step"
         );
 
-        // A copy-drag: twice, still one copy.
         let copy = doc.fresh_id();
         let base = doc.project().clone();
         for q in [12, 16] {
@@ -627,8 +555,6 @@ mod tests {
             .collect();
         assert_eq!(kicks, [(kick, Ticks::ZERO), (copy, Ticks::quarters(16))]);
 
-        // Locked clips neither move nor go; a move to a missing track is
-        // ignored rather than losing the clip.
         doc.apply("lock", None, |p| {
             Arc::make_mut(&mut Arc::make_mut(&mut p.tracks[0]).clips[0]).locked = true;
         });
@@ -655,9 +581,6 @@ mod tests {
         assert_eq!(doc.project().tracks[0].clips[0].id, kick);
     }
 
-    /// The owner's request: a MIDI clip dropped on
-    /// another cuts it, but only its window. Moving the top clip away and
-    /// dragging the covered clip's end back brings its notes back intact.
     #[test]
     fn a_covered_midi_clip_keeps_its_notes_and_shows_them_when_extended() {
         use lumen_project::model::{ClipContent, Note};
@@ -706,8 +629,6 @@ mod tests {
             .clone()
         };
 
-        // Dropped over beats 4 to 8 of the clip under it: that clip now ends
-        // at 4, and the note at 5 is hidden, not gone.
         place(&mut doc, 4);
         let cut = clip(&doc, under.id);
         assert_eq!(cut.length, q(4));
@@ -715,7 +636,6 @@ mod tests {
         assert_eq!(edit::shown_notes(&cut), vec![0], "the note at 5 hidden");
         assert_eq!(lumen_project::validate(doc.project()), Ok(()));
 
-        // The top clip moved away, then the old clip's end dragged back.
         place(&mut doc, 12);
         let base = doc.project().clone();
         doc.trim_clip(&base, under.id, edit::Edge::End, q(8), false, None);
@@ -735,7 +655,6 @@ mod tests {
         let steps = |doc: &Document| doc.history().steps().0.len();
         let before_edits = steps(&doc);
 
-        // A fade drag: one step, and never past what the other fade leaves.
         for q in [1, 3, 99] {
             doc.set_fade_length(clip.id, Edge::End, Ticks::quarters(q), Some("clip fade"));
         }
@@ -757,7 +676,6 @@ mod tests {
         assert_eq!(faded.fade_out.length, Ticks::quarters(1));
         assert_eq!(lumen_project::validate(doc.project()), Ok(()));
 
-        // A gain drag: one step, clamped.
         for db in [-3.0, -9.0, -400.0] {
             doc.set_clip_gain(&[clip.id], db, Some("clip gain"));
         }
@@ -768,12 +686,10 @@ mod tests {
         assert_eq!(gain(&doc), *CLIP_GAIN.start());
         doc.set_clip_gain(&[clip.id], 40.0, None);
         assert_eq!(gain(&doc), *CLIP_GAIN.end());
-        // Two drags, four edits; the two that changed nothing left no step.
         assert_eq!(steps(&doc) - before_edits, 6);
         doc.undo();
         assert_eq!(gain(&doc), *CLIP_GAIN.start(), "undo takes back one edit");
 
-        // Locked clips keep their fades and gain.
         let id = clip.id;
         doc.apply("Lock", None, |p| {
             let t = Arc::make_mut(&mut p.tracks[0]);
@@ -816,13 +732,11 @@ mod tests {
             Some(&"Change 2 clips' color")
         );
 
-        // Nothing to change, nothing recorded; an empty name is refused.
         doc.set_clips_muted(&ids, true);
         doc.rename_clip(ids[1], "   ");
         assert_eq!(steps(&doc) - start, 4);
         assert_eq!(clip(&doc, 1).name, "Snare");
 
-        // The track's colour again; then undo takes back one edit.
         doc.recolor_clips(&ids[1..], None);
         assert_eq!(clip(&doc, 1).color, None);
         doc.undo();

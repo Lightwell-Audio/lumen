@@ -21,9 +21,7 @@ use crate::lanes::engine_clips_with;
 use crate::media::streams::{self, Readers, Unread};
 
 const RATE: u32 = 48_000;
-/// Ten seconds: long enough for the tests' clips, short enough to stay fast.
 const FRAMES: usize = 480_000;
-/// The file's tone, in cycles per frame (about 960 Hz).
 const TONE: f64 = 0.02;
 
 fn tone(speed: f64, from: f64, k: usize) -> f32 {
@@ -60,8 +58,6 @@ fn request<'a>(
     }
 }
 
-/// The frames `from..from + n` of a warped stream, read as the disk thread
-/// does: one page at a time on a fresh reader.
 fn read(audio: &ClipAudio, from: usize, n: usize) -> Vec<f32> {
     let stream = audio.stream().expect("a warped clip plays as a stream");
     let mut readers = Readers::default();
@@ -91,7 +87,6 @@ fn a_clip_that_plays_as_it_was_made_is_the_file_bit_for_bit() {
         .unwrap();
     let file = source.memory().unwrap();
     assert_eq!(read(&stream, 0, 96_000), file[0][..96_000]);
-    // A page in the middle, read alone, is the same.
     assert_eq!(
         read(&stream, 5 * PAGE + 7, 3_000),
         file[0][5 * PAGE + 7..][..3_000]
@@ -100,7 +95,6 @@ fn a_clip_that_plays_as_it_was_made_is_the_file_bit_for_bit() {
 
 #[test]
 fn a_file_made_at_a_slower_tempo_runs_faster_in_the_song() {
-    // Made at 100 BPM, played in a 120 BPM song: 1.2 times the speed.
     let source = file();
     let tempo = constant(120.0);
     let warp = Warp::new(100.0, 0.0);
@@ -136,15 +130,12 @@ fn a_pages_frames_do_not_depend_on_what_was_read_before() {
         .stream(&request(&warp, &source, &tempo, 400_000))
         .unwrap();
     let id = stream.stream().unwrap().id();
-    // The whole run, page after page, then each page alone, backwards, on
-    // readers that have read nothing.
     let whole = read(&stream, 0, 12 * PAGE);
     assert!(whole.iter().any(|v| v.abs() > 0.5));
     for page in (0..12).rev() {
         let alone = read(&stream, page * PAGE, PAGE);
         assert_eq!(alone, whole[page * PAGE..(page + 1) * PAGE], "page {page}");
     }
-    // The ids are the registry's: forgetting one ends it.
     assert!(streams::warped(id).is_some());
     drop(warps);
     assert!(streams::warped(id).is_none());
@@ -175,7 +166,6 @@ fn the_position_follows_the_map_through_a_ramp() {
         assert!(p > last, "the file runs forward at frame {k}");
         last = p;
     }
-    // At a tick, the position is the map's second there, in frames.
     for quarter in [0, 2, 4, 6] {
         let at = Ticks::quarters(quarter);
         let k = tempo.sample_at(at, RATE);
@@ -216,7 +206,6 @@ fn an_unchanged_request_finds_its_stream_and_a_changed_one_makes_another() {
     assert!(!Arc::ptr_eq(&a, &c));
     assert_eq!(warps.len(), 3);
 
-    // Only what the engine plays is kept.
     let (ia, ic) = (a.stream().unwrap().id(), c.stream().unwrap().id());
     warps.retain(&HashSet::from([ic]));
     assert_eq!(warps.len(), 1);
@@ -276,13 +265,10 @@ fn a_stream_file_is_warped_from_disk() {
     streams::forget(file_id);
 }
 
-/// A project with one clip of the file, two seconds at 120 BPM, warped from a
-/// file made at `made_at` BPM, and the engine's render of it offline.
 fn project(made_at: f64, tempo: Vec<TempoPoint>, looped: bool) -> Document {
     project_at(made_at, tempo, looped, Ticks::ZERO)
 }
 
-/// [`project`] with the clip starting at `start`.
 fn project_at(made_at: f64, tempo: Vec<TempoPoint>, looped: bool, start: Ticks) -> Document {
     let mut doc = Document::new(crate::empty_project());
     doc.import(vec![Imported {
@@ -335,7 +321,6 @@ fn render_with(
         |_| Some((Arc::clone(source), RATE)),
         &mut |request| warped.then(|| warps.stream(request)).flatten(),
     );
-    // As an export plays them: the streams load their own pages.
     let list = streams::offline(list, &Unread::default());
     let (mut clips, player) = clip_player_for_render();
     clips.set(list).unwrap();
@@ -356,7 +341,6 @@ fn render_with(
     let mut out = Vec::new();
     for _ in 0..frames.div_ceil(block) {
         engine.process(RATE, &mut data, 2, block);
-        // Channel-major: the left channel is the first `block` samples.
         out.extend_from_slice(&data[..block]);
     }
     out.truncate(frames);
@@ -382,8 +366,6 @@ fn a_warped_clip_is_heard_at_the_speed_its_map_gives_and_whatever_the_block() {
     let a = render(doc.project(), 96_000, 128, true);
     let b = render(doc.project(), 96_000, 1_000, true);
     assert_eq!(a, b, "offline equals real time at any block size");
-    // 1.2 times the speed against the plain render, away from the clip's
-    // edge fades.
     for (k, v) in a.iter().enumerate().skip(2_000).take(90_000) {
         let want = tone(1.2, 0.0, k);
         assert!((v - want).abs() < 3.0e-3, "frame {k}: {v} against {want}");
@@ -394,7 +376,6 @@ fn a_warped_clip_is_heard_at_the_speed_its_map_gives_and_whatever_the_block() {
 fn a_looped_warped_clip_repeats_its_period() {
     let doc = project(100.0, step(120.0), true);
     let out = render(doc.project(), 96_000, 256, true);
-    // One quarter at 120 BPM is 24,000 frames.
     for k in 4_000..20_000 {
         assert_eq!(out[k], out[k + 24_000], "frame {k}");
     }
@@ -402,10 +383,6 @@ fn a_looped_warped_clip_repeats_its_period() {
 
 #[test]
 fn every_repeat_of_a_loop_follows_the_tempo() {
-    // 120 BPM, then 60 BPM from the third beat. A one-beat loop of a file made
-    // at 120 BPM plays the same beat of the file each time: at its own speed
-    // while the song is at 120, and at half speed (and twice as long, 48,000
-    // frames) once it is at 60.
     let tempo = vec![
         TempoPoint::step(Ticks::ZERO, 120.0),
         TempoPoint::step(Ticks::quarters(2), 60.0),
@@ -437,8 +414,6 @@ fn every_repeat_of_a_loop_follows_the_tempo() {
 
 #[test]
 fn a_clip_off_the_sample_grid_at_its_own_tempo_is_the_file_bit_for_bit() {
-    // At 123 BPM a beat is 23,414.6 frames, so a clip at the second beat
-    // starts between two samples; it still plays the frames a plain clip does.
     let doc = project_at(123.0, step(123.0), false, Ticks::quarters(1));
     let plain = render(doc.project(), 120_000, 256, false);
     let warped = render(doc.project(), 120_000, 256, true);
@@ -448,9 +423,6 @@ fn a_clip_off_the_sample_grid_at_its_own_tempo_is_the_file_bit_for_bit() {
 
 #[test]
 fn every_repeat_of_a_loop_off_the_sample_grid_is_the_file_bit_for_bit_away_from_its_joins() {
-    // At 123 BPM the repeats begin between samples. Each is its own clip with
-    // its own anchor, so the 2nd, 3rd and 4th are as exact as the 1st; only
-    // the 5 ms joins differ from the engine's own loop.
     let doc = project(123.0, step(123.0), true);
     let plain = render(doc.project(), 96_000, 256, false);
     let warped = render(doc.project(), 96_000, 256, true);
@@ -489,8 +461,6 @@ fn the_pieces_of_a_split_warped_clip_share_a_stream_and_play_on_without_a_dip() 
     assert_eq!(warps.len(), 1);
 
     let out = render_with(&source, doc.project(), 120_000, 256, true);
-    // The clips run from the second beat to the sixth: frames 24,000 to
-    // 120,000. Away from the outer fades, nothing dips at the cut (72,000).
     for (k, v) in out.iter().enumerate().take(118_000).skip(26_000) {
         assert!((v - 0.5).abs() < 1.0e-4, "frame {k}: {v}");
     }
@@ -520,7 +490,6 @@ fn a_real_time_export_reads_each_stream_once_and_only_what_its_clips_play() {
     );
     assert_eq!(held[0].offset, 0);
     assert_eq!(held[1].offset, first.length);
-    // What was read is what the stream renders.
     let live = first.audio.stream().unwrap();
     let again = read(
         &ClipAudio::Stream(live.clone()),
@@ -532,8 +501,6 @@ fn a_real_time_export_reads_each_stream_once_and_only_what_its_clips_play() {
 
 #[test]
 fn a_warped_clip_follows_a_tempo_change() {
-    // 120 BPM, then 60 BPM from the second beat: made at 120, the clip plays
-    // as made at first and at half speed after.
     let tempo = vec![
         TempoPoint::step(Ticks::ZERO, 120.0),
         TempoPoint::step(Ticks::quarters(2), 60.0),
@@ -543,14 +510,12 @@ fn a_warped_clip_follows_a_tempo_change() {
     for (k, v) in out.iter().enumerate().take(44_000).skip(4_000) {
         assert!((v - tone(1.0, 0.0, k)).abs() < 3.0e-3, "before, frame {k}");
     }
-    // The change is at frame 48,000; the file has played 48,000 frames.
     for (k, v) in out.iter().enumerate().take(110_000).skip(52_000) {
         let want = tone(0.5, 48_000.0, k - 48_000);
         assert!((v - want).abs() < 3.0e-3, "after, frame {k}");
     }
 }
 
-/// A clip list holding the one clip that plays `stream`, from the start.
 fn clip_of(stream: &Arc<ClipAudio>, frames: i64) -> lumen_engine::Clip {
     lumen_engine::Clip {
         id: 7,
@@ -580,15 +545,11 @@ fn an_edit_made_while_playing_waits_for_the_audio_it_plays() {
     let project = crate::empty_project();
     let mut lanes = crate::lanes::Lanes::default();
 
-    // Stopped, nothing waits: the transport's own start waits for the audio.
     assert!(!lanes.hold_for_warps(&list, &project, RATE));
-    // Playing, with nothing of the new stream in memory, the list waits and
-    // the disk thread is told what to prepare.
     lanes.set_playhead(Some(0));
     assert!(lanes.hold_for_warps(&list, &project, RATE));
     assert_eq!(lanes.streamed().1.len(), 1, "the disk thread plans it");
 
-    // Its next quarter second (12,000 frames: three pages) in memory: it plays.
     let mut writer = PoolWriter::new(&pool);
     let live = stream.stream().unwrap();
     let (left, right) = (vec![0.0; PAGE], vec![0.0; PAGE]);
@@ -643,7 +604,6 @@ fn a_second_edit_while_held_tells_the_disk_thread_of_its_own_stream() {
     let project = crate::empty_project();
     let mut lanes = crate::lanes::Lanes::default();
     lanes.set_playhead(Some(0));
-    // The same clip (7) twice, each time with the stream its edit made.
     assert!(lanes.hold_for_warps(&[clip_of(&a, 96_000)], &project, RATE));
     assert!(lanes.hold_for_warps(&[clip_of(&b, 96_000)], &project, RATE));
     let planned: Vec<u64> = lanes
@@ -660,10 +620,6 @@ fn a_second_edit_while_held_tells_the_disk_thread_of_its_own_stream() {
 
 #[test]
 fn each_repeat_of_a_warped_loop_is_crossfaded_like_abutting_clips() {
-    // The repeats are real clips (ADR-0131), so the engine joins them as it
-    // joins any two clips that abut: an equal-power crossfade over its 5 ms
-    // overlap. On a constant that shows as a bump to 0.5 * sqrt(2) in the
-    // middle of the overlap, and as the file's own level everywhere else.
     let doc = project(120.0, step(120.0), true);
     let source = constant_file(0.5);
     let out = render_with(&source, doc.project(), 96_000, 256, true);
@@ -685,7 +641,6 @@ fn each_repeat_of_a_warped_loop_is_crossfaded_like_abutting_clips() {
 fn a_split_through_a_repeat_of_a_warped_loop_plays_on_without_a_dip() {
     let mut doc = project(110.0, step(120.0), true);
     let id = doc.project().tracks[0].clips[0].id;
-    // Two and a half beats in, the middle of the third repeat (48,000 to 72,000).
     doc.split_clips(
         &[id],
         &[Ticks::quarters(2) + Ticks(lumen_core::time::PPQ / 2)],
@@ -720,7 +675,6 @@ fn a_real_time_export_keeps_pieces_far_apart_in_a_stream_apart() {
     assert_eq!((held[0].offset, held[1].offset), (0, 0));
 }
 
-/// The amplitude of the sine at `cycles` per frame in `x`, under a Hann window.
 fn amplitude(x: &[f32], cycles: f64) -> f64 {
     let n = x.len() as f64;
     let (mut re, mut im, mut window) = (0.0, 0.0, 0.0);
@@ -743,14 +697,11 @@ fn with_mode(mut doc: Document, mode: WarpMode) -> Document {
 #[test]
 fn melodic_and_full_mix_follow_the_tempo_and_leave_the_pitch_alone() {
     for mode in [WarpMode::Melodic, WarpMode::FullMix] {
-        // Made at 100 BPM, in a 120 BPM song: 1.2 times the speed. Repitch
-        // would raise the tone from 0.02 cycles a frame to 0.024.
         let doc = with_mode(project(100.0, step(120.0), false), mode);
         let out = render(doc.project(), 96_000, 256, true);
         let heard = &out[10_000..60_000];
         let (kept, raised) = (amplitude(heard, TONE), amplitude(heard, TONE * 1.2));
         assert!(kept > 0.8 && raised < 0.05, "{mode:?}: {kept} and {raised}");
-        // Offline equals real time at any block size.
         assert_eq!(out, render(doc.project(), 96_000, 1_000, true), "{mode:?}");
     }
 }
@@ -782,7 +733,6 @@ fn every_mode_makes_a_stream_of_its_own() {
     assert_eq!(warps.len(), 4);
 }
 
-/// Four decaying noise bursts, half a second apart, in both channels.
 fn bursts() -> Arc<ClipAudio> {
     let mut left = vec![0.0_f32; 4 * 24_000 + 24_000];
     let mut seed = 12_345_u32;
@@ -821,8 +771,6 @@ fn rhythmic_at_the_files_own_tempo_is_the_file_bit_for_bit() {
 
 #[test]
 fn rhythmic_plays_each_hit_at_the_files_speed_and_places_it_by_the_song() {
-    // Made at 100 BPM, played at 120: every hit comes 1.2 times sooner, and
-    // sounds as it was recorded (a stretch or a repitch would change it).
     let source = bursts();
     let tempo = constant(120.0);
     let warp = rhythmic(100.0);
@@ -833,17 +781,13 @@ fn rhythmic_plays_each_hit_at_the_files_speed_and_places_it_by_the_song() {
     let file = source.memory().unwrap();
     let played = read(&stream, 0, 96_000);
     for burst in 1..4_usize {
-        // Inside the hit, well past its first frames and before its end.
         let hit = burst * 24_000 + 2_400;
         let out = (hit as f64 / 1.2) as usize + 400;
         let want = &played[out..out + 800];
-        // The file's frame it comes from: a noise value is found nowhere
-        // else, and the 800 frames that follow are the file's own.
         let from = (hit..hit + 4_000)
             .find(|&f| file[0][f] == want[0])
             .unwrap_or_else(|| panic!("hit {burst} is not the file's noise"));
         assert_eq!(want, &file[0][from..from + 800], "hit {burst}");
-        // And it comes where the song puts it, within a few milliseconds.
         let placed = out as f64 - (from - hit) as f64;
         assert!((placed - hit as f64 / 1.2).abs() < 300.0, "hit {burst}");
     }
@@ -881,7 +825,6 @@ fn a_file_is_scanned_once_for_all_the_streams_an_edit_makes() {
         let stream = warps
             .stream(&request(&warp, &source, &tempo, 192_000))
             .unwrap();
-        // Reading makes the scan.
         read(&stream, 0, 1_000);
         let id = stream.stream().unwrap().id();
         scans.push(streams::warped(id).unwrap());
@@ -891,7 +834,6 @@ fn a_file_is_scanned_once_for_all_the_streams_an_edit_makes() {
         Arc::ptr_eq(&scans[0].scan, &scans[1].scan),
         "one scan of the file"
     );
-    // A marker cuts the file where it pins, a transient or not.
     let starts = scans[1].slice_starts_for_test();
     assert!(starts.contains(&((0.9 * f64::from(RATE)).round() as i64)));
 }
@@ -908,8 +850,6 @@ fn a_reader_that_must_not_wait_is_told_so_until_the_scan_is_done() {
     let id = stream.stream().unwrap();
     let mut polling = Readers::polling();
     let (mut left, mut right) = (vec![0.0; PAGE], vec![0.0; PAGE]);
-    // The first ask starts the scan; until it is done the answer is "not
-    // ready", which is no failure.
     let got = lumen_testkit::wait_for("the scan to finish", || {
         match polling.read(id, 0, &mut left, &mut right) {
             Err(lumen_media::MediaError::NotReady) => None,
@@ -917,12 +857,9 @@ fn a_reader_that_must_not_wait_is_told_so_until_the_scan_is_done() {
         }
     })
     .expect("the page, once the file has been read");
-    // The same bits as a reader that waits for the scan itself.
     let waited = read(&stream, 0, got.min(PAGE));
     assert_eq!(left[..got.min(PAGE)], waited[..]);
 }
-
-// ---------------------------------------------------------------- pitch (S6)
 
 fn pitch_lane(
     points: &[(i64, f32, lumen_core::automation::Shape)],
@@ -947,8 +884,6 @@ fn set_pitch_envelope(doc: &mut Document, lane: lumen_core::automation::Lane) {
     });
 }
 
-/// A transpose raises what is heard in the stretch modes (an octave doubles
-/// the tone) and is refused where it cannot be played (Repitch).
 #[test]
 fn a_transpose_moves_the_heard_pitch_in_the_stretch_modes() {
     for mode in [WarpMode::Melodic, WarpMode::FullMix] {
@@ -962,7 +897,6 @@ fn a_transpose_moves_the_heard_pitch_in_the_stretch_modes() {
         let heard = &out[10_000..60_000];
         let (old, octave) = (amplitude(heard, TONE), amplitude(heard, TONE * 2.0));
         assert!(octave > 0.5 && old < 0.05, "{mode:?}: {old} and {octave}");
-        // Offline equals real time at any block size.
         assert_eq!(out, render(doc.project(), 96_000, 1_000, true), "{mode:?}");
     }
     let mut doc = project(100.0, step(120.0), false);
@@ -973,9 +907,6 @@ fn a_transpose_moves_the_heard_pitch_in_the_stretch_modes() {
     );
 }
 
-/// Rhythmic transposes like a sampler: a hit is read at twice the rate an
-/// octave up, so it begins half as far into its slice and is over in half the
-/// time, while the next hit still comes where the song puts it.
 #[test]
 fn rhythmic_plays_a_transposed_hit_like_a_sampler() {
     let source = bursts();
@@ -992,8 +923,6 @@ fn rhythmic_plays_a_transposed_hit_like_a_sampler() {
     };
     for burst in 1..4_usize {
         let slice = burst * 24_000;
-        // The hit starts 2,400 frames into its slice and lasts 4,800; at twice
-        // the rate that is 1,200 and 2,400.
         assert!(
             energy(slice + 1_500, slice + 3_300) > 0.1,
             "hit {burst} sounds"
@@ -1003,7 +932,6 @@ fn rhythmic_plays_a_transposed_hit_like_a_sampler() {
             "and is over by the time the file's own hit would be half done"
         );
     }
-    // Without the transpose the hit is still sounding there.
     let mut plain = rhythmic(120.0);
     plain.transpose_cents = 0;
     let stream = warps
@@ -1019,9 +947,6 @@ fn rhythmic_plays_a_transposed_hit_like_a_sampler() {
     assert!(e > 0.05, "{e}");
 }
 
-/// A pitch envelope is heard as it moves: nothing before its step, an octave
-/// after it. The stream is told at every hop, so the change lands where the
-/// envelope puts it.
 #[test]
 fn a_pitch_envelope_moves_the_pitch_where_it_says() {
     use lumen_core::automation::Shape;
@@ -1029,7 +954,6 @@ fn a_pitch_envelope_moves_the_pitch_where_it_says() {
     let tempo = constant(120.0);
     let mut warp = Warp::new(120.0, 0.0);
     warp.mode = WarpMode::Melodic;
-    // Nothing for two beats (48,000 frames), then an octave up.
     let lane = pitch_lane(&[(0, 0.0, Shape::Step), (2, 12.0, Shape::Linear)]);
     let mut warps = WarpedStreams::new(&PagePool::new(1));
     let stream = warps
@@ -1048,8 +972,6 @@ fn a_pitch_envelope_moves_the_pitch_where_it_says() {
     );
 }
 
-/// The pitch is part of what a stream is made from: another envelope is
-/// another stream, the same one finds its own, and Repitch has none.
 #[test]
 fn a_pitch_envelope_is_a_stream_of_its_own_only_where_it_is_played() {
     use lumen_core::automation::Shape;
@@ -1092,9 +1014,6 @@ fn a_pitch_envelope_is_a_stream_of_its_own_only_where_it_is_played() {
     );
 }
 
-/// The pieces of a split clip with a pitch envelope still share one stream,
-/// and hear the pitch of the clip they came from: the same sound as before the
-/// split, with no seam at the cut.
 #[test]
 fn the_pieces_of_a_split_clip_share_its_pitch_curve() {
     use lumen_core::automation::Shape;
@@ -1120,7 +1039,6 @@ fn the_pieces_of_a_split_clip_share_its_pitch_curve() {
     assert_eq!(list.len(), 2);
     assert!(Arc::ptr_eq(&list[0].audio, &list[1].audio), "one stream");
     assert_eq!(warps.len(), 1);
-    // Away from the clips' fades, the pieces play what the whole clip does.
     let (a, b) = (
         render(whole.project(), 96_000, 256, true),
         render(split.project(), 96_000, 256, true),
@@ -1133,8 +1051,6 @@ fn the_pieces_of_a_split_clip_share_its_pitch_curve() {
     assert!(worst < 2.0e-3, "the split changes the sound by {worst}");
 }
 
-/// Two clips of one file laid over one another, one with an envelope and one
-/// without, do not share a pitch curve: each plays its own.
 #[test]
 fn layered_clips_with_different_envelopes_keep_their_own_pitch() {
     use lumen_core::automation::Shape;
@@ -1165,9 +1081,6 @@ fn layered_clips_with_different_envelopes_keep_their_own_pitch() {
     assert_eq!(warps.len(), 2);
 }
 
-/// A ten second file with a steady tone and a decaying noise hit every half
-/// second: every warp mode plays something, and the Rhythmic slicer finds
-/// transients in it.
 fn hits() -> Arc<ClipAudio> {
     let mut left = vec![0.0_f32; FRAMES];
     for (i, value) in left.iter_mut().enumerate() {
@@ -1189,9 +1102,6 @@ fn hits() -> Arc<ClipAudio> {
     })
 }
 
-/// A project of two warped clips of one file, in a song at 120 BPM: the first
-/// in Full mix made at 105 BPM, the second in Rhythmic made at 100 BPM. Both
-/// are ten seconds long, so there is more to play than the read-ahead.
 fn warped_pair() -> (Document, Id, Id) {
     let imported = |id: u64, name: &str| Imported {
         media: Id(id),
@@ -1228,8 +1138,6 @@ fn warped_pair() -> (Document, Id, Id) {
     (doc, a, b)
 }
 
-/// The playback an edit is sent into: the streams made so far, the engine's
-/// clip list, the disk thread's scene and the file they play.
 struct Playing {
     warps: WarpedStreams,
     source: Arc<ClipAudio>,
@@ -1239,7 +1147,6 @@ struct Playing {
 }
 
 impl Playing {
-    /// The clip list `doc` plays, its warped clips as streams in the pool.
     fn list(&mut self, doc: &Document) -> Vec<lumen_engine::Clip> {
         engine_clips_with(
             doc.project(),
@@ -1249,11 +1156,6 @@ impl Playing {
         )
     }
 
-    /// Sends `doc`'s clip list as the app does while playing (M9.5 S4b): the
-    /// disk thread is told of the new streams first, and the list waits until
-    /// the next quarter second of it is in memory, as
-    /// `Lanes::hold_for_warps` does, so the edit is heard without the dip of a
-    /// late page.
     fn send(&mut self, doc: &Document, at: i64) -> Arc<Scene> {
         let list = self.list(doc);
         assert!(
@@ -1270,9 +1172,6 @@ impl Playing {
     }
 }
 
-/// What the disk thread read, counted: the frames it got from the streams and
-/// the highest page of each, so the test can say it read past the first two
-/// second chunk of the stretch modes.
 #[derive(Default)]
 struct Tally {
     frames: AtomicUsize,
@@ -1280,7 +1179,6 @@ struct Tally {
 }
 
 impl Tally {
-    /// The highest page read of stream `id`.
     fn highest(&self, id: u64) -> Option<usize> {
         self.highest
             .lock()
@@ -1290,7 +1188,6 @@ impl Tally {
     }
 }
 
-/// The live readers, with what they read counted.
 struct Counted {
     inner: Readers,
     tally: Arc<Tally>,
@@ -1321,23 +1218,13 @@ impl crate::disk::Pages for Counted {
     }
 }
 
-/// M9.5 review M4: the plan's counting-allocator test (`docs/milestones/M9.5.md`
-/// §5). A warped clip and a Rhythmic one play through the page pool the device
-/// callback reads, the disk thread computing the pages, while a warp marker is
-/// dragged (three moves under one merge key) and the transpose is changed;
-/// every edit sends a new clip list to the engine. `engine.process` is the
-/// first thing `Audio::start`'s callback runs, and the guard counts every heap
-/// operation inside it.
 #[test]
 fn warped_playback_and_its_edits_never_touch_the_heap_on_the_audio_thread() {
     assert!(
         lumen_rt::guard_is_active(),
         "the guarded allocator is not installed"
     );
-    /// The first stretch chunk is 98,304 frames, 2.048 s: played past, the
-    /// pages on the other side of it are read and heard.
     const CHUNK: i64 = 98_304;
-    /// Where in the song the drag and the transpose happen and where it stops.
     const DRAG_AT: i64 = 50_000;
     const TRANSPOSE_AT: i64 = 80_000;
     const STOP_AT: i64 = 112_000;
@@ -1369,8 +1256,6 @@ fn warped_playback_and_its_edits_never_touch_the_heap_on_the_audio_thread() {
     );
     let (mut handle, mut engine) = engine(timeline.clone(), mixed, RATE);
 
-    // The disk thread and the live pool, as `Streaming::start` makes them: the
-    // callback reads pages the thread left there, and never waits for it.
     let tally = Arc::new(Tally::default());
     let mut playing = Playing {
         warps: WarpedStreams::new(&pool),
@@ -1403,7 +1288,6 @@ fn warped_playback_and_its_edits_never_touch_the_heap_on_the_audio_thread() {
     let mut data = vec![0.0; 2 * BLOCK];
     let (mut heard, mut past_the_chunk, mut blocks) = (0_usize, 0_usize, 0_usize);
     let (mut dragged, mut transposed) = (false, false);
-    // The streams the engine plays now: an edit makes a new one.
     let mut streams: Vec<u64> = scene.streams().iter().map(|s| s.id()).collect();
     let guard = lumen_testkit::Deadline::new();
     loop {
@@ -1415,7 +1299,6 @@ fn warped_playback_and_its_edits_never_touch_the_heap_on_the_audio_thread() {
         lumen_testkit::wait_until("the next pages at the playhead", || {
             scene.ready(at, i64::from(RATE / 4))
         });
-        // What the device callback runs, counted.
         let ((), heap) =
             lumen_rt::count_rt_violations(|| engine.process(RATE, &mut data, 2, BLOCK));
         assert_eq!(
@@ -1428,13 +1311,9 @@ fn warped_playback_and_its_edits_never_touch_the_heap_on_the_audio_thread() {
             past_the_chunk += sounding;
         }
         blocks += 1;
-        // The app's side, outside the callback.
         playing.clips.collect_garbage();
         routing.collect_garbage();
 
-        // A drag of a warp marker: the pointer goes down and makes its marker
-        // without a history step, then moves it three times under one key, so
-        // the whole gesture is one undo step and every move reaches the engine.
         if !dragged && at >= DRAG_AT {
             let before = doc.project().clone();
             let (base, index) = crate::document::warp::with_marker_edit(
@@ -1473,7 +1352,6 @@ fn warped_playback_and_its_edits_never_touch_the_heap_on_the_audio_thread() {
             );
             dragged = true;
         }
-        // And the transpose, a second edit that makes another stream.
         if !transposed && at >= TRANSPOSE_AT {
             assert_eq!(
                 doc.set_warp(&[a], &Change::Transpose(200), Some("warp transpose"))
@@ -1491,8 +1369,6 @@ fn warped_playback_and_its_edits_never_touch_the_heap_on_the_audio_thread() {
         }
     }
     assert!(dragged && transposed, "both edits were made while playing");
-    // The audio really played: sound for most of the frames, and sound on the
-    // other side of the first stretch chunk.
     let played_frames = blocks * BLOCK;
     assert!(
         heard * 5 > played_frames * 4,
@@ -1502,7 +1378,6 @@ fn warped_playback_and_its_edits_never_touch_the_heap_on_the_audio_thread() {
         past_the_chunk > 8_000,
         "only {past_the_chunk} frames sounded past the first two second chunk"
     );
-    // And the streams were read across that chunk, not just up to it.
     let chunk_page = CHUNK as usize / PAGE;
     for stream in scene.streams() {
         let highest = tally

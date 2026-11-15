@@ -1,7 +1,3 @@
-//! The demo song every scene starts from (USER_DOCS.md §6.2): drums and
-//! bass made here, so the pictures look like music and no third-party
-//! sound appears, opened in the real app on the silent test device.
-
 use std::path::{Path, PathBuf};
 
 use eframe::egui::epaint::{ClippedShape, ColorMode};
@@ -16,11 +12,6 @@ use lumen_project::testing::TempDir;
 
 use crate::recorder::SCALE;
 
-/// A song to work on: drums and bass, four bars at 120 BPM, fitted to the
-/// window with the browser and the detail panel out of the way.
-///
-/// It plays on the test device whose clock a take sets
-/// ([`Take`](crate::recorder::Take)), and comes with the turn on it.
 pub fn song(dir: &TempDir, appearance: &str) -> (Harness<'static, App>, InputDeviceTurn) {
     let turn = lumen_app::testing::input_device_turn();
     let launch = Launch::for_test(dir.path())
@@ -55,8 +46,6 @@ fn open(dir: &TempDir, launch: Launch, appearance: &str) -> Harness<'static, App
         .into_iter()
         .map(|p| std::sync::Arc::new(Dropped(p)) as eframe::egui::DroppedFileHandle)
         .collect();
-    // The files are imported on workers, which a busy machine keeps waiting
-    // (the pictures are drawn on its processors): a step count is not a wait.
     lumen_testkit::wait_until("the two clips imported", || {
         h.run_steps(1);
         let tracks = &h.state().project().tracks;
@@ -75,7 +64,6 @@ fn open(dir: &TempDir, launch: Launch, appearance: &str) -> Harness<'static, App
     h
 }
 
-/// Runs a command from the palette by its name.
 pub fn command(h: &mut Harness<'static, App>, name: &str) {
     h.key_press_modifiers(Modifiers::COMMAND, Key::K);
     h.run_steps(3);
@@ -99,11 +87,8 @@ impl eframe::egui::DroppedFile for Dropped {
 }
 
 const RATE: u32 = 48_000;
-/// Four bars at 120 BPM.
 const SECONDS: f32 = 8.0;
 
-/// A drum loop: a kick on every beat, a snare on two and four, and hats on
-/// the eighths, so the waveform reads as rhythm.
 fn drums(path: &Path) -> PathBuf {
     let beat = RATE as usize / 2;
     let mut noise = 0x2545_f491_u32;
@@ -129,7 +114,6 @@ fn drums(path: &Path) -> PathBuf {
     write_wav(path, samples)
 }
 
-/// A bass line: one note a bar, plucked and fading.
 fn bass(path: &Path) -> PathBuf {
     let bar = RATE as usize * 2;
     let notes = [55.0_f32, 55.0, 65.4, 49.0];
@@ -143,7 +127,6 @@ fn bass(path: &Path) -> PathBuf {
     write_wav(path, samples)
 }
 
-/// A stereo 16-bit WAV of `samples`.
 fn write_wav(path: &Path, samples: impl Iterator<Item = f32>) -> PathBuf {
     let data: Vec<u8> = samples
         .flat_map(|s| {
@@ -169,9 +152,6 @@ fn write_wav(path: &Path, samples: impl Iterator<Item = f32>) -> PathBuf {
     path.to_path_buf()
 }
 
-/// The harness's renderer without the triangle it paints at the pointer:
-/// the recorder draws the pointer Lumen asks for instead (pointer.rs), and
-/// the triangle showed beside every pointer but the arrow.
 struct WithoutTestCursor(WgpuTestRenderer);
 
 impl TestRenderer for WithoutTestCursor {
@@ -184,8 +164,6 @@ impl TestRenderer for WithoutTestCursor {
     }
 
     fn render(&mut self, ctx: &Context, output: &FullOutput) -> Result<image::RgbaImage, String> {
-        // The harness adds it last, as a white triangle edged in black
-        // whose first corner is the pointer.
         let hover = ctx.input(|i| i.pointer.hover_pos());
         let cursor = |shape: &ClippedShape| match (&shape.shape, hover) {
             (Shape::Path(path), Some(at)) => {

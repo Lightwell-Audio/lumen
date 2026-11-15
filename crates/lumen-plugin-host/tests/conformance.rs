@@ -1,7 +1,3 @@
-//! What real plugins expect of a host, simulated by the test plugin's strict
-//! behaviours (`needs_message`, `aux_buses`): a host that does not provide
-//! them takes the plugin down, as it does with real plugins on Windows.
-
 mod support;
 
 use lumen_plugin_host::client::ExitKind;
@@ -9,7 +5,6 @@ use lumen_plugin_host::protocol::ParamQueue;
 use lumen_test_plugin::params::LEVEL;
 use support::{SLOW, instrument, note_off, note_on};
 
-/// The plugin's level at full, so a note is heard at full scale.
 fn full() -> Vec<ParamQueue> {
     vec![ParamQueue {
         id: LEVEL,
@@ -19,8 +14,6 @@ fn full() -> Vec<ParamQueue> {
 
 #[test]
 fn a_plugin_that_asks_the_host_for_a_message_object_gets_one() {
-    // `instrument` loads and configures; the plugin creates a message in
-    // `initialize` and crashes the process when the host gives it none.
     let mut host = instrument("needs_message");
     let block = host
         .process(
@@ -48,7 +41,6 @@ fn a_plugin_with_auxiliary_outputs_is_given_every_bus_each_block_with_a_buffer_l
         )
         .expect("process");
     assert_eq!(block.status, 0);
-    // The main bus is still the one that is heard.
     assert!(
         block.output[0][10..40]
             .iter()
@@ -80,7 +72,6 @@ fn the_host_says_how_long_its_first_blocks_took_and_lumen_keeps_it() {
         let soon = std::time::Instant::now() + std::time::Duration::from_secs(5);
         assert!(matches!(link.wait(soon), Poll::Done(_)));
     }
-    // The reader thread picks the host's lines up from its pipe.
     let log = host.log();
     let started = std::time::Instant::now();
     while log.lines().len() < 2 && started.elapsed() < std::time::Duration::from_secs(5) {

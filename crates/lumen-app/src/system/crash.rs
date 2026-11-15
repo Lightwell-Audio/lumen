@@ -1,28 +1,11 @@
-//! Crash reports (CLAUDE.md §7, "crash report file"; owner, M3 slice 6c,
-//! to find a crash at deep zoom). A panic anywhere in Lumen (the UI, the
-//! audio thread, a loader) writes a report before the process ends: what
-//! failed, where, the backtrace, the version, the system and the thread.
-//! The next start offers the newest report the owner has not seen.
-//!
-//! Reports are plain text in `%LOCALAPPDATA%\Lumen\Crashes` (Windows),
-//! `~/Library/Logs/Lumen` (macOS) or `$XDG_STATE_HOME/lumen/crashes`
-//! (Linux). Nothing is sent anywhere (CLAUDE.md §4, privacy).
-//!
-//! A failed allocation is not a panic: the app's allocator
-//! (`lumen_rt::ReportingAllocator`) reports it before Rust ends the
-//! process. A failure raised by native code itself (a driver's fail-fast)
-//! ends the process before any Rust code can run, so it leaves no report.
-
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use lumen_core::product::PRODUCT_NAME;
 
-/// The marker naming the newest report already shown.
 const SEEN: &str = "seen.txt";
 
-/// The default folder for crash reports.
 pub fn default_dir() -> Option<PathBuf> {
     let dir = if cfg!(windows) {
         PathBuf::from(std::env::var_os("LOCALAPPDATA")?)
@@ -42,21 +25,14 @@ pub fn default_dir() -> Option<PathBuf> {
     Some(dir)
 }
 
-/// Where reports go, for the allocation-failure hook (a plain function).
 static DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 static PANIC_REPORTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Writes a report to `dir` whenever anything panics or an allocation
-/// fails, then lets the usual message print. Installed once, by the real
-/// binary only.
 pub fn install(dir: PathBuf) {
     let _ = DIR.set(dir.clone());
     lumen_rt::on_allocation_failure(out_of_memory);
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        // A panic crossing a native callback boundary triggers a second
-        // "cannot unwind" panic. Keep the original cause and backtrace,
-        // rather than overwriting its report with that secondary failure.
         if PANIC_REPORTED.swap(true, std::sync::atomic::Ordering::Relaxed) {
             previous(info);
             return;
@@ -79,17 +55,12 @@ pub fn install(dir: PathBuf) {
             backtrace: &std::backtrace::Backtrace::force_capture().to_string(),
             seconds: now(),
         });
-        // Best effort: a report that cannot be written must not hide the
-        // panic message below.
         let _ = std::fs::create_dir_all(&dir)
             .and_then(|()| std::fs::write(dir.join(file_name(now())), report));
         previous(info);
     }));
 }
 
-/// An allocation failed (`ReportingAllocator`): not a panic, so this is
-/// the only chance to say where. Small allocations still work, so the
-/// report is written as usual.
 fn out_of_memory(size: usize) {
     let Some(dir) = DIR.get() else {
         return;
@@ -106,38 +77,30 @@ fn out_of_memory(size: usize) {
         .and_then(|()| std::fs::write(dir.join(file_name(now())), report));
 }
 
-/// A deliberate failure, to check that reports are written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Test {
     Panic,
     Memory,
 }
 
-/// Fails as `test` says.
 pub fn fail(test: Test) {
     match test {
         Test::Panic => panic!("--crash-test: a deliberate panic"),
         Test::Memory => {
-            // Request a valid Rust layout beyond user virtual address space.
-            // A smaller zeroed reservation can succeed under OS overcommit
-            // without touching any pages and never exercise the failure hook.
             let huge = Vec::<u8>::with_capacity(isize::MAX as usize);
             std::hint::black_box(&huge);
         }
     }
 }
 
-/// What a report says.
 pub struct Panic<'a> {
     pub message: &'a str,
     pub location: &'a str,
     pub thread: &'a str,
     pub backtrace: &'a str,
-    /// Seconds since 1970 (UTC).
     pub seconds: u64,
 }
 
-/// The text of a crash report.
 pub fn report(p: &Panic<'_>) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "{PRODUCT_NAME} crash report");
@@ -156,7 +119,6 @@ pub fn report(p: &Panic<'_>) -> String {
     out
 }
 
-/// `crash-<seconds since 1970>.txt`: sorts by time.
 fn file_name(seconds: u64) -> String {
     format!("crash-{seconds:012}.txt")
 }
@@ -167,7 +129,6 @@ fn now() -> u64 {
         .map_or(0, |d| d.as_secs())
 }
 
-/// `2026-10-08 14:03:07` from seconds since 1970 (UTC; civil-from-days).
 fn utc(seconds: u64) -> String {
     let days = (seconds / 86_400) as i64;
     let rest = seconds % 86_400;
@@ -188,7 +149,6 @@ fn utc(seconds: u64) -> String {
     )
 }
 
-/// The newest report in `dir` that has not been shown yet.
 pub fn unseen(dir: &Path) -> Option<PathBuf> {
     let seen = std::fs::read_to_string(dir.join(SEEN)).unwrap_or_default();
     let newest = std::fs::read_dir(dir)
@@ -199,14 +159,12 @@ pub fn unseen(dir: &Path) -> Option<PathBuf> {
     (newest.as_str() > seen.trim()).then(|| dir.join(newest))
 }
 
-/// Remembers that `report` was shown, so it is not offered again.
 pub fn mark_seen(report: &Path) {
     if let (Some(dir), Some(name)) = (report.parent(), report.file_name()) {
         let _ = std::fs::write(dir.join(SEEN), name.to_string_lossy().as_bytes());
     }
 }
 
-/// Shows `path` in the system's file browser.
 pub fn reveal(path: &Path) {
     let result = if cfg!(windows) {
         reveal_in_explorer(path)
@@ -225,10 +183,6 @@ pub fn reveal(path: &Path) {
     }
 }
 
-/// Explorer reads `/select,"<path>"` as one argument with the quotes inside
-/// it. Rust would quote the whole argument when the path has a space, which
-/// Explorer does not understand and answers by opening Documents, so the
-/// argument is written as it is. Explorer also wants backslashes and no `\\?\` prefix.
 #[cfg(windows)]
 fn reveal_in_explorer(path: &Path) -> std::io::Result<std::process::Child> {
     use std::os::windows::process::CommandExt;
@@ -248,8 +202,6 @@ fn reveal_in_explorer(_: &Path) -> std::io::Result<std::process::Child> {
 mod tests {
     use super::*;
 
-    /// Opens a real Explorer window on a file whose folder has a space in its
-    /// name (the case that once opened Documents). Run by hand (MT-PROJ-2).
     #[test]
     #[ignore = "opens a file manager window"]
     fn reveal_selects_a_file_in_a_folder_with_a_space() {

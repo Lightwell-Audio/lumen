@@ -1,10 +1,5 @@
-//! Recording settings (M5 slice 6c): the count-in, the record-only
-//! metronome and the Overdub switch. They live in the app settings file
-//! (`settings.record`), not in the project, so they cost no format change.
-
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-/// How many bars play before a take when Record starts from stop.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CountIn {
     #[default]
@@ -22,7 +17,6 @@ impl CountIn {
         CountIn::FourBars,
     ];
 
-    /// The number of bars the count-in lasts.
     pub fn bars(self) -> u32 {
         match self {
             CountIn::Off => 0,
@@ -32,12 +26,10 @@ impl CountIn {
         }
     }
 
-    /// The beats the count-in lasts in a bar of `numerator` beats.
     pub fn beats(self, numerator: u32) -> u32 {
         self.bars().saturating_mul(numerator)
     }
 
-    /// The name shown on the metronome menu and in the palette.
     pub fn name(self) -> &'static str {
         match self {
             CountIn::Off => "Off",
@@ -47,7 +39,6 @@ impl CountIn {
         }
     }
 
-    /// The name stored in the settings file.
     fn key(self) -> &'static str {
         match self {
             CountIn::Off => "off",
@@ -64,8 +55,6 @@ impl Serialize for CountIn {
     }
 }
 
-/// An unknown name reads as Off, so a file written by a later version (or
-/// edited by hand) still loads.
 impl<'de> Deserialize<'de> for CountIn {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let name = String::deserialize(deserializer)?;
@@ -76,25 +65,13 @@ impl<'de> Deserialize<'de> for CountIn {
     }
 }
 
-/// The record page of the settings. Every field has a default, so older
-/// files read as before (no version change).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RecordSettings {
     pub count_in: CountIn,
-    /// The metronome sounds only while recording and in the count-in, even
-    /// when it is otherwise off or on.
     pub only_while_recording: bool,
-    /// Overdub: a take's new clip also holds what was recorded there
-    /// already; off, Replace overwrites it.
     pub overdub: bool,
-    /// Milliseconds a recorded audio take moves earlier on top of the
-    /// driver's own latencies (M9 slice R2): for drivers that misreport.
-    /// Negative moves it later.
     pub offset_ms: f32,
-    /// Keep the notes played on MIDI tracks while not recording, in memory,
-    /// for Capture MIDI (M9 slice R3). On by default; off, nothing is kept
-    /// and what was is forgotten.
     pub keep_played: bool,
 }
 

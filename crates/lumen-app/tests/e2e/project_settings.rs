@@ -1,6 +1,3 @@
-//! The Project settings window (M9 slice R4, ADR-0105): its controls change
-//! the project in one undo step each, and what they set is saved with it.
-
 use eframe::egui::{Event, Key, Modifiers};
 use lumen_app::testing::project_file;
 use lumen_core::pan::PanLaw;
@@ -9,7 +6,6 @@ use lumen_project::model::Color;
 use super::Lumen;
 use super::copies::command;
 
-/// The window, opened by its command as a person without a shortcut would.
 fn open_window() -> Lumen {
     let mut lumen = Lumen::start("project-settings");
     show(&mut lumen);
@@ -19,7 +15,6 @@ fn open_window() -> Lumen {
 fn show(lumen: &mut Lumen) {
     command(lumen, "Project settings");
     lumen.run_until("the window", |l| l.shows("Notes"));
-    // The scroll area measures its content on the first frames.
     lumen.frames(5);
     assert!(lumen.app().project_settings_open());
 }
@@ -79,7 +74,6 @@ fn new_tracks_take_the_chosen_colour_until_the_palette_is_chosen_again() {
     });
     assert_eq!(lumen.app().undo_label(), Some("Change new track color"));
 
-    // The window stays open while a track is made from the keyboard.
     lumen.key(Modifiers::NONE, Key::Escape);
     lumen.frames(3);
     lumen.key(Modifiers::COMMAND, Key::T);
@@ -107,14 +101,12 @@ fn typing_notes_is_one_undo_step_and_the_notes_are_saved_with_the_project() {
     assert!(!lumen.app().project_settings_open());
     assert_eq!(lumen.app().undo_label(), Some("Edit project notes"));
 
-    // Saved with the project, and read back from the file.
     let path = project_file(lumen.dir(), "Song");
     lumen.app_mut().save_to(path.clone());
     lumen.wait_for("the save", |app| !app.is_busy() && !app.is_dirty());
     let saved = lumen_project::load(&path).unwrap();
     assert_eq!(saved.notes, "Verse in D minor");
 
-    // One undo takes all the typing back.
     lumen.key(Modifiers::COMMAND, Key::Z);
     lumen.wait_for("the undo", |app| app.project().notes.is_empty());
 }
@@ -147,7 +139,6 @@ fn what_the_window_sets_survives_save_and_reopen() {
     assert_eq!(project.sample_rate, 44_100);
     assert_eq!(project.new_track_color, Some(Color(0x7A6A9E)));
 
-    // The window shows the reopened project's values, not the old ones.
     show(&mut lumen);
     assert!(lumen.shows("Sample rate: 44.1 kHz"));
 }

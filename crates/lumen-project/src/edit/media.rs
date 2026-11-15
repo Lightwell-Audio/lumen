@@ -1,23 +1,11 @@
-//! Which media files anything plays (M9 slice R4b): the media pool lists the
-//! rest as unused, and removing them is one undo step.
-//!
-//! A media entry is played by an audio clip, or by the file a frozen track
-//! plays in place of its clips. The passes of a loop recording (`Takes`) are
-//! windows on their clip's own media and name no file. The reversed twins of
-//! a file are derived while playing and are not saved. A new place that
-//! names a media id must be added to [`users`], whose matches have no
-//! wildcard so that a new kind of clip content is a compiler error here.
-
 use std::collections::{HashMap, HashSet};
 
 use crate::model::{ClipContent, Frozen, Id, Project, Track};
 
-/// Every media id a clip or a frozen track of `project` plays.
 pub fn used(project: &Project) -> HashSet<Id> {
     counts(project).into_keys().collect()
 }
 
-/// How many clips (and frozen tracks) play each media id that something plays.
 pub fn counts(project: &Project) -> HashMap<Id, usize> {
     let mut counts = HashMap::new();
     for track in project
@@ -51,7 +39,6 @@ fn users(track: &Track, used: &mut HashMap<Id, usize>) {
     }
 }
 
-/// The ids in `project.media` that nothing plays, in the media list's order.
 pub fn unused(project: &Project) -> Vec<Id> {
     let used = used(project);
     project
@@ -62,9 +49,6 @@ pub fn unused(project: &Project) -> Vec<Id> {
         .collect()
 }
 
-/// Removes the entries of `ids` that nothing plays from the media list, and
-/// returns the ones it removed. An id that is played, or not in the list, is
-/// left alone, so a stale list from the pool can never drop a file in use.
 pub fn remove_unused(project: &mut Project, ids: &[Id]) -> Vec<Id> {
     let unused: HashSet<Id> = unused(project)
         .into_iter()
@@ -190,7 +174,6 @@ mod tests {
 
     #[test]
     fn a_track_folded_into_a_group_still_counts() {
-        // Groups hold no clips of their own; a child's clip is on the child.
         let mut p = project();
         p.tracks
             .push(Arc::new(track(3, TrackKind::Group, Vec::new())));
@@ -207,7 +190,6 @@ mod tests {
     #[test]
     fn removing_drops_only_what_nothing_plays() {
         let mut p = project();
-        // 900 is played, 901 is asked for, 777 is not in the project.
         let removed = remove_unused(&mut p, &[Id(900), Id(901), Id(777)]);
         assert_eq!(removed, vec![Id(901)]);
         let left: Vec<_> = p.media.iter().map(|m| m.id).collect();

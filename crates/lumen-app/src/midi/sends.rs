@@ -1,36 +1,11 @@
-//! Where a drum sound's notes are heard (M8 slice D4): a sound of a track's
-//! drum map can be sent to **another instrument track**, and then that
-//! track's instrument plays the notes the sound answers to (§6.4).
-//!
-//! The table is read once per track list, on this side, and is pure, so what
-//! plays where is tested without an engine. A sound on an output pair is not
-//! here: it stays on its own track and the instrument routes it inside
-//! itself (`midi::play::plugin_outputs`).
-//!
-//! A send whose target can no longer take the notes — the track is gone, its
-//! instrument was removed, or it plays a hardware port — is not in the table,
-//! and [`playable_map`] then reads the sending track's map with that sound
-//! back on its own instrument, so the sound is never silent.
-
 use lumen_project::model::{self, Id, TrackKind};
 
-/// The notes of one track's sounds played by another track's instrument.
-///
-/// One send for each pair of tracks, however many sounds are sent: the
-/// receiving track reads the sending track's clips once, keeping just the
-/// sounds that are sent to it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Send {
-    /// The track whose clips hold the notes, read through its drum map.
     pub from: Id,
-    /// The instrument track that plays them.
     pub to: Id,
 }
 
-/// Whether a sound on `from` may be sent to `to`: a MIDI track that plays
-/// its instrument (not one sent to a hardware output), and not the track the
-/// sound is already on. A group, a return or an audio track cannot take the
-/// notes.
 pub(crate) fn can_send_to(project: &model::Project, from: Id, to: Id) -> bool {
     if from == to {
         return false;
@@ -40,10 +15,6 @@ pub(crate) fn can_send_to(project: &model::Project, from: Id, to: Id) -> bool {
     })
 }
 
-/// The sends of `project`, in the project's track order: every track that
-/// reads a drum map and has a sound sent to another instrument track. A
-/// target that is gone, or cannot play the notes any more (`can_send_to`), is
-/// left out, and [`playable_map`] puts its sounds back on their own track.
 pub(crate) fn sends(project: &model::Project) -> Vec<Send> {
     let mut out: Vec<Send> = Vec::new();
     for track in &project.tracks {
@@ -69,14 +40,6 @@ pub(crate) fn sends(project: &model::Project) -> Vec<Send> {
     out
 }
 
-/// The map to read `track`'s clips through for its **own** instrument, when
-/// one of its sounds is sent somewhere that cannot take it: the map with that
-/// sound back on Main, so the notes play here rather than nowhere (M8 D4
-/// review M2). `None` when every send can be honoured — the common case, and
-/// the one where the project's own map is read as it is.
-///
-/// A copy is made per track list, not per note: only a project whose route
-/// outlived its target pays for it.
 pub(crate) fn playable_map(
     project: &model::Project,
     track: &model::Track,
@@ -104,9 +67,6 @@ pub(crate) fn playable_map(
     Some(held)
 }
 
-/// The input notes of `map`'s sounds heard on the track itself: the ones not
-/// sent elsewhere. A sound on an output pair is among them: its notes are
-/// still the track's, and the instrument routes the audio.
 #[cfg(test)]
 pub(crate) fn kept_inputs(map: &model::DrumMap) -> Vec<u8> {
     map.sounds
@@ -132,8 +92,6 @@ mod tests {
         }
     }
 
-    /// A kit track with a plugin instrument and a map, and a second MIDI
-    /// track with an instrument: the sender, the receiver and the map.
     fn pair() -> (Document, Id, Id, Id) {
         let mut doc = Document::new(crate::empty_project());
         let kit = doc.add_track(TrackKind::Midi, None);
@@ -185,9 +143,6 @@ mod tests {
             doc.drum_map(map).unwrap().sounds.len(),
             "its notes stay the track's"
         );
-        // Sent to a track that is not an instrument track: the edit refuses
-        // it; a route a file holds anyway is not a send, and plays on the
-        // kit's own instrument (review M2).
         let audio = doc.add_track(TrackKind::Audio, None);
         let second = doc.drum_map(map).unwrap().sounds[1].input;
         assert!(
@@ -200,7 +155,6 @@ mod tests {
         let sender = doc.project().tracks.iter().find(|t| t.id == kit).unwrap();
         let held = playable_map(doc.project(), sender).expect("a route with no track to play it");
         assert_eq!(held.sounds[1].route, Route::Main);
-        // And a track sent to a hardware port has no instrument to play it.
         let mut project = doc.project().clone();
         let slot = project.tracks.iter_mut().find(|t| t.id == other).unwrap();
         std::sync::Arc::make_mut(slot).midi_to = Some(model::MidiTo {

@@ -1,45 +1,12 @@
-//! How tests may depend on time (ADR-0122), checked over the sources.
-//!
-//! A test that reads the wall clock can fail on a slow runner for no fault of
-//! the code. CI runs the ones whose claim is about time apart from the
-//! others, one at a time, with retries and without gating on them
-//! (`.github/timing-tests.txt`, `.github/scripts/ci-test.sh`). The first
-//! check keeps that list from going stale: a test file under
-//! `crates/*/tests` that reads the clock must be
-//!
-//! - part of a test target listed in `.github/timing-tests.txt`, or
-//! - an E2E file that takes the `timing_sensitive()` turn, or
-//! - named in `KNOWN` below.
-//!
-//! `KNOWN` is the set of files that read the clock on 2026-10-31 and were not
-//! flaky then. It is a snapshot, not a review: most only bound a wait with a
-//! generous deadline. When a file in it flakes, move it to the timing list.
-//! A new file is not added to `KNOWN` without a look at what it asserts: a
-//! deadline of seconds on a wait is harmless, a bound on how long work took
-//! is a timing test.
-//!
-//! The second check finds counted polling loops in test code (`for _ in
-//! 0..200 { ...; sleep(5 ms) }` that leaves when the work is done): their
-//! budget is a guess at the machine's speed, and a loaded runner runs out of
-//! it. A test waits with `lumen_testkit::wait_until` (or the E2E harness's
-//! `run_until`) instead, whose only bound is a hang guard.
-
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Files that read the clock and are not on the timing list (see above).
 const KNOWN: &[&str] = &[
-    // The docs' scenes (ignored): `main.rs` prints how long a scene took and
-    // asserts nothing on it; `recorder.rs` bounds its waits for the engine
-    // with deadlines of 20 s. The frames themselves run on the video's clock.
     "crates/lumen-app/tests/docs_media/main.rs",
     "crates/lumen-app/tests/docs_media/recorder.rs",
     "crates/lumen-app/tests/e2e/audio_editor_handles.rs",
-    // The bench (ignored) prints frame times and fails only past a second.
     "crates/lumen-app/tests/e2e/audio_editor_hearing.rs",
-    // The drum editor's bench (ignored) prints the lanes' and the roll's
-    // frame times and asserts only that the lanes stay within reach.
     "crates/lumen-app/tests/e2e/drum_lanes_bench.rs",
     "crates/lumen-app/tests/e2e/clips.rs",
     "crates/lumen-app/tests/e2e/cue.rs",
@@ -53,12 +20,8 @@ const KNOWN: &[&str] = &[
     "crates/lumen-app/tests/e2e/record.rs",
     "crates/lumen-app/tests/e2e/streaming.rs",
     "crates/lumen-app/tests/smoke.rs",
-    // An ignored measurement: it prints times and asserts none.
     "crates/lumen-engine/tests/midi_scale.rs",
-    // The deadline a hosted block is given bounds the wait; the test asserts
-    // only that nothing on the path touches the heap.
     "crates/lumen-devices/tests/hosted_rt.rs",
-    // Shared by the lumen-hosting tests; the timing ones are listed.
     "crates/lumen-hosting/tests/support/mod.rs",
     "crates/lumen-media/tests/files.rs",
     "crates/lumen-plugin-catalog/tests/scan.rs",
@@ -75,7 +38,6 @@ const KNOWN: &[&str] = &[
     "crates/lumen-test-plugin/tests/host.rs",
 ];
 
-/// What the scan counts as reading the wall clock.
 const CLOCK: &[&str] = &["Instant::now", "SystemTime::now", ".elapsed()"];
 
 fn root() -> PathBuf {
@@ -93,9 +55,6 @@ fn rust_files(dir: &Path, into: &mut Vec<PathBuf>) {
     }
 }
 
-/// The text of a source, lossily: one support file has a stray byte.
-/// The module path of a source file under `src` (`midi/out.rs` and
-/// `midi/out/mod.rs` are `midi::out`; `lib.rs` is the empty path).
 fn module_path(src: &Path, file: &Path) -> String {
     let relative = file.strip_prefix(src).unwrap_or(file).with_extension("");
     let mut parts: Vec<String> = relative
@@ -119,8 +78,6 @@ fn reads_the_clock(source: &str) -> bool {
     CLOCK.iter().any(|call| source.contains(call))
 }
 
-/// The lines of the timing list: `(package, target)` for a whole test target
-/// and `(package, name)` for unit tests, told apart by the space.
 struct Listed {
     targets: BTreeSet<(String, String)>,
     units: Vec<(String, String)>,
@@ -152,9 +109,6 @@ fn timing_list(list: &str) -> Listed {
     listed
 }
 
-/// The test target a file under `crates/<package>/tests` belongs to: its
-/// stem, or the folder holding its `main.rs`. `None` for a file that is part
-/// of no target by itself (a support module).
 fn target_of(relative: &Path) -> Option<String> {
     let mut parts = relative
         .components()
@@ -249,7 +203,6 @@ fn every_entry_of_the_timing_list_names_a_test_that_exists() {
         );
     }
     for (package, name) in &listed.units {
-        // ci-test.sh supports unit tests of lumen-app only.
         assert_eq!(package, "lumen-app", "unit tests of {package}");
         let src = root.join("crates").join(package).join("src");
         let sources = {
@@ -257,8 +210,6 @@ fn every_entry_of_the_timing_list_names_a_test_that_exists() {
             rust_files(&src, &mut files);
             files
         };
-        // The entry names a module path (`midi::out::sender_tests`): some
-        // file with tests is the module the path begins with.
         assert!(
             sources.iter().any(|f| {
                 let module = module_path(&src, f);
@@ -271,8 +222,6 @@ fn every_entry_of_the_timing_list_names_a_test_that_exists() {
     }
 }
 
-/// Test files run by hand only (`--ignored` screenshots and the docs'
-/// scenes), whose waits are not part of CI.
 const BY_HAND: &[&str] = &[
     "crates/lumen-app/tests/shots.rs",
     "crates/lumen-app/tests/shots_recording.rs",
@@ -280,9 +229,6 @@ const BY_HAND: &[&str] = &[
     "crates/lumen-app/tests/docs_media/",
 ];
 
-/// The test code of a source: all of a file under `tests/` or named
-/// `tests.rs`, else what follows its first `#[cfg(test)]` (empty when it has
-/// none).
 fn test_code<'a>(relative: &str, source: &'a str) -> &'a str {
     if relative.contains("/tests/") || relative.ends_with("/tests.rs") {
         return source;
@@ -292,10 +238,6 @@ fn test_code<'a>(relative: &str, source: &'a str) -> &'a str {
         .map_or("", |start| &source[start..])
 }
 
-/// The lines of the counted polling loops in `code`: a `for _ in 0..N` whose
-/// body sleeps and leaves early (`break` or `return`), which waits a number of
-/// polls rather than until the work is done (ADR-0122). A loop that sleeps
-/// without leaving early lets time pass on purpose, and is not one.
 fn counted_waits(code: &str) -> Vec<usize> {
     let lines: Vec<&str> = code.lines().collect();
     let mut found = Vec::new();
@@ -324,9 +266,6 @@ fn counted_waits(code: &str) -> Vec<usize> {
 
 #[test]
 fn no_test_waits_a_counted_number_of_polls() {
-    // A wait of "400 polls of 5 ms" is two seconds on a quiet machine and
-    // too short on a loaded runner; lumen_testkit waits until the work is
-    // done, with a hang guard CI raises (ADR-0122).
     let root = root();
     let mut files = Vec::new();
     for krate in fs::read_dir(root.join("crates")).expect("crates read") {
@@ -349,7 +288,6 @@ fn no_test_waits_a_counted_number_of_polls() {
         }
         let source = text(file);
         let code = test_code(&relative, &source);
-        // The lines before the test code (its marker starts a line).
         let before = source[..source.len() - code.len()].lines().count();
         for line in counted_waits(code) {
             counted.push(format!("{relative}:{}", before + line));

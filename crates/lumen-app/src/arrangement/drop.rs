@@ -1,10 +1,3 @@
-//! Files dragged from the system onto the lanes (M3 slice 6e): over the
-//! lane of a track of their kind (audio files on audio tracks, MIDI files
-//! on MIDI tracks, M5 slice 7) they land on it; near the line between two
-//! tracks, below the last, or over a track of another kind, they make new
-//! tracks there. While they are dragged, the lane lights with a ghost clip where
-//! they will land, or a line shows where the new tracks will go.
-
 use eframe::egui::{self, Painter, Rect, Stroke, pos2, vec2};
 use lumen_project::model::{Id, Project, TrackKind};
 
@@ -13,15 +6,9 @@ use crate::document::DropInto;
 use crate::theme;
 use crate::widgets;
 
-/// Within this many points of the line between two tracks, files make new
-/// tracks there rather than landing on a track.
 const BETWEEN: f32 = 7.0;
-/// The ghost clip's width: the files' lengths are not known yet.
 const GHOST_WIDTH: f32 = 140.0;
 
-/// Files being dragged over the lanes: where they go, the screen y of the
-/// line where new tracks would go, the x where they land, and their name
-/// ("kick.wav", "3 files").
 pub struct FileDrop<'a> {
     pub into: DropInto,
     pub line: f32,
@@ -29,25 +16,16 @@ pub struct FileDrop<'a> {
     pub label: &'a str,
 }
 
-/// A track's row, as file drops see it.
 #[derive(Debug, Clone, Copy)]
 struct DropRow {
     id: Id,
     top: f32,
     height: f32,
     kind: TrackKind,
-    /// Its group.
     parent: Option<Id>,
-    /// How many groups it is inside.
     depth: usize,
 }
 
-/// Where files that land on `lands_on` tracks, dragged to content y `y`,
-/// go, given every visible track row
-/// from the top: the destination, and the y of the line where new tracks
-/// would go. Near the line between two tracks, new tracks join the group of
-/// the track below (so below a group's last track they come after the
-/// group); over a group's lane, they go at the end of that group.
 fn drop_place(rows: &[DropRow], y: f32, lands_on: TrackKind) -> (DropInto, f32) {
     for (i, row) in rows.iter().enumerate() {
         let bottom = row.top + row.height;
@@ -63,7 +41,6 @@ fn drop_place(rows: &[DropRow], y: f32, lands_on: TrackKind) -> (DropInto, f32) 
             return match row.kind {
                 kind if kind == lands_on => (DropInto::Track(row.id), row.top),
                 TrackKind::Group => {
-                    // Under the group's last visible track.
                     let inside = rows[i + 1..]
                         .iter()
                         .take_while(|r| r.depth > row.depth)
@@ -102,9 +79,6 @@ fn drop_place(rows: &[DropRow], y: f32, lands_on: TrackKind) -> (DropInto, f32) 
 }
 
 impl Arrangement {
-    /// Where files that land on `lands_on` tracks, dragged to screen y `y`
-    /// over the lanes in `canvas`, go, and the screen y of the line where
-    /// new tracks would go.
     pub fn file_drop(
         &self,
         ctx: &egui::Context,
@@ -114,7 +88,6 @@ impl Arrangement {
         y: f32,
         lands_on: TrackKind,
     ) -> (DropInto, f32) {
-        // Files land among the scrolling tracks, never on the returns.
         let rows: Vec<DropRow> = self
             .rows(ctx, project, pending)
             .iter()
@@ -138,7 +111,6 @@ impl Arrangement {
         (into, canvas.top() + line - self.top)
     }
 
-    /// The lane of track `id` on screen.
     pub(crate) fn lane_of(
         &self,
         ctx: &egui::Context,
@@ -158,9 +130,6 @@ impl Arrangement {
             })
     }
 
-    /// What files dragged over the lanes will do: onto a track, the lane
-    /// lights and a ghost clip with their name sits where they land; as new
-    /// tracks, an accent line where the tracks go, with a chip.
     pub fn draw_file_drop(
         &self,
         ctx: &egui::Context,
@@ -267,7 +236,6 @@ mod tests {
         }
     }
 
-    /// An audio track, a MIDI track and another audio track, 44 points each.
     fn rows() -> [DropRow; 3] {
         [
             row(1, 0.0, TrackKind::Audio, None),
@@ -294,7 +262,6 @@ mod tests {
             drop_place(&rows, 110.0, TrackKind::Audio),
             (DropInto::Track(Id(3)), 88.0)
         );
-        // Near a line between tracks: new tracks there.
         assert_eq!(
             drop_place(&rows, 40.0, TrackKind::Audio),
             (new(Some(2), None), 44.0)
@@ -308,12 +275,10 @@ mod tests {
             (new(Some(1), None), 0.0),
             "above the first"
         );
-        // Over a MIDI track: a new track below it.
         assert_eq!(
             drop_place(&rows, 66.0, TrackKind::Audio),
             (new(Some(3), None), 88.0)
         );
-        // Below the last, or with no tracks: at the end.
         assert_eq!(
             drop_place(&rows, 128.0, TrackKind::Audio),
             (new(None, None), 132.0)
@@ -326,8 +291,6 @@ mod tests {
             drop_place(&[], 10.0, TrackKind::Audio),
             (new(None, None), 0.0)
         );
-        // MIDI files land on the MIDI track, and make new tracks below the
-        // audio tracks.
         assert_eq!(
             drop_place(&rows, 66.0, TrackKind::Midi),
             (DropInto::Track(Id(2)), 44.0)
@@ -340,29 +303,24 @@ mod tests {
 
     #[test]
     fn files_go_into_groups_by_where_they_are_dropped() {
-        // Drums (a group) holding Keys (MIDI) and Kick, then Bass.
         let rows = [
             row(1, 0.0, TrackKind::Group, None),
             row(2, 44.0, TrackKind::Midi, Some(1)),
             row(3, 88.0, TrackKind::Audio, Some(1)),
             row(4, 132.0, TrackKind::Audio, None),
         ];
-        // Over the group's lane: at its end, the line under its last track.
         assert_eq!(
             drop_place(&rows, 20.0, TrackKind::Audio),
             (new(Some(4), Some(1)), 132.0)
         );
-        // Under the group header: inside, first.
         assert_eq!(
             drop_place(&rows, 42.0, TrackKind::Audio),
             (new(Some(2), Some(1)), 44.0)
         );
-        // Over the MIDI track inside: inside, below it.
         assert_eq!(
             drop_place(&rows, 66.0, TrackKind::Audio),
             (new(Some(3), Some(1)), 88.0)
         );
-        // Under the group's last track: after the group.
         assert_eq!(
             drop_place(&rows, 130.0, TrackKind::Audio),
             (new(Some(4), None), 132.0)

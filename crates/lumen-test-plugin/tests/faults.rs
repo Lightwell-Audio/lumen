@@ -1,8 +1,3 @@
-//! The faults that end a process (a crash, a hang) cannot run inside the
-//! test harness, so each test runs this same test binary again as a child,
-//! with the fault in its environment, and looks at how the child ended.
-//! The helper tests are ignored in normal runs.
-
 mod support;
 
 use std::process::{Command, Stdio};
@@ -12,9 +7,6 @@ use lumen_test_plugin::faults::ENV;
 use lumen_test_plugin::params::Kind;
 use support::{Plugin, note_on};
 
-/// Runs helper test `name` as a child with `fault`, and gives up on it after
-/// `limit`. Returns the child's exit status, or `None` if it was killed
-/// for running too long.
 fn run_child(name: &str, fault: &str, limit: Duration) -> Option<std::process::ExitStatus> {
     let mut child = Command::new(std::env::current_exe().expect("test binary"))
         .args(["--exact", name, "--ignored", "--nocapture"])
@@ -88,7 +80,6 @@ fn a_process_hang_never_returns() {
 
 #[test]
 fn a_hang_after_the_last_block_is_not_reached() {
-    // Four blocks are processed (calls 0 to 3): a hang at block 9 never fires.
     let status = run_child(
         "child_process_blocks",
         "process_hang@9",

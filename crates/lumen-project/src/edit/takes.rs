@@ -1,11 +1,3 @@
-//! Takes (M9 slice R3, format v31): playing another pass of a loop recording,
-//! taking one out to its own track, and dropping the rest.
-//!
-//! A clip's takes are described in `model::takes`. The clip's own content is
-//! the active pass; the others are held beside it, so a swap exchanges the
-//! two and nothing is copied twice. Every function here changes only clips
-//! that are not locked, except [`extract`], which leaves its source alone.
-
 use std::sync::Arc;
 
 use lumen_core::time::{TempoMap, Ticks};
@@ -14,9 +6,6 @@ use crate::model::{Clip, Id, OtherTake, Pass, Project, Takes, TrackKind};
 
 use super::audio_take;
 
-/// Gives `clip` the passes `passes`, playing number `active`. Fewer than two
-/// passes leave the clip without takes. A pass of the wrong kind for the clip
-/// returns false and changes nothing.
 pub fn with_passes(clip: &mut Clip, mut passes: Vec<Pass>, active: usize) -> bool {
     if passes.len() < 2 || active >= passes.len() {
         if passes.len() != 1 || !passes[0].fits(clip) {
@@ -47,7 +36,6 @@ pub fn with_passes(clip: &mut Clip, mut passes: Vec<Pass>, active: usize) -> boo
     true
 }
 
-/// Where the clip `id` is, as track and clip indexes.
 fn find(project: &Project, id: Id) -> Option<(usize, usize)> {
     project
         .tracks
@@ -56,8 +44,6 @@ fn find(project: &Project, id: Id) -> Option<(usize, usize)> {
         .find_map(|(t, track)| track.clips.iter().position(|c| c.id == id).map(|c| (t, c)))
 }
 
-/// Makes `clip` play pass `take`, the one it plays going into that pass's
-/// place. Returns false when there is no such pass or the clip has none.
 pub fn swap(clip: &mut Clip, take: u32) -> bool {
     let Some(takes) = &clip.takes else {
         return false;
@@ -76,7 +62,6 @@ pub fn swap(clip: &mut Clip, take: u32) -> bool {
     if !chosen.put_on(clip) {
         return false;
     }
-    // The pass now held under `slot` is the one that was active; renumber.
     takes.others[slot].take = takes.active;
     takes.active = take;
     takes.others.sort_by_key(|o| o.take);
@@ -84,12 +69,6 @@ pub fn swap(clip: &mut Clip, take: u32) -> bool {
     true
 }
 
-/// Moves the origin of every pass the clip is not playing the way its own
-/// content's was: the clip's start was cut later by `cut` ticks, which is
-/// `seconds` of the file. Audio passes advance into their file (not before
-/// its first frame, with the file's `rate`); MIDI passes' notes and events
-/// move earlier, and `carries(start)` says which notes, by their start before
-/// the move, become the ones that carry across the new seam.
 pub fn advance(
     clip: &mut Clip,
     cut: Ticks,
@@ -102,7 +81,6 @@ pub fn advance(
     };
     for other in &mut takes.others {
         match &mut other.pass {
-            // A warped pass follows its map, which `warp::shift_passes` moves.
             Pass::Audio { warp: Some(_), .. } => {}
             Pass::Audio {
                 offset,
@@ -129,9 +107,6 @@ pub fn advance(
     }
 }
 
-/// Moves the content of every pass the clip is not playing as `by` slides the
-/// playing one (see `slip`): each pass slips by the same amount, within its
-/// own file.
 pub fn slipped(project: &Project, tempo: &TempoMap, before: &Clip, after: &mut Clip, by: Ticks) {
     let Some(takes) = before.takes.clone() else {
         return;
@@ -153,7 +128,6 @@ pub fn slipped(project: &Project, tempo: &TempoMap, before: &Clip, after: &mut C
     after.takes = Some(out);
 }
 
-/// Plays pass `take` on the unlocked clip `id`.
 pub fn play(project: &mut Project, id: Id, take: u32) -> bool {
     let Some((t, c)) = find(project, id) else {
         return false;
@@ -166,8 +140,6 @@ pub fn play(project: &mut Project, id: Id, take: u32) -> bool {
     true
 }
 
-/// Plays the pass `by` places after the one playing, round the set: 1 is the
-/// next take, -1 the one before. Returns the number now playing.
 pub fn step(project: &mut Project, id: Id, by: i32) -> Option<u32> {
     let (t, c) = find(project, id)?;
     let takes = project.tracks[t].clips[c].takes.as_ref()?;
@@ -176,13 +148,10 @@ pub fn step(project: &mut Project, id: Id, by: i32) -> Option<u32> {
     play(project, id, to).then_some(to)
 }
 
-/// Drops the passes a clip is not playing. Returns how many were dropped.
 pub fn settle(clip: &mut Clip) -> u32 {
     clip.takes.take().map_or(0, |takes| takes.count - 1)
 }
 
-/// Drops the other passes of each unlocked clip among `ids`. Returns how many
-/// passes were dropped in all.
 pub fn keep_only(project: &mut Project, ids: &[Id]) -> u32 {
     let mut dropped = 0;
     for track in &mut project.tracks {
@@ -203,16 +172,12 @@ pub fn keep_only(project: &mut Project, ids: &[Id]) -> u32 {
     dropped
 }
 
-/// What [`extract`] made.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Extracted {
     pub track: Id,
     pub clip: Id,
 }
 
-/// Puts pass `take` of the audio clip `id` on a new track after the clip's
-/// own, as a clip over the same span. The source keeps playing what it did.
-/// MIDI passes are not extracted: a new MIDI track would have no instrument.
 pub fn extract(
     project: &mut Project,
     id: Id,
@@ -226,7 +191,6 @@ pub fn extract(
     let source = &project.tracks[t].clips[c];
     source.takes.as_ref()?;
     let mut copy = (**source).clone();
-    // The pass the clip plays is a take too, and needs no swap.
     if copy.takes.as_ref()?.active != take && !swap(&mut copy, take) {
         return None;
     }
@@ -262,8 +226,6 @@ mod tests {
         }
     }
 
-    /// The clip with three audio passes at 100, 200 and 300; it plays the
-    /// last.
     fn three() -> (Project, Id) {
         let mut p = song();
         let id = p.tracks[0].clips[0].id;
@@ -372,7 +334,6 @@ mod tests {
             },
         ];
         assert!(with_passes(clip_mut, passes, 1));
-        // Edit the playing pass, as the piano roll would.
         if let ClipContent::Midi { notes, .. } = &mut clip_mut.content {
             notes.push(note(200, 64));
         }

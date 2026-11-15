@@ -1,29 +1,20 @@
-//! The hosted devices' tests.
-
 use std::sync::Mutex;
 
 use super::instrument::EVENTS;
 use super::*;
 
-/// One parameter's points in a block: its id and `(offset, value)` each.
 type Queue = (u32, Vec<(u32, f64)>);
 
-/// What a fake host was asked, and the level it answers with (the test
-/// may change it while the host is in use).
 #[derive(Default)]
 struct Seen {
     submits: u32,
-    /// Submits still to refuse as busy, as a host on an earlier block.
     busy: u32,
     events: Vec<Vec<Event>>,
-    /// Each block's parameter queues: id and points.
     params: Vec<Vec<Queue>>,
     value: f32,
-    /// The deadline of the last collect.
     deadline: Option<Instant>,
 }
 
-/// A host that answers from a script and records what it is asked.
 struct Fake {
     script: Vec<Reply>,
     next: usize,
@@ -94,7 +85,6 @@ impl Hosted for Fake {
         self.ended
     }
 
-    /// Auxiliary pair 1 plays a quarter of full scale.
     fn output(&mut self, pair: usize, left: &mut [f32], right: &mut [f32]) -> bool {
         if pair != 1 {
             return false;
@@ -177,7 +167,6 @@ fn a_changed_latency_is_news_once_and_a_restart_is_asked_once() {
 
 #[test]
 fn a_second_of_late_audio_in_a_row_fails_the_host_and_an_answer_in_between_resets_it() {
-    // Blocks of 4 frames: the span is counted in audio, not blocks.
     let per_second = (FAILED_AFTER_FRAMES / 4) as usize;
     let mut script = vec![Reply::Late; per_second - 1];
     script.push(READY);
@@ -318,8 +307,6 @@ fn the_other_outputs_are_those_of_this_block_never_the_last_ones() {
         synth.output(1, &mut al, &mut ar),
         "a finished block has them"
     );
-    // The host is still on an earlier block: this one is refused, and the
-    // main output is silent; the other outputs are not the last block's.
     seen.lock().unwrap().busy = 1;
     let (mut l, mut r) = ([0.0f32; 64], [0.0f32; 64]);
     synth.render(48_000, &[on(0, 62)], &mut l, &mut r);
@@ -337,8 +324,6 @@ fn a_block_waited_for_in_render_waits_until_the_callbacks_deadline_when_it_has_o
     let shared = Instant::now() + Duration::from_millis(3);
     synth.render_by(48_000, &[on(0, 60)], &mut l, &mut r, Some(shared));
     assert_eq!(seen.lock().unwrap().deadline, Some(shared));
-    // With none it waits for a share of the block of its own (75% of
-    // 64 frames at 48 kHz is 1 ms).
     let before = Instant::now();
     synth.render(48_000, &[on(0, 62)], &mut l, &mut r);
     let own = seen.lock().unwrap().deadline.unwrap();
@@ -346,8 +331,6 @@ fn a_block_waited_for_in_render_waits_until_the_callbacks_deadline_when_it_has_o
     assert!(own <= Instant::now() + Duration::from_millis(1));
 }
 
-/// Blocks the instrument is given, at 1 kHz in blocks of 100 frames, until
-/// it is left alone (at most `most`).
 fn rung(synth: &mut HostedInstrument, most: usize) -> usize {
     let (mut l, mut r) = ([0.0f32; 100], [0.0f32; 100]);
     let mut blocks = 0;
@@ -359,7 +342,6 @@ fn rung(synth: &mut HostedInstrument, most: usize) -> usize {
     blocks
 }
 
-/// At 1 kHz, blocks of 100 frames: the quiet that ends a plugin's turn.
 const QUIET_BLOCKS: usize = (QUIET_SECONDS * 10) as usize;
 
 fn quiet(seen: &Arc<Mutex<Seen>>) {
@@ -368,8 +350,6 @@ fn quiet(seen: &Arc<Mutex<Seen>>) {
 
 #[test]
 fn a_host_is_left_alone_while_nothing_sounds_and_rung_out_after_a_note_ends() {
-    // A plugin that reports no tail and plays nothing after the note: it is
-    // given blocks until two seconds of quiet have gone by.
     let (mut synth, seen) = instrument(vec![READY]);
     quiet(&seen);
     assert!(!synth.begin(1000, 100, &[]), "idle: no host work");
@@ -393,9 +373,6 @@ fn a_host_is_left_alone_while_nothing_sounds_and_rung_out_after_a_note_ends() {
 
 #[test]
 fn a_host_whose_output_still_sounds_is_given_blocks_until_it_goes_quiet() {
-    // The owner's report: a synth's release, and a delay in it, were cut a
-    // second after the last note. Here the plugin keeps sounding for ten
-    // seconds after the note ends, far past any guessed tail.
     let (mut synth, seen) = instrument(vec![READY]);
     let (mut l, mut r) = ([0.0f32; 100], [0.0f32; 100]);
     let off = Event {
@@ -448,7 +425,6 @@ fn a_guard_follows_quiet_while_its_node_does_not_run() {
     assert!(!guard.sounding(1000), "a new host has played nothing");
     run(&mut guard);
     assert!(guard.sounding(1000));
-    // The block it was asked for is counted by its output, not again.
     guard.age(4);
     guard.age(1_999);
     assert!(guard.sounding(1000));
@@ -465,8 +441,6 @@ fn a_guard_follows_quiet_while_its_node_does_not_run() {
 
 #[test]
 fn a_held_note_keeps_the_host_asked_for_blocks_and_it_rings_out_after_the_release() {
-    // Hold the note for thirty blocks, longer than the quiet, with no event
-    // in any of them after the first and nothing heard from the plugin.
     let (mut synth, seen) = instrument(vec![READY]);
     quiet(&seen);
     let (mut l, mut r) = ([0.0f32; 100], [0.0f32; 100]);
@@ -512,7 +486,6 @@ fn a_held_pedal_and_all_notes_off_are_followed_too() {
         );
         synth.finish(Instant::now(), &mut l, &mut r);
     }
-    // All notes off lets go of everything the plugin was holding.
     assert!(synth.begin(1000, 100, &[on(0, 62)]));
     synth.finish(Instant::now(), &mut l, &mut r);
     let all_off = msg(Msg::controller(0, cc::ALL_NOTES_OFF, 0));
@@ -568,7 +541,6 @@ fn what_a_busy_host_was_not_given_goes_with_the_next_block() {
     let (mut l, mut r) = ([0.0f32; 64], [0.0f32; 64]);
     assert!(synth.begin(48_000, 64, &[on(0, 60)]));
     synth.finish(Instant::now(), &mut l, &mut r);
-    // The host is still on a block when the note-off is due.
     seen.lock().unwrap().busy = 1;
     let off = Event {
         offset: 37,
@@ -594,9 +566,6 @@ fn what_a_busy_host_was_not_given_goes_with_the_next_block() {
 
 #[test]
 fn a_block_refused_early_and_tried_again_by_render_is_sent_once() {
-    // The engine hands an instrument its block early (`begin`) and, when
-    // that is refused, renders it with the same events (review H3): what
-    // was refused is in `pending`, and must not be added a second time.
     let (mut synth, seen) = instrument(vec![READY, READY]);
     let (mut l, mut r) = ([0.0f32; 64], [0.0f32; 64]);
     assert!(synth.begin(48_000, 64, &[on(0, 60)]));
@@ -607,7 +576,6 @@ fn a_block_refused_early_and_tried_again_by_render_is_sent_once() {
         msg: Msg::note_off(0, 60),
     };
     assert!(!synth.begin(48_000, 64, &[off]), "refused early");
-    // The host is free again when render tries.
     synth.render(48_000, &[off], &mut l, &mut r);
     let sent = seen.lock().unwrap().events.clone();
     assert_eq!(
@@ -631,7 +599,6 @@ fn a_block_refused_early_and_again_by_render_is_one_missed_block() {
     synth.render(48_000, &[on(0, 64)], &mut l, &mut r);
     let late = synth.guard.as_ref().unwrap().late_blocks();
     assert_eq!(late, 1, "the same block, refused twice, counted once");
-    // And what was said still waits, once.
     assert_eq!(synth.pending.len(), 1);
 }
 
@@ -678,9 +645,6 @@ fn a_block_with_no_automation_carries_none() {
     assert_eq!(seen.lock().unwrap().params, vec![vec![]]);
 }
 
-/// A placeholder instrument has no room for a parameter block and no host to
-/// send one to: a block aimed at it is dropped, never copied, which would
-/// allocate on the audio thread (sweep Low).
 #[test]
 fn a_placeholder_instrument_is_never_given_a_parameter_block() {
     let mut placeholder = HostedInstrument::placeholder();

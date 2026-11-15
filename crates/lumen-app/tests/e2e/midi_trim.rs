@@ -1,9 +1,3 @@
-//! Trimming a MIDI clip by its edges (owner: the edges jittered and landed
-//! off the pointer). The edge keeps the distance it was picked up at, so it
-//! never jumps to the pointer; a trimmed start lands at once instead of
-//! gliding (which shook the other edge and the notes inside); the track's
-//! note layout stays put while notes leave and come back into the window.
-
 use eframe::egui::{Modifiers, Pos2, vec2};
 use lumen_app::TimeView;
 use lumen_core::time::Ticks;
@@ -16,7 +10,6 @@ fn q(n: i64) -> Ticks {
     Ticks::quarters(n)
 }
 
-/// One MIDI clip from beat 0 to 8: a low note at 1 and a high one at 6.
 fn project() -> Project {
     let notes = vec![
         Note::new(q(1), q(1), 48, 100),
@@ -29,7 +22,6 @@ fn project() -> Project {
 }
 
 const CLIP: Id = Id(3);
-/// Points a beat.
 const ZOOM: f32 = 60.0;
 
 fn launch(name: &str) -> Lumen {
@@ -51,7 +43,6 @@ fn clip(lumen: &Lumen) -> (Ticks, Ticks) {
     (c.start, c.start + c.length)
 }
 
-/// Where the clip's notes sound, at project time.
 fn sounding(lumen: &Lumen) -> Vec<Ticks> {
     let c = &lumen.app().project().tracks[0].clips[0];
     let ClipContent::Midi { notes, .. } = &c.content else {
@@ -60,7 +51,6 @@ fn sounding(lumen: &Lumen) -> Vec<Ticks> {
     notes.iter().map(|n| c.start + n.start()).collect()
 }
 
-/// A tick's worth of slack per point of pixel rounding.
 #[track_caller]
 fn near(actual: Ticks, expected: Ticks) {
     let slack = q(1).0 / ZOOM as i64 + 1;
@@ -78,8 +68,6 @@ fn a_start_edge_picked_up_inside_keeps_its_distance_from_the_pointer() {
         .app()
         .clip_rect(&ctx, CLIP)
         .expect("the clip is in view");
-    // A few points inside the edge, with Alt so the grid does not round
-    // the offset away.
     let at = Pos2::new(r.left() + 4.0, r.center().y);
     lumen.drag(at, at + vec2(2.0 * ZOOM, 0.0), Modifiers::ALT);
     let (start, end) = clip(&lumen);
@@ -122,7 +110,6 @@ fn the_note_layout_holds_while_an_edge_hides_notes() {
         .app()
         .clip_rect(&ctx, CLIP)
         .expect("the clip is in view");
-    // The end in to beat 4: the high note at 6 is hidden, not gone.
     let at = Pos2::new(r.right() - 2.0, r.center().y);
     lumen.drag(at, at - vec2(4.0 * ZOOM, 0.0), Modifiers::NONE);
     assert_eq!(clip(&lumen).1, q(4));

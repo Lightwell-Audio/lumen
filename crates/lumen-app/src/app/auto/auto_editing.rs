@@ -1,14 +1,3 @@
-//! The pointer on automation lanes (M7 slices A1 and A2). A lane shown over
-//! a track's clips takes the pointer there. What a press does depends on the
-//! tool in hand (`arrangement/auto_state.rs`): the pointer picks, moves and
-//! adds points (Shift picks several, or drags a box), the pencil draws
-//! freehand, a shape tool draws a ramp, sine, triangle, saw or square. Ctrl
-//! reaches the clip under the lane instead.
-//!
-//! The gestures themselves are `auto_gestures.rs` and the keys are
-//! `auto_keys.rs`. Every edit is one undo step, and a drag is one step in
-//! all.
-
 use eframe::egui::{self, CursorIcon, Pos2, Rect};
 use lumen_core::time::Ticks;
 use lumen_project::automation::Target;
@@ -23,7 +12,6 @@ use crate::arrangement::auto_view::Frame;
 use crate::commands::Command;
 
 impl App {
-    /// The lane under `p`, if the track there shows one.
     fn lane_hit(&self, ctx: &egui::Context, canvas: Rect, p: Pos2) -> Option<(Id, Target, Frame)> {
         self.arrangement.lane_at(
             ctx,
@@ -35,8 +23,6 @@ impl App {
         )
     }
 
-    /// Lane gestures, from the lanes' `response`. Returns whether a lane took
-    /// the event, in which case the clips under it get none of it.
     pub(crate) fn auto_editing(
         &mut self,
         ui: &egui::Ui,
@@ -46,7 +32,6 @@ impl App {
     ) -> bool {
         let ctx = ui.ctx().clone();
         let modifiers = ui.input(|i| i.modifiers);
-        // A gesture that began on a lane goes on wherever the pointer is.
         if let Some(active) = self.arrangement.auto.active.as_ref() {
             let (track, target) = (active.track, active.target);
             let down = ui.input(|i| i.pointer.any_down());
@@ -74,7 +59,6 @@ impl App {
             self.arrangement.auto.hover = None;
             return false;
         }
-        // Ctrl reaches the clips under the lane.
         let command = modifiers.command;
 
         if response.drag_started_by(egui::PointerButton::Primary)
@@ -95,7 +79,6 @@ impl App {
                 self.auto_click(track, target, &frame, p, modifiers);
                 return true;
             }
-            // A click anywhere else lets go of the points.
             self.arrangement.auto.picks = None;
             self.arrangement.auto.focus = false;
             return false;
@@ -112,8 +95,6 @@ impl App {
             && !command
             && let Some((track, _, frame)) = self.lane_hit(&ctx, canvas, p)
         {
-            // The lane's menu is the lanes' (the grid, paste): the clips
-            // under the lane are not what was clicked.
             let at = self.snapped(frame.ticks_at(p.x), modifiers.alt);
             self.arrangement.menu_spot = Some((at.max(Ticks::ZERO), Some(track)));
             self.menu_for = MenuFor::Lanes;
@@ -138,7 +119,6 @@ impl App {
         true
     }
 
-    /// The pointer over a lane: which point, the cursor, and the info line.
     fn auto_hover(
         &mut self,
         ctx: &egui::Context,
@@ -219,8 +199,6 @@ impl App {
         self.set_info(info);
     }
 
-    /// A click on a lane: picks the point under it, or adds one. Shift adds
-    /// a point to the picks or takes it from them.
     fn auto_click(
         &mut self,
         track: Id,
@@ -234,7 +212,6 @@ impl App {
         self.arrangement.auto.restore(hands);
     }
 
-    /// A click on a lane with `hands`: picks the point under it, or adds one.
     pub(crate) fn lane_click(
         &mut self,
         hands: &mut Hands,

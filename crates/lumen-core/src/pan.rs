@@ -1,30 +1,12 @@
-//! Pan laws (M4), shared by the engine that applies them and the
-//! interface that shows them. A pan law sets how loud a centred signal is
-//! compared with one panned hard to a side: the hard side always plays at
-//! unity, and the law decides how far the centre drops.
-//!
-//! Lumen pans like a balance control on stereo material: each side of the
-//! signal gets its own gain from the law, so panning left turns the right
-//! side down rather than folding it into the left.
-
 use serde::{Deserialize, Serialize};
 
-/// How a pan position becomes left and right gains. Saved per project
-/// (format v7).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PanLaw {
-    /// −3 dB at the centre, constant power: the level stays even across
-    /// the sweep. The default for mono tracks (owner, M4 plan); stereo
-    /// material balances (owner's B, after M4 slice 7).
     #[default]
     ConstantPower,
-    /// −4.5 dB at the centre: halfway between constant power and linear.
     Compromise,
-    /// −6 dB at the centre, linear: the two sides always add up to unity.
     Linear,
-    /// 0 dB at the centre: both sides at unity, and panning turns only the
-    /// far side down.
     Balance,
 }
 
@@ -45,8 +27,6 @@ impl PanLaw {
         }
     }
 
-    /// The left and right gains for `pan`, from −1 (hard left) through 0
-    /// (centre) to +1 (hard right).
     pub fn gains(self, pan: f32) -> [f32; 2] {
         let pan = if pan.is_nan() {
             0.0
@@ -54,8 +34,6 @@ impl PanLaw {
             pan.clamp(-1.0, 1.0)
         };
         let power = || {
-            // In double, rounded once: the platforms' `f32` sine and cosine
-            // differ in a last bit, and a render is the same everywhere.
             let angle = (f64::from(pan) + 1.0) * std::f64::consts::FRAC_PI_4;
             [angle.cos() as f32, angle.sin() as f32]
         };

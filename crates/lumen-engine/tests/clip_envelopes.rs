@@ -1,8 +1,3 @@
-//! Envelopes on audio clips (M7 slice A7, ADR-0090): golden renders of a gain
-//! and a pan envelope, the same numbers at every block size, a looping clip
-//! reading its envelope at every repeat, an edit under the playhead without a
-//! step, and the audio side never touching the heap.
-
 use std::sync::Arc;
 
 use lumen_core::automation::Shape;
@@ -18,7 +13,6 @@ lumen_rt::install_guarded_allocator!();
 
 const RATE: u32 = 48_000;
 
-/// Audio of `level` on both channels, long enough for any test here.
 fn steady(level: f32) -> Arc<ClipAudio> {
     Arc::new(ClipAudio::Memory {
         sample_rate: RATE,
@@ -88,7 +82,6 @@ fn run(engine: &mut Player, frames: usize, block: usize) -> Vec<(f32, f32)> {
 #[test]
 fn a_gain_envelope_is_a_straight_line_in_db_at_every_block_size() {
     let audio = steady(0.5);
-    // 0 dB at the start to −20 dB a second in, then held.
     let env = ClipEnvelope {
         gain: Some(lane(&[
             (0, 0.0, Shape::Linear),
@@ -102,7 +95,6 @@ fn a_gain_envelope_is_a_straight_line_in_db_at_every_block_size() {
             setup(vec![clip(&audio, 100_000, env.clone(), None)]);
         handle.send(Command::Play).unwrap();
         let out = run(&mut engine, 60_000, block);
-        // Past the two-millisecond edge fade and before the clip's last one.
         for t in [200_usize, 12_000, 24_000, 47_000, 48_500, 59_000] {
             let db = -20.0 * (t as f32 / 48_000.0).min(1.0);
             let want = 0.5 * db_gain(db);
@@ -133,8 +125,6 @@ fn a_looping_clip_plays_its_envelope_again_at_every_repeat() {
     let (mut handle, _clips, mut engine) = setup(vec![clip(&audio, 96_000, env, Some(24_000))]);
     handle.send(Command::Play).unwrap();
     let out = run(&mut engine, 90_000, 128);
-    // The same place in each repeat has the same gain (clear of the seams'
-    // edge fades).
     for place in [500_usize, 6_000, 12_000, 23_000] {
         let first = out[place].0;
         for repeat in 1..3 {
@@ -151,7 +141,6 @@ fn a_looping_clip_plays_its_envelope_again_at_every_repeat() {
 #[test]
 fn a_pan_envelope_balances_a_stereo_clip() {
     let audio = steady(0.5);
-    // Hard right for the whole clip.
     let env = ClipEnvelope {
         gain: None,
         pan: Some((lane(&[(0, 1.0, Shape::Linear)]), PanLaw::Balance)),
@@ -160,7 +149,6 @@ fn a_pan_envelope_balances_a_stereo_clip() {
     handle.send(Command::Play).unwrap();
     let out = run(&mut engine, 12_000, 128);
     assert_eq!(out[6_000], (0.0, 0.5), "the left side is turned off");
-    // Hard left on the next clip.
     let env = ClipEnvelope {
         gain: None,
         pan: Some((lane(&[(0, -1.0, Shape::Linear)]), PanLaw::Balance)),
@@ -200,15 +188,12 @@ fn an_edit_under_the_playhead_never_steps() {
     let (mut handle, mut clips, mut engine) = setup(vec![clip(&audio, 200_000, flat, None)]);
     handle.send(Command::Play).unwrap();
     let mut out = run(&mut engine, 20_000, 128);
-    // The envelope arrives while the clip plays.
     clips.set(vec![clip(&audio, 200_000, quiet, None)]).unwrap();
     out.extend(run(&mut engine, 20_000, 128));
-    // Clear of the clip's own two-millisecond fade in at its start.
     let biggest = out[200..]
         .windows(2)
         .map(|w| (w[1].0 - w[0].0).abs())
         .fold(0.0_f32, f32::max);
-    // A 5 ms crossfade from 0.5 to 0.016 steps by about 0.002 a sample.
     assert!(biggest < 0.005, "a step of {biggest}");
     assert!(
         (out[39_000].0 - 0.5 * db_gain(-30.0)).abs() < 1e-3,

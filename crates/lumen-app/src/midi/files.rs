@@ -1,8 +1,3 @@
-//! Reading and writing MIDI files off the UI thread (M5 slice 7, ADR-0062).
-//! The bytes are turned into notes by `lumen_project::smf`; this module
-//! only moves them to and from the disk and back to the frame loop, which
-//! polls each frame.
-
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
 
@@ -14,36 +9,29 @@ use lumen_project::smf::{self, Layout, MidiFile};
 use crate::document::DropInto;
 use crate::midi::export as midi_export;
 
-/// The extensions read as Standard MIDI Files.
 pub const EXTENSIONS: &[&str] = &["mid", "midi", "smf"];
 
-/// Whether `path` names a MIDI file, by its extension.
 pub fn is_midi_file(path: &Path) -> bool {
     path.extension()
         .and_then(|x| x.to_str())
         .is_some_and(|x| EXTENSIONS.iter().any(|e| x.eq_ignore_ascii_case(e)))
 }
 
-/// A file read in the background, and where it was dropped.
 pub struct Read {
     pub path: PathBuf,
-    /// The file's name without its extension, for clips and tracks.
     pub name: String,
     pub at: Ticks,
     pub into: DropInto,
     pub file: Result<MidiFile, String>,
 }
 
-/// Files being read, in the order they were dropped.
 #[derive(Default)]
 pub struct Reader {
     batches: Vec<Receiver<Read>>,
-    /// Why a read could not start; said once by the interface.
     failure: Option<String>,
 }
 
 impl Reader {
-    /// Starts reading `paths` on a thread of their own.
     pub fn read(&mut self, paths: Vec<PathBuf>, at: Ticks, into: DropInto, ctx: &egui::Context) {
         let (tx, rx) = mpsc::channel();
         let ctx = ctx.clone();
@@ -76,12 +64,10 @@ impl Reader {
         }
     }
 
-    /// Why a read could not start, once.
     pub fn take_failure(&mut self) -> Option<String> {
         self.failure.take()
     }
 
-    /// The files read since the last call, in order.
     pub fn poll(&mut self) -> Vec<Read> {
         let mut done = Vec::new();
         self.batches.retain(|rx| {
@@ -96,39 +82,27 @@ impl Reader {
         done
     }
 
-    /// Whether files are still being read.
     pub fn busy(&self) -> bool {
         !self.batches.is_empty()
     }
 }
 
-/// A MIDI file's notes, or why they could not be read.
 pub fn read_file(path: &Path) -> Result<MidiFile, String> {
     let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
     smf::read(&bytes).map_err(|e| e.to_string())
 }
 
-/// What an export writes.
 pub enum Export {
-    /// The selected MIDI clips as one part (type 0).
     Clips(Vec<Id>),
-    /// Every MIDI track (type 1).
     Project,
 }
 
-/// An exported file's bytes, made in the background, and what the save
-/// dialog asks about it.
 pub struct Exported {
     pub bytes: Vec<u8>,
-    /// The dialog's title.
     pub title: &'static str,
-    /// The file's name offered, without its extension.
     pub name: String,
 }
 
-/// Makes the file for `what` on a thread of its own: gathering every note
-/// and writing the bytes take time in proportion to the project, which the
-/// frame loop must not wait for. The answer is the file, or why not.
 pub fn export(
     project: Project,
     name: String,
@@ -172,8 +146,6 @@ fn make(project: &Project, name: String, what: Export) -> Result<Exported, Strin
     Ok(Exported { bytes, title, name })
 }
 
-/// Writes `bytes` to `path` in the background, atomically; the answer is
-/// the path written, or why not.
 pub fn write(
     path: PathBuf,
     bytes: Vec<u8>,

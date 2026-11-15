@@ -1,28 +1,15 @@
-//! The built-in drum maps, as code tables (M8 D0): General MIDI, GM2 and a
-//! common 808-style layout. A preset is copied into the project when it is
-//! attached, so a project never depends on a file elsewhere (the owner's
-//! DM A).
-//!
-//! Every sound carries the icon its name reads as ([`super::icon_for_name`]),
-//! so a kit's names and drawings cannot drift apart; a test pins each
-//! preset's icons and its notes.
-
 use crate::model::{Color, DrumIcon, Id, Sound};
 
 use super::icon_for_name;
 
-/// A built-in map the user can attach.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Preset {
-    /// The stable id, for saved choices and tests.
     pub id: &'static str,
     pub name: &'static str,
-    /// What each line is: the note, its name, and its choke group.
     table: &'static [(u8, &'static str, u8)],
 }
 
 impl Preset {
-    /// Every preset, in the chooser's order.
     pub const ALL: [Preset; 3] = [
         Preset::GENERAL_MIDI,
         Preset::GENERAL_MIDI_2,
@@ -41,26 +28,20 @@ impl Preset {
         table: GM2,
     };
 
-    /// The 808-style kit: a short layout on General MIDI's notes, so a
-    /// pattern written for one plays the right piece on the other. Its three
-    /// hats choke each other.
     pub const EIGHT_OH_EIGHT: Preset = Preset {
         id: "808",
         name: "808 style",
         table: EIGHT_OH_EIGHT,
     };
 
-    /// The id of the preset `id`, if there is one.
     pub fn from_id(id: &str) -> Option<Preset> {
         Preset::ALL.into_iter().find(|p| p.id == id)
     }
 
-    /// The preset called `name`.
     pub fn from_name(name: &str) -> Option<Preset> {
         Preset::ALL.into_iter().find(|p| p.name == name)
     }
 
-    /// The preset's sounds, in the map's order.
     pub fn sounds(&self) -> Vec<Sound> {
         self.table
             .iter()
@@ -75,22 +56,15 @@ impl Preset {
             .collect()
     }
 
-    /// The preset as a map of the project, under `id`.
     pub fn map(&self, id: Id) -> crate::model::DrumMap {
         crate::model::DrumMap::new(id, self.name, self.sounds())
     }
 }
 
-/// The colour of a sound's lane, by its piece: the mixed track palette, so a
-/// kit reads in blocks (kick, snare, hats, toms, cymbals, percussion). The
-/// rule lives on the icon (`DrumIcon::color`); this is the name the presets
-/// and the editors use.
 pub fn color_of(icon: DrumIcon) -> Color {
     icon.color()
 }
 
-/// General MIDI percussion (notes 35 to 81), on channel 10's notes. The
-/// hats choke each other, as they do on a real kit.
 const GM: &[(u8, &str, u8)] = &[
     (35, "Acoustic Bass Drum", 0),
     (36, "Bass Drum 1", 0),
@@ -141,8 +115,6 @@ const GM: &[(u8, &str, u8)] = &[
     (81, "Open Triangle", 0),
 ];
 
-/// General MIDI 2's percussion: GM, plus the eight effects below note 35 and
-/// the six that follow note 81.
 const GM2: &[(u8, &str, u8)] = &[
     (27, "High Q", 0),
     (28, "Slap", 0),
@@ -207,8 +179,6 @@ const GM2: &[(u8, &str, u8)] = &[
     (87, "Open Surdo", 0),
 ];
 
-/// The 808-style kit: one of each piece a one-shot kit needs, on the General
-/// MIDI notes a pattern for that kit uses.
 const EIGHT_OH_EIGHT: &[(u8, &str, u8)] = &[
     (36, "Kick", 0),
     (37, "Rim", 0),
@@ -297,7 +267,6 @@ mod tests {
                 assert!(found.contains(&piece), "{} has a {piece:?}", preset.id);
             }
         }
-        // General MIDI's and GM2's three hats are one group; so are the 808's.
         for preset in Preset::ALL {
             let groups: Vec<u8> = preset
                 .sounds()

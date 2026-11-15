@@ -1,6 +1,3 @@
-//! Golden renders of audio clips: every output sample is compared with the
-//! value it must have, at several block sizes (M2 slice 6).
-
 use std::sync::Arc;
 
 use lumen_core::automation::Shape;
@@ -18,10 +15,8 @@ use lumen_rt::{count_rt_violations, guard_is_active};
 lumen_rt::install_guarded_allocator!();
 
 const RATE: u32 = 48_000;
-/// 2 ms at 48 kHz: the edge and jump fade.
 const FADE: i64 = 96;
 
-/// Audio whose every sample is distinct: left `(i + 1) / 1e7`, right negated.
 fn ramp(frames: usize, rate: u32) -> Arc<ClipAudio> {
     let left: Vec<f32> = (0..frames).map(|i| (i + 1) as f32 / 1e7).collect();
     let right = left.iter().map(|v| -v).collect();
@@ -37,7 +32,6 @@ fn bars(n: i64) -> Ticks {
 
 type Player = Engine<Mixer<ClipPlayer>>;
 
-/// Clips on track 0, which plays straight to the device at unity.
 fn setup(clips: Vec<Clip>) -> (EngineHandle, ClipsHandle, Player) {
     let (mut clips_handle, player) = clip_player();
     clips_handle.set(clips).unwrap();
@@ -56,15 +50,12 @@ fn setup(clips: Vec<Clip>) -> (EngineHandle, ClipsHandle, Player) {
     (handle, clips_handle, engine)
 }
 
-/// Renders `frames` in blocks of `block`; returns (left, right) per frame.
 fn run(engine: &mut Player, frames: usize, block: usize) -> Vec<(f32, f32)> {
     let mut data = vec![0.0; 2 * block];
     let mut out = Vec::with_capacity(frames);
     let mut done = 0;
     while done < frames {
         let n = block.min(frames - done);
-        // The render is the audio thread's work: nothing here may reach the
-        // heap (the allocation guard, `realtime.rs`).
         let ((), heap) = count_rt_violations(|| engine.process(RATE, &mut data[..2 * n], 2, n));
         assert_eq!(heap, 0, "heap operation in process() at sample {done}");
         out.extend((0..n).map(|i| (data[i], data[n + i])));
@@ -73,7 +64,6 @@ fn run(engine: &mut Player, frames: usize, block: usize) -> Vec<(f32, f32)> {
     out
 }
 
-/// What a clip contributes at `pos` frames into it, with its edge fades.
 fn expected(audio: &ClipAudio, offset: i64, length: i64, pos: i64) -> (f32, f32) {
     let edge = FADE.min(length / 2).max(1);
     let gain = ((pos + 1).min(edge).min(length - pos) as f32 / edge as f32).min(1.0);
@@ -92,7 +82,7 @@ fn a_clip_plays_on_its_exact_samples_at_every_block_size() {
     let clip = Clip {
         envelope: Default::default(),
         id: 1,
-        start: bars(1), // sample 96,000 at 120 BPM
+        start: bars(1),
         offset,
         length,
         gain: 1.0,
@@ -288,7 +278,7 @@ fn unrelated_join_and_intentional_seam_fades_keep_the_edge_dip() {
     let mut right = left.clone();
     right.id = 8;
     right.start = Ticks::quarters(1);
-    right.offset = 25_000; // source discontinuity
+    right.offset = 25_000;
     let (mut handle, _, mut engine) = setup(vec![left, right]);
     handle.send(Command::Play).unwrap();
     let out = run(&mut engine, 25_000, 128);
@@ -361,7 +351,6 @@ fn unrelated_join_and_intentional_seam_fades_keep_the_edge_dip() {
         assert_eq!(actual, expected, "enveloped split, block {block}");
     }
 
-    // A discontinuity in the baked gain envelope is an intentional edge.
     enveloped_right.envelope.gain = Some(lane(&[(0, -30.0, Shape::Step)]));
     let (mut handle, _, mut engine) = setup(vec![enveloped_left, enveloped_right]);
     handle.send(Command::Play).unwrap();
@@ -372,7 +361,6 @@ fn unrelated_join_and_intentional_seam_fades_keep_the_edge_dip() {
     );
 }
 
-/// The two halves of a crossfade `frames` long.
 fn blend(frames: i64) -> FadeFrames {
     FadeFrames {
         frames,
@@ -382,8 +370,6 @@ fn blend(frames: i64) -> FadeFrames {
     }
 }
 
-/// A clip from sample 0 to 25,000 fading out over its last 1,000 frames, and
-/// one from 24,000 fading in over its first 1,000: they overlap for the fade.
 fn overlapping_pair(audio: &Arc<ClipAudio>) -> (Clip, Clip) {
     let mut left = steady_clip(audio, 0.8);
     left.length = 25_000;
@@ -405,8 +391,6 @@ fn overlapping_blend_fades_follow_the_equal_power_law() {
         let (mut handle, _, mut engine) = setup(vec![left.clone(), right.clone()]);
         handle.send(Command::Play).unwrap();
         let out = run(&mut engine, 26_000, block);
-        // Before the overlap only the outgoing clip sounds, right to the
-        // sample where its fade begins: no edge dip at a crossfaded end.
         assert!((out[23_999].0 - 0.4).abs() < 1e-6, "block {block}");
         for i in 0..1_000 {
             let p = (i as f32 + 0.5) / 1_000.0;
@@ -418,15 +402,12 @@ fn overlapping_blend_fades_follow_the_equal_power_law() {
                 out[24_000 + i].0
             );
         }
-        // After it only the incoming clip.
         assert!((out[25_000].0 - 0.3).abs() < 1e-6, "block {block}");
     }
 }
 
 #[test]
 fn a_crossfade_of_the_same_sound_keeps_a_steady_level_with_curved_fades() {
-    // Uncorrelated halves of a crossfade keep a constant power: for the
-    // same signal at both ends the sum is the sum of the two gains.
     let audio = steady(32_000);
     let (mut left, mut right) = overlapping_pair(&audio);
     left.gain = 1.0;
@@ -460,7 +441,6 @@ fn a_crossfade_is_safe_after_a_seek_and_during_a_clip_list_swap() {
     let (left, right) = overlapping_pair(&audio);
     let timeline = Timeline::constant(120.0, Meter::FOUR_FOUR);
 
-    // Seeking into the overlap plays the same blend as running through it.
     let (mut handle, _, mut engine) = setup(vec![left.clone(), right.clone()]);
     handle.set_timeline(timeline.clone()).unwrap();
     handle
@@ -477,8 +457,6 @@ fn a_crossfade_is_safe_after_a_seek_and_during_a_clip_list_swap() {
         out[96].0
     );
 
-    // Removing the incoming clip while the crossfade runs fades it out with
-    // the list-swap ramp rather than stepping.
     let (mut handle, mut clips, mut engine) = setup(vec![left.clone(), right.clone()]);
     handle.set_timeline(timeline.clone()).unwrap();
     handle.send(Command::Play).unwrap();
@@ -492,7 +470,6 @@ fn a_crossfade_is_safe_after_a_seek_and_during_a_clip_list_swap() {
         after[0].0
     );
 
-    // A gain change glides while the crossfade runs.
     let (mut handle, mut clips, mut engine) = setup(vec![left.clone(), right.clone()]);
     handle.set_timeline(timeline).unwrap();
     handle.send(Command::Play).unwrap();
@@ -533,19 +510,14 @@ fn the_loop_wrap_crossfades_and_stays_on_the_exact_sample() {
     let left = |frame: usize| out[frame].0;
     let source = |sample: usize| audio.memory().unwrap()[0][sample];
 
-    // Starting playback fades in over 2 ms...
     assert!(left(0) < source(96_000) / 10.0, "no fade-in at play");
     assert_eq!(left(FADE as usize), source(96_000 + FADE as usize));
-    // At the wrap from bar 3 back to bar 2 (96,000 frames in), the loop start
-    // fades in over 2 ms while what would have followed bar 3 fades out:
-    // a crossfade, so a loop that does not line up does not click.
     assert_eq!(left(95_999), source(191_999));
     for k in 0..FADE as usize {
         let fade_in = (k + 1) as f32 / FADE as f32;
         let want = source(96_000 + k) * fade_in + source(192_000 + k) * (1.0 - fade_in);
         assert!((left(96_000 + k) - want).abs() < 1e-9, "wrap frame {k}");
     }
-    // After the crossfade the loop plays its exact samples again.
     assert_eq!(left(96_000 + FADE as usize), source(96_000 + FADE as usize));
     assert_eq!(left(150_000), source(150_000));
 }
@@ -573,12 +545,10 @@ fn stopping_fades_out_instead_of_cutting() {
         let at = handle.transport().sample as usize;
         handle.send(stop).unwrap();
         let out = run(&mut engine, 256, 128);
-        // The audio that was playing ramps down to silence over 2 ms...
         for (k, &(left, _)) in out.iter().enumerate().take(FADE as usize) {
             let want = audio.memory().unwrap()[0][at + k] * (1.0 - (k + 1) as f32 / FADE as f32);
             assert!((left - want).abs() < 1e-9, "{stop:?} frame {k}");
         }
-        // ...then silence, and the transport is where it should be.
         assert!(
             out[FADE as usize..].iter().all(|&s| s == (0.0, 0.0)),
             "{stop:?}"
@@ -607,7 +577,6 @@ fn a_locate_lands_on_the_exact_sample_and_fades_in() {
     handle.send(Command::Locate(bars(2))).unwrap();
     let out = run(&mut engine, 1_024, 128);
     let full = |i: usize| audio.memory().unwrap()[0][192_000 + i] * 0.5;
-    // Rising over 2 ms from the exact sample, then exact.
     assert!(out[0].0 > 0.0 && out[0].0 < full(0));
     assert!(out.windows(2).take(95).all(|w| w[1].0 > w[0].0));
     assert_eq!(out[FADE as usize].0, full(FADE as usize));
@@ -675,7 +644,6 @@ fn clips_follow_tempo_changes() {
         .set_timeline(Timeline::constant(60.0, Meter::FOUR_FOUR))
         .unwrap();
     handle.send(Command::Play).unwrap();
-    // At 60 BPM bar 2 starts at 192,000 samples, not 96,000.
     let out = run(&mut engine, 193_000, 1_000);
     assert_eq!(out[96_500], (0.0, 0.0));
     assert_eq!(out[192_500], expected(&audio, 0, 1_000, 500));
@@ -705,8 +673,6 @@ fn a_new_clip_list_replaces_the_old_and_the_old_is_handed_back() {
         2,
         "the empty initial list and the first list"
     );
-    // 512 frames have played. The new clip starts at sample 24,000 (one
-    // quarter at 120 BPM), which is frame 23,488 of this run.
     let out = run(&mut engine, 24_000, 512);
     assert_eq!(out[23_487], (0.0, 0.0));
     assert_eq!(out[23_488 + 500], expected(&audio, 0, 1_000, 500));
@@ -714,9 +680,6 @@ fn a_new_clip_list_replaces_the_old_and_the_old_is_handed_back() {
 
 #[test]
 fn resending_the_same_timeline_while_playing_changes_nothing() {
-    // The app resends the timeline after edits; one that does not move the
-    // playhead must not touch the audio (owner: arming a track popped, and
-    // dragging pan crackled, from a fade-in on every resend).
     let audio = ramp(20_000, RATE);
     let clip = Clip {
         envelope: Default::default(),
@@ -745,8 +708,6 @@ fn resending_the_same_timeline_while_playing_changes_nothing() {
 
 #[test]
 fn a_tempo_change_while_playing_crossfades() {
-    // Halving the tempo keeps the bar and doubles the sample position, so
-    // the audio jumps; like every jump, it crossfades rather than cutting.
     let audio = ramp(40_000, RATE);
     let clip = Clip {
         envelope: Default::default(),
@@ -766,17 +727,14 @@ fn a_tempo_change_while_playing_crossfades() {
         .set_timeline(Timeline::constant(60.0, Meter::FOUR_FOUR))
         .unwrap();
     out.extend(run(&mut engine, 1_000, 100));
-    // The ramp rises 1e-7 a frame; a cut to silence would step by 1e-3.
     let steepest = out[9_900..10_400]
         .windows(2)
         .map(|w| (w[1].0 - w[0].0).abs())
         .fold(0.0, f32::max);
     assert!(steepest < 2e-5, "steepest step {steepest}");
-    // After the fade it plays from the new position: frame 20,000 of the file.
     assert_eq!(out[10_200], expected(&audio, 0, 40_000, 20_200));
 }
 
-/// Steady audio, so any step in the output is a change of level.
 fn steady(frames: usize) -> Arc<ClipAudio> {
     Arc::new(ClipAudio::Memory {
         sample_rate: RATE,
@@ -798,26 +756,20 @@ fn steady_clip(audio: &Arc<ClipAudio>, gain: f32) -> Clip {
     }
 }
 
-/// The largest change from one frame to the next, on either side.
 fn steepest(out: &[(f32, f32)]) -> f32 {
     out.windows(2)
         .map(|w| (w[1].0 - w[0].0).abs().max((w[1].1 - w[0].1).abs()))
         .fold(0.0, f32::max)
 }
 
-/// Full scale in 20 ms, on audio at 0.5.
 const MAX_STEP: f32 = 0.5 * 50.0 / RATE as f32 + 1e-6;
 
 #[test]
 fn clip_gain_and_mute_changes_glide_instead_of_stepping() {
-    // Owner: dragging volume or pan crackled during playback, and muting
-    // clicked: each new clip list changed the level at once.
     let audio = steady(48_000);
     let (mut handle, mut clips, mut engine) = setup(vec![steady_clip(&audio, 1.0)]);
     handle.send(Command::Play).unwrap();
     let mut out = run(&mut engine, 1_000, 128);
-    // A drag: a new level every 16 ms (one screen frame).
-    // The app frees replaced lists every frame; so does this test.
     let mut send = |gain| {
         clips.collect_garbage();
         clips.set(vec![steady_clip(&audio, gain)]).unwrap();
@@ -826,7 +778,6 @@ fn clip_gain_and_mute_changes_glide_instead_of_stepping() {
         send(gain);
         out.extend(run(&mut engine, 768, 128));
     }
-    // Mute (gain 0), then unmute.
     send(0.0);
     out.extend(run(&mut engine, 2_000, 128));
     assert_eq!(out.last(), Some(&(0.0, 0.0)), "muted reaches silence");
@@ -842,8 +793,6 @@ fn clip_gain_and_mute_changes_glide_instead_of_stepping() {
 
 #[test]
 fn a_clip_that_appears_partway_fades_in() {
-    // Owner: the first play after opening a project popped. A clip whose
-    // audio finishes loading during playback joins partway through.
     let audio = steady(48_000);
     let (mut handle, mut clips, mut engine) = setup(Vec::new());
     handle.send(Command::Play).unwrap();
@@ -856,19 +805,15 @@ fn a_clip_that_appears_partway_fades_in() {
 
 #[test]
 fn a_clip_heard_from_its_start_keeps_its_attack() {
-    // A new clip that starts on its own first sample is not slowed by the
-    // glide: only its 2 ms edge fade applies.
     let audio = steady(48_000);
     let mut late = steady_clip(&audio, 1.0);
-    late.start = Ticks::quarters(1); // sample 24,000
+    late.start = Ticks::quarters(1);
     let (mut handle, _clips, mut engine) = setup(vec![late]);
     handle.send(Command::Play).unwrap();
     let out = run(&mut engine, 24_200, 128);
     assert_eq!(out[24_000 + FADE as usize], (0.5, 0.5));
 }
 
-/// A smooth 200 Hz tone at 0.5: from one frame to the next it moves by at
-/// most 0.5 × 2π × 200 / 48,000 ≈ 0.013.
 fn tone(frames: usize) -> Arc<ClipAudio> {
     let wave: Vec<f32> = (0..frames)
         .map(|i| 0.5 * (i as f32 * std::f32::consts::TAU * 200.0 / RATE as f32).sin())
@@ -879,15 +824,10 @@ fn tone(frames: usize) -> Arc<ClipAudio> {
     })
 }
 
-/// The tone's own steepest step, plus what a 5 ms crossfade between two
-/// unrelated points of it can add (at most 1.0 over 240 frames).
 const TONE_STEP: f32 = 0.0131 + 1.0 / 240.0;
 
 #[test]
 fn dragging_a_playing_clip_crossfades_instead_of_clicking() {
-    // Owner (after M3 slice 6c): dragging a clip while it played crackled.
-    // Each new position made the audio under the playhead jump to another
-    // point of the file, once per screen frame.
     assert!(guard_is_active(), "guarded allocator not installed");
     let audio = tone(200_000);
     let clip = |start: Ticks| Clip {
@@ -902,23 +842,18 @@ fn dragging_a_playing_clip_crossfades_instead_of_clicking() {
         shape: Default::default(),
     };
     let (mut handle, mut clips, mut engine) = setup(vec![clip(Ticks::ZERO)]);
-    // From bar 2 (sample 96,000), well inside the clip however it moves.
     handle.send(Command::Locate(bars(1))).unwrap();
     handle.send(Command::Play).unwrap();
     let mut out = run(&mut engine, 4_000, 128);
-    // The app frees replaced lists every frame; so does this test.
     let mut send = |list: Vec<Clip>| {
         clips.collect_garbage();
         clips.set(list).unwrap();
     };
-    // A drag: a new position every screen frame (768 frames), each landing
-    // on another part of the wave.
     for step in 1..=12 {
         send(vec![clip(Ticks(Ticks::quarters(1).0 * step / 7))]);
         out.extend(run(&mut engine, 768, 128));
     }
     let settled = out.len();
-    // Dragged off the playhead (it fades out), back under it, then deleted.
     send(vec![clip(bars(8))]);
     out.extend(run(&mut engine, 768, 128));
     assert!(
@@ -936,7 +871,6 @@ fn dragging_a_playing_clip_crossfades_instead_of_clicking() {
         steepest(&out)
     );
 
-    // After each crossfade the clip plays its exact samples at its new place.
     let start = Timeline::default().sample_at(Ticks(Ticks::quarters(12).0 / 7), RATE);
     let at = settled - 1;
     let want = audio.memory().unwrap()[0][(96_000 + at as i64 - start) as usize];
@@ -945,9 +879,6 @@ fn dragging_a_playing_clip_crossfades_instead_of_clicking() {
 
 #[test]
 fn lists_sent_while_stopped_never_play_late() {
-    // Found by the 6d E2E: each frame of a fade drag sent a list, which
-    // queued while stopped; on Play the engine stepped through them, a
-    // crossfade each, so the clip played without its new fade at first.
     let audio = tone(48_000);
     let clip = |fade: i64| Clip {
         envelope: Default::default(),
@@ -973,7 +904,6 @@ fn lists_sent_while_stopped_never_play_late() {
     }
     handle.send(Command::Play).unwrap();
     let out = run(&mut engine, 2_000, 128);
-    // The newest list, with its 10,000-frame fade, from the first frame.
     for (t, &(left, _)) in out.iter().enumerate() {
         let level = (t as f32 + 0.5) / 10_000.0;
         assert!(left.abs() <= 0.5 * level + 1e-6, "frame {t}: {left}");
@@ -983,7 +913,6 @@ fn lists_sent_while_stopped_never_play_late() {
 
 #[test]
 fn a_list_that_moves_no_clip_does_not_crossfade() {
-    // Volume drags resend every frame; those must not cost a crossfade.
     let audio = tone(48_000);
     let clip = Clip {
         envelope: Default::default(),
@@ -1010,8 +939,6 @@ fn a_list_that_moves_no_clip_does_not_crossfade() {
     assert_eq!(out, reference);
 }
 
-/// Plays `clip` from the start at several block sizes and checks every
-/// frame against `want(pos)` (`pos` frames into the clip at bar 1).
 fn golden(clip: &Clip, frames: usize, want: impl Fn(i64) -> (f32, f32)) {
     for block in [1, 64, 128, 333, 4_096] {
         let (mut handle, _clips, mut engine) = setup(vec![clip.clone()]);
@@ -1036,7 +963,6 @@ fn golden(clip: &Clip, frames: usize, want: impl Fn(i64) -> (f32, f32)) {
 #[test]
 fn fades_sound_as_drawn_in_every_shape_and_free_curve() {
     let audio = ramp(30_000, RATE);
-    // A curve bent freely by the owner's C3 handle.
     let free = Curve::from_handle(Handle {
         dot: [0.35, 0.7],
         s: 0.4,
@@ -1073,8 +999,6 @@ fn fades_sound_as_drawn_in_every_shape_and_free_curve() {
                 phase: 0,
             },
         };
-        // The curve the arrangement draws (`Curve::at`), heard to within
-        // 2·10⁻⁵ of the level (the engine reads it from a table).
         for block in [1, 64, 333, 4_096] {
             let (mut handle, _clips, mut engine) = setup(vec![clip.clone()]);
             handle.send(Command::Play).unwrap();
@@ -1123,8 +1047,6 @@ fn a_looping_clip_repeats_its_content_with_clean_seams() {
         },
     };
     golden(&clip, 110_000, |pos| {
-        // Each repeat is the content from the offset again, with its own
-        // edge fades; the last one is cut short by the clip's end.
         let repeat = pos / period * period;
         expected(&audio, offset, period.min(length - repeat), pos - repeat)
     });
@@ -1220,8 +1142,6 @@ fn a_clip_with_no_channels_plays_silence_and_does_not_stop_the_others() {
     let (mut handle, _clips, mut engine) =
         setup(vec![make(1, 0, empty), make(2, 0, Arc::clone(&audio))]);
     handle.send(Command::Play).unwrap();
-    // Past the 2 ms the engine reads ahead (the pre-roll), the second clip
-    // plays and the first adds nothing.
     let out = run(&mut engine, 100_000, 128);
     assert!(out.iter().any(|&(l, _)| l != 0.0), "the other clip plays");
 }

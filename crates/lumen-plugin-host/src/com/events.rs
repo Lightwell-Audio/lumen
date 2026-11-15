@@ -1,9 +1,5 @@
-//! Event lists and parameter changes, in and out, for one block.
-
 use super::*;
 
-/// Events for one block. The host fills it before `process`; a plugin's
-/// output events are appended to a second list that nothing reads yet.
 #[derive(Default)]
 pub struct EventList(Mutex<Vec<Event>>);
 
@@ -31,7 +27,6 @@ impl IEventListTrait for EventList {
         };
         match events.get(index as usize) {
             Some(event) if !e.is_null() => {
-                // SAFETY: a valid out pointer from the plugin.
                 unsafe { *e = *event };
                 kResultOk
             }
@@ -46,15 +41,12 @@ impl IEventListTrait for EventList {
         if let Ok(mut events) = self.0.lock()
             && events.len() < 4096
         {
-            // SAFETY: a valid event from the plugin.
             events.push(unsafe { *e });
         }
         kResultOk
     }
 }
 
-/// One parameter's points inside a block. The objects are made once and
-/// refilled, so a steady stream of blocks does not allocate.
 struct Queue {
     data: Mutex<(ParamID, Vec<(int32, ParamValue)>)>,
 }
@@ -78,7 +70,6 @@ impl IParamValueQueueTrait for Queue {
         };
         match data.1.get(index as usize) {
             Some(&(a, v)) if !at.is_null() && !value.is_null() => {
-                // SAFETY: valid out pointers from the plugin.
                 unsafe {
                     *at = a;
                     *value = v;
@@ -94,7 +85,6 @@ impl IParamValueQueueTrait for Queue {
     }
 }
 
-/// The parameter changes of one block.
 pub struct Changes {
     queues: Mutex<Vec<ComWrapper<Queue>>>,
     live: AtomicU32,
@@ -108,12 +98,6 @@ impl Changes {
         }
     }
 
-    /// The points of `params` in `len` frames from `start`, moved to start
-    /// at 0: one piece of a block given to the plugin in pieces.
-    ///
-    /// `now` are values to apply at the start of the piece (edits made in a
-    /// plugin's window, or set from Lumen): each joins its parameter's queue
-    /// at offset 0, or gets a queue of its own.
     pub fn set_span(
         &self,
         params: &[ParamQueue],
@@ -163,8 +147,6 @@ impl Changes {
                 used += 1;
             }
         }
-        // Controller events, in the time order they came in: each joins its
-        // parameter's queue after the points before it.
         for &(id, at, value) in mapped.iter().take(MOST_PENDING) {
             if !(start..end).contains(&at) {
                 continue;
@@ -210,8 +192,6 @@ impl IParameterChangesTrait for Changes {
         queues
             .get(index as usize)
             .and_then(|q| q.to_com_ptr::<IParamValueQueue>())
-            // The object stays alive in `queues`; the plugin borrows it for
-            // the call, as the interface says.
             .map_or(std::ptr::null_mut(), |p| p.as_ptr())
     }
 
@@ -220,14 +200,10 @@ impl IParameterChangesTrait for Changes {
         _id: *const ParamID,
         _index: *mut int32,
     ) -> *mut IParamValueQueue {
-        // Output parameter changes are not collected yet; a plugin may
-        // return when told there is no room.
         std::ptr::null_mut()
     }
 }
 
-/// A queue that takes a plugin's reported changes and keeps none of them:
-/// the answer to a plugin that reports more parameters than there is room for.
 struct Sink;
 
 impl Class for Sink {
@@ -256,17 +232,14 @@ impl IParamValueQueueTrait for Sink {
         index: *mut int32,
     ) -> tresult {
         if !index.is_null() {
-            // SAFETY: a valid out pointer from the caller.
             unsafe { *index = 0 };
         }
         kResultOk
     }
 }
 
-/// The most points one output queue keeps in a block.
 const MOST_OUT_POINTS: usize = 256;
 
-/// One parameter's reported points inside a block.
 struct OutQueue {
     data: Mutex<(ParamID, Vec<(int32, ParamValue)>)>,
 }
@@ -290,7 +263,6 @@ impl IParamValueQueueTrait for OutQueue {
         };
         match data.1.get(index as usize) {
             Some(&(a, v)) if !at.is_null() && !value.is_null() => {
-                // SAFETY: valid out pointers from the plugin.
                 unsafe {
                     *at = a;
                     *value = v;
@@ -306,7 +278,6 @@ impl IParamValueQueueTrait for OutQueue {
             return kInvalidArgument;
         };
         if data.1.len() >= MOST_OUT_POINTS {
-            // Full: the newest value replaces the last, so the end state is kept.
             if let Some(last) = data.1.last_mut() {
                 *last = (at, value);
             }
@@ -314,16 +285,12 @@ impl IParamValueQueueTrait for OutQueue {
             data.1.push((at, value));
         }
         if !index.is_null() {
-            // SAFETY: a valid out pointer from the caller.
             unsafe { *index = data.1.len() as int32 - 1 };
         }
         kResultOk
     }
 }
 
-/// The list of output parameter changes a plugin reports its own values in
-/// (a meter, a changed program). Queues are made once and reused; after each
-/// block [`OutputChanges::take`] reads the last value of each parameter.
 pub struct OutputChanges {
     queues: Mutex<Vec<ComWrapper<OutQueue>>>,
     live: AtomicU32,
@@ -341,8 +308,6 @@ impl OutputChanges {
         }
     }
 
-    /// Appends `(id, last value)` of each parameter reported since the last
-    /// call to `into`, and clears the list for the next block.
     pub fn take(&self, into: &mut Vec<(u32, f64)>) {
         let live = self.live.swap(0, Ordering::AcqRel) as usize;
         let Ok(queues) = self.queues.lock() else {
@@ -395,11 +360,9 @@ impl IParameterChangesTrait for OutputChanges {
         if id.is_null() {
             return std::ptr::null_mut();
         }
-        // SAFETY: a valid id pointer from the plugin.
         let id = unsafe { *id };
         let fallback = |index: *mut int32| {
             if !index.is_null() {
-                // SAFETY: a valid out pointer from the caller.
                 unsafe { *index = 0 };
             }
             self.sink.as_ptr()
@@ -430,7 +393,6 @@ impl IParameterChangesTrait for OutputChanges {
             None => return fallback(index),
         };
         if !index.is_null() {
-            // SAFETY: a valid out pointer from the caller.
             unsafe { *index = at as int32 };
         }
         queues[at]
@@ -439,5 +401,4 @@ impl IParameterChangesTrait for OutputChanges {
     }
 }
 
-/// The most parameters a plugin may report in one block.
 const MOST_OUT_QUEUES: usize = 1024;

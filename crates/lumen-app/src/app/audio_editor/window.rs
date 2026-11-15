@@ -1,28 +1,17 @@
-//! The audio editor in its own window (M9.5 S2c, D25): the same viewport
-//! code as the note editor's pop-out, with the same remembered place. The
-//! window holds the header, the properties strip and the editor, so nothing
-//! is left behind; the detail panel keeps a note that the editor is in its
-//! own window, with a Dock action. Closing the window docks the editor back.
-
 use eframe::egui::{self, ViewportBuilder, ViewportClass, ViewportId};
 
 use crate::App;
 use crate::note_editor::window::{MIN_SIZE, SIZE, opening_place, place_of};
 
-/// The pop-out window's viewport.
 pub(super) fn viewport() -> ViewportId {
     ViewportId::from_hash_of("audio editor window")
 }
 
-/// Whether the keys being read are the popped-out editor's own window's,
-/// where all of the keyboard is the editor's whatever the pointer is over.
 pub(super) fn its_keyboard(popped: bool, reading: ViewportId) -> bool {
     popped && reading == viewport()
 }
 
 impl App {
-    /// Shows the pop-out window while the audio editor is popped out. Call
-    /// once per frame.
     pub(crate) fn audio_editor_window(&mut self, ctx: &egui::Context) {
         let clip = self.detail_audio_clip();
         let Some(id) = clip.filter(|_| self.detail.audio_popped) else {
@@ -51,8 +40,6 @@ impl App {
                 let (area, _) = ui.allocate_exact_size(SIZE, egui::Sense::hover());
                 self.draw_popped_audio_editor(ui, area, id);
             } else {
-                // The window has its own keyboard, read here as the main
-                // window's is in `App::ui`.
                 let ctx = ui.ctx().clone();
                 self.computer_keyboard_keys(&ctx);
                 self.audio_handle_keys(&ctx);
@@ -61,8 +48,6 @@ impl App {
                     let area = ui.max_rect();
                     self.draw_popped_audio_editor(ui, area, id);
                 });
-                // A drag here is this window's pointer, not the main one's:
-                // the history keeps the gesture open while it is down.
                 self.popped_pointer_down |= ctx.input(|i| i.pointer.any_down());
                 let place = ui.ctx().input(|i| place_of(i.viewport()));
                 if let Some(place) = place
@@ -78,7 +63,6 @@ impl App {
         });
     }
 
-    /// The editor over the whole `area` of its window.
     fn draw_popped_audio_editor(
         &mut self,
         ui: &mut egui::Ui,

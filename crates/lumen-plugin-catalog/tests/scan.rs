@@ -1,8 +1,3 @@
-//! The scanner against real child processes and the test plugin: a cold
-//! scan, the cache, a changed file, a removed one, retry, cancel and a
-//! missing host. Each module is a copy of the test plugin, given a fault by
-//! its name.
-
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -13,7 +8,6 @@ use lumen_plugin_catalog::cache::{Cache, Reason, Result};
 use lumen_plugin_catalog::catalog::{Catalog, Kind, builtin_devices};
 use lumen_plugin_catalog::scan::{Event, Mode, Scanner, Summary};
 
-/// The built artifacts: the test plugin and the host binary.
 fn built() -> &'static (PathBuf, PathBuf) {
     static BUILT: OnceLock<(PathBuf, PathBuf)> = OnceLock::new();
     BUILT.get_or_init(|| {
@@ -29,13 +23,9 @@ fn built() -> &'static (PathBuf, PathBuf) {
         if !cfg!(debug_assertions) {
             build.arg("--release");
         }
-        // CI builds them before its tests (`.github/scripts/ci-test.sh`), and
-        // nextest runs every test in a process of its own: with this set,
-        // no process waits on cargo's build lock to learn nothing changed.
         if std::env::var_os("LUMEN_TEST_PLUGINS_BUILT").is_none() {
             assert!(build.status().expect("run cargo").success(), "build");
         }
-        // target/<profile>/deps/<this test> -> target/<profile>
         let exe = std::env::current_exe().expect("test binary");
         let profile = exe.parent().and_then(Path::parent).expect("profile dir");
         let library = if cfg!(windows) {
@@ -59,7 +49,6 @@ fn built() -> &'static (PathBuf, PathBuf) {
     })
 }
 
-/// A folder of modules that is removed when dropped.
 struct Root(PathBuf);
 
 impl Root {
@@ -70,7 +59,6 @@ impl Root {
         Root(dir)
     }
 
-    /// Adds a copy of the test plugin as the bundle `<name>.vst3`; returns its binary.
     fn add(&self, name: &str) -> PathBuf {
         let binary = self.place(name);
         std::fs::copy(&built().0, &binary).unwrap();
@@ -78,9 +66,6 @@ impl Root {
         binary
     }
 
-    /// Adds the bundle `<name>.vst3`, or replaces its binary, with a copy of
-    /// the test plugin that has `extra` bytes after the library: it still
-    /// loads, and its stamp differs from an unchanged copy's.
     fn add_changed(&self, name: &str, extra: &[u8]) -> PathBuf {
         let binary = self.place(name);
         let mut bytes = std::fs::read(&built().0).unwrap();
@@ -90,12 +75,6 @@ impl Root {
         binary
     }
 
-    /// Loads the new plugin once, here and alone, on macOS. macOS checks
-    /// every new file the first time it is loaded, one file after another at
-    /// about 0.1 s each. Tests that each add several plugins and run side by
-    /// side would queue behind one another inside the scan, and a scan's
-    /// deadline would run out on the queue. A file that has been checked
-    /// loads at once.
     fn warm(&self, name: &str) {
         if !cfg!(target_os = "macos") {
             return;
@@ -112,7 +91,6 @@ impl Root {
         assert!(status.success(), "the plugin does not load");
     }
 
-    /// Where the bundle's binary goes; its folder is made.
     fn place(&self, name: &str) -> PathBuf {
         let (arch, extension) = if cfg!(windows) {
             ("x86_64-win", "vst3")
@@ -161,7 +139,6 @@ impl Drop for Root {
     }
 }
 
-/// A scanner whose children get a fault from the module's name.
 fn scanner(deadline: Duration) -> Scanner {
     let mut scanner = Scanner::new(built().1.clone());
     scanner.deadline = deadline;
@@ -258,8 +235,6 @@ fn an_unchanged_second_scan_loads_nothing() {
     let mut cache = Cache::new();
     run(&scanner(QUICK), &root, &mut cache, Mode::Changed);
 
-    // Through the file, as the next start of Lumen would see it. The host
-    // binary is made unusable: any attempt to scan would show.
     let mut cache = Cache::load(&cache.to_bytes()).cache;
     let mut nothing = Scanner::new(PathBuf::from("/no/such/host"));
     nothing.deadline = QUICK;
@@ -283,7 +258,6 @@ fn a_changed_file_is_scanned_again_and_a_blocked_one_that_did_not_change_is_not(
     };
     let before = blocked_at(&cache);
 
-    // Trailing bytes leave a shared library loadable and change its stamp.
     root.add_changed("Good", &[0; 16]);
 
     let summary = run(&scanner(QUICK), &root, &mut cache, Mode::Changed);
@@ -303,7 +277,6 @@ fn a_module_that_changed_is_retried_even_if_it_was_blocked() {
     run(&scanner(QUICK), &root, &mut cache, Mode::Changed);
     assert_eq!(cache.blocked().count(), 1);
 
-    // The "fixed" plugin: new bytes, and the fault gone.
     root.add_changed("Crash", &[1; 8]);
     let mut fixed = scanner(QUICK);
     fixed.child_env = None;
@@ -390,8 +363,6 @@ fn cancel_stops_a_scan_with_a_hung_module_quickly_and_keeps_what_finished() {
     let mut one = scanner(Duration::from_secs(30));
     one.jobs = 2;
     let started = Instant::now();
-    // Cancel when the good module is in, not after a wait that a busy machine
-    // could cut short: the hung one is then what is left.
     let summary = one.scan(
         std::slice::from_ref(&root.0),
         &mut cache,
@@ -433,9 +404,6 @@ fn a_missing_host_is_reported_once_and_records_nothing() {
 
 #[test]
 fn a_block_that_came_from_the_scan_program_is_tried_again_by_a_plain_rescan() {
-    // An earlier, faulty scan program left "ended without a reply" for a
-    // module that is fine; its file never changed. A plain rescan must not
-    // trust that block, while a real one (here, a crash) stays.
     let root = Root::new("scanfault");
     root.add("Good");
     root.add("Crash");
@@ -460,15 +428,12 @@ fn a_block_that_came_from_the_scan_program_is_tried_again_by_a_plain_rescan() {
 
 #[test]
 fn a_host_that_gives_no_reply_blocks_nothing() {
-    // A scan program from before scanning existed ends cleanly and says
-    // nothing. Every module would come out "blocked"; none may be recorded.
     let root = Root::new("stalehost");
     four_modules(&root);
     let mut cache = Cache::new();
     let program = if cfg!(windows) {
         std::env::var_os("ComSpec").map_or_else(|| PathBuf::from("cmd.exe"), PathBuf::from)
     } else {
-        // macOS keeps `true` in /usr/bin, not /bin.
         ["/usr/bin/true", "/bin/true"]
             .into_iter()
             .map(PathBuf::from)

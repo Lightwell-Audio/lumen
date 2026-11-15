@@ -1,8 +1,3 @@
-//! Audio buses through a real host process (M6 slice 6b): the list a plugin
-//! declares, the auxiliary buses turned on at configuration and their
-//! channels in a block, the sidechain input, and a plugin that changes its
-//! outputs while it runs.
-
 mod support;
 
 use lumen_plugin_host::client::HostProcess;
@@ -13,7 +8,6 @@ use support::{SLOW, effect_class, note_on, plugin, spawn};
 
 const FRAMES: u32 = 64;
 
-/// A host with the instrument loaded and not configured.
 fn loaded_instrument(fault: &str) -> HostProcess {
     let mut host = spawn(fault);
     host.load(plugin(), None, SLOW).expect("load");
@@ -27,7 +21,6 @@ fn loaded_effect(fault: &str) -> HostProcess {
     host
 }
 
-/// The plugin's level at full, so a note is heard at full scale.
 fn full() -> Vec<ParamQueue> {
     vec![ParamQueue {
         id: LEVEL,
@@ -35,7 +28,6 @@ fn full() -> Vec<ParamQueue> {
     }]
 }
 
-/// One block of held notes at `pitches`, the channels it carries.
 fn play(host: &mut HostProcess, pitches: &[i16]) -> Vec<Vec<f32>> {
     let events = pitches.iter().map(|&p| note_on(0, p)).collect();
     host.process(FRAMES, vec![], events, full(), SLOW)
@@ -43,7 +35,6 @@ fn play(host: &mut HostProcess, pitches: &[i16]) -> Vec<Vec<f32>> {
         .output
 }
 
-/// What one note sounds like on the main bus of a plain instrument.
 fn alone(pitch: i16) -> Vec<f32> {
     let mut host = loaded_instrument("");
     host.configure(48_000.0, 512, 0, 2, SLOW).unwrap();
@@ -102,7 +93,6 @@ fn each_output_bus_turned_on_carries_its_own_notes() {
         )
         .unwrap();
     assert_eq!((done.inputs, done.outputs), (0, 6), "three stereo buses");
-    // Pitches 60, 61 and 62 pick buses 0, 1 and 2.
     let out = play(&mut host, &[60, 61, 62]);
     assert_eq!(out.len(), 6);
     for (bus, pitch) in [(0, 60), (1, 61), (2, 62)] {
@@ -115,7 +105,6 @@ fn each_output_bus_turned_on_carries_its_own_notes() {
 #[test]
 fn a_bus_that_is_off_plays_on_the_main_bus_instead() {
     let mut host = loaded_instrument("multi_out=3");
-    // Only bus 2 is on: pitch 61 (bus 1) has nowhere else to go.
     let done = host
         .configure_buses(
             48_000.0,
@@ -205,9 +194,6 @@ fn a_sidechain_input_reaches_the_effect_on_the_same_samples() {
         )
         .unwrap();
     let left = &block.output[0];
-    // The effect follows the key's peak: nothing before the loud sample is
-    // touched, and from it the effect is held silent (the key falls away over
-    // a tenth of a second, far longer than this block).
     assert_eq!(left[10], 0.0, "the loud sidechain sample is silenced");
     let kept = left[9];
     assert!(kept != 0.0);
@@ -254,7 +240,6 @@ fn a_plugin_that_changes_its_outputs_asks_to_be_set_up_again_and_lists_the_new_o
         3,
         "and now has a third output"
     );
-    // Set up again with the new bus on.
     let done = host
         .configure_buses(
             48_000.0,

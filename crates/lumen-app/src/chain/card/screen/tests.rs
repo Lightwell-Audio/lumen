@@ -1,5 +1,3 @@
-//! What a screen card reads from the meters.
-
 use super::*;
 
 #[test]

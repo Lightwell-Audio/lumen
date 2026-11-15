@@ -1,32 +1,15 @@
-//! Typefaces (`docs/DESIGN.md` §4): **Inter** for the interface and
-//! **Unbounded** as the companion face for personality (the wordmark, window
-//! and panel titles). Chosen by the owner from side-by-side specimens,
-//! 2026-10-07. Unbounded is wide, so it is set smaller than a narrow face.
-//! **Martian Mono** for numbers that must not jitter (the interface audit's
-//! S1, chosen by the owner, M4.5): its square, wide shapes echo Unbounded;
-//! it is set at width 87.5 so readouts keep their room.
-//!
-//! All three are variable fonts; each weight (and Martian Mono's width) is
-//! the same file registered with its own coordinates. egui's bundled fonts
-//! stay behind them as fallbacks for symbols (⚠, ⟳, emoji), and Hack behind
-//! Martian Mono.
-
 use eframe::egui::epaint::text::VariationCoords;
 use eframe::egui::{self, FontData, FontDefinitions, FontFamily, FontId, FontTweak};
 
 const INTER: &[u8] = include_bytes!("../../assets/fonts/Inter.ttf");
 const UNBOUNDED: &[u8] = include_bytes!("../../assets/fonts/Unbounded.ttf");
 const MARTIAN_MONO: &[u8] = include_bytes!("../../assets/fonts/MartianMono.ttf");
-/// Martian Mono's width: narrower than its default 100, so the position,
-/// tempo and meter scales keep the room Hack had.
 const MONO_WIDTH: f32 = 87.5;
 
-/// Medium-weight interface text: section headings, emphasis.
 pub fn medium(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name("medium".into()))
 }
 
-/// The companion face: wordmark, window and panel titles.
 pub fn display(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name("display".into()))
 }
@@ -71,27 +54,18 @@ pub fn definitions() -> FontDefinitions {
         .insert(FontFamily::Name("medium".into()), family("inter-560"));
     defs.families
         .insert(FontFamily::Name("display".into()), family("unbounded-560"));
-    // Martian Mono first, Hack and the symbol fallbacks behind it.
     let mono = defs.families.entry(FontFamily::Monospace).or_default();
     mono.insert(0, "martian-mono".to_owned());
     defs
 }
 
-/// Installs the typefaces. Takes effect from the next frame.
 pub fn install(ctx: &egui::Context) {
     ctx.set_fonts(definitions());
 }
 
-/// Inter's cap height and x-height, as fractions of the size (1490 and
-/// 1118 of 2048 units).
 const CAP_HEIGHT: f32 = 0.7275;
 const X_HEIGHT: f32 = 0.5459;
 
-/// How far below the top of a one-line `galley` its words look centred:
-/// halfway between the middle of its capitals and the middle of its
-/// lower-case letters. An icon or keycap beside a label is centred here;
-/// centred on the galley's box (the capitals' middle in Inter) it reads high
-/// beside mixed-case words such as "Pointer".
 pub fn optical_middle(galley: &egui::Galley) -> f32 {
     let size = galley
         .job
@@ -154,7 +128,6 @@ mod tests {
             capitals < middle && middle < lower_case,
             "{capitals} {middle} {lower_case}"
         );
-        // The box's middle is the capitals' in Inter, which reads high.
         assert!(
             middle > galley.size().y / 2.0,
             "{middle} {:?}",

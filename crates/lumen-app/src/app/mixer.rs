@@ -1,7 +1,3 @@
-//! The mixer's live side (M4 slice 5, ADR-0040): every frame, the levels
-//! the engine measured move the meters on, and integrated loudness starts
-//! again when playback starts from stop (the owner's B5).
-
 use std::time::Instant;
 
 use eframe::egui;
@@ -12,9 +8,6 @@ use crate::App;
 use crate::arrangement::OutputChoices;
 
 impl App {
-    /// Moves every meter on with what the engine measured since the last
-    /// frame. Returns whether a meter is still moving, so the frame loop
-    /// keeps drawing until they rest.
     pub(crate) fn update_meters(&mut self, ctx: &egui::Context) -> bool {
         let dt = meter_step(&mut self.meters_at, ctx);
         let project = self.document.project();
@@ -32,10 +25,7 @@ impl App {
         self.arrangement.meters.moving()
     }
 
-    /// Once a second, takes where the audio blocks' time went: the callbacks'
-    /// mean and each running plugin's work and wait (ADR-0075).
     pub(crate) fn take_budget(&mut self) {
-        // The callback benchmark takes the same counters.
         if self.callback_bench.is_some() {
             return;
         }
@@ -51,9 +41,6 @@ impl App {
         self.transport.budget.update(now, time, &costs);
     }
 
-    /// Opens the device's output pairs the project plays to (the owner's
-    /// B6), and lends the strips the device's outputs for their menus. The
-    /// device's channel names are looked up only once something needs them.
     pub(crate) fn update_outputs(&mut self, ctx: &egui::Context) {
         let pairs = crate::routing::device_pairs(self.document.project());
         let wanted = self.arrangement.outputs.wanted || !pairs.is_empty();
@@ -90,10 +77,6 @@ impl App {
     }
 }
 
-/// Seconds since `at` by egui's input clock, which moves `at` on: how far
-/// the meters fall this frame. The input clock is the wall clock in the
-/// app, and the harness's own steps in tests, so the docs' recorder
-/// (`tests/docs_media/`) draws the same meters on every run.
 pub(crate) fn meter_step(at: &mut Option<f64>, ctx: &egui::Context) -> f32 {
     let now = ctx.input(|i| i.time);
     let dt = at.map_or(0.0, |at| (now - at) as f32);

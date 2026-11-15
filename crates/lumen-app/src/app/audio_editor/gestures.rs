@@ -1,10 +1,3 @@
-//! What the pointer does on the audio editor's wave (M9.5 S2a): trims,
-//! fades, the gain line and slip, as the arrangement's own edits
-//! (`app::handles`, M9.5 D10) on the editor's view. A press on a handle wins
-//! over the wave; Ctrl+Alt slips anywhere; the dimmed file slips; a drag on
-//! the bright part picks a range and a click there places the edit cursor
-//! (S2b, `range`).
-
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
@@ -23,28 +16,22 @@ use crate::audio_editor::{AudioEditor, Fit};
 use crate::commands::Command;
 use crate::timeview::{Limits, TimeView};
 
-/// The wave as the pointer meets it this frame.
 pub(super) struct WaveArea<'a> {
     pub body: Rect,
     pub file: &'a WholeFile,
     pub limits: Limits,
     pub rate: u32,
-    /// The file's audio and its media key (a reversed twin's when reversed):
-    /// what zero crossings read.
     pub audio: &'a lumen_engine::ClipAudio,
     pub key: u64,
 }
 
 impl App {
-    /// The opened clip becomes the selection, as a handle gesture on the
-    /// arrangement makes it (M9.5 D12).
     pub(super) fn select_opened_clip(&mut self, id: Id) {
         self.arrangement.clips = BTreeSet::from([id]);
         self.arrangement.range = None;
         self.selected_clips_now();
     }
 
-    /// Whether the clip `id` takes edits; says why not when it does not.
     pub(super) fn opened_clip_takes_edits(&mut self, id: Id) -> bool {
         let project = self.document.project();
         let found = project.tracks.iter().find_map(|track| {
@@ -69,7 +56,6 @@ impl App {
         }
     }
 
-    /// The clip `id` cannot be edited now: locked, or on a frozen track.
     pub(super) fn opened_clip_fixed(&self, id: Id) -> bool {
         self.document.project().tracks.iter().any(|track| {
             track
@@ -79,10 +65,6 @@ impl App {
         })
     }
 
-    /// The wave's pointer work, before anything is drawn: drags start,
-    /// continue and end here, a click places the edit cursor, and the
-    /// right-click menu opens. `taken`: the envelope took this press. Returns
-    /// what the pointer is on.
     pub(super) fn audio_wave_pointer(
         &mut self,
         response: &Response,
@@ -101,7 +83,6 @@ impl App {
             let modifiers = ctx.input(|i| i.modifiers);
             let slip = modifiers.command && modifiers.alt;
             ed.gesture = match handles.hit(origin, area.file, ed.time) {
-                // The part played: a range from here (M9.5 WD A).
                 WaveHit::Played if !slip => self.start_wave_range(id, origin, area, ed),
                 _ => self.start_wave_gesture(&clip, &handles, origin, modifiers, area, ed.time),
             };
@@ -128,7 +109,6 @@ impl App {
         let pointer = ctx
             .input(|i| i.pointer.hover_pos())
             .filter(|p| area.body.contains(*p));
-        // The handles as they are now: a gesture above may have moved them.
         let handles = self
             .shown_clip(id)
             .and_then(|c| EditorHandles::of(&c, area.body, ed.time))?
@@ -142,7 +122,6 @@ impl App {
             self.reset_clip_handle(id, handle);
         }
         if response.secondary_clicked() {
-            // A range under the pointer stays: the menu then acts on it.
             let in_range = response.interact_pointer_pos().is_some_and(|p| {
                 self.range_in_editor(id, area.file)
                     .is_some_and(|(a, b)| (a..b).contains(&ed.time.beat_at(area.body.left(), p.x)))
@@ -167,7 +146,6 @@ impl App {
         hit
     }
 
-    /// What a drag starting at `origin` does, when it does anything.
     fn start_wave_gesture(
         &mut self,
         clip: &Clip,
@@ -207,9 +185,6 @@ impl App {
         Some(gesture)
     }
 
-    /// One frame of a drag at `p`: the view first, when the pointer is at its
-    /// side (M9.5 D29), then the edit, redone from where the drag began for
-    /// the view as it is now.
     fn continue_wave_gesture(
         &mut self,
         ctx: &egui::Context,
@@ -228,13 +203,11 @@ impl App {
             let moved = ed.time.scrolled(pull, area.limits);
             if moved != ed.time {
                 ed.time = moved;
-                // Looking around pauses Follow, as in the arrangement.
                 self.transport.follow_paused = true;
                 ctx.request_repaint();
             }
         }
         let frame = GestureFrame::new(ed.time, area.body);
-        // Over the wave, which is drawn after this.
         let overlay = ctx
             .layer_painter(egui::LayerId::new(
                 egui::Order::Foreground,
@@ -287,8 +260,6 @@ impl App {
         }
     }
 
-    /// One frame of a trim: the arrangement's own step, except that the
-    /// edge then settles on a zero crossing when that is on (M9.5 ZC A).
     fn step_audio_trim(
         &mut self,
         ctx: &egui::Context,
@@ -323,7 +294,6 @@ impl App {
         });
     }
 
-    /// The cursor and the info line over the wave (M9.5 D18).
     pub(super) fn audio_wave_info(
         &mut self,
         ctx: &egui::Context,
@@ -393,8 +363,6 @@ impl App {
         self.set_info(info);
     }
 
-    /// What is hot in the wave: what is being dragged, else under the
-    /// pointer, else what has the keyboard.
     pub(super) fn audio_hot_part(
         ed: &AudioEditor,
         hit: Option<WaveHit>,
@@ -415,8 +383,6 @@ impl App {
             .or(focused)
     }
 
-    /// Asks the opened audio clip's editor for `fit` on its next frame, and
-    /// shows it.
     pub(crate) fn audio_editor_fit(&mut self, fit: Fit) {
         self.audio_editor.fit = Some(fit);
         self.show_detail_tab(crate::app::detail::DetailTab::Clip);

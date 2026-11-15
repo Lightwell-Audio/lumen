@@ -1,8 +1,3 @@
-//! The MIDI chip in the transport bar (M5 slice 2d): its lights flash with
-//! each port's own traffic (not with the clock), its popover switches ports
-//! the way the settings page does, remembered ports that are away keep
-//! their switches, and "MIDI settings…" opens the MIDI page.
-
 use lumen_midi::Direction;
 use lumen_midi::fake::FakeControl;
 
@@ -18,14 +13,11 @@ fn start(name: &str, fake: &FakeControl) -> Lumen {
     )
 }
 
-/// Runs frames until the chip carries `name`.
 #[track_caller]
 fn until_named(lumen: &mut Lumen, name: &str) {
     lumen.run_until(&format!("the chip to say {name:?}"), |l| l.shows(name));
 }
 
-/// Plugs `Keystation` in and `Synth` out, opens the popover and switches
-/// both on for tracks; waits for the ports to open.
 fn with_ports_on(name: &str) -> (Lumen, FakeControl) {
     let fake = FakeControl::new();
     fake.plug(Direction::Input, "Keystation");
@@ -54,7 +46,6 @@ fn a_note_flashes_the_in_light_and_its_row_and_the_clock_does_not() {
     lumen.frames(5);
     assert_eq!(lumen.app().midi_chip_lights().0, 0.0, "quiet at rest");
 
-    // The clock, active sensing: not playing.
     assert!(fake.send_to_input("Keystation", 1, &[0xF8]));
     assert!(fake.send_to_input("Keystation", 2, &[0xFE]));
     lumen.frames(4);
@@ -79,7 +70,6 @@ fn a_note_flashes_the_in_light_and_its_row_and_the_clock_does_not() {
         Some(0.0)
     );
 
-    // The key is still down: the light stays lit. Released, it fades.
     lumen.frames(120);
     assert!(lumen.app().midi_chip_lights().0 > 0.99, "lit while held");
     assert!(fake.send_to_input("Keystation", 4, &[0x80, 60, 0]));
@@ -107,7 +97,6 @@ fn a_pill_changes_the_saved_switches_as_the_settings_page_does() {
             ("output".to_owned(), "Synth".to_owned(), true, false),
         ]
     );
-    // Off everywhere: forgotten, as on the settings page.
     lumen.click("Remote Keystation input in the MIDI panel");
     lumen.click("Track Keystation input in the MIDI panel");
     assert_eq!(
@@ -126,7 +115,6 @@ fn a_remembered_port_that_is_away_is_listed_with_its_switches() {
     assert!(lumen.shows("Keystation"));
     assert!(lumen.is_on("Track Keystation input in the MIDI panel"));
     assert!(lumen.shows("MIDI: 0 inputs, 1 output"));
-    // Its switches still work.
     lumen.click("Remote Keystation input in the MIDI panel");
     assert!(lumen.app().saved_midi_ports().contains(&(
         "input".to_owned(),
@@ -136,14 +124,11 @@ fn a_remembered_port_that_is_away_is_listed_with_its_switches() {
     )));
 }
 
-/// A controller often has an input and an output of one name: each row's
-/// switch acts on its own port.
 #[test]
 fn an_input_and_an_output_of_one_name_have_their_own_switches() {
     let (mut lumen, fake) = with_ports_on("chip-same-name");
     fake.plug(Direction::Output, "Keystation");
     until_named(&mut lumen, "Track Keystation output in the MIDI panel");
-    // The input's switch turns the input off and leaves the output alone.
     lumen.click("Track Keystation input in the MIDI panel");
     lumen.frames(2);
     assert!(!lumen.is_on("Track Keystation input in the MIDI panel"));
@@ -152,7 +137,6 @@ fn an_input_and_an_output_of_one_name_have_their_own_switches() {
         lumen.app().saved_midi_ports(),
         [("output".to_owned(), "Synth".to_owned(), true, false)]
     );
-    // And the output's turns the output on alone.
     lumen.click("Track Keystation output in the MIDI panel");
     lumen.frames(2);
     assert!(lumen.is_on("Track Keystation output in the MIDI panel"));
@@ -175,7 +159,6 @@ fn the_computer_keyboard_flashes_the_in_light() {
     let (mut lumen, _fake) = with_ports_on("chip-keys");
     lumen.frames(3);
     assert_eq!(lumen.app().midi_chip_lights().0, 0.0);
-    // No engine is listening yet in some runs: wait until a key goes.
     let msg = lumen_core::midi::Msg::note_on(0, 60, 100);
     lumen.wait_for("the keyboard to send", |_| true);
     let mut sent = false;

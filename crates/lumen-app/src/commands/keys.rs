@@ -1,16 +1,9 @@
-//! Shortcuts: a chord (modifiers and a key) and the keymap from chords to
-//! commands. Chords match their modifiers exactly. egui's own matching
-//! lets a plain key match with Shift or Alt held, which made every
-//! shortcut handler order its checks (Alt+Up before Up); here Alt+Up and
-//! Up are simply different chords.
-
 use std::collections::BTreeMap;
 
 use eframe::egui::{Key, Modifiers};
 
 use super::{ALL, Command};
 
-/// Modifiers and a key. Ctrl is the command key: Cmd on macOS.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) struct Chord {
     pub ctrl: bool,
@@ -74,7 +67,6 @@ pub(crate) const fn ctrl_shift(key: Key) -> Chord {
 }
 
 impl Chord {
-    /// The chord of a key pressed with `modifiers`.
     pub(crate) fn pressed(modifiers: Modifiers, key: Key) -> Self {
         Self {
             ctrl: modifiers.command,
@@ -84,13 +76,10 @@ impl Chord {
         }
     }
 
-    /// The modifiers held, in the order they are written: "Ctrl", "Shift",
-    /// "Alt" (Cmd and Option on macOS).
     pub(crate) fn modifier_names(self) -> Vec<&'static str> {
         modifier_names(self.ctrl, self.shift, self.alt)
     }
 
-    /// The key's name on a keycap: "D", "Space", "Delete", "Up", "+".
     pub(crate) fn key_name(self) -> &'static str {
         match self.key {
             Key::Escape => "Esc",
@@ -99,23 +88,16 @@ impl Chord {
         }
     }
 
-    /// "Ctrl+Shift+Z".
     pub(crate) fn text(self) -> String {
         self.caps_on(cfg!(target_os = "macos")).join("+")
     }
 
-    /// The keycaps of the chord on macOS (`mac`) or on Windows and Linux:
-    /// ["Ctrl", "Shift", "Z"].
     pub(crate) fn caps_on(self, mac: bool) -> Vec<&'static str> {
         let mut caps = modifier_names_on(mac, self.ctrl, self.shift, self.alt);
         caps.push(self.key_name());
         caps
     }
 
-    /// Whether a focused control uses this chord itself: Space and Enter
-    /// press a button, the arrows, Home, End and the page keys move a
-    /// slider or a list, Tab moves on; without Ctrl or Alt. With a control
-    /// focused, these go to it rather than run a command.
     pub(crate) fn used_by_controls(self) -> bool {
         !self.ctrl
             && !self.alt
@@ -135,8 +117,6 @@ impl Chord {
             )
     }
 
-    /// How a chord is saved: "Ctrl+Shift+Z", with Ctrl for the command key
-    /// on every system and egui's key names, which it reads back.
     pub(crate) fn saved(self) -> String {
         let mut parts = Vec::new();
         for (on, name) in [
@@ -152,10 +132,8 @@ impl Chord {
         parts.join("+")
     }
 
-    /// Reads a saved chord; `None` for one this version does not know.
     pub(crate) fn from_saved(text: &str) -> Option<Self> {
         let (modifiers, key) = match text.rsplit_once('+') {
-            // "Ctrl++" is Ctrl and the plus key.
             Some((rest, "")) => (rest.strip_suffix('+')?, "+"),
             Some((modifiers, key)) => (modifiers, key),
             None => ("", text),
@@ -173,14 +151,12 @@ impl Chord {
     }
 }
 
-/// Which chords run which commands.
 #[derive(Debug, Clone)]
 pub(crate) struct Keymap {
     chords: BTreeMap<Command, Vec<Chord>>,
 }
 
 impl Default for Keymap {
-    /// The default keys.
     fn default() -> Self {
         Self {
             chords: ALL
@@ -192,12 +168,10 @@ impl Default for Keymap {
 }
 
 impl Keymap {
-    /// The chords that run `command`, the one to show first.
     pub(crate) fn chords(&self, command: Command) -> &[Chord] {
         self.chords.get(&command).map_or(&[], Vec::as_slice)
     }
 
-    /// The shortcut to show for `command` as keycaps, if it has one.
     pub(crate) fn keys(&self, command: Command) -> Option<crate::widgets::Keys> {
         let chord = *self.chords(command).first()?;
         Some(crate::widgets::Keys {
@@ -208,12 +182,10 @@ impl Keymap {
         })
     }
 
-    /// The shortcut to show for `command` ("Ctrl+D"), if it has one.
     pub(crate) fn text(&self, command: Command) -> Option<String> {
         self.chords(command).first().map(|c| c.text())
     }
 
-    /// The command `chord` runs.
     pub(crate) fn command_for(&self, chord: Chord) -> Option<Command> {
         self.chords
             .iter()
@@ -221,14 +193,10 @@ impl Keymap {
             .map(|(&command, _)| command)
     }
 
-    /// Whether `command` has its default chords.
     pub(crate) fn is_default(&self, command: Command) -> bool {
         self.chords(command) == command.info().keys
     }
 
-    /// Sets chord `slot` of `command` to `chord` (`None` adds a chord). If
-    /// another command has `chord`, nothing changes and that command is
-    /// returned: the editor asks before taking it.
     pub(crate) fn set(
         &mut self,
         command: Command,
@@ -242,7 +210,6 @@ impl Keymap {
         }
         let chords = self.chords.entry(command).or_default();
         let slot = slot.filter(|&i| i < chords.len());
-        // The chord may already be in another of its slots.
         if let Some(at) = chords.iter().position(|&c| c == chord) {
             if slot.is_some_and(|i| i != at) {
                 chords.remove(at);
@@ -257,19 +224,15 @@ impl Keymap {
         Ok(())
     }
 
-    /// Sets the chord as [`Keymap::set`] does, taking it from whichever
-    /// command had it.
     pub(crate) fn reassign(&mut self, command: Command, slot: Option<usize>, chord: Chord) {
         for (&other, chords) in &mut self.chords {
             if other != command {
                 chords.retain(|&c| c != chord);
             }
         }
-        // Nothing else has the chord now, so this cannot clash.
         let _ = self.set(command, slot, chord);
     }
 
-    /// Removes chord `slot` of `command`.
     pub(crate) fn remove(&mut self, command: Command, slot: usize) {
         if let Some(chords) = self.chords.get_mut(&command)
             && slot < chords.len()
@@ -278,8 +241,6 @@ impl Keymap {
         }
     }
 
-    /// Gives `command` its default chords back, taking them from any
-    /// command that has one now.
     pub(crate) fn reset(&mut self, command: Command) {
         self.chords.insert(command, Vec::new());
         for &chord in command.info().keys {
@@ -287,8 +248,6 @@ impl Keymap {
         }
     }
 
-    /// What is saved: the chords of every command not at its defaults, by
-    /// command id.
     pub(crate) fn saved(&self) -> BTreeMap<String, Vec<String>> {
         ALL.iter()
             .filter(|info| !self.is_default(info.command))
@@ -299,9 +258,6 @@ impl Keymap {
             .collect()
     }
 
-    /// The defaults with `saved` changes on top. Unknown ids and chords
-    /// are skipped; a saved chord wins over a default one that clashes
-    /// with it (a default added by a later version, say).
     pub(crate) fn from_saved(saved: &BTreeMap<String, Vec<String>>) -> Self {
         let mut keymap = Self::default();
         let changed: Vec<(Command, Vec<Chord>)> = ALL
@@ -323,7 +279,6 @@ impl Keymap {
         keymap
     }
 
-    /// Chords bound to more than one command, with those commands.
     #[cfg(test)]
     pub(crate) fn clashes(&self) -> Vec<(Chord, Vec<Command>)> {
         let mut by_chord: BTreeMap<Chord, Vec<Command>> = BTreeMap::new();
@@ -339,14 +294,10 @@ impl Keymap {
     }
 }
 
-/// Modifiers as they are written: "Ctrl", "Shift", "Alt" (Cmd and Option
-/// on macOS), in that order.
 pub(crate) fn modifier_names(ctrl: bool, shift: bool, alt: bool) -> Vec<&'static str> {
     modifier_names_on(cfg!(target_os = "macos"), ctrl, shift, alt)
 }
 
-/// Modifiers as they are written on Windows and Linux (`mac` false) or on
-/// macOS: the user docs show both.
 pub(crate) fn modifier_names_on(
     mac: bool,
     ctrl: bool,
@@ -396,18 +347,15 @@ mod tests {
     #[test]
     fn rebinding_asks_before_taking_a_chord_and_resets() {
         let mut keymap = Keymap::default();
-        // Ctrl+D is Duplicate's: setting it on Zoom in is refused.
         assert_eq!(
             keymap.set(Command::ZoomIn, Some(0), ctrl(Key::D)),
             Err(Command::Duplicate)
         );
         assert!(keymap.is_default(Command::ZoomIn));
-        // Reassigned, it moves.
         keymap.reassign(Command::ZoomIn, Some(0), ctrl(Key::D));
         assert_eq!(keymap.command_for(ctrl(Key::D)), Some(Command::ZoomIn));
         assert!(keymap.chords(Command::Duplicate).is_empty());
         assert!(keymap.clashes().is_empty());
-        // A free chord is added with no slot; a slot is replaced.
         assert_eq!(keymap.set(Command::FitWidth, None, alt(Key::W)), Ok(()));
         assert_eq!(
             keymap.chords(Command::FitWidth),
@@ -423,7 +371,6 @@ mod tests {
         );
         keymap.remove(Command::FitWidth, 0);
         assert_eq!(keymap.chords(Command::FitWidth), [alt(Key::W)]);
-        // Reset gives Duplicate its chord back, from Zoom in.
         keymap.reset(Command::Duplicate);
         assert_eq!(keymap.command_for(ctrl(Key::D)), Some(Command::Duplicate));
         assert!(keymap.clashes().is_empty());
@@ -440,7 +387,6 @@ mod tests {
         let read = Keymap::from_saved(&saved);
         assert_eq!(read.command_for(ctrl(Key::D)), Some(Command::ZoomIn));
         assert_eq!(read.saved(), saved);
-        // A saved chord wins over a default that clashes with it.
         let mut later = BTreeMap::new();
         later.insert("view.fit_width".to_owned(), vec!["Space".to_owned()]);
         later.insert("not.a_command".to_owned(), vec!["F".to_owned()]);

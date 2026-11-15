@@ -1,8 +1,3 @@
-//! The engine's audio side never touches the heap: not while playing,
-//! looping, locating, swapping timelines or following a sample-rate change.
-//! Built with `RTSAN_ENABLE=1` on Linux, RealtimeSanitizer also checks for
-//! locks and blocking calls in the same sections (ADR-0010).
-
 use lumen_core::meter::Meter;
 use lumen_core::time::Ticks;
 use lumen_engine::{
@@ -13,7 +8,6 @@ use lumen_rt::{count_rt_violations, guard_is_active};
 
 lumen_rt::install_guarded_allocator!();
 
-/// A source with some per-sample work and state, like a real one.
 struct Tone {
     phase: f32,
 }
@@ -46,7 +40,6 @@ fn process_never_touches_the_heap() {
     let bar = |n: i64| Ticks::quarters(4 * n);
 
     for block in 0..5_000_u32 {
-        // UI-side work happens outside the real-time section, as in the app.
         match block {
             0 => handle.send(Command::Play).unwrap(),
             10 => handle
@@ -68,7 +61,6 @@ fn process_never_touches_the_heap() {
             3_050 => handle.send(Command::Play).unwrap(),
             _ => {}
         }
-        // The device changes rate halfway through.
         let rate = if block < 2_500 { 48_000 } else { 44_100 };
         let ((), heap) = count_rt_violations(|| engine.process(rate, &mut data, 2, 128));
         assert_eq!(heap, 0, "heap operation in process() at block {block}");
@@ -168,7 +160,6 @@ fn streamed_clips_never_touch_the_heap() {
             .unwrap()
     );
     let (mut handle, mut engine) = engine(Timeline::default(), source, 48_000);
-    // One bar at 120 BPM: 96,000 frames.
     handle
         .send(Command::SetLoop(Region::new(
             Ticks::ZERO,
@@ -179,10 +170,7 @@ fn streamed_clips_never_touch_the_heap() {
     handle.send(Command::Play).unwrap();
     let mut data = vec![0.0; 2 * 128];
     for block in 0..6_000_usize {
-        // The disk thread's work, between blocks: keep the next pages in
-        // memory, evicting older ones, and now and then fall behind.
         if block % 40 == 0 && block % 1_000 > 100 {
-            // Where a 96,000-frame loop has reached.
             let at = block * 128 % 96_000 / PAGE;
             writer.tick();
             for p in at..(at + 4).min(30) {
@@ -210,8 +198,6 @@ fn scrubbing_never_touches_the_heap() {
     let (mut handle, mut engine) = engine(Timeline::default(), Tone { phase: 0.0 }, 48_000);
     let mut data = vec![0.0; 2 * 128];
     for block in 0..3_000_i64 {
-        // Both styles, moving like a hand at 60 frames a second, released
-        // and grabbed again; then Play over a scrub.
         let at = Ticks(Ticks::quarters(1).0 * ((block / 8) % 40));
         let style = if block < 1_500 {
             ScrubStyle::Loop {
@@ -273,8 +259,6 @@ fn delay_compensation_never_touches_the_heap() {
     handle.send(Command::Play).unwrap();
     let mut data = vec![0.0; 2 * 128];
     for block in 0..3_000_i64 {
-        // Latencies change while playing: plans of a new shape carry what
-        // is in flight in their delay lines, and the engine follows.
         if block % 200 == 100 {
             let _ = routing.set(&latent(64, (block / 200) as u32));
         }
@@ -334,9 +318,6 @@ fn automated_lanes_never_touch_the_heap() {
     handle.send(Command::Play).unwrap();
     let mut data = vec![0.0; 2 * 128];
     for block in 0..3_000_i64 {
-        // Lanes are edited while playing: a new plan of the same shape takes
-        // over and every lane glides in; an odd variant moves a track and
-        // crossfades.
         if block % 200 == 100 {
             let _ = routing.set(&automated(64, (block / 200) as u32));
         }
@@ -379,7 +360,6 @@ fn routed_clips_metronome_and_tone_never_touch_the_heap() {
                 gain: 0.5,
                 track: i as u64,
                 audio: Arc::clone(&audio),
-                // A third fade in and out along curves (read from tables).
                 shape: if i % 3 == 0 {
                     lumen_engine::ClipShape {
                         fade_in: lumen_engine::FadeFrames {
@@ -401,7 +381,6 @@ fn routed_clips_metronome_and_tone_never_touch_the_heap() {
             })
             .collect()
     };
-    // With a cue bus on channels 3 and 4, a few tracks cued (M4 slice 4).
     let routed = |tracks: u64, variant: u32| {
         let mut r = routed(tracks, variant);
         r.cue = Some(lumen_engine::CueOut {
@@ -418,13 +397,11 @@ fn routed_clips_metronome_and_tone_never_touch_the_heap() {
         r
     };
     let (mut clips_handle, player) = clip_player();
-    // 64 tracks in groups, with sends to two returns (M4 slice 1).
     let (mut routing, source) = mixer(player);
     let (mut handle, mut engine) = engine(Timeline::default(), source, 48_000);
     clips_handle.set(clips(0)).unwrap();
     assert!(routing.set(&routed(64, 0)).unwrap());
     handle.send(Command::Play).unwrap();
-    // The metronome and the test tone run on the audio thread too.
     handle
         .send(Command::SetMetronome(lumen_engine::MetronomeSettings {
             enabled: true,
@@ -443,22 +420,16 @@ fn routed_clips_metronome_and_tone_never_touch_the_heap() {
         .unwrap();
     let mut data = vec![0.0; 4 * 128];
     for block in 0..3_000_i64 {
-        // Now and then, and as fast as a drag (moved clips crossfade).
         let dragging = (1_000..1_400).contains(&block) && block % 6 == 0;
         if block % 300 == 150 || dragging {
-            // Built and sent from the UI side, outside the real-time section.
             let _ = clips_handle.set(clips(block));
         }
-        // Levels change as fast as a fader drag; every other one reroutes
-        // a track, which crossfades between plans.
         if (1_500..2_000).contains(&block) && block % 6 == 0 {
             let _ = routing.set(&routed(64, (block / 6) as u32));
         }
         if block % 700 == 350 {
             handle.send(Command::Locate(Ticks::quarters(3))).unwrap();
         }
-        // Stopped for a while, with edits arriving: taken while idle (M4
-        // slice 7).
         match block {
             2_200 => handle.send(Command::Stop).unwrap(),
             2_600 => handle.send(Command::Play).unwrap(),
@@ -544,8 +515,6 @@ fn midi_never_touches_the_heap() {
         MidiTrack, Target, clip_player, control_list, midi_player, mixer, note_list,
     };
 
-    /// Plays a chord on and off every few hundred frames, from its own
-    /// counter: live input that allocates nothing.
     struct Player {
         next: u64,
         on: bool,
@@ -566,8 +535,6 @@ fn midi_never_touches_the_heap() {
                         track: None,
                         msg,
                     });
-                    // The piano roll's preview, on an instrument track and
-                    // on a hardware one.
                     for track in [5, 4] {
                         take(LiveIn {
                             frame: self.next,
@@ -587,8 +554,6 @@ fn midi_never_touches_the_heap() {
         }
     }
 
-    /// Does per-sample work for every sounding note, with state, like a
-    /// real instrument, and allocates nothing.
     struct Counter {
         held: [bool; 128],
         phase: f32,
@@ -645,7 +610,6 @@ fn midi_never_touches_the_heap() {
                     notes: note_list(notes),
                     controls: control_list(controls),
                 };
-                // Every fourth track goes to hardware.
                 let target = if id % 4 == 0 {
                     Target::Port {
                         port: (id % 3) as u16,
@@ -658,8 +622,6 @@ fn midi_never_touches_the_heap() {
                     id,
                     target,
                     Some(InstrumentSpec {
-                        // One edit in five changes the instrument's kind:
-                        // the old one rings out on the new list.
                         kind: if variant == 4 { 2 } else { 1 },
                         preset: (variant % 3) as u32,
                         values: Vec::new(),
@@ -670,12 +632,10 @@ fn midi_never_touches_the_heap() {
                     }),
                     vec![clip],
                 )
-                // Half the edits change what the tracks listen to.
                 .listening(Listen {
                     sources: 1 << 3,
                     channel: (variant % 2 == 1).then_some(0),
                 })
-                // And every other track records what it is sent.
                 .recording(if id % 2 == 0 {
                     Listen {
                         sources: 1 << 3,
@@ -700,7 +660,6 @@ fn midi_never_touches_the_heap() {
     let (mut routing, source) = mixer(Layered(players, player));
     let (mut handle, mut engine) = engine(Timeline::default(), source, 48_000);
     midi.set(tracks(0)).ok().unwrap();
-    // Two ports get MIDI clock (M5 slice 7).
     midi.set_sync(0b101);
     midi.set_live(Box::new(Player { next: 0, on: false }))
         .ok()
@@ -716,17 +675,14 @@ fn midi_never_touches_the_heap() {
     handle.send(Command::Play).unwrap();
     let mut data = vec![0.0; 2 * 128];
     for block in 0..4_000_i64 {
-        // UI-side work happens outside the real-time section.
         if block % 150 == 75 {
             midi.collect_garbage();
             let _ = midi.set(tracks(block % 5));
         }
         if block % 2_000 == 1_000 {
-            // Sync switched on and off while playing.
             midi.set_sync(if block % 4_000 == 1_000 { 0 } else { 0b101 });
         }
         if block % 1_000 == 999 {
-            // A new live input (the app gives one when MIDI restarts).
             let _ = midi.set_live(Box::new(Player {
                 next: block as u64 * 128,
                 on: false,
@@ -736,8 +692,6 @@ fn midi_never_touches_the_heap() {
             100 => handle.send(Command::Record { count_in: 0 }).unwrap(),
             300 => handle.send(Command::Locate(Ticks::quarters(2))).unwrap(),
             400 => handle.send(Command::EndRecord).unwrap(),
-            // Stopped (after 700), a count-in begins and Play is ignored
-            // until Panic ends it.
             705 => handle.send(Command::Record { count_in: 1 }).unwrap(),
             500 => handle.send(Command::Pause).unwrap(),
             520 => handle.send(Command::Continue).unwrap(),
@@ -756,9 +710,6 @@ fn midi_never_touches_the_heap() {
     }
 }
 
-/// Review M5 H1: with the queue that takes old lists back full (the UI late
-/// to collect), two lists arriving in one block must still leave every old
-/// one to be freed off the audio thread, for clips, MIDI and the mixer.
 #[test]
 fn lists_queued_behind_a_full_retire_queue_are_never_freed_here() {
     use lumen_engine::testing::routed;
@@ -771,8 +722,6 @@ fn lists_queued_behind_a_full_retire_queue_are_never_freed_here() {
     let (_handle, mut engine) = engine(Timeline::default(), source, 48_000);
     let mut data = vec![0.0; 2 * 128];
     let mut variant = 0;
-    // Nothing is collected: one list a block fills each retire queue, then
-    // two in one block meet it full, then the stashes drain one a block.
     for block in 0..12_u32 {
         let lists = match block {
             0..5 => 1,
@@ -790,8 +739,6 @@ fn lists_queued_behind_a_full_retire_queue_are_never_freed_here() {
     }
 }
 
-/// Review M5 M2: the built-in synth renders, steals voices, glides between
-/// presets, bends, holds the pedal and silences without touching the heap.
 #[test]
 fn the_synth_never_touches_the_heap() {
     use lumen_core::midi::{Event, Msg};
@@ -804,7 +751,6 @@ fn the_synth_never_touches_the_heap() {
     for block in 0..3_000_u32 {
         events.clear();
         let key = 36 + (block % 48) as u8;
-        // More notes than voices, so voices are stolen.
         for (n, offset) in [0, 31, 64, 97].into_iter().enumerate() {
             events.push(Event {
                 offset,
@@ -865,8 +811,6 @@ fn a_loopback_measurement_never_touches_the_heap() {
     let mut outputs = vec![0.0_f32; outs * block];
     let mut measured = 0;
     for n in 0..6_000_u32 {
-        // Measurements are made and taken back outside the real-time
-        // section, as in the app; the second one meets a rate change.
         if n % 2_000 == 0 {
             handle
                 .start(Job::new(u64::from(n), 48_000, 2, true, 1))
@@ -907,9 +851,6 @@ fn the_sound_check_never_touches_the_heap() {
     let mut heard = 0;
     let blocks = 3 * total_frames(48_000) / block;
     for n in 0..blocks {
-        // Asked from the UI side, outside the real-time section: idle,
-        // played, restarted part way, stopped, played again and met by a
-        // rate change.
         match n {
             100 | 600 | 2_000 => handle.play(true),
             1_000 => handle.stop(),
@@ -941,9 +882,6 @@ fn a_preview_never_touches_the_heap() {
         .collect();
     let mut generation = 0;
     for n in 0..6_000 {
-        // The UI and the decode thread work outside the real-time section:
-        // starts, seeks (a new start), a stop, the cue pair and a rate
-        // change, with the feed keeping the ring full.
         match n {
             50 | 400 | 410 | 420 | 3_000 => generation = handle.start(),
             1_500 => handle.stop(),
@@ -966,9 +904,6 @@ fn a_preview_never_touches_the_heap() {
     assert!(handle.counts().0 > 0, "stale blocks were skipped");
 }
 
-/// M8 D0: playing mapped drum tracks that choke each other, with live hats
-/// arriving, never touches the heap: the kit is made on the UI side and read
-/// as two arrays, and a choke pushes the note-offs it owes with no room made.
 #[test]
 fn a_choking_drum_track_never_touches_the_heap() {
     use lumen_engine::testing::routed;
@@ -977,7 +912,6 @@ fn a_choking_drum_track_never_touches_the_heap() {
         clip_player, control_list, midi_player, mixer, note_list,
     };
 
-    /// Plays the closed and the open hat in turn, one every 200 frames.
     struct Hats {
         next: u64,
         open: bool,
@@ -1034,9 +968,6 @@ fn a_choking_drum_track_never_touches_the_heap() {
                         channel: None,
                     })
                     .collect();
-                // Two hats overlapping, so a locate into them starts both in
-                // one pass, and two on one tick: the choke takes a note-on of
-                // that pass back (review H1).
                 for (start, pitch) in [
                     (Ticks::ZERO, 46),
                     (Ticks::quarters(2), 42),
@@ -1094,8 +1025,6 @@ fn a_choking_drum_track_never_touches_the_heap() {
     handle.send(Command::Play).unwrap();
     let mut data = vec![0.0; 2 * 128];
     for block in 0..2_000_i64 {
-        // UI-side work happens outside the real-time section: a new list with
-        // a new kit, as a map edit sends one.
         if block % 200 == 50 {
             midi.collect_garbage();
             let _ = midi.set(tracks());

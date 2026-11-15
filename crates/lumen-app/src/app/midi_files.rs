@@ -1,8 +1,3 @@
-//! MIDI files in the app (M5 slice 7, ADR-0062): dropped or imported files
-//! are read in the background and placed as the owner's F1 says (on a MIDI
-//! track, one clip; between tracks, a track per part); a file whose tempo
-//! or meter differs from the project's offers them in a banner (F2).
-
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -18,23 +13,18 @@ use crate::document::{DropInto, Places};
 use crate::midi::files as midi_files;
 use crate::widgets::raised;
 
-/// A file's tempo and meter, offered after it came in (F2).
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TempoOffer {
-    /// What the banner says.
     pub(crate) text: String,
     pub(crate) tempo: Vec<TempoPoint>,
     pub(crate) meter: Vec<MeterPoint>,
 }
 
-/// A tempo as the banner writes it: whole BPM, or to two places.
 fn bpm_text(bpm: f64) -> String {
     let text = format!("{bpm:.2}");
     text.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
-/// What `file` (named `name`) offers that the project does not have, if
-/// anything.
 pub(crate) fn tempo_offer(
     name: &str,
     file: &MidiFile,
@@ -90,9 +80,6 @@ pub(crate) fn tempo_offer(
 }
 
 impl App {
-    /// Files dropped or chosen in Import: MIDI files are read in the
-    /// background, the rest go to the audio loader. `places` says where
-    /// each kind lands.
     pub(crate) fn add_files(
         &mut self,
         paths: Vec<PathBuf>,
@@ -112,14 +99,10 @@ impl App {
         }
     }
 
-    /// Places the MIDI files read since the last frame, each one undo
-    /// step, asks where an export made in the background goes, and reports
-    /// one that finished.
     pub(crate) fn poll_midi_files(&mut self, ctx: &egui::Context) {
         if let Some(why) = self.midi_reader.take_failure() {
             self.lanes.say(why);
         }
-        // The dialog waits for any other to close: it would replace it.
         if self.dialog.is_none()
             && let Some(done) = self
                 .midi_exporting
@@ -182,7 +165,6 @@ impl App {
                     .document
                     .import_midi_tracks(before, group, read.at, &read.name, &file)
                     .is_empty(),
-                // The track has gone, or is no longer a MIDI track.
                 (None, DropInto::Track(_)) => !self
                     .document
                     .import_midi_tracks(None, None, read.at, &read.name, &file)
@@ -200,10 +182,6 @@ impl App {
         }
     }
 
-    /// Export MIDI clip… (`clips`, the selected MIDI clips, type 0) or
-    /// Export MIDI file… (the project's MIDI tracks, type 1): the bytes
-    /// are made in the background, then the system's save dialog asks where
-    /// they go (`poll_midi_files`).
     pub(crate) fn export_midi(&mut self, ctx: &egui::Context, clips: bool) {
         if self.dialog.is_some() || self.midi_exporting.is_some() {
             return;
@@ -221,7 +199,6 @@ impl App {
         ));
     }
 
-    /// Asks where an export made in the background goes.
     fn ask_midi_destination(&mut self, ctx: &egui::Context, made: midi_files::Exported) {
         let midi_files::Exported { bytes, title, name } = made;
         let start = self
@@ -254,8 +231,6 @@ impl App {
         });
     }
 
-    /// Writes an exported MIDI file in the background; `poll_midi_files`
-    /// says how it went.
     pub(crate) fn write_midi(&mut self, ctx: &egui::Context, mut path: PathBuf, bytes: Vec<u8>) {
         if !midi_files::is_midi_file(&path) {
             path.set_extension("mid");
@@ -263,8 +238,6 @@ impl App {
         self.midi_writing = Some(midi_files::write(path, bytes, ctx));
     }
 
-    /// The banner offering a MIDI file's tempo and meter (F2): "Use them"
-    /// takes them as one undo step.
     pub(crate) fn tempo_banner(&mut self, ui: &mut egui::Ui) {
         let Some(offer) = self.tempo_offer.clone() else {
             return;

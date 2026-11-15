@@ -1,16 +1,3 @@
-//! The shared block: its layout, and the one place that reads and writes it.
-//!
-//! One block is in flight at a time, so there is one set of buffers. Lumen
-//! writes the request, then publishes it by storing the block's sequence
-//! number in `request` (release); the host reads the request after loading it
-//! (acquire), writes the answer, then publishes it by storing the same number
-//! in `done` (release). Lumen does not touch the buffers between those two
-//! points, and the host does not touch them outside them. Everything either
-//! side reads from here is untrusted: counts are checked against the layout,
-//! never taken on faith, and audio read back is scrubbed of values that are
-//! not finite. A host that breaks the hand-off can spoil its own audio and
-//! nothing else.
-
 use std::io;
 use std::ptr;
 use std::sync::atomic::{AtomicI32, AtomicU32, AtomicU64, Ordering};
@@ -22,20 +9,14 @@ use crate::protocol::{
     ParamQueues,
 };
 
-const MAGIC: u32 = 0x4c42_4b31; // "LBK1"
-/// Bumped when the layout changes shape.
+const MAGIC: u32 = 0x4c42_4b31;
 const VERSION: u32 = 4;
 
-/// A block flag: the plugin forgets what it holds (its tail, its filters)
-/// before it processes this block. Sent by a jump in playback.
 pub const FLAG_FLUSH: u32 = 1;
 
-/// The capacity of a block. Fixed when the region is made; a larger need
-/// means a new region, which happens off the audio thread.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Layout {
     pub max_frames: u32,
-    /// Channels of the main input and output buses; 0 for none.
     pub inputs: u8,
     pub outputs: u8,
     pub max_events: u32,
@@ -44,8 +25,6 @@ pub struct Layout {
 }
 
 impl Layout {
-    /// A layout with room for typical blocks: every note of a dense chord
-    /// and a few hundred automation points.
     pub fn new(max_frames: u32, inputs: u8, outputs: u8) -> Self {
         Self {
             max_frames,
@@ -57,7 +36,6 @@ impl Layout {
         }
     }
 
-    /// Whether the layout is inside the protocol's limits.
     pub fn check(&self) -> Result<(), &'static str> {
         if self.max_frames == 0 || self.max_frames as usize > MAX_FRAMES {
             return Err("frame capacity");
@@ -75,19 +53,13 @@ impl Layout {
     }
 }
 
-/// How a block ended, as the host reports it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
 pub enum Outcome {
-    /// Processed; the output is valid.
     Done = 0,
-    /// The block was for another configuration; nothing was processed.
     Stale = 1,
-    /// The block did not fit the plugin's format or the layout.
     Invalid = 2,
-    /// The plugin failed the call.
     Failed = 3,
-    /// No plugin is configured to process it.
     NotReady = 4,
 }
 
@@ -104,7 +76,6 @@ impl Outcome {
     }
 }
 
-/// What the host recorded about a finished block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Answer {
     pub seq: u64,
@@ -114,17 +85,12 @@ pub struct Answer {
     pub latency: u32,
     pub restart: u32,
     pub repaired: u32,
-    /// How long the plugin worked on the block, in nanoseconds (0 when it
-    /// did not process it).
     pub work_ns: u32,
 }
 
-/// Why a block was not submitted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubmitError {
-    /// The host is still on an earlier block.
     Busy,
-    /// The block does not fit the layout or is malformed.
     Invalid(&'static str),
 }
 
@@ -139,11 +105,9 @@ impl std::fmt::Display for SubmitError {
 
 impl std::error::Error for SubmitError {}
 
-/// A block the host could not trust.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BadBlock(pub &'static str);
 
-/// One block, as [`Region::write_flagged`] takes it.
 pub struct Submission<'a, Q: ParamQueues + ?Sized> {
     pub seq: u64,
     pub generation: u32,
@@ -192,8 +156,6 @@ struct Record {
     work_ns: AtomicU32,
 }
 
-/// The control words, each on a cache line of its own so that the two
-/// processes do not share a line they both write.
 #[repr(C)]
 struct Control {
     ident: Line<Ident>,
@@ -235,7 +197,6 @@ fn align(n: usize) -> usize {
     n.next_multiple_of(64)
 }
 
-/// Where each array starts, in bytes from the region's start.
 struct Offsets {
     input: usize,
     events: usize,
@@ -264,14 +225,11 @@ impl Offsets {
     }
 }
 
-/// The reusable buffers the host fills from a request and processes in.
-/// Made once per link, so a steady stream of blocks allocates nothing.
 pub struct BlockScratch {
     pub buffers: Buffers,
     events: Vec<Event>,
     queues: Vec<ParamQueue>,
     used: usize,
-    /// The block read last asked the plugin to forget what it holds.
     pub flush: bool,
 }
 
@@ -290,14 +248,11 @@ impl BlockScratch {
         }
     }
 
-    /// The block read last, ready for [`crate::Instance::process_into`]:
-    /// the buffers to lend, and the events and parameter changes to give.
     pub fn parts(&mut self) -> (&mut Buffers, &[Event], &[ParamQueue]) {
         (&mut self.buffers, &self.events, &self.queues[..self.used])
     }
 }
 
-/// A mapped region of shared memory with this layout.
 pub struct Region {
     map: Mapping,
     layout: Layout,
@@ -305,7 +260,6 @@ pub struct Region {
 }
 
 impl Region {
-    /// Makes a region and stamps it with its layout. Lumen's side.
     pub fn create(name: &str, layout: Layout) -> io::Result<Self> {
         layout.check().map_err(io::Error::other)?;
         let at = Offsets::of(&layout);
@@ -324,7 +278,6 @@ impl Region {
         Ok(region)
     }
 
-    /// Maps a region made by Lumen and checks that it is the one described.
     pub fn open(name: &str, layout: Layout) -> io::Result<Self> {
         layout.check().map_err(io::Error::other)?;
         let at = Offsets::of(&layout);
@@ -352,18 +305,13 @@ impl Region {
     }
 
     fn control(&self) -> &Control {
-        // SAFETY: the mapping is at least `size_of::<Control>()` bytes, page
-        // aligned, and every field is an atomic, valid for any bit pattern.
         unsafe { &*self.map.as_ptr().cast::<Control>() }
     }
 
     fn array<T>(&self, offset: usize) -> *mut T {
         debug_assert!(offset <= self.at.total);
-        // SAFETY: `offset` is one of the computed starts, inside the mapping.
         unsafe { self.map.as_ptr().add(offset).cast() }
     }
-
-    // --- control words ---
 
     pub fn request(&self) -> u64 {
         self.control().request.0.load(Ordering::Acquire)
@@ -389,9 +337,6 @@ impl Region {
         self.control().ready.0.store(1, Ordering::Release);
     }
 
-    // --- Lumen's side ---
-
-    /// Writes a block and publishes it as `seq`. Allocation-free.
     pub fn write_request<Q: ParamQueues + ?Sized>(
         &self,
         seq: u64,
@@ -412,7 +357,6 @@ impl Region {
         })
     }
 
-    /// As [`Self::write_request`], with block flags ([`FLAG_FLUSH`]).
     pub fn write_flagged<Q: ParamQueues + ?Sized>(
         &self,
         block: Submission<'_, Q>,
@@ -464,15 +408,11 @@ impl Region {
         let max = layout.max_frames as usize;
         let samples: *mut f32 = self.array(self.at.input);
         for (channel, data) in input.iter().enumerate() {
-            // SAFETY: channel `c` starts at `c * max` samples and `n <= max`,
-            // inside the input array; the host is not reading (the caller
-            // submits only when the previous block is done).
             unsafe { ptr::copy_nonoverlapping(data.as_ptr(), samples.add(channel * max), n) };
         }
         let raw_events: *mut RawEvent = self.array(self.at.events);
         for (i, event) in events.iter().enumerate() {
             let (tag, channel, pitch, velocity) = event.kind.parts();
-            // SAFETY: `i < max_events`, checked above.
             unsafe {
                 raw_events.add(i).write(RawEvent {
                     offset: event.offset,
@@ -488,11 +428,6 @@ impl Region {
         let raw_points: *mut RawPoint = self.array(self.at.points);
         let mut next = 0;
         for i in 0..queues {
-            // This asks the queue for its points a second time, and trusts
-            // nothing it answers: `queue` is a public trait method, so an
-            // implementation may answer differently from the pass above. Every
-            // bound is rechecked here, before the slot it guards is written,
-            // and the block is not published if the two answers disagree.
             if i >= max_queues {
                 return Err(SubmitError::Invalid("too many parameter queues"));
             }
@@ -500,9 +435,6 @@ impl Region {
             if list.len() > max_points - next {
                 return Err(SubmitError::Invalid("too many parameter points"));
             }
-            // SAFETY: `i < max_queues`; the queue's own points are guarded
-            // one by one below, so `next` stays below `max_points` however
-            // long the list claims to be.
             unsafe {
                 raw_queues.add(i).write(RawQueue {
                     id,
@@ -535,8 +467,6 @@ impl Region {
         Ok(())
     }
 
-    /// What the host recorded for the block it finished. Call after `done()`
-    /// returned the block's number.
     pub fn answer(&self) -> Option<Answer> {
         let r = &self.control().record.0;
         Some(Answer {
@@ -551,8 +481,6 @@ impl Region {
         })
     }
 
-    /// Copies one output channel of the finished block into `dst`, replacing
-    /// anything not finite with silence. Returns how many it replaced.
     pub fn copy_output(&self, channel: usize, frames: u32, dst: &mut [f32]) -> u32 {
         if channel >= usize::from(self.layout.outputs) {
             dst.fill(0.0);
@@ -560,8 +488,6 @@ impl Region {
         }
         let n = (frames.min(self.layout.max_frames) as usize).min(dst.len());
         let samples: *const f32 = self.array(self.at.output);
-        // SAFETY: the channel starts at `channel * max_frames` and `n` is at
-        // most `max_frames`, inside the output array.
         unsafe {
             ptr::copy_nonoverlapping(
                 samples.add(channel * self.layout.max_frames as usize),
@@ -580,10 +506,6 @@ impl Region {
         repaired
     }
 
-    // --- the host's side ---
-
-    /// Reads the request published as the latest into `scratch`, checking
-    /// everything. Returns the block's configuration generation and length.
     pub fn read_request(&self, scratch: &mut BlockScratch) -> Result<(u32, u32), BadBlock> {
         let layout = &self.layout;
         let meta = &self.control().meta.0;
@@ -607,15 +529,12 @@ impl Region {
         let max = layout.max_frames as usize;
         let samples: *const f32 = self.array(self.at.input);
         for (channel, data) in scratch.buffers.input.iter_mut().enumerate() {
-            // SAFETY: as for the write: inside the input array, and the
-            // request has been published, so Lumen is not writing.
             unsafe { ptr::copy_nonoverlapping(samples.add(channel * max), data.as_mut_ptr(), n) };
         }
 
         scratch.events.clear();
         let raw_events: *const RawEvent = self.array(self.at.events);
         for i in 0..events {
-            // SAFETY: `i < events <= max_events`.
             let raw = unsafe { raw_events.add(i).read() };
             if raw.offset >= frames {
                 return Err(BadBlock("event offset"));
@@ -637,7 +556,6 @@ impl Region {
         scratch.used = 0;
         let mut next = 0_usize;
         for i in 0..queues {
-            // SAFETY: `i < queues <= max_queues`.
             let queue = unsafe { raw_queues.add(i).read() };
             let count = queue.points as usize;
             if count > points - next.min(points) {
@@ -653,7 +571,6 @@ impl Region {
             slot.id = queue.id;
             slot.points.clear();
             for _ in 0..count {
-                // SAFETY: `next < points <= max_points`, checked just above.
                 let point = unsafe { raw_points.add(next).read() };
                 next += 1;
                 if point.offset >= frames || !point.value.is_finite() {
@@ -669,8 +586,6 @@ impl Region {
         Ok((generation, frames))
     }
 
-    /// Records the answer to block `seq` and publishes it. For `Done`, the
-    /// first `frames` samples of `output` are copied back first.
     pub fn finish(&self, answer: &Answer, frames: u32, output: &[Vec<f32>]) {
         if answer.outcome == Outcome::Done {
             let max = self.layout.max_frames as usize;
@@ -682,7 +597,6 @@ impl Region {
                 .take(usize::from(self.layout.outputs))
             {
                 let n = n.min(data.len());
-                // SAFETY: inside the output array, as above; Lumen is not reading.
                 unsafe { ptr::copy_nonoverlapping(data.as_ptr(), samples.add(channel * max), n) };
             }
         }
@@ -848,12 +762,9 @@ mod tests {
             write(8, &[&ch], &[], &[not_a_number]),
             Err(SubmitError::Invalid("point value"))
         );
-        // Nothing was published.
         assert_eq!(r.request(), 0);
     }
 
-    /// A `ParamQueues` that answers differently the second time it is asked,
-    /// as any implementation of the public trait could.
     struct Lying {
         calls: Cell<usize>,
         then: Vec<(u32, f64)>,
@@ -871,9 +782,6 @@ mod tests {
         }
     }
 
-    /// The write pass asks each queue for its points again. It must not trust
-    /// the second answer: a list longer than the block has room for is refused
-    /// before a point is written past the layout, and nothing is published.
     #[test]
     fn a_queue_that_answers_differently_the_second_time_is_refused() {
         let layout = Layout {
@@ -892,7 +800,6 @@ mod tests {
             Err(SubmitError::Invalid("too many parameter points"))
         );
         assert_eq!(r.request(), 0);
-        // A second answer that fits, but is not the one that was validated.
         let different = Lying {
             calls: Cell::new(0),
             then: vec![(0, 0.5), (1, 0.5)],
@@ -930,9 +837,6 @@ mod tests {
         assert!(Layout::new(MAX_FRAMES as u32, 16, 16).check().is_ok());
     }
 
-    /// The meta words are what Lumen writes, but the host reads them as
-    /// untrusted. Each of these is a host or Lumen bug or a scribbling
-    /// plugin; none may reach the plugin or read outside the layout.
     #[test]
     fn a_request_that_lies_about_itself_is_rejected() {
         let layout = Layout::new(16, 1, 1);
@@ -980,21 +884,18 @@ mod tests {
             r.read_request(&mut scratch),
             Err(BadBlock("counts above the layout"))
         );
-        // A queue that claims more points than the block has.
         fresh(&r);
         meta.points.store(0, Ordering::Relaxed);
         assert_eq!(
             r.read_request(&mut scratch),
             Err(BadBlock("parameter points"))
         );
-        // A total that does not add up.
         fresh(&r);
         meta.points.store(5, Ordering::Relaxed);
         assert_eq!(
             r.read_request(&mut scratch),
             Err(BadBlock("parameter point total"))
         );
-        // Sanity: an honest request still reads.
         fresh(&r);
         assert!(r.read_request(&mut scratch).is_ok());
     }
@@ -1014,12 +915,9 @@ mod tests {
                 .expect("write")
         };
         let event = |change: fn(&mut RawEvent)| {
-            // SAFETY: the first event slot is inside the mapping, which lives
-            // as long as `r`; no other reference to it exists in this test.
             change(unsafe { &mut *r.array::<RawEvent>(r.at.events) });
         };
         let point = |change: fn(&mut RawPoint)| {
-            // SAFETY: as above, for the first parameter point.
             change(unsafe { &mut *r.array::<RawPoint>(r.at.points) });
         };
 
@@ -1073,7 +971,6 @@ mod tests {
         assert_eq!(dst, [0.5, 0.0, 0.25, 0.0, 0.0, 0.0]);
         assert_eq!(r.copy_output(1, 4, &mut dst), 0);
         assert_eq!(dst[..4], [1.0; 4]);
-        // A channel the layout does not have is silence.
         assert_eq!(r.copy_output(2, 4, &mut dst), 0);
         assert_eq!(dst, [0.0; 6]);
     }

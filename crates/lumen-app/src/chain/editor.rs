@@ -1,9 +1,3 @@
-//! A plugin's own window and Learn (M6 slice 4f). The window belongs to the
-//! plugin's host process (ADR-0067); here is what the card asks of it, how its
-//! place is remembered per plugin in the app's settings (the owner's P4), and
-//! Learn: touch a control in the plugin's window and it takes the next free
-//! slot of the card's strip.
-
 use std::time::Instant;
 
 use lumen_hosting::{Edit, EditKind, EditorBounds};
@@ -15,7 +9,6 @@ use crate::App;
 use crate::hosting::EditorState;
 
 impl App {
-    /// What the card's editor button says.
     pub(super) fn editor_look(&self, device: &lumen_project::model::Device) -> strip::Editor {
         match self.hosting.editor(device.id) {
             EditorState::Closed => strip::Editor::Closed,
@@ -26,7 +19,6 @@ impl App {
         }
     }
 
-    /// Opens the device's window where it was last, or closes it.
     pub(crate) fn toggle_editor(&mut self, device: Id) {
         match self.hosting.editor(device) {
             EditorState::Closed => self.open_editor(device),
@@ -50,8 +42,6 @@ impl App {
         self.hosting.open_editor(device, place);
     }
 
-    /// Turns Learn on or off for the device. Turning it on opens the window,
-    /// because that is where the controls are.
     pub(crate) fn toggle_learn(&mut self, device: Id) {
         if self.chain.learning == Some(device) {
             self.chain.learning = None;
@@ -67,10 +57,6 @@ impl App {
         }
     }
 
-    /// Keeps the plugins' windows with their track: those of the track the
-    /// Devices tab shows are on screen, any other is hidden (still open, so
-    /// coming back to its track shows it as it was). Once a frame; only a
-    /// change is sent to a host.
     pub(crate) fn follow_chosen_track(&mut self) {
         let project = self.document.project();
         let shown: Vec<Id> = self
@@ -79,15 +65,12 @@ impl App {
             .map(|t| t.devices.iter().map(|d| d.id).collect())
             .unwrap_or_default();
         for hidden in self.hosting.show_editors_of(&shown) {
-            // Learn needs the window it listens to.
             if self.chain.learning == Some(hidden) {
                 self.chain.learning = None;
             }
         }
     }
 
-    /// Ends a plugin whose window stopped answering; the card then offers
-    /// Reload.
     pub(crate) fn end_editor_plugin(&mut self, device: Id) {
         self.hosting.end_plugin(device);
         if self.chain.learning == Some(device) {
@@ -95,8 +78,6 @@ impl App {
         }
     }
 
-    /// Once a frame: remembers where windows were put, ends Learn when its
-    /// window is gone or Esc is pressed, and gives Learn what was touched.
     pub(crate) fn follow_editors(
         &mut self,
         ctx: &eframe::egui::Context,
@@ -133,8 +114,6 @@ impl App {
         }
     }
 
-    /// Puts a parameter the user touched on the strip. False when the strip
-    /// has no room left (Learn ends, and says so).
     fn learn(&mut self, device: Id, parameter: u32) -> bool {
         let mut ids = self.strip_ids(device);
         if ids.contains(&parameter) {
@@ -162,9 +141,6 @@ impl App {
     }
 }
 
-/// The parameters a person touched in a plugin's window, from the plugin's
-/// edits: a gesture that began or moved a value, not what the processor
-/// reported on its own.
 pub(crate) fn touched(edits: &[(Edit, bool)]) -> Vec<u32> {
     let mut out: Vec<u32> = Vec::new();
     for (edit, _) in edits {

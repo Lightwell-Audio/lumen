@@ -1,5 +1,3 @@
-//! M7b E0: arrangement tools, cuts, keyboard routing and undo.
-
 use eframe::egui::{Event, Key, Modifiers, Pos2, Rect};
 use egui_kittest::kittest::Queryable;
 use lumen_core::time::Ticks;
@@ -72,7 +70,6 @@ fn every_arrangement_tool_is_reachable_from_the_palette() {
 #[test]
 fn the_tool_switch_opens_its_menu_and_selects_a_tool_with_the_mouse() {
     let mut lumen = Lumen::start("tools-switch");
-    // A tool's row is named with its keys (the interface audit's M6).
     let (erase, split) = (keys("Erase D"), keys("Split C"));
     assert!(!lumen.shows(&erase), "the menu is closed to begin with");
     lumen.click("Arrangement tool: Pointer");
@@ -80,7 +77,6 @@ fn the_tool_switch_opens_its_menu_and_selects_a_tool_with_the_mouse() {
     lumen.click(&split);
     assert_eq!(lumen.app().arrangement_tool_name(), "Split");
     assert!(lumen.shows("Arrangement tool: Split"));
-    // Choosing a tool closes the menu, so a pick is one click.
     lumen.run_until("the tool menu closes", |lumen| !lumen.shows(&erase));
 }
 
@@ -106,7 +102,6 @@ fn single_keys_pick_the_tools_the_menu_names() {
         (Key::V, "Pointer"),
     ];
     lumen.click("Arrangement tool: Pointer");
-    // B is checked by `b_toggles_arrangement_draw_and_escape_returns_to_pointer`.
     assert!(lumen.shows(&keys("Draw B")), "the menu names Draw B");
     for (key, name) in tools {
         let row = keys(&format!("{name} {}", key.name()));
@@ -355,8 +350,6 @@ fn draw_tool_creates_a_midi_clip_on_an_empty_midi_lane_in_one_step() {
     assert!(lumen.app().project().tracks[1].clips.is_empty());
 }
 
-/// A fresh MIDI track under the imported audio track, the Draw tool chosen,
-/// and the height of the new track's lane.
 fn midi_lane_with_draw(name: &str) -> (Lumen, f32) {
     let mut lumen = audio(name);
     lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::T);

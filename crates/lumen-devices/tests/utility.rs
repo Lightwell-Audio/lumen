@@ -1,7 +1,3 @@
-//! Prism, the utility device (M8 slice B0): what it does to the audio, that it
-//! does the same thing at every block size, and that it allocates nothing
-//! while it runs.
-
 use lumen_core::pan::PanLaw;
 use lumen_devices::params;
 use lumen_devices::utility::{
@@ -13,14 +9,12 @@ lumen_rt::install_guarded_allocator!();
 
 const RATE: u32 = 48_000;
 
-/// The normalised value of `id` at `value` in its own units.
 fn at(id: u32, value: f32) -> f32 {
     params::find(TABLE, id)
         .expect("a parameter of the table")
         .normalised(value)
 }
 
-/// A block: every parameter at rest as `held` says, then the lanes' points.
 struct BlockBuilder {
     frames: usize,
     points: Vec<(u32, Vec<(u32, f64)>)>,
@@ -34,13 +28,11 @@ impl BlockBuilder {
         }
     }
 
-    /// Parameter `id` at rest at `value` (normalised), or its default.
     fn held(mut self, id: u32, value: f32) -> Self {
         self.points.push((id, vec![(0, f64::from(value))]));
         self
     }
 
-    /// Parameter `id` driven by a lane of `points`.
     fn lane(mut self, id: u32, points: &[(u32, f32)]) -> Self {
         self.points.push((
             id,
@@ -65,8 +57,6 @@ impl BlockBuilder {
     }
 }
 
-/// Everything at rest, with `set`'s values (normalised) and the others'
-/// defaults.
 fn defaults(frames: usize, set: &[(u32, f32)]) -> BlockBuilder {
     let mut block = BlockBuilder::new(frames);
     for info in TABLE {
@@ -79,7 +69,6 @@ fn defaults(frames: usize, set: &[(u32, f32)]) -> BlockBuilder {
     block
 }
 
-/// A lane's value at an absolute frame: straight between its points.
 fn curve_at(points: &[(u32, f32)], frame: usize) -> f32 {
     let after = points.partition_point(|p| p.0 as usize <= frame);
     let Some(before) = after.checked_sub(1) else {
@@ -96,9 +85,6 @@ fn curve_at(points: &[(u32, f32)], frame: usize) -> f32 {
     }
 }
 
-/// The points a lane gives one block, as the engine fills them: where it is at
-/// the first frame, each of its points inside the block, and where it has got
-/// to at the last.
 fn window(points: &[(u32, f32)], done: usize, n: usize) -> Vec<(u32, f32)> {
     let mut entries: Vec<(usize, f32)> = vec![(0, curve_at(points, done))];
     for &(at, value) in points {
@@ -116,9 +102,6 @@ fn window(points: &[(u32, f32)], done: usize, n: usize) -> Vec<(u32, f32)> {
         .collect()
 }
 
-/// Runs `device` over `left` and `right` a block at a time, `block` frames
-/// each (at most the 256 a device is given), giving each block
-/// `lanes(frame, frames)` for its points.
 fn run(
     device: &mut Utility,
     left: &mut [f32],
@@ -150,7 +133,6 @@ fn run(
     }
 }
 
-/// A device run with every parameter at rest.
 fn plain(set: &[(u32, f32)], left: &mut [f32], right: &mut [f32]) {
     let mut device = Utility::new();
     let set = set.to_vec();
@@ -176,7 +158,6 @@ fn the_gain_reads_in_decibels() {
     let mut left = vec![0.25; 256];
     let mut right = vec![-0.25; 256];
     let mut device = Utility::new();
-    // Past the glide.
     run(&mut device, &mut left, &mut right, 256, &|_, n| {
         defaults(n, &[(GAIN, at(GAIN, -6.0))])
     });
@@ -231,8 +212,6 @@ fn pan_follows_the_law_the_track_has() {
             right[4095]
         );
     }
-    // A quarter to the right, by the balance law: the left side is turned
-    // down and the right stays at unity.
     let mut left = vec![0.5; 4096];
     let mut right = vec![0.5; 4096];
     plain(&[(PAN, at(PAN, 25.0))], &mut left, &mut right);
@@ -242,13 +221,11 @@ fn pan_follows_the_law_the_track_has() {
 
 #[test]
 fn the_width_spreads_or_folds_the_sides() {
-    // 0 % is mono: both sides are the middle.
     let mut left = vec![0.5; 4096];
     let mut right = vec![-0.25; 4096];
     plain(&[(WIDTH, at(WIDTH, 0.0))], &mut left, &mut right);
     assert!((left[4095] - 0.125).abs() < 1e-6, "{}", left[4095]);
     assert_eq!(left[4095], right[4095]);
-    // 200 % doubles what the sides differ by, so the middle stays put.
     let mut left = vec![0.5; 4096];
     let mut right = vec![-0.25; 4096];
     plain(&[(WIDTH, at(WIDTH, 200.0))], &mut left, &mut right);
@@ -275,8 +252,6 @@ fn each_side_has_its_own_polarity_and_the_sides_can_swap() {
 
 #[test]
 fn bass_mono_centres_the_low_end_and_leaves_the_high_end_alone() {
-    // The side signal holds a constant (the lowest frequency there is) and an
-    // alternating one (the highest): under 200 Hz, only the constant goes.
     let mut left = vec![0.0; 4096];
     let mut right = vec![0.0; 4096];
     for k in 0..4096 {
@@ -286,8 +261,6 @@ fn bass_mono_centres_the_low_end_and_leaves_the_high_end_alone() {
         right[k] = 0.5 - low - high;
     }
     plain(&[(BASS_MONO, at(BASS_MONO, 200.0))], &mut left, &mut right);
-    // Late in the block the constant is gone from the sides: the two sides
-    // differ only by the fast part, in anti-phase.
     let (l, r) = (left[4000], right[4000]);
     assert!(
         (l + r - 1.0).abs() < 1e-3,
@@ -299,7 +272,6 @@ fn bass_mono_centres_the_low_end_and_leaves_the_high_end_alone() {
         "the fast part stays apart: {}",
         l - r
     );
-    // With it off, the low part is still there.
     let mut left2 = vec![0.0; 4096];
     let mut right2 = vec![0.0; 4096];
     for k in 0..4096 {
@@ -324,8 +296,6 @@ fn the_dc_block_takes_a_constant_offset_out() {
     assert!(right[47_999].abs() < 1e-3);
 }
 
-/// Every parameter moving at once (a lane for each) plays the same audio at
-/// every block size.
 #[test]
 fn the_same_audio_at_any_block_size() {
     let frames = 4800;
@@ -381,7 +351,6 @@ fn the_same_audio_at_any_block_size() {
     }
 }
 
-/// The audio thread's rules: a block with automation allocates nothing.
 #[test]
 fn a_block_with_automation_allocates_nothing() {
     assert!(
@@ -432,7 +401,6 @@ fn a_reset_forgets_the_filters_and_jumps_the_values() {
     run(&mut device, &mut left, &mut right, 64, &|_, n| {
         defaults(n, &[(GAIN, at(GAIN, 0.0))])
     });
-    // No glide from anywhere: unity at once.
     assert!((left[0] - 0.25).abs() < 1e-6, "{}", left[0]);
 }
 
@@ -442,10 +410,6 @@ fn the_table_names_the_device_it_is_for() {
     assert!(lumen_devices::effect_params(utility::NAME).is_some());
 }
 
-/// The table, pinned (M8 slice B0, review L1): each parameter's id, the name a
-/// person reads, and the normalised default. An id may not be reused or
-/// renumbered and a name may not change without moving this list on purpose: a
-/// project saves values by id, so a changed table is a changed sound.
 #[test]
 fn the_parameter_table_is_pinned_by_id_name_and_default() {
     let pinned: Vec<(u32, &str, f32)> = vec![
@@ -463,13 +427,11 @@ fn the_parameter_table_is_pinned_by_id_name_and_default() {
         .map(|p| (p.id, p.name, p.normalised(p.default)))
         .collect();
     assert_eq!(table, pinned);
-    // The constants a project and a lane name are those ids.
     assert_eq!(
         [GAIN, PAN, WIDTH, BASS_MONO, POLARITY_L, POLARITY_R, SWAP],
         [1, 2, 3, 4, 5, 6, 7]
     );
     assert_eq!(DC_BLOCK, 8);
-    // No id is reused and none is zero.
     let ids: std::collections::BTreeSet<u32> = TABLE.iter().map(|p| p.id).collect();
     assert_eq!(ids.len(), TABLE.len(), "an id is used twice");
     assert!(!ids.contains(&0), "0 is not a parameter");

@@ -4,7 +4,6 @@ use crate::repitch::Source;
 
 const RATE: u32 = 48_000;
 
-/// A file in memory.
 struct Mem {
     planes: Vec<Vec<f32>>,
 }
@@ -29,7 +28,6 @@ impl Source for Mem {
     }
 }
 
-/// A tone, 1 kHz, under a Gaussian envelope centred at `centre`.
 fn burst(frames: usize, centre: f64, sigma: f64) -> Vec<f32> {
     (0..frames)
         .map(|i| {
@@ -40,7 +38,6 @@ fn burst(frames: usize, centre: f64, sigma: f64) -> Vec<f32> {
         .collect()
 }
 
-/// A steady mixed tone: two partials and a little of a third.
 fn tone(frames: usize) -> Vec<f32> {
     (0..frames)
         .map(|i| {
@@ -71,7 +68,6 @@ fn render(
     (l, r)
 }
 
-/// The energy-weighted centre of `x`, in frames.
 fn centroid(x: &[f32]) -> f64 {
     let (mut sum, mut weight) = (0.0, 0.0);
     for (i, v) in x.iter().enumerate() {
@@ -82,7 +78,6 @@ fn centroid(x: &[f32]) -> f64 {
     sum / weight
 }
 
-/// The amplitude of the sine at `hz` in `x`, under a Hann window.
 fn amplitude(x: &[f32], hz: f64) -> f64 {
     let n = x.len() as f64;
     let (mut re, mut im, mut window) = (0.0, 0.0, 0.0);
@@ -120,9 +115,6 @@ fn the_stretcher_is_made_with_latencies() {
     }
 }
 
-/// Where the burst lands against where the map says it should, at several
-/// constant speeds: the alignment of the hop feed with the stretcher's
-/// latencies.
 #[test]
 fn a_burst_lands_where_the_map_puts_it() {
     for preset in [Preset::Full, Preset::Light] {
@@ -143,7 +135,6 @@ fn a_burst_lands_where_the_map_puts_it() {
     }
 }
 
-/// The level a steady tone keeps, whatever the speed.
 #[test]
 fn a_steady_tone_keeps_its_level_and_pitch_at_every_speed() {
     let mut source = Mem {
@@ -160,8 +151,6 @@ fn a_steady_tone_keeps_its_level_and_pitch_at_every_speed() {
         );
         let level = rms(&l);
         let want = rms(&source.planes[0][100_000..140_000]);
-        // The partials stay where they were, at their amplitudes: a change of
-        // speed that changed the pitch would move them.
         let (a220, a660) = (amplitude(&l, 220.0), amplitude(&l, 660.0));
         eprintln!(
             "speed {speed}: level {level:.4} want {want:.4}, 220 Hz {a220:.3}, 660 Hz {a660:.3}"
@@ -182,11 +171,6 @@ fn a_steady_tone_keeps_its_level_and_pitch_at_every_speed() {
     }
 }
 
-/// ADR-0120: the stretch library had a reported defect near unity speed, where
-/// the high band could lose level or move. A tone high in the spectrum, at
-/// ratios just off 1 and a few further, keeps its level and its pitch, against
-/// the amplitudes that made it (the analysis is a whole second, so each partial
-/// sits on a bin).
 #[test]
 fn high_partials_keep_their_level_and_pitch_just_off_unity() {
     let high = |frames: usize| -> Vec<f32> {
@@ -225,10 +209,8 @@ fn high_partials_keep_their_level_and_pitch_just_off_unity() {
     }
 }
 
-/// A speed that changes through the stream, as a tempo ramp makes it.
 fn ramp(k: i64) -> f64 {
     let t = k as f64;
-    // 0.8 to 1.3 and back over about 6 seconds.
     t * 1.05
         + 0.25 * 144_000.0 / std::f64::consts::TAU * (std::f64::consts::TAU * t / 144_000.0).sin()
         + 7_000.0
@@ -247,7 +229,6 @@ fn any_way_of_asking_gives_the_same_bits() {
     let (wl, wr) = render(&mut whole, &mut music(), &ramp, 0, total);
     assert!(rms(&wl) > 0.1, "something was rendered");
 
-    // In pages of 4,096, from the start.
     let mut pages = chunks(Preset::Full, 2);
     let mut source = music();
     let (mut pl, mut pr) = (Vec::new(), Vec::new());
@@ -259,7 +240,6 @@ fn any_way_of_asking_gives_the_same_bits() {
     }
     assert!(pl == wl && pr == wr, "pages differ from the whole");
 
-    // Odd sizes, with jumps back and forward, from a new stretcher.
     let mut jumpy = chunks(Preset::Full, 2);
     for (first, n) in [
         (250_000, 777),
@@ -281,17 +261,13 @@ fn any_way_of_asking_gives_the_same_bits() {
 #[test]
 fn a_copy_of_the_file_is_the_file() {
     let mut source = music();
-    // Chunk 0 plays the file as it was made, shifted by whole frames.
     let mut c = chunks(Preset::Full, 2);
     let (l, r) = render(&mut c, &mut source, &|k| k as f64 + 1_000.0, 0, 20_000);
     assert!(l == source.planes[0][1_000..21_000] && r == source.planes[1][1_000..21_000]);
-    // A chunk that does not is not.
     let (l, _) = render(&mut c, &mut source, &|k| k as f64 * 1.001, 0, 20_000);
     assert!(l != source.planes[0][..20_000]);
 }
 
-/// A file played at its own speed is the file at every frame, across several
-/// seams (review round 1: the copy's tail once read the frames after the seam).
 #[test]
 fn a_copy_of_the_file_is_the_file_across_every_seam() {
     let mut source = music();
@@ -300,7 +276,6 @@ fn a_copy_of_the_file_is_the_file_across_every_seam() {
     let (l, r) = render(&mut c, &mut source, &|k| k as f64 + 1_000.0, 0, total);
     assert!(l == source.planes[0][1_000..1_000 + total], "left");
     assert!(r == source.planes[1][1_000..1_000 + total], "right");
-    // A mono file the same, and asked for in pages.
     let mut source = Mem {
         planes: vec![tone(900_000)],
     };
@@ -317,9 +292,6 @@ fn a_copy_of_the_file_is_the_file_across_every_seam() {
     }
 }
 
-/// D3: the part of a chunk at the file's own speed is the file, though the
-/// chunk also holds a change of speed; the rest is the stretch's, and the same
-/// bits come out however it is asked for.
 #[test]
 fn an_unchanged_span_beside_a_change_in_one_chunk_is_the_file() {
     let change = CHUNK + 40_000;
@@ -334,17 +306,15 @@ fn an_unchanged_span_beside_a_change_in_one_chunk_is_the_file() {
     let total = 2 * CHUNK as usize;
     let mut whole = chunks(Preset::Full, 2);
     let (l, r) = render(&mut whole, &mut source, &map, 0, total);
-    let exact = (change - FADE) as usize; // frames below this are weight 1
+    let exact = (change - FADE) as usize;
     assert!(
         l[..exact] == source.planes[0][200..200 + exact]
             && r[..exact] == source.planes[1][200..200 + exact],
         "the unchanged span is the file"
     );
-    // After the change it is a stretch, not the file.
     let after = change as usize + 20_000;
     assert!(l[after..after + 5_000] != source.planes[0][200 + after..200 + after + 5_000]);
     assert!(rms(&l[after..after + 5_000]) > 0.1, "and it sounds");
-    // No click where the file hands over to the stretch.
     let step = |a: usize, b: usize| {
         l[a..b]
             .windows(2)
@@ -356,7 +326,6 @@ fn an_unchanged_span_beside_a_change_in_one_chunk_is_the_file() {
         step(change as usize - 20_000, change as usize - 4_000),
     );
     assert!(join < elsewhere * 1.5 + 0.01, "{join} against {elsewhere}");
-    // Pages and jumps give the same bits.
     let mut jumpy = chunks(Preset::Full, 2);
     for (first, n) in [
         (change as usize - 100, 5_000),
@@ -406,7 +375,6 @@ fn silence_stays_silent_and_the_end_of_the_file_is_safe() {
     let mut c = chunks(Preset::Light, 1);
     let (l, _) = render(&mut c, &mut quiet, &|k| k as f64 * 0.7, 0, 60_000);
     assert!(l.iter().all(|v| *v == 0.0));
-    // Past the end, and before the start of the file.
     let mut short = Mem {
         planes: vec![tone(20_000)],
     };
@@ -429,8 +397,6 @@ fn a_copy_and_a_stretch_meet_without_a_click() {
         planes: vec![tone(900_000)],
     };
     let seam = CHUNK;
-    // Chunk 0 plays the file as it was made; chunk 1 at nine tenths speed,
-    // continuing from the same place.
     let map = move |k: i64| {
         if k < seam {
             k as f64
@@ -465,9 +431,6 @@ fn render_pitched(
     (l, r)
 }
 
-/// A pitch moves the partials and keeps their levels, at every speed: a fifth
-/// up (700 cents) puts the 220 Hz partial at about 329.6 Hz and the 660 Hz one
-/// at about 988.9 Hz, and nothing is left at the old pitch (S6).
 #[test]
 fn a_pitched_tone_moves_its_partials_at_every_speed() {
     let fifth = 2.0_f64.powf(7.0 / 12.0);
@@ -492,10 +455,6 @@ fn a_pitched_tone_moves_its_partials_at_every_speed() {
     }
 }
 
-/// A pitch that moves along the stream gives the same bits however the stream
-/// is asked for: in one piece, in pages, from jumps, and from a stretcher that
-/// has played something else first (it is told its shift at every hop, so it
-/// keeps nothing from before).
 #[test]
 fn a_moving_pitch_gives_the_same_bits_however_it_is_asked() {
     let total = 2 * CHUNK as usize + 5_000;
@@ -520,7 +479,6 @@ fn a_moving_pitch_gives_the_same_bits_however_it_is_asked() {
     }
     assert!(pl == wl && pr == wr, "pages differ from the whole");
 
-    // A stretcher that has already played other frames, then jumps.
     let mut used = chunks(Preset::Full, 2);
     render_pitched(&mut used, &mut source, (&ramp, &pitch), 150_000, 9_000);
     for (first, n) in [(120_000, 777), (10, 60_000), (CHUNK as usize - 3, 9)] {
@@ -532,9 +490,6 @@ fn a_moving_pitch_gives_the_same_bits_however_it_is_asked() {
     }
 }
 
-/// A stream with a pitch copies the file only where the pitch is nothing: at
-/// the file's own speed, the frames before a shift begins are the file, and the
-/// frames after it are not.
 #[test]
 fn a_pitched_stream_copies_the_file_only_where_it_is_not_shifted() {
     let mut source = music();
@@ -555,7 +510,6 @@ fn a_pitched_stream_copies_the_file_only_where_it_is_not_shifted() {
         l[34_000..58_000] != source.planes[0][35_000..59_000],
         "after it is not"
     );
-    // And one that is shifted throughout copies nothing.
     let (l, _) = render_pitched(
         &mut chunks(Preset::Full, 2),
         &mut source,
@@ -566,8 +520,6 @@ fn a_pitched_stream_copies_the_file_only_where_it_is_not_shifted() {
     assert!(l != source.planes[0][1_000..21_000]);
 }
 
-/// A pitch of nothing keeps the level and the pitch the stream had: telling
-/// the stretcher "no shift" at every hop is not a different sound.
 #[test]
 fn a_pitch_of_nothing_keeps_the_level_and_the_pitch() {
     for speed in [0.9_f64, 1.2] {
@@ -587,11 +539,6 @@ fn a_pitch_of_nothing_keeps_the_level_and_the_pitch() {
     }
 }
 
-/// A big shift keeps the overall level and moves the pitch, but a pure tone
-/// does not stay pure: some of its energy lands beside the target partial
-/// (measured, ADR-0137). The Full preset holds more of it at the target than
-/// the cheaper one, an octave down especially, which is why a pitched Melodic
-/// clip plays with the Full one.
 #[test]
 fn an_octave_keeps_the_level_and_the_full_preset_keeps_more_of_the_tone() {
     let pure = |frames: usize| -> Vec<f32> {

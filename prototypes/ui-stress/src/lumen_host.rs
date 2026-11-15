@@ -1,7 +1,3 @@
-//! P-RENDER host 1: `lumen-render` inside egui. egui keeps windows, widgets,
-//! text and accessibility; canvases are drawn by Lumen's renderer through
-//! egui paint callbacks, sharing egui's wgpu device.
-
 use eframe::egui::{self, Rect};
 use eframe::egui_wgpu::{self, wgpu};
 use lumen_render::{Area, LayerId, Renderer, View, demo};
@@ -16,8 +12,6 @@ struct Resources {
 }
 
 pub fn install(state: &egui_wgpu::RenderState) -> Result<(), String> {
-    // The device was created with PIPELINE_CACHE (see main.rs), so Vello's
-    // shaders can be reused across launches.
     let path = std::env::temp_dir().join("lumen-vello-pipeline-egui.cache");
     let (cache, cache_state) =
         lumen_render::open_pipeline_cache(&state.device, std::fs::read(&path).ok());
@@ -71,7 +65,6 @@ impl egui_wgpu::CallbackTrait for Callback {
         let Some(lock) = resources.get_mut::<std::sync::Mutex<Resources>>() else {
             return Vec::new();
         };
-        // Exclusive access here, so no locking is needed.
         let Ok(r) = lock.get_mut() else {
             return Vec::new();
         };
@@ -118,8 +111,6 @@ impl egui_wgpu::CallbackTrait for Callback {
     }
 }
 
-/// A paint shape drawing `layer` in `rect` under `view` (egui points), with
-/// an optional animated vector overlay at time `overlay_t`.
 pub fn shape(
     rect: Rect,
     pixels_per_point: f32,

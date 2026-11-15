@@ -1,5 +1,3 @@
-//! The thread itself: start, load, configure, link, then serve requests.
-
 use super::*;
 
 pub(super) struct Run {
@@ -11,13 +9,9 @@ pub(super) struct Run {
     pub(super) requests: Receiver<Command>,
     pub(super) ended: Arc<AtomicBool>,
     pub(super) counts: Arc<Counts>,
-    /// The auxiliary buses to turn on at the next set-up.
     pub(super) aux: Cell<Aux>,
 }
 
-/// Where a crashed host said it died. The host writes the line as it goes
-/// down and Lumen reads it from the pipe a moment later, so look for it for
-/// a short while.
 fn crash_detail(host: &HostProcess, error: &HostError) -> Option<String> {
     if !matches!(
         error,
@@ -35,13 +29,9 @@ fn crash_detail(host: &HostProcess, error: &HostError) -> Option<String> {
     None
 }
 
-/// What the thread knows of the editor window between polls.
 struct EditorTrack {
-    /// Believed open (asked for and not seen closed).
     open: bool,
-    /// Opened has been said.
     announced: bool,
-    /// Its host did not answer the last time it was asked.
     hung: bool,
     last: Option<EditorBounds>,
     polled: Instant,
@@ -59,30 +49,15 @@ impl Default for EditorTrack {
     }
 }
 
-/// How many control calls in a row a running host may leave unanswered before
-/// it is treated as unresponsive. Each one waits [`QUICK`] on this thread, and
-/// a plugin that answers none of them cannot be played live, saved or set up
-/// again: waiting for it for ever hides a hang the interface could recover
-/// from.
 pub(super) const UNANSWERED_LIMIT: u32 = 3;
 
-/// Counts the control calls a running host left unanswered, so a plugin that
-/// stopped answering them but has not exited is found out: the audio side only
-/// learns that the process is still there. A call that answers, a failure that
-/// is not a timeout (a refusal is an answer), or a block the host answered
-/// since the last call starts the count again: a plugin working on a long
-/// block (an offline render gives it seconds) is not hung.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Silence {
     unanswered: u32,
-    /// The blocks the host had answered when the last call was counted.
     answered: u32,
 }
 
 impl Silence {
-    /// Counts one control call's outcome, with the host's block count as the
-    /// audio thread has left it, and says whether the host has now left
-    /// [`UNANSWERED_LIMIT`] calls in a row unanswered.
     pub(super) fn watch<T>(&mut self, result: &Result<T, HostError>, answered: u32) -> bool {
         let progress = answered != self.answered;
         self.answered = answered;
@@ -103,8 +78,6 @@ impl Silence {
     }
 }
 
-/// Whether `error` means the host's window code is not answering (as against
-/// a refusal or a host that is gone).
 fn not_answering(error: &HostError) -> bool {
     matches!(
         error,
@@ -133,9 +106,6 @@ impl Run {
         (self.wake)();
     }
 
-    /// Whether a control call leaves the host looking unresponsive (see
-    /// [`Silence`]): the blocks the audio side has seen it answer count as
-    /// progress.
     fn silent<T>(&self, silence: &mut Silence, result: &Result<T, HostError>) -> bool {
         silence.watch(result, self.counts.answered())
     }
@@ -207,8 +177,6 @@ impl Run {
                             gone = self.silent(&mut silence, &answer);
                             match answer {
                                 Ok(text) => self.say(Happened::Text { id, value, text }),
-                                // A host that does not answer would take the
-                                // same time for each of the rest.
                                 Err(HostError::Timeout) => break,
                                 Err(_) => {}
                             }
@@ -238,8 +206,6 @@ impl Run {
                     Command::CloseEditor => self.close_editor(&mut up, &mut editor),
                     Command::ShowEditor(visible) => {
                         if editor.open {
-                            // A window that does not answer is found out by
-                            // the poll; nothing is said here.
                             let _ = up.host.show_editor(visible, EDITOR_WAIT);
                         }
                     }
@@ -264,8 +230,6 @@ impl Run {
                             .state(CAPTURE)
                             .map(|component| Captured {
                                 component,
-                                // The controller's own state is a courtesy: a
-                                // plugin that cannot give it still has a state.
                                 controller: up
                                     .host
                                     .controller_state(CAPTURE)
@@ -347,9 +311,6 @@ impl Run {
                 }
             }
             Err(error) if not_answering(&error) => {
-                // The window is being made by a plugin that has stopped
-                // answering: it is open as far as anyone can say, and the
-                // poll finds out when it answers.
                 editor.open = true;
                 editor.hung = true;
                 editor.announced = false;
@@ -381,7 +342,6 @@ impl Run {
         }
     }
 
-    /// Asks an open editor where it is, and says what changed.
     fn watch_editor(&self, up: &mut Up, editor: &mut EditorTrack) {
         match up.host.editor_status(EDITOR_WAIT) {
             Ok(status) => {
@@ -418,8 +378,6 @@ impl Run {
         }
     }
 
-    /// Loads a state into the running plugin and reads every parameter's
-    /// value afterwards. A plugin that refuses the state keeps its own.
     fn load_state(
         &self,
         up: &mut Up,
@@ -432,7 +390,6 @@ impl Run {
             .set_state(state, d.state)
             .map_err(|e| e.to_string())?;
         if let Some(controller) = controller {
-            // The controller's view of its own state is not worth failing for.
             let _ = up.host.set_controller_state(controller, d.state);
         }
         for &(id, value) in values {
@@ -444,9 +401,6 @@ impl Run {
         Ok(list.iter().map(|p| (p.id, p.value)).collect())
     }
 
-    /// Ends a host that stopped answering the control calls this thread makes,
-    /// as a host that stopped running is ended: the device reads as failed and
-    /// the interface offers a reload, and the process is not left behind.
     fn went_silent(&self, up: &mut Up) {
         let failure = self.fail(&mut up.host, Step::Running, HostError::Timeout);
         self.say(Happened::Failed(failure));
@@ -478,8 +432,6 @@ impl Run {
             },
             detail: None,
         })?;
-        // Keys pressed in the plugin's window go to the app as they come, not
-        // at this thread's next look.
         let (out, wake, tag) = (self.out.clone(), self.wake.clone(), self.tag);
         host.on_notice(Box::new(move |news| {
             if let Response::Key { code, down } = news {
@@ -497,10 +449,6 @@ impl Run {
         if !s.controller_state.is_empty() {
             let _ = host.set_controller_state(s.controller_state.clone(), s.deadlines.state);
         }
-        // The parameters are for the interface: a plugin whose controller
-        // will not list them still plays. They are listed before the project's
-        // own values are set, so their values are what the saved state holds:
-        // the baseline an undone change goes back to.
         let (params_total, params) = host
             .parameters(s.deadlines.state)
             .unwrap_or((0, Vec::new()));
@@ -524,18 +472,11 @@ impl Run {
         Ok((up, linked))
     }
 
-    /// Configures at `rate` (a new generation) and opens a link. The plugin
-    /// is promised blocks of at most `frames` (the device's), never the
-    /// protocol's limit: some plugins work in proportion to it. The link has
-    /// room for the engine's longest block; a longer block than promised is
-    /// given to the plugin in pieces by the host.
     fn configure_and_link(&self, up: &mut Up, rate: f64, frames: u32) -> Result<Linked, Failure> {
         let s = &self.start;
         let inputs = if s.instrument { 0 } else { 2 };
         let frames = frames.clamp(1, MOST_FRAMES as u32);
         let aux = self.aux.get();
-        // The buses the plugin declares; one that will not list them is
-        // played on its main buses.
         let buses = up.host.buses(s.deadlines.configure).unwrap_or_default();
         let configured = up
             .host
@@ -582,10 +523,6 @@ impl Run {
     }
 }
 
-/// Where the output buses that are on sit in a block: the main bus first (2
-/// channels, as Lumen sets it up), then each auxiliary bus of `mask` in bus
-/// order. A list that does not add up to the `total` the host carries is
-/// played on its main bus alone.
 pub(super) fn output_pairs(buses: &[BusInfo], mask: u32, total: u8) -> Vec<Pair> {
     let mut pairs = vec![Pair {
         first: 0,

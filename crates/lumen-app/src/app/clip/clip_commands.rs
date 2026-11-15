@@ -1,6 +1,3 @@
-//! Clip commands of M7b slice E1 that work on the selection: join, crop to
-//! the time range, unloop, nudge, and the selection variants.
-
 use eframe::egui;
 use lumen_core::grid::Step;
 use lumen_core::time::{PPQ, Ticks};
@@ -8,16 +5,13 @@ use lumen_project::model::Id;
 
 use crate::App;
 
-/// The finest nudge: a 128th note, as the clip editor's fine nudge.
 pub(crate) const FINE: Ticks = Ticks(PPQ / 32);
 
 impl App {
-    /// The selected clips, in no order.
     pub(super) fn selected_clip_ids(&self) -> Vec<Id> {
         self.arrangement.clips.iter().copied().collect()
     }
 
-    /// Whether any selected clip is an audio clip (locked or not).
     pub(crate) fn selection_has_audio(&self) -> bool {
         self.document
             .project()
@@ -30,8 +24,6 @@ impl App {
             })
     }
 
-    /// Makes a short crossfade into each selected audio clip from the clip
-    /// before it, or removes theirs.
     pub(crate) fn toggle_selected_crossfade(&mut self) {
         let (ids, enabled) = {
             let project = self.document.project();
@@ -64,7 +56,6 @@ impl App {
         }
     }
 
-    /// Joins the selected clips (Ctrl+J).
     pub(crate) fn join_selected_clips(&mut self, ctx: &egui::Context) {
         let ids = self.selected_clip_ids();
         if ids.len() < 2 {
@@ -79,8 +70,6 @@ impl App {
             self.arrangement.clip_cursor = None;
         }
         if joined.apart {
-            // Audio that does not continue in its source cannot be one clip
-            // of the same file: it is rendered into a new file instead.
             self.arrangement.clips = joined.clips.into_iter().collect();
             self.consolidate_selected_clips(ctx);
         } else if joined.merged == 0 {
@@ -88,8 +77,6 @@ impl App {
         }
     }
 
-    /// Keeps the selected time range and removes the rest of its tracks'
-    /// clips (Crop to selection).
     pub(crate) fn crop_to_range(&mut self) {
         let Some(range) = self.arrangement.range.clone() else {
             return;
@@ -99,7 +86,6 @@ impl App {
         self.arrangement.clips.clear();
     }
 
-    /// Turns the selected looping clips into real clips.
     pub(crate) fn unloop_selected_clips(&mut self) {
         let ids = self.selected_clip_ids();
         let held = self.other_takes_held();
@@ -114,7 +100,6 @@ impl App {
         }
     }
 
-    /// How many passes the project's clips hold besides the ones they play.
     fn other_takes_held(&self) -> u32 {
         self.document
             .project()
@@ -126,9 +111,6 @@ impl App {
             .sum()
     }
 
-    /// Says so when an edit that rewrites clips left them with fewer takes
-    /// than `before` (see `other_takes_held`): the clip keeps the pass it
-    /// plays, and undo brings the rest back.
     fn say_dropped_takes(&mut self, before: u32) {
         let dropped = before.saturating_sub(self.other_takes_held());
         if dropped > 0 {
@@ -145,7 +127,6 @@ impl App {
         }
     }
 
-    /// Plays the next or previous take of the selected clips that have them.
     pub(crate) fn step_selected_takes(&mut self, by: i32) {
         let ids = self.selected_clip_ids();
         let Some(now) = self.document.step_takes(&ids, by) else {
@@ -163,14 +144,12 @@ impl App {
         self.say(format!("Take {} of {}", now + 1, count));
     }
 
-    /// Plays take `take` (from 0) of the clip, from its Takes menu.
     pub(crate) fn play_clip_take(&mut self, clip: Id, take: u32) {
         if self.document.play_take(clip, take) {
             self.say(format!("Playing take {}", take + 1));
         }
     }
 
-    /// Throws away the other takes of the selected clips.
     pub(crate) fn keep_only_selected_take(&mut self) {
         let ids = self.selected_clip_ids();
         let dropped = self.document.keep_only_take(&ids);
@@ -188,8 +167,6 @@ impl App {
         }
     }
 
-    /// Puts take `take` (from 0) of the audio clip on a new track after its
-    /// own.
     pub(crate) fn extract_clip_take(&mut self, clip: Id, take: u32) {
         if let Some(made) = self.document.extract_take(clip, take) {
             self.arrangement.clips = std::iter::once(made.clip).collect();
@@ -198,7 +175,6 @@ impl App {
         }
     }
 
-    /// Plays the selected audio clips backwards, or forwards again.
     pub(crate) fn reverse_selected_clips(&mut self) {
         let ids = self.selected_clip_ids();
         let held = self.other_takes_held();
@@ -214,14 +190,11 @@ impl App {
         }
     }
 
-    /// Inverts the polarity of the selected audio clips, or puts it back.
     pub(crate) fn invert_selected_clips(&mut self) {
         let ids = self.selected_clip_ids();
         self.document.invert_clips(&ids);
     }
 
-    /// One grid step in ticks, at the playhead (a step in bars is as long as
-    /// the bar there).
     fn clip_nudge_step(&self) -> Ticks {
         match self.grid_step() {
             Step::Ticks(step) => step,
@@ -236,8 +209,6 @@ impl App {
         }
     }
 
-    /// Moves the selected clips one grid step, or finely, earlier
-    /// (`direction` below zero) or later.
     pub(crate) fn nudge_selected_clips(&mut self, direction: i64, fine: bool) {
         let step = if fine { FINE } else { self.clip_nudge_step() };
         let ids = self.selected_clip_ids();
@@ -245,7 +216,6 @@ impl App {
             .nudge_clips(&ids, Ticks(step.0.saturating_mul(direction)));
     }
 
-    /// Selects the clips that are not selected, and no others.
     pub(crate) fn invert_clip_selection(&mut self) {
         let project = self.document.project();
         let chosen = &self.arrangement.clips;
@@ -262,8 +232,6 @@ impl App {
         self.arrangement.selected.clear();
     }
 
-    /// Selects every clip on the tracks that hold a selected clip, or the
-    /// selected tracks.
     pub(crate) fn select_clips_in_track(&mut self) {
         let project = self.document.project();
         let chosen = &self.arrangement.clips;
@@ -278,9 +246,6 @@ impl App {
         self.arrangement.selected.clear();
     }
 
-    /// Selects, on the tracks that hold a selected clip, every clip from the
-    /// start of the song up to the latest selected clip (`to_end` false), or
-    /// from the earliest selected clip to the end of the song (`to_end`).
     pub(crate) fn select_clips_toward(&mut self, to_end: bool) {
         let project = self.document.project();
         let chosen = &self.arrangement.clips;

@@ -1,57 +1,24 @@
-//! The audio thread's half of recording (M9 slice R2, ADR-0102): input that an
-//! armed track records is copied into a ring, and a worker thread writes it to
-//! disk. The audio thread never waits for the disk (hard rule 1): when the
-//! ring is full the chunk is dropped and counted, and the worker pads the gap
-//! with silence so the take stays in time.
-//!
-//! The ring holds *chunks*: the frames one render part took from one route,
-//! stamped with where they are.
-//!
-//! - `device` is the stream's frame count at the chunk's first frame. Chunks of
-//!   one track follow each other without a jump in it, unless a chunk was
-//!   dropped: that is how the worker tells a gap from a loop wrap.
-//! - `at` is the timeline sample *heard* at that frame, before the device's own
-//!   latency (as MIDI messages are placed, ADR-0046). It jumps back at a loop
-//!   wrap and may be negative while playback prerolls.
-//!
-//! Samples are pushed first, the header after, so a header always has its
-//! samples in the ring. A chunk is all or nothing.
-
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// Samples the ring holds, all channels together: 5.5 s of 16 channels at
-/// 48 kHz, or 43 s of a stereo pair. Reserved, not touched, until a take uses it.
 pub const RING_SAMPLES: usize = 1 << 22;
-/// Chunks the ring holds: a part per armed track per block, so 32 tracks at
-/// 64 frames fill it in 5.5 s, about when the samples do. 32 bytes each.
 pub const RING_CHUNKS: usize = 1 << 17;
 
-/// The frames one route took in one render part.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Chunk {
-    /// The track recording it.
     pub track: u64,
-    /// The stream's frame count at the first frame.
     pub device: u64,
-    /// The timeline sample heard at the first frame.
     pub at: i64,
-    /// Frames per channel.
     pub frames: u32,
-    /// One for a mono input, two for a pair.
     pub channels: u8,
 }
 
-/// What the audio side could not hand over.
 #[derive(Debug, Default)]
 struct Stats {
-    /// Chunks dropped because the ring was full.
     dropped_chunks: AtomicU64,
-    /// Frames in them.
     dropped_frames: AtomicU64,
 }
 
-/// Audio side. Real-time safe.
 #[derive(Debug)]
 pub struct CaptureSink {
     samples: rtrb::Producer<f32>,
@@ -59,7 +26,6 @@ pub struct CaptureSink {
     stats: Arc<Stats>,
 }
 
-/// Worker side: reads what the audio side kept.
 #[derive(Debug)]
 pub struct CaptureReader {
     samples: rtrb::Consumer<f32>,
@@ -67,7 +33,6 @@ pub struct CaptureReader {
     stats: Arc<Stats>,
 }
 
-/// Makes the pair. Allocates: call it off the audio thread.
 pub fn capture() -> (CaptureReader, CaptureSink) {
     capture_of(RING_SAMPLES, RING_CHUNKS)
 }
@@ -91,8 +56,6 @@ fn capture_of(samples: usize, chunks: usize) -> (CaptureReader, CaptureSink) {
 }
 
 impl CaptureSink {
-    /// Keeps a chunk: `left`, and `right` for a pair (the same length).
-    /// Returns false when the ring had no room and the chunk was dropped.
     pub fn push(
         &mut self,
         track: u64,
@@ -112,7 +75,6 @@ impl CaptureSink {
                 .fetch_add(frames as u64, Ordering::Relaxed);
             return false;
         }
-        // Room was checked, so neither push can fail.
         let _ = self.samples.push_entire_slice(left);
         if let Some(right) = right {
             let _ = self.samples.push_entire_slice(right);
@@ -129,25 +91,20 @@ impl CaptureSink {
 }
 
 impl CaptureReader {
-    /// The oldest chunk, with its samples in `samples` (the left channel, then
-    /// the right for a pair), or `None` when the ring is empty. May allocate.
     pub fn next(&mut self, samples: &mut Vec<f32>) -> Option<Chunk> {
         let chunk = self.chunks.pop().ok()?;
         let wanted = chunk.frames as usize * usize::from(chunk.channels);
         samples.clear();
         samples.resize(wanted, 0.0);
-        // Samples go in before the header, so they are all there.
         let read = self.samples.pop_entire_slice(samples);
         debug_assert!(read.is_ok(), "a chunk's samples are in the ring");
         Some(chunk)
     }
 
-    /// Chunks dropped so far because the ring was full.
     pub fn dropped_chunks(&self) -> u64 {
         self.stats.dropped_chunks.load(Ordering::Relaxed)
     }
 
-    /// Frames in the chunks dropped so far.
     pub fn dropped_frames(&self) -> u64 {
         self.stats.dropped_frames.load(Ordering::Relaxed)
     }

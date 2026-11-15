@@ -1,22 +1,13 @@
-//! The transport bar: its mark, its controls, and the panel toggles that
-//! keep their place at its right.
-
 use eframe::egui::{self, vec2};
 
 use crate::commands::Command;
 use crate::icons::{self, Icon};
 use crate::{App, widgets};
 
-/// The mark's size in the transport bar.
 const MARK_SIZE: f32 = 22.0;
 
 impl App {
     pub(crate) fn transport(&mut self, ui: &mut egui::Ui) {
-        // The panel toggles keep their place at the right at any width or
-        // scale, so their room is set aside first (as wide as they were
-        // last frame); the transport takes the rest, and the status text
-        // shortens to fit. They are drawn last, so Tab reaches them after
-        // the transport, in reading order (slice 8: they came first).
         let full = ui.available_rect_before_wrap();
         let width_id = ui.id().with("panel toggles width");
         let width: f32 = ui.data(|d| d.get_temp(width_id)).unwrap_or(220.0);
@@ -39,8 +30,6 @@ impl App {
                 .is_some_and(crate::live::LiveKeys::held),
         );
         ui.scope_builder(row(left), |ui| {
-            // Whatever does not fit is cut off here rather than drawn over
-            // the panel toggles.
             ui.set_clip_rect(ui.max_rect().intersect(ui.clip_rect()));
             self.transport_mark(ui);
             self.app_menu(ui);
@@ -50,7 +39,6 @@ impl App {
             self.transport.taps = self.tap.count();
             self.transport
                 .ui(ui, &mut self.document, &self.keymap, self.settings.record);
-            // What the bar's controls asked for: Record, Overdub, the count-in.
             for command in std::mem::take(&mut self.transport.requests) {
                 self.run(ui.ctx(), command);
             }
@@ -63,8 +51,6 @@ impl App {
             self.set_info(info);
         }
         let toggles = ui.scope_builder(row(right), |ui| {
-            // The MIDI chip sits with the panel toggles, so it stays in view
-            // however narrow the window: the transport is cut off first.
             self.transport.midi_chip(ui, &midi);
             crate::transport::divider(ui);
             let keys = self.keymap.keys(Command::OpenPalette);
@@ -83,9 +69,6 @@ impl App {
             {
                 self.toggle_palette();
             }
-            // The two panel toggles are quiet like the palette's: an accent
-            // icon over a short underline while their panel is open (the
-            // interface audit's TB1).
             let panel =
                 |ui: &mut egui::Ui, icon, shown: &mut bool, label, hint, (command, keys)| {
                     let tip = widgets::Tip {
@@ -123,8 +106,6 @@ impl App {
         }
     }
 
-    /// The mark before the wordmark (ADR-0043): a meter of the master, its
-    /// sun rising with the level. Recording turns it red from M9.
     fn transport_mark(&mut self, ui: &mut egui::Ui) {
         let master = self.document.project().master.id.0;
         let reading = self.arrangement.meters.reading(master);

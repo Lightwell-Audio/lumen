@@ -1,18 +1,3 @@
-//! One channel strip in the mixer (M4 slice 5, the owner's S1 console,
-//! ADR-0040), from the top: the rails of the groups it is in, its name,
-//! where it plays to, polarity and input trim, its sends, pan, M, S and arm,
-//! the fader beside its meter, then the volume typed in and the peak held.
-//!
-//! The interface audit's X1–X4 (the owner's B): hairlines divide the routing,
-//! the sends and pan; the sends are slots in one well, as on the header; M,
-//! S and arm are pieces of one well under pan, as on the header; trim keeps
-//! a small grey "dB".
-//!
-//! A short panel folds sections away (the owner's B7): sends first, then
-//! trim and polarity, then the output; name, pan, fader, meter and the
-//! buttons always stay. Strip controls are named "… in the mixer", so
-//! each has a name of its own beside its header's twin.
-
 use eframe::egui::{
     self, Align2, Color32, CursorIcon, FontId, Id as EguiId, Rangef, Rect, Sense, Stroke, Ui, pos2,
     vec2,
@@ -32,37 +17,22 @@ use crate::theme::Tone;
 use crate::widgets::{self, SliderKind, fader, meter, raised};
 use crate::{fonts, light, motion, theme};
 
-/// A strip's width: wide enough for a track name of about eleven characters
-/// (the owner's S1, widened after MT-MIX-5).
 pub(super) const WIDTH: f32 = 96.0;
-/// Side inset inside a strip.
 const INSET: f32 = theme::space::S;
-/// The height of a control row, and the gap between rows.
 const ROW: f32 = theme::size::CONTROL_SMALL;
 const GAP: f32 = theme::space::XS;
-/// The group rails along the top: 3 pt for each group the track is in
-/// (and for a group itself), at most four.
 const RAIL: f32 = 3.0;
 const TOP: f32 = 4.0 * RAIL + 2.0;
 const NAME: f32 = theme::size::CONTROL_SMALL;
-/// The room a hairline between sections adds to the row gap; the line is
-/// drawn in the middle of the two.
 const RULE: f32 = GAP;
-/// A piece of the M S ● well.
 const PIECE_W: f32 = theme::size::STRIP_PIECE_W;
-/// The fader's travel is at least this tall; the cap and the clip light
-/// take room above and below it.
 const TRAVEL_MIN: f32 = 64.0;
 const TRAVEL_PAD: f32 = 12.0;
 const BOTTOM: f32 = theme::space::S;
-/// dB marks on the scale between fader and meter, most important first:
-/// those without room for their number become ticks.
 const MARKS: [f32; 6] = [0.0, -48.0, 6.0, -12.0, -24.0, -6.0];
 
-/// Which optional sections a strip shows, for the panel's height.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Sections {
-    /// A MIDI track's From and To rows, above the output.
     pub io: bool,
     pub output: bool,
     pub trim: bool,
@@ -70,8 +40,6 @@ pub(super) struct Sections {
 }
 
 impl Sections {
-    /// The sections that fit `height`, folding sends away first, then trim
-    /// and polarity, then the output (the owner's B7).
     pub(super) fn fitting(height: f32, midi: bool) -> Self {
         let mut s = Sections {
             io: midi,
@@ -93,7 +61,6 @@ impl Sections {
         s
     }
 
-    /// The height everything but the fader takes.
     fn fixed(self) -> f32 {
         let optional = [
             (self.io, 2.0 * ROW + GAP),
@@ -109,22 +76,20 @@ impl Sections {
                 .sum::<f32>()
             + GAP
             + RULE
-            + ROW // pan
+            + ROW
             + GAP
-            + ROW // M, S and arm
+            + ROW
             + GAP
             + 2.0 * TRAVEL_PAD
             + GAP
-            + ROW // volume and peak
+            + ROW
             + BOTTOM
     }
 
-    /// The fader's travel in a strip `height` tall.
     pub(super) fn travel(self, height: f32) -> f32 {
         height - self.fixed()
     }
 
-    /// The shortest strip: everything folded and the shortest travel.
     pub(super) fn min_height() -> f32 {
         Sections {
             io: false,
@@ -137,29 +102,22 @@ impl Sections {
     }
 }
 
-/// What a strip needs from the panel besides its track.
 pub(super) struct StripLook<'a> {
     pub sections: Sections,
     pub heard: &'a Heard,
     pub keymap: &'a Keymap,
 }
 
-/// What a screen reader says for a strip: "Mixer strip: Kick, Audio track,
-/// muted" (the header says "Track Kick, …").
 fn strip_description(track: &Track) -> String {
     let header = headers::track_description(track);
     let rest = header.strip_prefix("Track ").unwrap_or(&header);
     format!("Mixer strip: {rest}")
 }
 
-/// Where a strip's levels are drawn, and how.
 struct Levels {
     rect: Rect,
-    /// The strip's inner span.
     x: Rangef,
-    /// Where the section starts.
     y: f32,
-    /// The fader's travel.
     travel_height: f32,
     id: EguiId,
     controls: theme::Controls,
@@ -167,8 +125,6 @@ struct Levels {
 }
 
 impl Arrangement {
-    /// Draws track `index`'s strip (the master when `index` is `None`) in
-    /// `rect` and applies what the user does with it.
     pub(super) fn strip(
         &mut self,
         ui: &mut Ui,
@@ -193,8 +149,6 @@ impl Arrangement {
         let heard = hears.output || track.kind == TrackKind::Master;
         let painter = ui.painter_at(rect);
 
-        // Background: click to select, drag to move (the owner's B8),
-        // right-click for the track's menu.
         let background = ui.interact(rect, id, Sense::click_and_drag());
         background.widget_info(|| {
             egui::WidgetInfo::selected(
@@ -232,8 +186,6 @@ impl Arrangement {
         };
         painter.rect_filled(rect, 0.0, fill);
 
-        // The rails of the groups it is in (outermost on top), and its own
-        // when it is a group: the arrangement's H1 rails, laid across.
         let project = doc.project();
         let mut rails: Vec<Color32> = lumen_project::groups::ancestors(&project.tracks, track.id)
             .filter_map(|g| project.tracks.iter().find(|t| t.id == g))
@@ -258,9 +210,6 @@ impl Arrangement {
         y += NAME + GAP;
 
         if look.sections.io {
-            // A MIDI track's From and To, an audio track's In and Monitor
-            // (the other kinds leave the room empty, so every fader keeps
-            // its place).
             if matches!(track.kind, TrackKind::Midi | TrackKind::Audio) {
                 let first = Rect::from_x_y_ranges(x, y..=y + ROW);
                 let second = Rect::from_x_y_ranges(x, y + ROW + GAP..=y + 2.0 * ROW + GAP);
@@ -281,7 +230,6 @@ impl Arrangement {
         if look.sections.trim {
             let row = Rect::from_x_y_ranges(x, y..=y + ROW);
             if track.kind == TrackKind::Master {
-                // The master has no trim here: its Solo/Cue switch instead.
                 let mid = row.center().y;
                 let at = Rect::from_x_y_ranges(
                     rect.left()..=rect.center().x + 23.0 + 10.0,
@@ -303,7 +251,6 @@ impl Arrangement {
             y += ROW + GAP;
         }
 
-        // Pan.
         rule(&painter, x, y);
         y += RULE;
         let pan_rect = Rect::from_x_y_ranges(x, y..=y + ROW);
@@ -357,7 +304,6 @@ impl Arrangement {
             rect.y_range(),
             Stroke::new(theme::stroke::HAIRLINE, palette.border),
         );
-        // Strips being dragged are dimmed, as their headers are.
         if self.is_dragged(track.id) {
             painter.rect_filled(
                 rect,
@@ -367,8 +313,6 @@ impl Arrangement {
         }
     }
 
-    /// The fader beside its scale and meter, the clip light, then the
-    /// volume typed in and the peak held (the owner's S1), from `y`.
     fn strip_levels(&mut self, ui: &mut Ui, doc: &mut Document, track: &Track, at: Levels) {
         let Levels {
             rect,
@@ -381,7 +325,6 @@ impl Arrangement {
         } = at;
         let palette = *theme::p();
         let painter = ui.painter_at(rect);
-        // The fader, its scale and the meter (the owner's S1).
         let travel = Rangef::new(y + TRAVEL_PAD, y + TRAVEL_PAD + travel_height);
         let fader_x = rect.left() + INSET + fader::CAP.x / 2.0 - 2.0;
         let gain = self.shown(doc, track, Target::Volume, track.gain_db);
@@ -413,10 +356,8 @@ impl Arrangement {
             palette.accent
         };
         meter::vertical(&painter, meter_rect, 2.0, &reading, base, heard);
-        // The clip light, over the meter: lit until clicked.
         let clip = Rect::from_x_y_ranges(meter_rect.x_range(), travel.min - 9.0..=travel.min - 4.0);
         if reading.clipped {
-            // A clip light needs you: it flares (ADR-0043).
             light::halo_around(&painter, light::FLARE, clip, 1.5, palette.record);
         }
         painter.rect_filled(
@@ -431,7 +372,6 @@ impl Arrangement {
         self.clear_clip_on_click(ui, clip.expand(3.0), track, id.with("clip"));
         y = travel.max + TRAVEL_PAD + GAP;
 
-        // The volume typed in, and the peak held.
         let half = (x.span() - GAP) / 2.0;
         let volume = Rect::from_x_y_ranges(x.min..=x.min + half, y..=y + ROW);
         let db = widgets::value_field(
@@ -449,13 +389,10 @@ impl Arrangement {
         if self.taken_over(doc, track, Target::Volume) {
             follow::ring(ui, volume);
         }
-        // The held peak is a readout: a click clears it.
         let peak = Rect::from_x_y_ranges(x.max - half..=x.max, y..=y + ROW);
         let hold = reading.hold_db();
         let response = self.clear_clip_on_click(ui, peak, track, id.with("peak"));
         let hover = motion::hover(ui.ctx(), id.with("peak hover"), response.hovered());
-        // A readout, sunk like the value field beside it (`paint_field`);
-        // a clip flares it in the record colour.
         let peak = peak.round_to_pixels(ui.pixels_per_point());
         let radius = theme::radius::for_height(peak.height());
         let ink = if reading.clipped {
@@ -482,9 +419,6 @@ impl Arrangement {
         raised::focus_ring(ui.painter(), &response, peak);
     }
 
-    /// M, S and arm in `rect`'s middle at `y`: pieces of one sunk well, as on
-    /// the header (the interface audit's X1–X4); a return has M and S, the
-    /// master M alone.
     fn strip_buttons(
         &mut self,
         ui: &mut Ui,
@@ -530,8 +464,6 @@ impl Arrangement {
         }
     }
 
-    /// The colour chip, a group's fold arrow, a return's letter, and the
-    /// name (double-click renames it here).
     fn strip_name(
         &mut self,
         ui: &mut Ui,
@@ -619,7 +551,6 @@ impl Arrangement {
         }
     }
 
-    /// Polarity (Ø) and input trim.
     fn trim_row(
         &mut self,
         ui: &mut Ui,
@@ -645,7 +576,6 @@ impl Arrangement {
         }
         let hover = motion::hover(ui.ctx(), id.with("invert hover"), response.hovered());
         let lit = motion::hover(ui.ctx(), id.with("invert lit"), track.invert);
-        // A raised toggle (ADR-0052), on while the polarity is inverted.
         let face = raised::Face::new(controls)
             .hover(hover)
             .pressed(response.is_pointer_button_down_on())
@@ -693,7 +623,6 @@ impl Arrangement {
         waiting_ring(ui, &self.auto, trim, track.id, Target::Trim);
     }
 
-    /// The master's mute.
     fn master_mute(
         &mut self,
         ui: &mut Ui,
@@ -720,7 +649,6 @@ impl Arrangement {
         }
         let hover = motion::hover(ui.ctx(), id.with("mute hover"), response.hovered());
         let lit = motion::hover(ui.ctx(), id.with("mute lit"), muted);
-        // As every track's M: a piece of its well, `mute` when on.
         let face = raised::Face::new(controls)
             .hover(hover)
             .pressed(response.is_pointer_button_down_on())
@@ -748,8 +676,6 @@ impl Arrangement {
         );
     }
 
-    /// A click on a clip light or a held peak clears it; Alt+click clears
-    /// every one.
     fn clear_clip_on_click(
         &mut self,
         ui: &mut Ui,
@@ -781,7 +707,6 @@ impl Arrangement {
     }
 }
 
-/// A hairline across the strip's inner span `x` at `y`, between sections.
 fn rule(painter: &egui::Painter, x: Rangef, y: f32) {
     let y = y.round_to_pixel_center(painter.pixels_per_point());
     painter.hline(
@@ -801,7 +726,6 @@ mod tests {
         assert!(all.io && all.output && all.trim && all.sends);
         assert!(!Sections::fitting(1_000.0, false).io);
         assert!(all.travel(1_000.0) > TRAVEL_MIN);
-        // Just short of room for the sends: they go first.
         let full = Sections {
             io: false,
             output: true,
@@ -811,7 +735,6 @@ mod tests {
         let h = full.fixed() + TRAVEL_MIN - 1.0;
         let s = Sections::fitting(h, false);
         assert!(!s.sends && s.trim && s.output, "{s:?}");
-        // Shorter still: trim, then the output.
         let s = Sections::fitting(h - RULE - ROW - GAP - ROW, false);
         assert!(!s.sends && !s.trim && s.output, "{s:?}");
         let s = Sections::fitting(Sections::min_height(), true);

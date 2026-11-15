@@ -1,9 +1,3 @@
-//! An instrument's other outputs on tracks of their own (M6 slice 6d): a
-//! track that plays an output of the plugin instrument hears the notes that
-//! go to that output and nothing else, on the same samples as the
-//! instrument's own track would. The plugins and the host program are the
-//! real ones, built by the test.
-
 use std::time::Duration;
 
 use eframe::egui::{Key, Modifiers};
@@ -20,9 +14,6 @@ const PLUGIN: Id = Id(20);
 const KICK: Id = Id(30);
 const SNARE: Id = Id(31);
 
-/// The instrument on a MIDI track playing `pitches` together for a long
-/// time, and an audio track for each of the instrument's outputs in `tracks`
-/// (`(track, bus)`).
 fn song(pitches: &[u8], tracks: &[(Id, u32)]) -> Project {
     let notes = pitches
         .iter()
@@ -44,8 +35,6 @@ fn song(pitches: &[u8], tracks: &[(Id, u32)]) -> Project {
     project_of("Outputs", all)
 }
 
-/// How loud each track plays, after the plugin has been set up for its
-/// outputs: the loudest of a few windows.
 fn loudest(lumen: &mut Lumen, track: Id) -> f32 {
     let mut best = f32::MIN;
     for _ in 0..30 {
@@ -67,8 +56,6 @@ fn start(name: &str, project: &Project) -> Lumen {
 
 #[test]
 fn a_track_plays_the_output_its_notes_go_to_and_nothing_else() {
-    // Pitch 61 goes to output 1 (61 mod 3), which the kick track plays; the
-    // keys and the snare track hear nothing.
     let mut lumen = start("kick", &song(&[61], &[(KICK, 1), (SNARE, 2)]));
     let kick = loudest(&mut lumen, KICK);
     assert!(kick > -20.0, "the output's own track plays it: {kick} dB");
@@ -80,7 +67,6 @@ fn a_track_plays_the_output_its_notes_go_to_and_nothing_else() {
 
 #[test]
 fn an_output_with_no_track_plays_on_the_instruments_own() {
-    // Pitch 62 goes to output 2, which has no track: the keys play it.
     let mut lumen = start("main", &song(&[62], &[(KICK, 1)]));
     let keys = loudest(&mut lumen, KEYS);
     assert!(keys > -20.0, "the main output has it: {keys} dB");
@@ -91,9 +77,6 @@ fn an_output_with_no_track_plays_on_the_instruments_own() {
     );
 }
 
-/// The menu under the card's Outputs row keeps its width while it is open and
-/// when an output is switched on (the owner's report: it grew to the right on
-/// every frame once a row named its track).
 #[test]
 fn the_outputs_menu_keeps_its_width_when_an_output_is_switched_on() {
     use egui_kittest::kittest::{NodeT, Queryable};
@@ -103,8 +86,6 @@ fn the_outputs_menu_keeps_its_width_when_an_output_is_switched_on() {
     lumen.app_mut().select_tracks(&[KEYS]);
     lumen.show_whole_cards();
 
-    // The menu's switches: one for each output but the main one, below the
-    // menu's caption (the browser has switches of its own above).
     let switches = |lumen: &Lumen| -> Vec<(String, f32)> {
         let Some(caption) = lumen.harness.query_by_label_contains("Outputs of") else {
             return Vec::new();
@@ -150,11 +131,6 @@ fn the_outputs_menu_keeps_its_width_when_an_output_is_switched_on() {
 
 #[test]
 fn an_output_without_a_track_is_heard_on_the_instruments_own_not_on_another_output() {
-    // Pitch 61 goes to output 1, which has no track; only output 2 has one
-    // (the snare). Every output is on, so the plugin sends the note to output
-    // 1 and the instrument's own track plays it: the snare's track, the next
-    // output on, hears nothing (a plugin that finds an output off may move its
-    // sound to the next one that is on).
     let mut lumen = start("fold", &song(&[61], &[(SNARE, 2)]));
     let keys = loudest(&mut lumen, KEYS);
     assert!(
@@ -165,7 +141,6 @@ fn an_output_without_a_track_is_heard_on_the_instruments_own_not_on_another_outp
     assert!(snare < -60.0, "the next output is silent: {snare} dB");
 }
 
-/// The song with the instrument's track chosen and its Devices tab showing.
 fn open_card(name: &str, project: &Project) -> Lumen {
     let mut lumen = launch(name, project, &["Multi"]);
     wait_for_state(&mut lumen, PLUGIN, "ready");
@@ -174,7 +149,6 @@ fn open_card(name: &str, project: &Project) -> Lumen {
     lumen
 }
 
-/// The labels of the open menu's switches, in order.
 fn menu_switches(lumen: &Lumen) -> Vec<String> {
     use egui_kittest::kittest::{NodeT, Queryable};
     let Some(caption) = lumen.harness.query_by_label_contains("Outputs of") else {
@@ -226,7 +200,6 @@ fn a_switch_makes_the_output_a_track_in_one_undo_step_and_the_row_says_how_many(
 
 #[test]
 fn switching_off_an_output_whose_track_holds_work_asks_and_remove_takes_it_away() {
-    // The output's track carries a device: it is not an empty track.
     let mut project = song(&[61], &[(KICK, 1)]);
     let held = project
         .tracks

@@ -1,8 +1,3 @@
-//! The pages of Preferences (M9 R7). Audio and MIDI draw themselves
-//! (`preferences/audio.rs`, `preferences/midi.rs`); the rest change the
-//! app's own settings, mostly through the commands the palette has, so a
-//! switch here and its command are one setting.
-
 use std::time::Instant;
 
 use eframe::egui::{self, Ui};
@@ -20,7 +15,6 @@ use crate::widgets::{hint, row, section};
 use crate::{App, midi, settings, theme, widgets};
 
 impl App {
-    /// The page shown now.
     pub(super) fn preferences_page(
         &mut self,
         ui: &mut Ui,
@@ -57,7 +51,6 @@ impl App {
             };
             match kept {
                 audio::Action::RecordOffset(ms) => {
-                    // Typed by hand: no longer the measured one.
                     self.settings.record.offset_ms = ms;
                     self.settings.offset_measured = None;
                 }
@@ -167,7 +160,6 @@ impl App {
         });
         marks.row(ui, "record.metronome_output", |ui| {
             row(ui, "Output", |ui| {
-                // Its own output, never through the master (the owner's D6).
                 let cue = settings::CUE_CHANNEL;
                 let ready = self.transport.audio.cue_ready();
                 let outputs = [
@@ -195,7 +187,6 @@ impl App {
             );
         });
         if metronome != self.transport.metronome {
-            // Saved with the settings once they settle.
             self.transport.restore_metronome(metronome);
             widgets::note_change(ui);
         }
@@ -373,8 +364,6 @@ impl App {
         });
     }
 
-    /// Your plugin folders with Remove, Add plugin folder…, and the
-    /// standard folders. The first-run window shows them too (M9 R7b).
     pub(crate) fn plugin_folder_rows(&mut self, ui: &mut Ui, marks: &Marks) {
         marks.row(ui, "plugins.folders", |ui| section(ui, "Your folders"));
         let folders = self.settings.plugins.folders.clone();
@@ -402,8 +391,6 @@ impl App {
         }
     }
 
-    /// The plugins a scan blocked, each with why and Retry; the browser lists
-    /// them too, under "Blocked".
     fn blocked_plugins_rows(&mut self, ui: &mut Ui, marks: &Marks) {
         marks.row(ui, "plugins.blocked", |ui| section(ui, "Blocked plugins"));
         let blocked: Vec<_> = self
@@ -421,7 +408,6 @@ impl App {
             return;
         }
         hint(ui, lumen_plugin_catalog::blocklist::WHEN_RETRIED);
-        // During a scan, Retry waits for it to end (ADR-0114).
         let ready = !self.safe.on;
         let mut retried = None;
         for (name, path, why) in &blocked {
@@ -549,8 +535,6 @@ impl App {
         });
     }
 
-    /// A switch for the setting `command` turns on and off, named as the
-    /// palette names it; its hover tells the command's keys.
     fn command_switch(&mut self, ui: &mut Ui, command: Command, on: bool) {
         let name = command.name();
         let ready = self.availability(ui.ctx(), command);
@@ -563,7 +547,6 @@ impl App {
         }
     }
 
-    /// A button for `command`; greyed with the reason when it cannot run.
     fn command_button(&mut self, ui: &mut Ui, command: Command, label: &str) {
         let ready = self.availability(ui.ctx(), command);
         let response = ui
@@ -585,7 +568,6 @@ impl App {
         }
     }
 
-    /// Runs `command` from a page, as the palette would.
     fn page_command(&mut self, ui: &Ui, command: Command) {
         let ctx = ui.ctx().clone();
         if self.availability(&ctx, command).is_ok() {
@@ -594,10 +576,6 @@ impl App {
     }
 }
 
-/// A plugin folder's row, a control high: its path, cut short before the
-/// right edge, and a Remove button there when it is one of the user's (the
-/// standard folders are always searched, so theirs is quiet). True when
-/// Remove was clicked.
 fn folder_row(ui: &mut Ui, folder: &str, yours: bool) -> bool {
     let width = ui.available_width();
     ui.allocate_ui_with_layout(
@@ -626,7 +604,6 @@ fn folder_row(ui: &mut Ui, folder: &str, yours: bool) -> bool {
     .inner
 }
 
-/// An undo depth as the choice shows it: "1,000".
 fn steps_label(steps: usize) -> String {
     let thousands = steps / 1_000;
     if thousands > 0 && steps.is_multiple_of(1_000) {

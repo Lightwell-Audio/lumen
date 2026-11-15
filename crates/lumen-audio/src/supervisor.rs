@@ -1,15 +1,3 @@
-//! The audio supervisor: one control thread that owns the backend and keeps
-//! audio running through driver resets, configuration changes and device
-//! loss. The rest of Lumen talks to it through [`AudioSystem`].
-//!
-//! States: `Stopped` → `Running` ⇄ `Lost`. A reset request closes and reopens
-//! the same configuration; if the device is gone, the supervisor reports
-//! `Lost` and retries until it returns. A reopened device only counts as
-//! restored once callbacks have flowed for [`Timing::restore_confirm`]:
-//! some drivers accept an open while their hardware is disappearing, then
-//! fail moments later. A configuration change that fails falls back to the
-//! last working configuration (spec §6.9).
-
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -19,51 +7,29 @@ use std::time::{Duration, Instant};
 use crate::backend::{Backend, OpenError, Stream, StreamEvent, silent};
 use crate::types::{AudioCallback, AudioError, Block, StreamConfig, StreamInfo};
 
-/// What the supervisor reports to the UI.
 #[derive(Debug, Clone, PartialEq)]
 pub enum DeviceEvent {
     Started(StreamInfo),
-    /// The driver asked for a reset and the stream came back.
     Reset(StreamInfo),
-    /// The device disappeared; audio is off until it returns.
     Lost(AudioError),
-    /// The device came back and audio resumed.
     Restored(StreamInfo),
-    /// A requested configuration failed; `reverted` says whether the
-    /// previous one is running again.
-    ConfigFailed {
-        error: AudioError,
-        reverted: bool,
-    },
+    ConfigFailed { error: AudioError, reverted: bool },
     Stopped,
 }
 
-/// Lock-free status for meters, written by the audio callback.
 #[derive(Debug, Default)]
 pub struct Status {
     state: AtomicU8,
     callbacks: AtomicU64,
-    /// Callback time ÷ block duration, in thousandths.
     last_load: AtomicU32,
     peak_load: AtomicU32,
-    /// Callbacks, their time and their blocks' length since the interface
-    /// last took them, in nanoseconds: the mean of a stretch.
     window_blocks: AtomicU32,
     window_used: AtomicU64,
     window_budget: AtomicU64,
-    /// Blocks whose processing took longer than their duration.
     overloads: AtomicU64,
-    /// Frames processed, for the starvation check.
     frames: AtomicU64,
-    /// Audio that never reached the device: missed buffers, or delivery
-    /// slower than real time.
     dropouts: AtomicU64,
-    /// The part of `dropouts` from delivery slower than real time (the
-    /// rest are buffers the driver skipped), to tell the two apart.
     slow: AtomicU64,
-    /// Set when a stream opens: the next block starts the driver position
-    /// count afresh. A reopened stream (a driver reset, a new buffer size)
-    /// may start anywhere, and the gap is a restart, not lost audio.
     resync: AtomicBool,
 }
 
@@ -85,16 +51,12 @@ impl Status {
     pub fn callbacks(&self) -> u64 {
         self.callbacks.load(Ordering::Relaxed)
     }
-    /// Share of the block's time budget the last callback used (1.0 = all).
     pub fn load(&self) -> f32 {
         self.last_load.load(Ordering::Relaxed) as f32 / 1000.0
     }
-    /// Highest load since the last call to this method.
     pub fn take_peak_load(&self) -> f32 {
         self.peak_load.swap(0, Ordering::Relaxed) as f32 / 1000.0
     }
-    /// The callbacks since the last call to this method: how many, and their
-    /// mean time and block length.
     pub fn take_block_time(&self) -> BlockTime {
         let blocks = self.window_blocks.swap(0, Ordering::Relaxed);
         let used = self.window_used.swap(0, Ordering::Relaxed);
@@ -109,22 +71,15 @@ impl Status {
     pub fn overloads(&self) -> u64 {
         self.overloads.load(Ordering::Relaxed)
     }
-    /// Dropouts since start (or the last reset): buffers the driver skipped,
-    /// plus audio delivered slower than real time, in buffers.
     pub fn dropouts(&self) -> u64 {
         self.dropouts.load(Ordering::Relaxed)
     }
-    /// The part of [`Self::dropouts`] from audio delivered slower than
-    /// real time; the rest are buffers the driver's position skipped.
     pub fn slow_dropouts(&self) -> u64 {
         self.slow.load(Ordering::Relaxed)
     }
-    /// Counts `n` dropouts as the device would: for tests of what shows
-    /// them, on devices that cannot be made to drop out on cue.
     pub fn count_dropouts(&self, n: u64) {
         self.dropouts.fetch_add(n, Ordering::Relaxed);
     }
-    /// Zeroes the dropout and overload counters (the user's "reset").
     pub fn reset_counters(&self) {
         self.dropouts.store(0, Ordering::Relaxed);
         self.slow.store(0, Ordering::Relaxed);
@@ -135,24 +90,16 @@ impl Status {
     }
 }
 
-/// What the callbacks of a stretch of time took, on average.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct BlockTime {
-    /// Callbacks in the stretch; none while the audio is off.
     pub blocks: u32,
-    /// Mean time a callback took.
     pub used: Duration,
-    /// Mean length of a block: the time each callback had.
     pub block: Duration,
 }
 
-/// Wraps the user's callback to measure its load and spot skipped buffers.
-/// Real-time safe.
 struct Metered {
     inner: Box<dyn AudioCallback>,
     status: Arc<Status>,
-    /// Where the driver's sample position should be next block, when it
-    /// reports one (ASIO).
     expected_position: Option<u64>,
 }
 
@@ -175,9 +122,6 @@ impl AudioCallback for Metered {
         if load > 1000 {
             self.status.overloads.fetch_add(1, Ordering::Relaxed);
         }
-        // A driver position past where it should be means it skipped
-        // buffers. A position behind it means the stream restarted: resync.
-        // A block without one (a driver resync) starts the count afresh.
         if self.status.resync.swap(false, Ordering::Relaxed) || block.position.is_none() {
             self.expected_position = None;
         }
@@ -201,25 +145,15 @@ enum Command {
     Configure(StreamConfig),
     Stop,
     Shutdown,
-    /// Open the running driver's settings window; the result comes back.
     ControlPanel(Sender<Result<(), String>>),
-    /// Close the stream, give the callback back and end the thread, so a
-    /// new control thread can run it with another driver.
     Handover(Sender<Box<dyn AudioCallback>>),
 }
 
-/// Timing knobs; tests shorten them.
 #[derive(Debug, Clone, Copy)]
 pub struct Timing {
-    /// How often to try reopening a lost device.
     pub retry_interval: Duration,
-    /// How often the control thread polls the stream and pumps messages.
     pub poll_interval: Duration,
-    /// How long a reopened lost device must deliver audio before it is
-    /// reported `Restored`.
     pub restore_confirm: Duration,
-    /// How often delivery is checked against real time (`None` turns the
-    /// check off). The first window after any (re)open is ignored.
     pub starvation_window: Option<Duration>,
 }
 
@@ -234,21 +168,12 @@ impl Default for Timing {
     }
 }
 
-/// How long [`AudioSystem::switch`] waits for the old control thread to give
-/// the callback back.
 pub const HANDOVER_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Why [`AudioSystem::switch`] did not switch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SwitchError {
-    /// The old control thread has ended (it panicked), and the callback
-    /// with it.
     Stopped,
-    /// The old control thread did not give the callback back within
-    /// [`HANDOVER_TIMEOUT`]: its driver did not close. It still holds it.
     NoHandover,
-    /// The new control thread could not start (the system is out of threads);
-    /// the callback went with it, so audio is off until a restart.
     NotStarted,
 }
 
@@ -264,12 +189,9 @@ impl std::fmt::Display for SwitchError {
 
 impl std::error::Error for SwitchError {}
 
-/// Handle to the audio supervisor. Dropping it stops audio and joins the thread.
 pub struct AudioSystem {
     commands: Sender<Command>,
     events: Receiver<DeviceEvent>,
-    /// Cloned into each control thread, so events keep arriving after a
-    /// driver switch.
     event_tx: Sender<DeviceEvent>,
     status: Arc<Status>,
     thread: Option<JoinHandle<()>>,
@@ -277,9 +199,6 @@ pub struct AudioSystem {
 }
 
 impl AudioSystem {
-    /// Starts the control thread. `make_backend` runs on that thread, so
-    /// thread-affine drivers (ASIO's COM apartment) live there. A thread that
-    /// cannot start is an error that hands the callback back.
     pub fn spawn<B, F>(
         make_backend: F,
         callback: Box<dyn AudioCallback>,
@@ -313,8 +232,6 @@ impl AudioSystem {
         })
     }
 
-    /// Starts the control thread; a system that cannot make one gets the
-    /// failure and its callback back, so audio says why instead of panicking.
     fn start_thread<B, F>(
         make_backend: F,
         callback: Box<dyn AudioCallback>,
@@ -327,9 +244,6 @@ impl AudioSystem {
         F: FnOnce() -> B + Send + 'static,
     {
         let (commands, command_rx) = mpsc::channel();
-        // The callback waits here until the thread has begun, so a thread
-        // that cannot start hands it back instead of dropping it with the
-        // closure.
         let slot = Arc::new(Mutex::new(Some(callback)));
         let handed = Arc::clone(&slot);
         let thread = std::thread::Builder::new()
@@ -374,21 +288,6 @@ impl AudioSystem {
         }
     }
 
-    /// Switches to another driver model (ASIO to WASAPI, for example) and
-    /// opens `config` on it. The running callback, with all its state, moves
-    /// to a fresh control thread: driver models need differently set-up
-    /// threads (COM apartments), which cannot change once set. Results
-    /// arrive as events.
-    ///
-    /// Waits up to [`HANDOVER_TIMEOUT`] for the old control thread to close
-    /// its stream and give the callback back, calls `handed` once it has,
-    /// then waits, with no deadline, for that thread to end (its driver is
-    /// released then). Events the old driver sent and nobody read are
-    /// dropped: the first event after a switch is the new driver's. A driver
-    /// can keep it waiting forever, so call this
-    /// where waiting is harmless, never on the interface thread. After
-    /// [`SwitchError::NoHandover`] the old thread still holds the callback,
-    /// and dropping `self` waits for that thread too.
     pub fn switch<B, F>(
         &mut self,
         make_backend: F,
@@ -411,8 +310,6 @@ impl AudioSystem {
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
-        // What the old driver said and nobody read yet is about a device
-        // that is closed now: read later, it would pass for the new one's.
         while self.events.try_recv().is_ok() {}
         let (commands, thread) = Self::start_thread(
             make_backend,
@@ -421,25 +318,17 @@ impl AudioSystem {
             Arc::clone(&self.status),
             self.timing,
         )
-        .map_err(|_| {
-            // The callback went with the thread: audio is off until a
-            // restart, which the interface says.
-            SwitchError::NotStarted
-        })?;
+        .map_err(|_| SwitchError::NotStarted)?;
         self.commands = commands;
         self.thread = Some(thread);
         self.configure(config);
         Ok(())
     }
 
-    /// Opens (or switches to) a configuration. Results arrive as events.
     pub fn configure(&self, config: StreamConfig) {
         let _ = self.commands.send(Command::Configure(config));
     }
 
-    /// Asks the running driver to open its own settings window (ASIO). Does
-    /// not wait: drivers can take seconds (Focusrite starts its Control
-    /// app). The result arrives on the returned channel.
     pub fn request_control_panel(&self) -> Receiver<Result<(), String>> {
         let (tx, rx) = mpsc::channel();
         if let Err(mpsc::SendError(Command::ControlPanel(tx))) =
@@ -450,7 +339,6 @@ impl AudioSystem {
         rx
     }
 
-    /// Audio off (the "Audio On/Off" switch).
     pub fn stop(&self) {
         let _ = self.commands.send(Command::Stop);
     }
@@ -459,12 +347,10 @@ impl AudioSystem {
         &self.status
     }
 
-    /// Next event without waiting.
     pub fn try_event(&self) -> Option<DeviceEvent> {
         self.events.try_recv().ok()
     }
 
-    /// Next event, waiting up to `timeout`.
     pub fn wait_event(&self, timeout: Duration) -> Option<DeviceEvent> {
         self.events.recv_timeout(timeout).ok()
     }
@@ -481,18 +367,12 @@ impl Drop for AudioSystem {
 
 struct Supervisor<B: Backend> {
     backend: B,
-    /// Held here whenever no stream owns it.
     callback: Option<Box<dyn AudioCallback>>,
     stream: Option<Box<dyn Stream>>,
-    /// The last configuration that worked (or is wanted, while lost).
     config: Option<StreamConfig>,
     lost_since: Option<Instant>,
-    /// A lost device that reopened and is on probation.
     confirming: Option<Confirming>,
-    /// The running stream's rate and block size, for the starvation check.
     running: Option<StreamInfo>,
-    /// The current starvation window: when it began, frames by then, and
-    /// whether it is the warm-up window after an open (ignored).
     window: Option<(Instant, u64, bool)>,
     next_retry: Instant,
     events: Sender<DeviceEvent>,
@@ -543,7 +423,6 @@ impl<B: Backend> Supervisor<B> {
         let _ = self.events.send(event);
     }
 
-    /// Opens `config`; on failure the callback comes back into `self`.
     fn try_open(&mut self, config: &StreamConfig) -> Result<StreamInfo, AudioError> {
         let callback = self
             .callback
@@ -621,9 +500,6 @@ impl<B: Backend> Supervisor<B> {
         self.emit(DeviceEvent::Lost(error));
     }
 
-    /// Compares audio delivered with real time over each window; a
-    /// shortfall beyond 3% counts as dropouts, in buffers. Catches drivers
-    /// that run but starve the device (MT-AUDIO-4).
     fn check_starvation(&mut self) {
         let (Some(window), Some(info)) = (self.timing.starvation_window, &self.running) else {
             return;
@@ -652,7 +528,6 @@ impl<B: Backend> Supervisor<B> {
         self.window = Some((now, frames, false));
     }
 
-    /// A reopened lost device failed its probation: back to quiet retries.
     fn retry_later(&mut self) {
         self.close();
         self.next_retry = Instant::now() + self.timing.retry_interval;
@@ -670,8 +545,6 @@ impl<B: Backend> Supervisor<B> {
             if self.confirming.is_some() {
                 match event {
                     None => self.confirm_restore(),
-                    // A missed buffer is still audio flowing: the probation of
-                    // a reopened device goes on.
                     Some(StreamEvent::Dropped(dropped)) => self.status.count_dropouts(dropped),
                     Some(_) => self.retry_later(),
                 }
@@ -680,8 +553,6 @@ impl<B: Backend> Supervisor<B> {
             match event {
                 None => {}
                 Some(StreamEvent::Dropped(dropped)) => {
-                    // The driver says it missed buffers (an overload): audio
-                    // keeps playing and the dropout count shows it.
                     self.status.count_dropouts(dropped);
                 }
                 Some(StreamEvent::ResetRequested) => {
@@ -712,7 +583,6 @@ impl<B: Backend> Supervisor<B> {
         }
     }
 
-    /// Ends probation once its window has passed: restored if audio flowed.
     fn confirm_restore(&mut self) {
         let Some(confirming) = &self.confirming else {
             return;

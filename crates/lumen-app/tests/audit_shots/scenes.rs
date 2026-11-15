@@ -1,8 +1,5 @@
-//! Visual capture scenarios; common app harness lives in the parent.
 use super::*;
 
-/// Owner's four visual corrections: compact tempo, menu organization,
-/// equal letter caps and shortcut-search padding.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn owner_polish() {
@@ -46,7 +43,6 @@ fn owner_polish() {
     }
 }
 
-/// Finds the names to drive the other scenes with.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn labels() {
@@ -57,9 +53,6 @@ fn labels() {
     s.snap("labels");
 }
 
-// ---- Scenes ----
-
-/// The empty window, the transport, every chip and the palette.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn chrome() {
@@ -137,15 +130,12 @@ fn chrome() {
     });
 }
 
-/// Every menu on the arrangement: clips, lanes, rulers, tracks, the add menu
-/// and the toolbar.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn arrangement() {
     looks("arrangement", true, |s| {
         s.snap("rest");
         let kick = s.rect_of_track(0);
-        // A clip's menu, a clip selection and the range's menu.
         click(&mut s.h, pos(kick, 0.5, 0.4));
         s.steps(4);
         s.snap("clip-selected");
@@ -159,8 +149,6 @@ fn arrangement() {
         s.snap("clips-menu");
         s.esc();
         s.chord(Modifiers::NONE, Key::Escape);
-        // The info line over a clip's header, then with Ctrl held: what Ctrl
-        // does lights and the rest dims (the interface audit's I1).
         s.h.hover_at(pos(kick, 0.5, 0.15));
         s.steps(4);
         s.snap("info-clip");
@@ -168,12 +156,10 @@ fn arrangement() {
         s.steps(4);
         s.snap("info-clip-ctrl");
         s.h.event(eframe::egui::Event::ModifiersChanged(Modifiers::NONE));
-        // Empty lanes.
         right_click(&mut s.h, pos(kick, 6.0, 0.5));
         s.steps(6);
         s.snap("lanes-menu");
         s.esc();
-        // A time range, and its menu.
         s.h.drag_at(pos(kick, 1.4, 0.7));
         s.h.run_steps(2);
         s.h.hover_at(pos(kick, 3.4, 0.7));
@@ -186,7 +172,6 @@ fn arrangement() {
         s.snap("range-menu");
         s.esc();
         s.chord(Modifiers::NONE, Key::Escape);
-        // Rulers.
         for (n, label) in [
             "Ruler: click to move",
             "Time ruler: drag",
@@ -201,7 +186,6 @@ fn arrangement() {
                 s.esc();
             }
         }
-        // The toolbar.
         for (n, label) in [
             "Grid: ",
             "Arrangement tool",
@@ -217,7 +201,6 @@ fn arrangement() {
                 s.esc();
             }
         }
-        // Tracks.
         for (n, label) in [
             "Track kick",
             "Track Master",
@@ -247,7 +230,6 @@ fn arrangement() {
         s.command("Clip properties");
         s.snap("clip-properties");
         s.esc();
-        // A group of two tracks.
         let ids: Vec<_> =
             s.h.state()
                 .project()
@@ -263,7 +245,6 @@ fn arrangement() {
         s.chord(Modifiers::NONE, Key::ArrowLeft);
         s.steps(20);
         s.snap("group-folded");
-        // Zoomed far in and far out.
         for _ in 0..8 {
             s.chord(Modifiers::NONE, Key::Equals);
         }
@@ -284,8 +265,6 @@ fn double_click(h: &mut H, p: Pos2) {
     click(h, p);
 }
 
-/// The mixer, the add menu, the device chain with a synth, and the clip tab
-/// before and after a MIDI clip exists.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn mixer_and_devices() {
@@ -354,7 +333,6 @@ fn mixer_and_devices() {
     });
 }
 
-/// The MIDI clip editor and its menus, from the demo project.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn midi_editor() {
@@ -399,7 +377,6 @@ fn midi_editor() {
     });
 }
 
-/// Automation lanes and the song lanes, from the demo project.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn automation() {
@@ -434,7 +411,6 @@ fn automation() {
     });
 }
 
-/// Windows: history, audio settings, preferences, project dialogs.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn windows() {
@@ -462,7 +438,6 @@ fn windows() {
     });
 }
 
-/// Submenus of the clip and track menus, opened by hovering their rows.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn submenus() {
@@ -498,8 +473,6 @@ fn submenus() {
     });
 }
 
-/// Panels hidden by the Browser and Detail buttons: are their controls still
-/// in the accessibility tree (reachable by Tab and a screen reader)?
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn hidden_panels() {
@@ -528,9 +501,6 @@ fn hidden_panels() {
     }
 }
 
-/// The corrected menus in both themes at all required scales. The lower
-/// grid options must actually be visible after scrolling, not just present
-/// in the accessibility tree.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn corrected_menus() {
@@ -583,8 +553,6 @@ fn corrected_menus() {
     }
 }
 
-/// The plugins the cleanup audit's browser lists: three vendors besides
-/// Lumen's own, a dozen categories and a blocked module (anonymous names).
 const PRETEND: [(&str, &[(&str, &str)]); 3] = [
     (
         "Studio A",
@@ -614,9 +582,6 @@ const PRETEND: [(&str, &[(&str, &str)]); 3] = [
     ),
 ];
 
-/// The browser (the cleanup audit, 2026-10-27): a filled list, its search,
-/// filters, chips, folds, a selection, a device's menu, a blocked module and
-/// the empty states.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn browser() {
@@ -664,8 +629,6 @@ fn browser() {
     });
 }
 
-/// The mixer with many kinds of strip: audio, MIDI, a group, two returns,
-/// the master; a selected strip, menus and a short panel (the cleanup audit).
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn mixer_full() {

@@ -1,17 +1,7 @@
-//! Every command the app runs from the keyboard, the palette and menus
-//! (M3 slice 7): one table with a stable id, a name, an area and default
-//! shortcuts for each. What a command does, and whether it can run now,
-//! is `app/commands.rs`; which keys run it is `keys.rs`.
-//!
-//! A key that acts on what is selected is one command: Delete deletes the
-//! selected clips, time range, locator or tracks. So a shortcut always
-//! means one command, and clashes can be checked.
-
 pub(crate) mod keys;
 
 pub(crate) use keys::{Chord, Keymap};
 
-/// A command. Its place in [`ALL`] is its discriminant (a test checks).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) enum Command {
     PlayStop,
@@ -310,10 +300,11 @@ pub(crate) enum Command {
     DrumRouteClear,
     AddCompressor,
     AddLimiter,
+    DrumStepsView,
+    StepsNextPage,
+    StepsPreviousPage,
 }
 
-/// Where a command belongs: how the palette and the shortcut list group
-/// it, and the colour of its light on a keycap (the owner's K5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Area {
     Transport,
@@ -346,14 +337,10 @@ impl Area {
         }
     }
 
-    /// The light under a keycap's key for commands of this area (the
-    /// owner's K5): one of the track colours, so areas read apart the way
-    /// tracks do.
     pub(crate) fn light(self) -> eframe::egui::Color32 {
         crate::theme::CLIP_COLORS[self.light_index()]
     }
 
-    /// Which track colour [`Self::light`] is, from 0.
     pub(crate) fn light_index(self) -> usize {
         match self {
             Area::Edit => 0,
@@ -370,8 +357,6 @@ impl Area {
         }
     }
 
-    /// Stable, for the user docs: the area's colour and its group of pages
-    /// on the site ("transport").
     pub(crate) fn id(self) -> &'static str {
         match self {
             Area::Transport => "transport",
@@ -389,25 +374,19 @@ impl Area {
     }
 }
 
-/// What the table knows about a command.
 #[derive(Debug)]
 pub(crate) struct Info {
     pub command: Command,
-    /// Stable, for saved keymaps: never renamed once shipped.
     pub id: &'static str,
     pub name: &'static str,
     pub area: Area,
-    /// The default shortcuts; the first is the one shown.
     pub keys: &'static [Chord],
-    /// What it does, in one sentence (the palette's detail strip).
     pub about: &'static str,
 }
 
 use eframe::egui::Key;
 use keys::{alt, alt_shift, ctrl, ctrl_alt, ctrl_shift, plain, shift};
 
-/// Every command, in the order of [`Command`]. Kept as a table, one line
-/// per command, so it reads as one.
 #[rustfmt::skip]
 pub(crate) const ALL: &[Info] = &[
     info(Command::PlayStop, "transport.play_stop", "Play / Stop", Area::Transport, &[plain(Key::Space)], "Plays from the start marker, or stops where playback is."),
@@ -501,7 +480,6 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::OpenProject, "file.open", "Open…", Area::File, &[ctrl(Key::O)], "Opens a project."),
     info(Command::Save, "file.save", "Save", Area::File, &[ctrl(Key::S)], "Saves the project."),
     info(Command::SaveAs, "file.save_as", "Save as…", Area::File, &[ctrl_shift(Key::S)], "Saves the project under a new name or place."),
-    // The id stays `file.import_audio` so shortcuts saved before MIDI files (M5 slice 7) keep working.
     info(Command::Import, "file.import_audio", "Import audio or MIDI…", Area::File, &[ctrl_shift(Key::I)], "Adds audio or MIDI files at the playhead: onto the selected track when it takes them (audio on audio tracks, MIDI on MIDI tracks), or onto new tracks after the selection."),
     info(Command::ExportMidiFile, "file.export_midi", "Export MIDI file…", Area::File, &[], "Writes the project's MIDI tracks to a Standard MIDI File: a track for each, with the tempo and time signature."),
     info(Command::OpenShortcuts, "file.shortcuts", "Keyboard shortcuts", Area::File, &[], "Shows every shortcut on a keyboard, and changes them."),
@@ -695,7 +673,7 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::DrumMapExport, "track.drum_map_export", "Export the drum map…", Area::Track, &[], "Writes the drum map the editor shows, or the selected track's, to a .lumendrums file you choose. The map in the project is not changed."),
     info(Command::HideUnmappedKeys, "view.hide_unmapped_keys", "Hide unmapped keys", Area::View, &[], "In the clip editor of a track with a drum map, shows only the map's sounds in the key column, so a kit's rows sit together; again shows every key. It changes the view only, never the clip."),
     info(Command::AddUtility, "devices.add_utility", "Add Prism (utility)", Area::Devices, &[], "Puts Prism, the utility device, on the selected track (after the chosen card), or on a new audio track when no track fits. Gain, pan, width, mono below a frequency, polarity, a swap of the sides and a DC block: automation, MIDI learn and presets work as for any device."),
-    info(Command::DrumLanesView, "view.drum_lanes", "Show the drum lanes", Area::View, &[], "Shows the opened clip as the drum editor's lanes: one lane a sound of its track's drum map, in the map's order, with each hit a diamond filled to its velocity. A clip on a track with a drum map opens in Lanes already; this switches back from the piano roll."),
+    info(Command::DrumLanesView, "view.drum_lanes", "Show the drum lanes", Area::View, &[], "Shows the opened clip as the drum editor's lanes: one lane a sound of its track's drum map, in the map's order, with each hit a diamond filled to its velocity. A clip too long for the step grid opens in Lanes; this switches to it from Steps or the piano roll."),
     info(Command::DrumKeysView, "view.drum_keys", "Show the piano roll (Keys)", Area::View, &[], "Shows the opened drum clip as the piano roll, with the kit's sounds instead of the keyboard in the key column. It is the same notes, edited as notes; the lanes are where a drum part is played in."),
     info(Command::HideUnusedLanes, "view.hide_unused_lanes", "Hide unused lanes", Area::View, &[], "In the drum editor's lanes, shows only the sounds the opened clip plays; again shows the map's every sound. A view only: no note and no map changes."),
     info(Command::DrumMuteLane, "midi.mute_lane", "Mute the picked lane", Area::Midi, &[], "Mutes the drum map's sound of the lane the picked hits are in, or unmutes it when all are muted. The map editor's M is the same switch; one undo step."),
@@ -707,6 +685,9 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::DrumRouteClear, "track.drum_route_clear", "Send the sounds back to the kit track", Area::Track, &[], "Sends every sound of the selected MIDI track's drum map back to the kit track in one undo step, taking away the output tracks that are left empty. A track holding clips or devices is kept."),
     info(Command::AddCompressor, "devices.add_compressor", "Add Gravity (compressor)", Area::Devices, &[], "Puts Gravity, the compressor, on the selected track (after the chosen card), or on a new audio track when no track fits. Its face draws the transfer curve and the gain reduction; threshold, ratio, attack, release and the rest are in All parameters. Key it from another track in its Sidechain row."),
     info(Command::AddLimiter, "devices.add_limiter", "Add Horizon (limiter)", Area::Devices, &[], "Puts Horizon, the limiter, on the selected track (after the chosen card), or on a new audio track when no track fits. Its face draws the ceiling as a horizon and the gain reduction. Its lookahead is reported as latency, so the rest of the song is lined up with it."),
+    info(Command::DrumStepsView, "view.drum_steps", "Show the step sequencer (Steps)", Area::View, &[], "Shows the opened drum clip as a step grid: a row a sound of its track's drum map, a cell a step. Click a cell to turn it on or off, drag it up or down to set its velocity, Shift-click for an accent. The same notes as the lanes and the piano roll; a clip that fits the grid opens here."),
+    info(Command::StepsNextPage, "view.steps_next_page", "Steps: next page", Area::View, &[], "In the step sequencer, shows the next page of steps of a clip longer than one page. Page Down does the same while the grid has the keyboard."),
+    info(Command::StepsPreviousPage, "view.steps_previous_page", "Steps: previous page", Area::View, &[], "In the step sequencer, shows the previous page of steps of a clip longer than one page. Page Up does the same while the grid has the keyboard."),
 ];
 
 const fn info(
@@ -727,7 +708,6 @@ const fn info(
     }
 }
 
-/// The command with saved id `id`.
 pub(crate) fn by_id(id: &str) -> Option<Command> {
     ALL.iter()
         .find(|info| info.id == id)
@@ -750,8 +730,6 @@ mod tests {
 
     use super::*;
 
-    /// What a command does fits the command palette's strip, which keeps the
-    /// room of the longest (the interface audit's P1): about four lines.
     #[test]
     fn every_command_is_said_in_a_few_lines() {
         for info in ALL {
@@ -770,7 +748,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::AddLimiter as usize + 1,
+            Command::StepsPreviousPage as usize + 1,
             ALL.len(),
             "a command is missing"
         );

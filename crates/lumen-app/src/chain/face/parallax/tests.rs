@@ -1,14 +1,9 @@
-//! Parallax's card: what the picture reads, which parameter the Time dial and the
-//! echo trail stand for, and what a drag on the trail writes.
-
 use eframe::egui::{Color32, Rect, pos2};
 
 use super::*;
 use crate::chain::geometry::Step;
 use crate::chain::strip::Slot;
 
-/// Slots for every parameter the card has a control for, with the changes `set`
-/// makes (in each parameter's own units; a note by its index).
 fn slots(set: &[(u32, f32)]) -> Vec<Slot> {
     DRAWING
         .params()
@@ -55,7 +50,6 @@ fn the_card_has_three_dials_two_pills_and_one_trail() {
     assert_eq!(DRAWING.dials().count(), 3);
     assert_eq!(DRAWING.controls.len(), 5);
     assert_eq!(DRAWING.handles.len(), 1);
-    // Every parameter it draws is in the table, once.
     let params = DRAWING.params();
     for id in &params {
         assert!(lumen_devices::params::find(device::TABLE, *id).is_some());
@@ -126,7 +120,6 @@ fn a_longer_time_is_a_wider_trail() {
     assert!((lane_of(4.0) - 1.0).abs() < 1e-6);
     assert!(lane_of(0.1) < lane_of(0.5));
     assert!(lane_of(0.5) < lane_of(2.0));
-    // The specimen's "1/8 dotted" is about a third of the width.
     let lane = LANE.0 + LANE.1 * lane_of(0.375);
     assert!((lane - 0.32).abs() < 0.03, "{lane}");
 }
@@ -190,7 +183,6 @@ fn the_pills_do_not_cross_the_dials_or_leave_the_card() {
     assert!(!pill(card, 0).intersects(pill(card, 1)));
 }
 
-/// A scene over `slots`, hearing `level`, with motion reduced as `still` says.
 fn scene<'a>(
     painter: &'a eframe::egui::Painter,
     slots: &'a [Slot],
@@ -228,10 +220,7 @@ fn the_light_travels_the_trail_only_while_audio_plays_and_motion_is_not_reduced(
         let beat = pulse(scene, 0.375, 7);
         (0..7).any(|index| beat(index, 1.0) > 0.0)
     };
-    // Nothing plays: the trail is still.
     assert!(!lit_somewhere(&scene(&painter, &slots, 0.0, false)));
-    // Motion is reduced: still, whatever plays.
     assert!(!lit_somewhere(&scene(&painter, &slots, 0.9, true)));
-    // Audio plays: the light is on an echo (the clock is at 0, the near one).
     assert!(lit_somewhere(&scene(&painter, &slots, 0.9, false)));
 }

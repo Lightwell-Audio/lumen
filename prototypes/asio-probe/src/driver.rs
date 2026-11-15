@@ -1,5 +1,3 @@
-//! Safe-ish wrapper around one loaded ASIO driver COM object.
-
 use std::ffi::{c_char, c_void};
 use std::ptr;
 
@@ -18,12 +16,10 @@ use windows_sys::core::GUID;
 use crate::ffi::{self, AsioChannelInfo, AsioClockSource, AsioError, IAsio};
 use crate::wide;
 
-/// COM single-threaded apartment for the current thread, as drivers expect.
 pub struct ComApartment;
 
 impl ComApartment {
     pub fn enter() -> Result<Self, String> {
-        // SAFETY: reserved pointer must be null; balanced by `Drop`.
         let hr = unsafe { CoInitializeEx(ptr::null(), COINIT_APARTMENTTHREADED as u32) };
         if hr < 0 {
             return Err(format!("CoInitializeEx failed: 0x{hr:08x}"));
@@ -34,19 +30,16 @@ impl ComApartment {
 
 impl Drop for ComApartment {
     fn drop(&mut self) {
-        // SAFETY: balances the successful CoInitializeEx in `enter`.
         unsafe { CoUninitialize() };
     }
 }
 
-/// Invisible window handed to `init`; some drivers parent dialogs to it.
 pub struct HiddenWindow(pub HWND);
 
 impl HiddenWindow {
     pub fn create() -> Result<Self, String> {
         let class = wide("STATIC");
         let title = wide("Lumen ASIO probe");
-        // SAFETY: system "STATIC" class needs no registration; the window is never shown.
         let hwnd = unsafe {
             CreateWindowExW(
                 0,
@@ -72,14 +65,11 @@ impl HiddenWindow {
 
 impl Drop for HiddenWindow {
     fn drop(&mut self) {
-        // SAFETY: the window was created by this thread and is destroyed once.
         unsafe { DestroyWindow(self.0) };
     }
 }
 
-/// Dispatches pending window messages so STA drivers stay responsive.
 pub fn pump_messages() {
-    // SAFETY: MSG is plain data; standard non-blocking message loop.
     unsafe {
         let mut msg: MSG = std::mem::zeroed();
         while PeekMessageW(&mut msg, ptr::null_mut(), 0, 0, PM_REMOVE) != 0 {
@@ -94,11 +84,9 @@ pub struct BufferSizes {
     pub min: i32,
     pub max: i32,
     pub preferred: i32,
-    /// -1 means powers of two; 0 means only `preferred`.
     pub granularity: i32,
 }
 
-/// One instantiated driver. Released on drop.
 pub struct Driver {
     raw: *mut IAsio,
 }
@@ -106,23 +94,19 @@ pub struct Driver {
 macro_rules! call {
     ($driver:expr, $method:ident $(, $arg:expr)*) => {{
         let raw = $driver.raw;
-        // SAFETY: `raw` is a live driver object; the vtable layout is ffi::IAsioVtbl.
         unsafe { ((*(*raw).vtbl).$method)(raw $(, $arg)*) }
     }};
 }
 
 impl Driver {
-    /// Instantiates the driver. ASIO uses the CLSID as the interface id too.
     pub fn create(clsid: &str) -> Result<Self, String> {
         let text = wide(clsid);
         let mut guid: GUID = GUID::from_u128(0);
-        // SAFETY: NUL-terminated string; `guid` is a valid out pointer.
         let hr = unsafe { CLSIDFromString(text.as_ptr(), &mut guid) };
         if hr < 0 {
             return Err(format!("invalid CLSID {clsid}: 0x{hr:08x}"));
         }
         let mut object: *mut c_void = ptr::null_mut();
-        // SAFETY: in-process COM activation with valid GUID pointers.
         let hr = unsafe {
             CoCreateInstance(
                 &guid,
@@ -151,7 +135,7 @@ impl Driver {
     }
 
     pub fn name(&self) -> String {
-        let mut buf = [0 as c_char; 128]; // ABI says 32; extra room guards against overruns
+        let mut buf = [0 as c_char; 128];
         call!(self, get_driver_name, buf.as_mut_ptr());
         ffi::c_string(&buf)
     }
@@ -161,7 +145,7 @@ impl Driver {
     }
 
     pub fn error_message(&self) -> String {
-        let mut buf = [0 as c_char; 256]; // ABI says 124
+        let mut buf = [0 as c_char; 256];
         call!(self, get_error_message, buf.as_mut_ptr());
         ffi::c_string(&buf)
     }
@@ -263,8 +247,6 @@ impl Driver {
         call!(self, output_ready)
     }
 
-    /// Asks the driver to allocate buffers for `infos` and start delivering
-    /// callbacks after `start`. `callbacks` must outlive the buffers.
     pub fn create_buffers(
         &self,
         infos: &mut [ffi::AsioBufferInfo],

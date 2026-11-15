@@ -1,12 +1,3 @@
-//! The audio editor's handles (M9.5 S2a): trims, fades, the gain line and
-//! slip in the Clip tab, each one undo step that equals the same edit on
-//! the arrangement; Alt leaves the grid; locked clips and frozen tracks
-//! refuse; a looping clip's end grip sits at its real end; a fade out
-//! dragged past the clip crossfades; the handles from the keyboard (Tab,
-//! Alt and an arrow, Delete, Enter's popover); the D27 origin after a split
-//! at a later repeat; the header's layouts at the smallest widths; and a
-//! trim dragged past the view scrolls it.
-
 use eframe::egui::{Event, Key, Modifiers, PointerButton, Pos2, Rect, vec2};
 use egui_kittest::kittest::{NodeT, Queryable};
 use lumen_core::fade::FadeShape;
@@ -15,8 +6,6 @@ use lumen_project::model::{Clip, ClipContent, Id};
 
 use super::{Lumen, midi_play, wav};
 
-/// Lumen with a two-second file (four beats at 120 BPM) dropped in, its
-/// clip trimmed to beats 1 to 3 and opened in the Clip tab.
 pub(super) fn opened(name: &str) -> (Lumen, Id) {
     opened_with(Lumen::start(name), 2.0, (1, 3))
 }
@@ -38,10 +27,7 @@ pub(super) fn opened_with(mut lumen: Lumen, seconds: f32, (from, to): (i64, i64)
     (lumen, clip)
 }
 
-/// Opens `clip` in the Clip tab and waits for its handles.
 pub(super) fn open(lumen: &mut Lumen, clip: Id) {
-    // A click on the clip takes the keyboard from any handle; Enter on one
-    // would open its popover instead.
     lumen.harness.ctx.memory_mut(|m| {
         if let Some(focused) = m.focused() {
             m.surrender_focus(focused);
@@ -87,14 +73,11 @@ fn gain(lumen: &Lumen, id: Id) -> f32 {
     }
 }
 
-/// The x of beat `q` in the editor.
 pub(super) fn x_of(lumen: &Lumen, q: f64) -> f32 {
     let s = shown(lumen);
     s.view.x(s.body.left(), q)
 }
 
-/// The edit just made, undone and made again on the arrangement's own
-/// path: the two clips are the same.
 fn equals_the_arrangement_trim(lumen: &mut Lumen, id: Id, edited: &Clip) {
     lumen.key(Modifiers::COMMAND, Key::Z);
     lumen.frames(2);
@@ -120,7 +103,6 @@ fn dragging_the_end_grip_trims_the_clip_in_one_step_as_the_arrangement_does() {
     lumen.frames(2);
     assert!(lumen.info().starts_with("Clip end"), "{}", lumen.info());
 
-    // Half a beat in: the end lands on the grid.
     let to = Pos2::new(x_of(&lumen, 2.5) + 3.0, mid);
     lumen.drag(grip, to, Modifiers::NONE);
     let after = clip(&lumen, id);
@@ -173,7 +155,6 @@ fn a_fade_handle_and_the_gain_line_edit_the_clip_and_double_click_removes_the_fa
     );
     assert_eq!(lumen.app().undo_label(), Some("Fade in"));
 
-    // The gain line, down: one step.
     let h = handles(&lumen);
     let on_line = Pos2::new(x_of(&lumen, 2.0), h.gain_y);
     lumen.drag(on_line, on_line + vec2(0.0, 40.0), Modifiers::NONE);
@@ -186,8 +167,6 @@ fn a_fade_handle_and_the_gain_line_edit_the_clip_and_double_click_removes_the_fa
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert_eq!(gain(&lumen, id), 0.0);
 
-    // FD A: a double-click on the handle removes the fade, as on the
-    // arrangement.
     let at = handles(&lumen).fade_in;
     lumen.double_click(at);
     assert_eq!(clip(&lumen, id).fade_in.length, Ticks::ZERO);
@@ -236,7 +215,6 @@ fn the_dimmed_file_and_ctrl_alt_slip_the_audio_and_the_clip_stays() {
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert_eq!(clip(&lumen, id), before);
 
-    // The keys: Ctrl+Alt+Right, one grid step later, where the file allows.
     lumen.harness.hover_at(shown(&lumen).body.center());
     lumen.frames(2);
     lumen.key(Modifiers::COMMAND | Modifiers::ALT, Key::ArrowRight);
@@ -254,7 +232,6 @@ fn the_dimmed_file_and_ctrl_alt_slip_the_audio_and_the_clip_stays() {
 #[test]
 fn a_locked_clip_and_a_frozen_track_take_no_edit_and_say_why() {
     let (mut lumen, id) = opened("editor-locked");
-    // D19: the wave's menu is the clip menu.
     lumen.right_click(Pos2::new(x_of(&lumen, 2.0), shown(&lumen).body.center().y));
     lumen.click("Lock");
     assert!(clip(&lumen, id).locked);
@@ -269,7 +246,6 @@ fn a_locked_clip_and_a_frozen_track_take_no_edit_and_say_why() {
     lumen.frames(2);
     assert!(lumen.info().contains("can't change"), "{}", lumen.info());
 
-    // Unlocked, then frozen: the frozen message.
     lumen.key(Modifiers::COMMAND, Key::Z);
     let track = lumen.app().project().tracks[0].id;
     let name = lumen.app().project().tracks[0].name.clone();
@@ -288,7 +264,6 @@ fn a_locked_clip_and_a_frozen_track_take_no_edit_and_say_why() {
 
 #[test]
 fn a_looping_clips_end_grip_sits_at_its_real_end() {
-    // One turn is beats 1 to 3; the clip loops on to beat 7.
     let (mut lumen, id) = opened("editor-loop-end");
     lumen
         .app_mut()
@@ -313,7 +288,6 @@ fn a_looping_clips_end_grip_sits_at_its_real_end() {
 #[test]
 fn a_fade_out_dragged_past_the_end_crossfades_into_the_next_clip() {
     let (mut lumen, left) = opened_with(Lumen::start("editor-crossfade"), 4.0, (0, 8));
-    // Split at beat 4: two halves side by side, the left one opened.
     lumen.app_mut().select_clip(left);
     lumen.frames(2);
     let ruler = lumen
@@ -361,7 +335,6 @@ fn the_handles_stay_quick_at_the_deepest_zoom() {
     assert!(lumen.app().info_line().is_some(), "hovering the wave");
 }
 
-/// Presses F6 until the detail panel has the keyboard, wherever it is now.
 pub(super) fn to_the_detail_panel(lumen: &mut Lumen) {
     let ctx = lumen.harness.ctx.clone();
     for _ in 0..4 {
@@ -373,7 +346,6 @@ pub(super) fn to_the_detail_panel(lumen: &mut Lumen) {
     panic!("F6 never reached the detail panel");
 }
 
-/// Presses Tab until the handle `name` has the keyboard.
 fn tab_to(lumen: &mut Lumen, name: &str) {
     let ctx = lumen.harness.ctx.clone();
     lumen.harness.hover_at(shown(lumen).body.center());
@@ -390,7 +362,6 @@ fn tab_to(lumen: &mut Lumen, name: &str) {
 #[test]
 fn the_handles_are_tab_stops_that_take_their_own_keys() {
     let (mut lumen, id) = opened("editor-handle-keys");
-    // F6 to the detail panel, then Tab along its stops.
     to_the_detail_panel(&mut lumen);
     tab_to(&mut lumen, "trim start");
     assert!(
@@ -400,7 +371,6 @@ fn the_handles_are_tab_stops_that_take_their_own_keys() {
     tab_to(&mut lumen, "fade in");
     let before = clip(&lumen, id);
 
-    // Alt and an arrow moves the fade, not the clip.
     lumen.key(Modifiers::ALT, Key::ArrowRight);
     let after = clip(&lumen, id);
     assert!(after.fade_in.length > Ticks::ZERO, "the fade grew");
@@ -412,7 +382,6 @@ fn the_handles_are_tab_stops_that_take_their_own_keys() {
         "by the grid"
     );
 
-    // Delete takes the fade and leaves the clip.
     lumen.key(Modifiers::NONE, Key::Delete);
     assert_eq!(clip(&lumen, id).fade_in.length, Ticks::ZERO);
     assert_eq!(
@@ -421,7 +390,6 @@ fn the_handles_are_tab_stops_that_take_their_own_keys() {
         "the clip stays"
     );
 
-    // Enter types a length; the handle has the keyboard again after.
     lumen.key(Modifiers::NONE, Key::Enter);
     lumen.frames(3);
     assert!(
@@ -439,12 +407,10 @@ fn the_handles_are_tab_stops_that_take_their_own_keys() {
     lumen.frames(3);
     let ctx = lumen.harness.ctx.clone();
     assert_eq!(lumen.app().audio_handle_focused(&ctx), Some("fade in"));
-    // 125 ms at 120 BPM is a quarter of a beat.
     let length = clip(&lumen, id).fade_in.length;
     assert!((length.0 - PPQ / 4).abs() <= 1, "{length:?}");
     assert!(lumen.shows("Fade in 125 ms"), "the name says the new value");
 
-    // The gain from the keyboard: Up a dB, Delete back to 0 dB.
     tab_to(&mut lumen, "gain");
     lumen.key(Modifiers::NONE, Key::ArrowUp);
     assert!((gain(&lumen, id) - 1.0).abs() < 1e-4);
@@ -455,16 +421,11 @@ fn the_handles_are_tab_stops_that_take_their_own_keys() {
 
 #[test]
 fn a_looped_clip_split_at_a_later_repeat_draws_the_frame_it_plays() {
-    // One turn is beats 0 to 2; the clip loops to beat 8; split at beat 5.
     let (mut lumen, id) = opened_with(Lumen::start("editor-split-origin"), 2.0, (0, 2));
     lumen
         .app_mut()
         .trim_clip_end_to(id, Ticks::quarters(8), true);
     lumen.frames(3);
-    // What plays at beat 5 before the split: one beat into a turn, the
-    // engine's `(position + phase) mod period`, half a second at 48 kHz.
-    // The editor draws the file once from the loop's origin, so that
-    // frame is drawn at beat 1.
     let before = lumen
         .app()
         .audio_editor_frame_at(1.0)
@@ -480,15 +441,12 @@ fn a_looped_clip_split_at_a_later_repeat_draws_the_frame_it_plays() {
     let later = lumen.app().project().tracks[0].clips[1].clone();
     assert_eq!(later.start, Ticks::quarters(5));
     open(&mut lumen, later.id);
-    // The turn holding beat 5 starts at beat 4: that is what is bright, and
-    // not a turn before the clip's start.
     let (first, second) = shown(&lumen).played;
     assert!(
         (first.0 - 4.0).abs() < 1e-6 && (first.1 - 6.0).abs() < 1e-6,
         "{first:?}"
     );
     assert!(second.is_none());
-    // The frame drawn at the later clip's start is the one played there.
     let after = lumen
         .app()
         .audio_editor_frame_at(5.0)
@@ -499,8 +457,6 @@ fn a_looped_clip_split_at_a_later_repeat_draws_the_frame_it_plays() {
     );
 }
 
-/// The header's controls by name: none overlaps another, and each is inside
-/// the strip.
 fn header_controls(lumen: &Lumen) -> Vec<(String, Rect)> {
     let body = shown(lumen).body;
     let named = [
@@ -534,7 +490,6 @@ fn header_controls(lumen: &Lumen) -> Vec<(String, Rect)> {
 #[test]
 fn the_header_fits_the_smallest_windows_with_every_action_reachable() {
     let (mut lumen, _) = opened("editor-header-fit");
-    // The smallest window at 100%, 150% and 200%, in points.
     for (width, height) in [(960.0, 540.0), (640.0, 540.0), (480.0, 540.0)] {
         lumen.harness.set_size(vec2(width, height));
         lumen.app_mut().set_browser_size(220.0);
@@ -574,11 +529,9 @@ fn the_header_fits_the_smallest_windows_with_every_action_reachable() {
                 "{part} is in the strip or its menu at {width}: {names:?}"
             );
         }
-        // Every part is also a command, so the palette finds it.
         midi_play::palette(&mut lumen, "Zoom the audio editor to the clip");
         lumen.frames(2);
     }
-    // At the narrowest, the menu holds the view buttons.
     let names: Vec<_> = header_controls(&lumen)
         .into_iter()
         .map(|(n, _)| n)
@@ -593,8 +546,6 @@ fn the_header_fits_the_smallest_windows_with_every_action_reachable() {
 
 #[test]
 fn a_trim_dragged_past_the_view_scrolls_it_and_is_one_step() {
-    // A ten-second file with its clip on beats 1 to 3, framed: dragging the
-    // end grip to the right edge scrolls the view on.
     let (mut lumen, id) = opened_with(Lumen::start("editor-edge-scroll"), 10.0, (1, 3));
     lumen.app_mut().resume_follow();
     lumen.frames(1);
@@ -609,8 +560,6 @@ fn a_trim_dragged_past_the_view_scrolls_it_and_is_one_step() {
     lumen.harness.hover_at(grip);
     lumen.harness.drag_at(grip);
     lumen.frames(2);
-    // The grip sits near the side, framed: pressed and held still, the
-    // view stays put until the hand goes on outwards.
     lumen.harness.hover_at(grip + vec2(-2.0, 0.0));
     lumen.frames(30);
     assert_eq!(shown(&lumen).view, s.view, "a still press does not scroll");
@@ -620,7 +569,6 @@ fn a_trim_dragged_past_the_view_scrolls_it_and_is_one_step() {
             .hover_at(grip + (edge - grip) * (step as f32 / 8.0));
         lumen.frames(1);
     }
-    // Held at the edge: the view moves on.
     lumen.frames(30);
     let moved = shown(&lumen);
     assert!(moved.view.left > s.view.left, "the view scrolled");
@@ -635,7 +583,6 @@ fn a_trim_dragged_past_the_view_scrolls_it_and_is_one_step() {
     assert_eq!(clip(&lumen, id).length, Ticks::quarters(2), "one step");
 }
 
-/// Where in its file, in seconds, the clip starts playing (48 kHz test files).
 fn source_at(c: &Clip) -> f64 {
     match c.content {
         ClipContent::Audio { offset, .. } => offset as f64 / 48_000.0 + c.audio_phase_seconds,
@@ -643,8 +590,6 @@ fn source_at(c: &Clip) -> f64 {
     }
 }
 
-/// Presses `key` with `modifiers` on the focused handle, checks `changed`,
-/// then undoes it and checks the clip is exactly as it was.
 fn key_then_undo(
     lumen: &mut Lumen,
     id: Id,
@@ -711,7 +656,6 @@ fn every_handle_moves_by_key_and_each_press_is_one_undo_step() {
         |b, a| end(a) < end(b) && a.start == b.start,
         "trim end by the grid",
     );
-    // Typed: the end at bar 1, beat 3 and a half.
     lumen.key(Modifiers::NONE, Key::Enter);
     lumen.frames(3);
     lumen.key(Modifiers::COMMAND, Key::A);
@@ -749,8 +693,6 @@ fn ctrl_alt_slips_the_bright_part_and_a_bend_dot_bends_and_straightens() {
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert_eq!(clip(&lumen, id), before);
 
-    // A plain drag on the bright part changes nothing until the range
-    // arrives (S2b).
     lumen.drag(bright, bright + vec2(-40.0, 0.0), Modifiers::NONE);
     assert_eq!(clip(&lumen, id), before, "the bright part has no drag yet");
 
@@ -788,8 +730,6 @@ fn the_shape_menus_of_a_crossfade_show_the_curve_they_change() {
     assert!(clip(&lumen, right).crossfade, "a crossfade");
     let shape = |lumen: &Lumen| clip(lumen, right).fade_in.curve;
 
-    // The popover on the left clip's fade out, opened twice: the second time
-    // it shows Slow, so choosing Linear is a change.
     to_the_detail_panel(&mut lumen);
     for chosen in [FadeShape::Slow, FadeShape::Linear] {
         tab_to(&mut lumen, "fade out");
@@ -800,7 +740,6 @@ fn the_shape_menus_of_a_crossfade_show_the_curve_they_change() {
         assert_eq!(shape(&lumen), chosen.curve());
     }
 
-    // The arrangement's Fades submenu reads the same curve.
     for chosen in [FadeShape::Fast, FadeShape::Linear] {
         let ctx = lumen.harness.ctx.clone();
         let wave = lumen
@@ -829,7 +768,6 @@ fn the_shape_menus_of_a_crossfade_show_the_curve_they_change() {
     }
 }
 
-/// A four-second file split at beat 4, its left half open in the editor.
 fn two_halves(name: &str) -> (Lumen, Id, Id) {
     let (mut lumen, left) = opened_with(Lumen::start(name), 4.0, (0, 8));
     lumen.app_mut().locate_to(Ticks::quarters(4));
@@ -847,7 +785,6 @@ fn two_halves(name: &str) -> (Lumen, Id, Id) {
 #[test]
 fn keys_on_both_sides_of_a_crossfade_act_on_the_saved_fades() {
     let (mut lumen, left, right) = two_halves("editor-crossfade-keys");
-    // The left half: a plain fade in, then a crossfade out of it.
     let h = handles(&lumen);
     lumen.drag(
         h.fade_in,
@@ -866,15 +803,12 @@ fn keys_on_both_sides_of_a_crossfade_act_on_the_saved_fades() {
         "a crossfade into the right half"
     );
 
-    // Its fade in still grows from where it is, by the grid.
     to_the_detail_panel(&mut lumen);
     tab_to(&mut lumen, "fade in");
     lumen.key(Modifiers::NONE, Key::ArrowRight);
     let grown = clip(&lumen, left).fade_in.length;
     assert!(grown > Ticks::quarters(1), "{grown:?}");
 
-    // The right half: its fade in is the crossfade, named so, and Up bends
-    // it a step further each time.
     open(&mut lumen, right);
     to_the_detail_panel(&mut lumen);
     tab_to(&mut lumen, "fade in");

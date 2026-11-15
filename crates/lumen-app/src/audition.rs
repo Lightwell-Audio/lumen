@@ -1,49 +1,14 @@
-//! Auditioning notes while editing (M5 slice 3d, the owner's Live A): the
-//! piano roll plays a short preview of a note when it is drawn or its pitch
-//! changes, on the edited clip's track whether or not that track listens.
-//! The playing clip changes only when the gesture ends (one document edit).
-//!
-//! [`Audition`] is the service: one preview at a time, of one note or a
-//! chord of moved notes (a new one lets go of the last; a moving chord
-//! strikes only the notes whose pitch changed), let go on its own after
-//! [`LENGTH`], or by [`Audition::release`]. It sends through the live feed as its own source
-//! (`lumen_engine::AUDITION`), so a preview on a pitch that a held key or a
-//! clip is playing never ends their note, and theirs never ends it.
-//! Everything that should silence a preview calls [`Audition::release`]:
-//! the end or cancel of a gesture, the editor or clip changing, losing the
-//! window's focus, the transport stopping and Panic ([`Audition::forget`]).
-//!
-//! The app owns one (`App::audition`) and exposes it as
-//! `App::audition_play(track, pitch, velocity)` and
-//! `App::audition_release()`; the frame calls `App::update_audition`.
-//!
-//! On a hardware track (a MIDI output), a tone whose key the track's own
-//! clip is sounding now is not struck at all: the port sees plain MIDI, so
-//! the preview's note-off would end the clip's note too. The caller says
-//! which keys those are (`busy`), decided from the project in
-//! `midi_play::busy_keys`; a skipped tone gets neither a note-on nor an
-//! off, and the rest of the chord plays.
-
 use std::time::{Duration, Instant};
 
 use lumen_core::midi::Msg;
 use lumen_project::model::Id;
 
-/// How long a previewed note sounds if nothing lets it go sooner.
 pub(crate) const LENGTH: Duration = Duration::from_millis(250);
-/// How soon a preview tries again for a note it could not send.
 const RETRY: Duration = Duration::from_millis(16);
 
-/// The MIDI channel previews play on. Reserved: a clip's notes on an
-/// instrument track are on channel 0, so a preview of the same key never
-/// shares a voice with them. A hardware track's messages are sent out on
-/// its own channel by the engine, so this does not reach the hardware.
 const CHANNEL: u8 = 15;
 
-/// Where an audition's messages go: the live feed's keys, or a test.
 pub(crate) trait Sink {
-    /// Plays `msg` as an audition on `track`. False if it could not go (the
-    /// queue is full).
     fn send_to(&mut self, track: u64, msg: Msg) -> bool;
 }
 
@@ -53,35 +18,24 @@ impl Sink for crate::live::LiveKeys {
     }
 }
 
-/// A note a preview plays: its pitch and velocity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Tone {
     pub pitch: u8,
     pub velocity: u8,
 }
 
-/// The notes of one gesture's preview, on one track.
 #[derive(Debug, Clone, Default)]
 struct Chord {
     track: u64,
-    /// The tones the last call was given, by position. A tone whose pitch
-    /// is the same as its position's last time is not struck again.
     asked: Vec<Tone>,
-    /// The pitches sounding now, each once (two tones on one pitch make one
-    /// note, so its off is sent once).
     sounding: Vec<u8>,
-    /// When the sounding notes let go by themselves.
     until: Option<Instant>,
 }
 
-/// The preview service.
 #[derive(Debug, Clone)]
 pub(crate) struct Audition {
-    /// The setting (`settings.midi.audition`): off plays nothing.
     enabled: bool,
     chord: Option<Chord>,
-    /// Note-offs the queue could not take yet, in order; tried again every
-    /// frame.
     owed: Vec<(u64, Msg)>,
     playing: bool,
     focused: bool,
@@ -100,15 +54,10 @@ impl Default for Audition {
 }
 
 impl Audition {
-    /// Turns auditioning on or off; a note sounding when it goes off is
-    /// let go by the next [`Audition::update`].
     pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
     }
 
-    /// Starts a fresh preview of `tones` on `track` for [`LENGTH`], letting
-    /// go of the one before. Nothing when auditioning is off. True if a note
-    /// started. `busy` is as for [`Audition::change`].
     pub fn play_chord(
         &mut self,
         sink: &mut dyn Sink,
@@ -124,17 +73,6 @@ impl Audition {
         self.change(sink, track, tones, busy, now)
     }
 
-    /// The gesture's notes now sound at `tones`, given in the same order as
-    /// the last call. A tone whose pitch did not change keeps its note; one
-    /// whose pitch changed is struck at its new pitch, and the notes that
-    /// are no longer wanted let go first. A tone that is unchanged but has
-    /// already let go by itself (its time ran out) is not struck again.
-    /// Nothing when auditioning is off. True if a note started.
-    ///
-    /// `busy` lists the keys that already sound on the track's hardware
-    /// output from the track's own clip. A tone struck at one of them is
-    /// skipped: no note-on, and so no note-off either. Like an unchanged
-    /// tone, a skipped one is not checked again until its pitch changes.
     pub fn change(
         &mut self,
         sink: &mut dyn Sink,
@@ -160,8 +98,6 @@ impl Audition {
                 velocity: t.velocity.clamp(1, 127),
             })
             .collect();
-        // A pitch an unchanged tone holds keeps sounding; every other note
-        // lets go before anything is struck.
         let held: Vec<u8> = tones
             .iter()
             .enumerate()
@@ -199,16 +135,12 @@ impl Audition {
         started
     }
 
-    /// Lets go of every note the preview holds, and forgets the tones the
-    /// gesture gave.
     pub fn release(&mut self, sink: &mut dyn Sink) {
         self.retry(sink);
         self.silence(sink);
         self.chord = None;
     }
 
-    /// Sends the note-offs of what sounds. The chord keeps the tones it was
-    /// asked for, so a timer letting go does not strike them again.
     fn silence(&mut self, sink: &mut dyn Sink) {
         let Some(mut chord) = self.chord.take() else {
             return;
@@ -220,7 +152,6 @@ impl Audition {
         self.chord = Some(chord);
     }
 
-    /// Sends a note-off, or owes it when the queue is full.
     fn off(&mut self, sink: &mut dyn Sink, track: u64, pitch: u8) {
         let msg = Msg::note_off(CHANNEL, pitch);
         if !sink.send_to(track, msg) {
@@ -228,13 +159,11 @@ impl Audition {
         }
     }
 
-    /// Forgets the preview without sending (Panic silences the engine).
     pub fn forget(&mut self) {
         self.chord = None;
         self.owed.clear();
     }
 
-    /// Whether a note sounds now (tests).
     pub fn is_sounding(&self) -> bool {
         self.chord.as_ref().is_some_and(|c| !c.sounding.is_empty())
     }
@@ -247,9 +176,6 @@ impl Audition {
         }
     }
 
-    /// Called every frame: lets go when the notes' time is up, the window
-    /// lost focus or the transport stopped. Returns when to be called again
-    /// if a note still sounds or an off is still owed.
     pub fn update(
         &mut self,
         sink: &mut dyn Sink,
@@ -323,8 +249,6 @@ mod tests {
         pitches.iter().map(|&p| tone(p)).collect()
     }
 
-    /// The log is well formed: no key is struck while it sounds and none is
-    /// let go while silent. With `quiet`, every note-on has had its off.
     fn check(log: &Log, quiet: bool) {
         let mut held = std::collections::BTreeSet::new();
         for (track, msg) in &log.sent {

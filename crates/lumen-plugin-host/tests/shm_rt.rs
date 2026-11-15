@@ -1,12 +1,3 @@
-//! Lumen's side of the audio path must not allocate: `submit`, `poll`, `wait`
-//! and `copy_output` run inside real-time sections under the allocation
-//! guard, against real host processes.
-//!
-//! An operating-system wait (the event and hybrid modes) blocks by design, so
-//! under RealtimeSanitizer, which flags every blocking call, only the polling
-//! mode is run. Whether the audio callback may ever make such a wait is the
-//! open question in ADR-0005; these tests do not answer it.
-
 mod support;
 
 use std::time::{Duration, Instant};
@@ -56,8 +47,6 @@ fn lumens_side_of_the_audio_path_does_not_allocate() {
         }];
         let mut out = vec![0.0_f32; 128];
 
-        // Warm up outside the section so thread start-up allocations on
-        // either side do not count.
         link.submit(generation, 128, &[], &events, &params)
             .expect("submit");
         assert!(matches!(link.wait(Instant::now() + SLOW), Poll::Done(_)));
@@ -84,10 +73,6 @@ fn lumens_side_of_the_audio_path_does_not_allocate() {
     }
 }
 
-/// MT-VST-0's crash runs reported two heap operations in Lumen's loop: asking
-/// how a crashed host ended words the crash in a `String` (one allocation, one
-/// free). The loop asks `has_ended`; this is the whole path of a crash as the
-/// loop sees it, from the missed deadline to the dead host.
 #[test]
 fn noticing_a_crashed_host_does_not_allocate() {
     assert!(
@@ -110,7 +95,6 @@ fn noticing_a_crashed_host_does_not_allocate() {
     }
 
     let (ended, violations) = lumen_rt::count_rt_violations(|| {
-        // The block the plugin dies in, then blocks that find the link busy.
         let _ = link.submit(generation, 64, &[], &events, &[]);
         let mut misses = 0;
         while misses < 500 {
@@ -126,8 +110,6 @@ fn noticing_a_crashed_host_does_not_allocate() {
     assert!(ended, "the crash was never noticed");
     assert_eq!(violations, 0, "heap operations noticing a crash");
 
-    // The finding itself: the descriptive answer allocates, so it belongs
-    // off the audio thread. (RTSan would abort on it, rightly: skipped there.)
     if std::env::var_os("RTSAN_ENABLE").is_some() {
         return;
     }

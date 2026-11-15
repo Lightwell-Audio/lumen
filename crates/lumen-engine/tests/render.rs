@@ -1,7 +1,3 @@
-//! The offline clip renderer (M7b slice E3): a render sounds like playback,
-//! its outer edges are bare so a baked clip is not faded twice, and it can be
-//! cancelled.
-
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -19,7 +15,6 @@ fn timeline() -> Timeline {
     Timeline::default()
 }
 
-/// Audio whose every sample differs.
 fn ramp(frames: usize, mono: bool) -> Arc<ClipAudio> {
     let left: Vec<f32> = (0..frames)
         .map(|i| ((i % 997) as f32 - 498.0) / 1e3)
@@ -31,7 +26,6 @@ fn ramp(frames: usize, mono: bool) -> Arc<ClipAudio> {
     })
 }
 
-/// A clip at timeline sample `start`, playing `length` frames of `audio`.
 fn clip(id: u64, start: i64, offset: i64, length: i64, audio: &Arc<ClipAudio>) -> Clip {
     Clip {
         id,
@@ -58,7 +52,6 @@ fn job(clips: Vec<Clip>, from: i64, frames: u64, bare_ends: bool, block: usize) 
     }
 }
 
-/// Renders to two vectors, returning how it ended too.
 fn run(job: ClipRender) -> (Vec<f32>, Vec<f32>) {
     let (mut left, mut right) = (Vec::new(), Vec::new());
     let end = render_clips(job, &AtomicBool::new(false), &mut |_| {}, &mut |l, r| {
@@ -69,8 +62,6 @@ fn run(job: ClipRender) -> (Vec<f32>, Vec<f32>) {
     (left, right)
 }
 
-/// What the live engine plays for the same clips: the clip player under a
-/// mixer, a track straight to the master, in blocks of `block`.
 fn live(clips: Vec<Clip>, frames: usize, block: usize) -> (Vec<f32>, Vec<f32>) {
     let (mut clips_handle, player) = clip_player();
     clips_handle.set(clips).unwrap();
@@ -113,7 +104,6 @@ fn fade(frames: i64) -> FadeFrames {
 
 #[test]
 fn a_render_sounds_like_playback_with_fades_gain_and_a_gap() {
-    // Past the engine's play fade-in and the mixer's first glide.
     let start = 12_000;
     let audio = ramp(60_000, false);
     let mut a = clip(1, start, 0, 20_000, &audio);
@@ -125,7 +115,6 @@ fn a_render_sounds_like_playback_with_fades_gain_and_a_gap() {
     let end = (start + 55_000) as usize;
     let (live_left, live_right) = live(clips.clone(), end, 128);
     let (left, right) = run(job(clips, 0, end as u64, false, 256));
-    // The engine fades Play in over a few milliseconds before the first clip.
     assert!(same(
         &left[start as usize..],
         &live_left[start as usize..],
@@ -156,39 +145,30 @@ fn the_block_size_does_not_change_a_render() {
 #[test]
 fn bare_ends_play_a_plain_clip_exactly_and_the_inside_edges_keep_their_fade() {
     let audio = ramp(30_000, false);
-    // Two clips from one source with a gap between them.
     let a = clip(1, 1_000, 1_000, 8_000, &audio);
     let b = clip(2, 12_000, 12_000, 8_000, &audio);
     let clips = vec![a, b];
     let (left, right) = run(job(clips.clone(), 1_000, 19_000, true, 256));
-    // The outer start and end are the source exactly.
     assert_eq!(left[0], audio.memory().unwrap()[0][1_000]);
     assert_eq!(right[0], audio.memory().unwrap()[1][1_000]);
     let last = 19_000 - 1;
     assert_eq!(left[last], audio.memory().unwrap()[0][1_000 + last]);
-    // Only the inside end of the first clip is faded: its last 2 ms.
     let edge = (RATE / 500) as usize;
     assert_eq!(
         left[..8_000 - edge],
         audio.memory().unwrap()[0][1_000..9_000 - edge]
     );
-    // The gap is silent, to the sample.
     assert!(left[8_000..11_000].iter().all(|v| *v == 0.0));
     assert!(right[8_000..11_000].iter().all(|v| *v == 0.0));
-    // The inside edges are faded like playback's, so there is no click: the
-    // first frame after the gap is below the source, the last before it too.
     let inside_start = 11_000;
     assert!(left[inside_start].abs() < audio.memory().unwrap()[0][12_000].abs());
     assert!(left[7_999].abs() < audio.memory().unwrap()[0][8_999].abs());
-    // Without bare ends the outer start is faded too.
     let (faded, _) = run(job(clips, 1_000, 19_000, false, 256));
     assert!(faded[0].abs() < audio.memory().unwrap()[0][1_000].abs());
 }
 
 #[test]
 fn a_baked_clip_played_back_equals_the_clips_it_came_from() {
-    // The consolidation null test: render a stretch with bare ends, play the
-    // result as one clip, and it matches the original clips played.
     let start = 12_000;
     let source = ramp(60_000, false);
     let mut a = clip(1, start, 0, 20_000, &source);
@@ -212,8 +192,6 @@ fn a_baked_clip_played_back_equals_the_clips_it_came_from() {
 
 #[test]
 fn consolidating_plain_adjacent_source_material_is_bit_identical() {
-    // One long clip, no processing: the bake is the source and playing it
-    // gives the same samples as the original clip does.
     let source = ramp(40_000, false);
     let a = clip(1, 5_000, 0, 30_000, &source);
     let (left, right) = run(job(vec![a.clone()], 5_000, 30_000, true, 256));

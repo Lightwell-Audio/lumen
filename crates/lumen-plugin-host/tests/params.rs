@@ -1,7 +1,3 @@
-//! Parameters through a real host process: the list with values, flags and
-//! groups, the plugin's own text, values set from Lumen, edits made in the
-//! plugin's own window, and what the processor reports.
-
 mod support;
 
 use lumen_plugin_host::protocol::{
@@ -11,7 +7,6 @@ use lumen_test_plugin::controller::TRIGGER;
 use lumen_test_plugin::params::{LEVEL, WAVE};
 use support::{SLOW, instrument, note_off, note_on};
 
-/// A held note over a whole block, at the plugin's level.
 fn play(host: &mut lumen_plugin_host::client::HostProcess, params: Vec<ParamQueue>) -> Vec<f32> {
     let block = host
         .process(
@@ -32,14 +27,11 @@ fn the_list_carries_values_flags_and_groups() {
     assert_eq!(total, 32);
     assert_eq!(list.len(), 32);
 
-    // The plugin's own parameters first, with their current values.
     assert_eq!(list[0].title, "Level");
     assert_eq!(list[0].value, 0.5);
     assert!(list[0].can_automate());
     assert_eq!(list[0].unit, 0);
 
-    // The extras: ids from 100, spread over four groups, some hidden and
-    // some read-only.
     let extra = |k: usize| &list[2 + k];
     assert_eq!(extra(0).id, 100);
     assert_eq!(extra(0).unit, 1);
@@ -68,11 +60,8 @@ fn the_plugins_own_text_comes_for_any_value() {
     assert_eq!(host.param_text(WAVE, 0.0, SLOW).unwrap(), "Square");
     assert_eq!(host.param_text(WAVE, 1.0, SLOW).unwrap(), "Saw");
     assert_eq!(host.param_text(101, 0.25, SLOW).unwrap(), "25.0 %");
-    // A value outside 0 to 1 is clamped, not passed on.
     assert_eq!(host.param_text(101, 3.0, SLOW).unwrap(), "100.0 %");
-    // A parameter the plugin does not have has no text.
     assert!(host.param_text(9_999, 0.5, SLOW).is_err());
-    // And NaN is never passed to a plugin.
     assert!(host.param_text(101, f64::NAN, SLOW).is_err());
 }
 
@@ -81,8 +70,6 @@ fn text_the_user_typed_is_read_by_the_plugin() {
     let mut host = instrument("");
     assert_eq!(host.param_value(WAVE, "saw", SLOW).unwrap(), 1.0);
     assert_eq!(host.param_value(WAVE, " Square ", SLOW).unwrap(), 0.0);
-    // Words the plugin does not understand, and parameters it does not have,
-    // are refused, and the connection goes on.
     assert!(host.param_value(WAVE, "banana", SLOW).is_err());
     assert!(host.param_value(9_999, "saw", SLOW).is_err());
     assert!(host.param_value(WAVE, "sa\0w", SLOW).is_err());
@@ -93,15 +80,12 @@ fn text_the_user_typed_is_read_by_the_plugin() {
 fn a_value_set_from_lumen_is_heard_in_the_next_block_and_told_to_the_controller() {
     let mut host = instrument("");
     let loud = play(&mut host, vec![]);
-    // The default level is half.
     assert!(loud[1..60].iter().all(|&s| s.abs() == 0.5), "{loud:?}");
 
     host.set_param(LEVEL, 0.25, SLOW).unwrap();
     let quiet = play(&mut host, vec![]);
     assert!(quiet[1..60].iter().all(|&s| s.abs() == 0.25), "{quiet:?}");
 
-    // The controller holds the new value too (a plugin window shows it), and
-    // Lumen's own change is not reported back as an edit.
     let (_, list) = host.parameters(SLOW).unwrap();
     assert_eq!(list[0].value, 0.25);
     let taken = host.take_edits(SLOW).unwrap();
@@ -115,7 +99,6 @@ fn a_value_set_outside_the_range_or_not_a_number_is_made_safe() {
     host.set_param(LEVEL, 5.0, SLOW).unwrap();
     let block = play(&mut host, vec![]);
     assert!(block[1..60].iter().all(|&s| s.abs() == 1.0));
-    // NaN is dropped: the level stays where it was.
     host.set_param(LEVEL, f64::NAN, SLOW).unwrap();
     let block = play(&mut host, vec![]);
     assert!(block[1..60].iter().all(|&s| s.abs() == 1.0));
@@ -134,8 +117,6 @@ fn a_change_inside_the_plugin_that_no_parameter_shows_reaches_lumen() {
 
 #[test]
 fn what_the_plugin_does_in_its_window_reaches_lumen_in_order_and_the_processor() {
-    // With `window_edits` stepping the trigger on makes the plugin move its
-    // wave, as a gesture it makes itself: begin, a value, end.
     let mut host = instrument("window_edits");
     host.set_param(TRIGGER, 1.0, SLOW).unwrap();
     let taken = host.take_edits(SLOW).unwrap();
@@ -151,10 +132,8 @@ fn what_the_plugin_does_in_its_window_reaches_lumen_in_order_and_the_processor()
         ]
     );
     assert_eq!(edits[1].value, 1.0);
-    // A second call has nothing left.
     assert!(host.take_edits(SLOW).unwrap().list.is_empty());
 
-    // The processor heard it: a saw ramps, where a square would only be ±1.
     let block = play(&mut host, vec![]);
     let mut distinct: Vec<u32> = block[1..60].iter().map(|s| s.to_bits()).collect();
     distinct.sort_unstable();
@@ -180,7 +159,6 @@ fn a_value_that_rode_in_a_block_is_told_to_the_controller_later() {
             points: vec![(0, 0.9), (10, 0.75)],
         }],
     );
-    // The controller has not heard yet: the control thread tells it.
     host.take_edits(SLOW).unwrap();
     let (_, list) = host.parameters(SLOW).unwrap();
     assert_eq!(list[0].value, 0.75);
@@ -188,11 +166,6 @@ fn a_value_that_rode_in_a_block_is_told_to_the_controller_later() {
 
 #[test]
 fn a_value_set_from_lumen_is_not_overwritten_by_an_older_one_that_rode_in_a_block() {
-    // A lane gave the plugin 0.2 in the last block it drove; the user then set
-    // 0.9. The controller has not been told about the lane's value yet, and
-    // when it is, it must not take the older one over the newer: a value set
-    // after a lane lets go would otherwise read back as the lane's, and be
-    // recorded as the user's own edit (owner, MT-AUTO-4).
     let mut host = instrument("");
     play(
         &mut host,
@@ -205,7 +178,6 @@ fn a_value_set_from_lumen_is_not_overwritten_by_an_older_one_that_rode_in_a_bloc
     host.take_edits(SLOW).unwrap();
     let (_, list) = host.parameters(SLOW).unwrap();
     assert_eq!(list[0].value, 0.9, "the controller holds the newer value");
-    // The processor heard it too, in its next block.
     play(&mut host, vec![]);
     host.take_edits(SLOW).unwrap();
     let (_, list) = host.parameters(SLOW).unwrap();
@@ -214,12 +186,10 @@ fn a_value_set_from_lumen_is_not_overwritten_by_an_older_one_that_rode_in_a_bloc
 
 #[test]
 fn what_the_processor_reports_comes_as_output_edits() {
-    // `reports_params` reports parameter 7 at 0.5 in every block.
     let mut host = instrument("reports_params");
     play(&mut host, vec![]);
     play(&mut host, vec![]);
     let edits = host.take_edits(SLOW).unwrap().list;
-    // Two blocks, one value: the second replaces the first.
     assert_eq!(edits.len(), 1, "{edits:?}");
     assert_eq!((edits[0].id, edits[0].kind), (7, EditKind::Output));
     assert_eq!(edits[0].value, 0.5);
@@ -256,7 +226,6 @@ fn play_with(
 #[test]
 fn a_controller_the_plugin_maps_changes_its_parameter_at_the_event() {
     let mut host = instrument("");
-    // Controller 7 is the level: half until sample 20, a quarter after it.
     let out = play_with(&mut host, vec![controller(20, 0, 7, 0.25)]);
     assert!(out[1..20].iter().all(|&s| s.abs() == 0.5), "{out:?}");
     assert!(out[21..60].iter().all(|&s| s.abs() == 0.25), "{out:?}");
@@ -284,7 +253,6 @@ fn several_controller_events_in_a_block_keep_their_order() {
 fn pitch_bend_goes_through_the_mapping_too() {
     use lumen_plugin_host::protocol::{Event, EventKind};
     let mut host = instrument("");
-    // The test plugin maps bend to the wave: all the way up is a saw.
     let bend = Event {
         offset: 0,
         kind: EventKind::PitchBend {
@@ -310,7 +278,6 @@ fn a_controller_nothing_maps_is_counted_and_changes_nothing() {
             value: 1.0,
         },
     };
-    // Controller 1 on channel 0, and controller 7 on channel 3: unmapped.
     let out = play_with(
         &mut host,
         vec![pressure, controller(8, 0, 1, 1.0), controller(9, 3, 7, 1.0)],

@@ -1,43 +1,29 @@
-//! Each card's sound and the menu's state: where a sound came from, the sounds
-//! a card was given, what the menu is showing, and a save under way.
-
 use super::*;
 
-/// What the card's field shows.
 pub(crate) struct FieldLook {
-    /// The sound's name, when one was chosen.
     pub name: Option<String>,
-    /// The sound has been changed since it was chosen.
     pub changed: bool,
 }
 
-/// Where a chosen sound came from.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum Source {
     Program { list: usize, index: usize },
     File { path: PathBuf, user: bool },
 }
 
-/// The sound a card was last given by the menu or its arrows.
 pub(super) struct Current {
     pub(super) name: String,
     pub(super) source: Source,
-    /// The parameter values the project held once the sound had settled; the
-    /// sound is changed when they are not what the project holds now.
     pub(super) baseline: Option<BTreeMap<u32, f64>>,
-    /// The device's sound revision when a file was loaded: another one means an
-    /// undo or redo went across the load.
     pub(super) rev: u32,
 }
 
-/// One entry of the menu.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum Choice {
     Program {
         list: usize,
         index: usize,
         name: String,
-        /// The list's name, when the plugin offers more than one.
         group: Option<String>,
     },
     File {
@@ -86,11 +72,9 @@ impl Choice {
     }
 }
 
-/// A save waiting for the plugin to be read.
 pub(super) struct Saving {
     pub(super) device: Id,
     pub(super) name: String,
-    /// The file to write over (Save), or none for an unused name (Save as).
     pub(super) over: Option<PathBuf>,
     pub(super) since: Instant,
 }
@@ -99,7 +83,6 @@ pub(super) struct Saving {
 pub(super) struct MenuState {
     pub(super) open_for: Option<Id>,
     pub(super) search: String,
-    /// The name being typed for Save as….
     pub(super) naming: Option<String>,
     pub(super) focus: Focus,
 }
@@ -112,24 +95,16 @@ pub(super) enum Focus {
     Name,
 }
 
-/// The cards' preset state.
 #[derive(Default)]
 pub(crate) struct Presets {
-    /// Where preset files are kept.
     pub(crate) places: Places,
     pub(super) files: Files,
-    /// The files found for each device's plugin.
     pub(super) listed: HashMap<Id, Vec<Entry>>,
-    /// Devices whose folders have been asked about.
     pub(super) asked: HashSet<Id>,
     pub(super) current: HashMap<Id, Current>,
-    /// A file being read for a device: its name, path and whether it is the
-    /// user's.
     pub(super) reading: HashMap<Id, (String, PathBuf, bool)>,
     pub(super) menu: MenuState,
     pub(super) saving: Option<Saving>,
-    /// The folders shown to the person, newest last (tests read it; with fixed
-    /// places no window opens).
     pub(crate) revealed: Vec<PathBuf>,
 }
 
@@ -141,8 +116,6 @@ impl Presets {
         }
     }
 
-    /// Asks again for the files of `device`, in `folders` (the user's first,
-    /// then any others).
     pub(super) fn relist(
         &mut self,
         ctx: &egui::Context,
@@ -157,8 +130,6 @@ impl Presets {
         }
     }
 
-    /// Gives `device` a chosen sound and a list of files, as if they had been
-    /// found (screenshots).
     pub(crate) fn pretend(
         &mut self,
         device: Id,
@@ -190,7 +161,6 @@ impl Presets {
         );
     }
 
-    /// Records that a program was chosen for `device`.
     pub(crate) fn chose_program(
         &mut self,
         device: Id,
@@ -210,10 +180,8 @@ impl Presets {
         );
     }
 
-    /// A preset the plugin took is the project's now.
     pub(crate) fn loaded(&mut self, device: Id, name: &str, rev: u32) {
         let Some((reading, path, user)) = self.reading.remove(&device) else {
-            // Loaded by a seam or a command: a name, no file.
             self.current.remove(&device);
             return;
         };
@@ -229,7 +197,6 @@ impl Presets {
         );
     }
 
-    /// A preset was refused: nothing was chosen.
     pub(crate) fn refused(&mut self, device: Id) {
         self.reading.remove(&device);
     }

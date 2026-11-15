@@ -1,25 +1,9 @@
-//! Runs every scenario under Callgrind and compares instruction counts with
-//! `perf/baseline.json` (ADR-0022).
-//!
-//! ```text
-//! cargo build --release -p lumen-perf
-//! target/release/perf-gate            # compare; exit 1 on a regression
-//! target/release/perf-gate --update   # write the current counts as the baseline
-//! ```
-//!
-//! Linux only (Valgrind). Counts depend on the toolchain, so the baseline is
-//! regenerated when `rust-toolchain.toml` or a dependency changes the code
-//! being measured; a change above the threshold says so in the failure.
-
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde_json::{Map, Value, json};
 
 const BASELINE: &str = "perf/baseline.json";
-/// Default allowed growth, in percent. Counts are deterministic to well
-/// under 1% (hash-table seeds are the only source of variation), so this
-/// catches real regressions without flapping.
 const DEFAULT_THRESHOLD: f64 = 3.0;
 
 fn main() {
@@ -92,8 +76,6 @@ fn main() {
             let _ = writeln!(file, "{table}");
         }
     }
-    // Always print the counts as JSON, so a CI log is enough to refresh
-    // the baseline after a toolchain change.
     println!("current counts: {}", Value::Object(measured.clone()));
 
     if update {
@@ -126,7 +108,6 @@ fn main() {
     }
 }
 
-/// Instructions executed inside `measured_<name>` and everything it calls.
 fn callgrind(exe: &Path, name: &str) -> Result<u64, String> {
     let out = std::env::temp_dir().join(format!("lumen-callgrind-{name}.out"));
     let status = Command::new("valgrind")
