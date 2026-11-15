@@ -54,12 +54,9 @@ impl App {
     pub fn drum_hit_point(&self, local: Ticks, input: u8) -> Option<Pos2> {
         let view = self.note_editor.last_view?;
         let row = self.drum_lane_row(input)?;
-        let clip = self.editor_open_clip()?;
-        let (open, _) = self.editor_clip(clip)?;
-        let cell = self.grid_cell_at_zoom(open.start, view.time.zoom);
-        let radius = geometry::hit_radius(&view, cell.1 - cell.0);
+        self.editor_open_clip()?;
         let top = view.body.top() + row as f32 * view.row_height - view.scroll;
-        Some(pos2(view.x_of(local) + radius, top + view.row_height / 2.0))
+        Some(pos2(view.x_of(local), top + view.row_height / 2.0))
     }
 
     /// Where a lane's name is, for a click that auditions it.

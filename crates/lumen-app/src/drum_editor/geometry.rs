@@ -6,8 +6,8 @@
 //!
 //! A lane's height is fixed at [`ROW`] (P's 28 pt: `2 × space::M + space::XS`,
 //! D1's table row) and its name column is [`NAME`] (176 pt, D1's key column
-//! and the specimen's). A hit is a diamond whose left tip sits on the onset, as
-//! a note's left edge does, and its half-width is [`hit_radius`]: a third of
+//! and the specimen's). A hit is a diamond centred on its onset, so the grid line
+//! runs through its middle (owner, 2026-11-14), and its half-width is [`hit_radius`]: a third of
 //! the row, no more than half the grid step, so neighbours stay apart until the
 //! zoom packs them.
 
@@ -61,15 +61,15 @@ pub(crate) fn hit_radius(view: &EditorView, step: Ticks) -> f32 {
         .max(HIT_LEAST)
 }
 
-/// Where a hit is drawn: the diamond's left tip on its onset, its middle on
-/// the row's middle.
+/// Where a hit is drawn: the diamond centred on its onset and on the row.s
+/// middle.
 pub(crate) fn hit_rect(view: &EditorView, note: Note, step: Ticks) -> Rect {
     let r = hit_radius(view, step);
     let top = view.row_top(i32::from(note.pitch()));
-    let left = view.x_of(note.start());
+    let onset = view.x_of(note.start());
     Rect::from_min_max(
-        pos2(left, top + view.row_height / 2.0 - r),
-        pos2(left + 2.0 * r, top + view.row_height / 2.0 + r),
+        pos2(onset - r, top + view.row_height / 2.0 - r),
+        pos2(onset + r, top + view.row_height / 2.0 + r),
     )
 }
 
@@ -116,7 +116,7 @@ pub(crate) fn row_rect(view: &EditorView, row: usize) -> Rect {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Cell {
     pub row: usize,
-    /// The left tip of the diamond (the onset) in points.
+    /// The onset in points: the diamond.s middle.
     pub x: f32,
     pub velocity: u8,
     /// One of the hits gathered here is picked.
@@ -184,7 +184,9 @@ pub(crate) fn cells_into(
             continue;
         }
         let x = view.x_of(note.start());
-        if x < view.body.left() - 2.0 || x > view.body.right() {
+        // A diamond is centred on its onset, so one whose onset is up to a
+        // row off either side still shows half of itself.
+        if x < view.body.left() - view.row_height || x > view.body.right() + view.row_height {
             continue;
         }
         // A hit past the body's right edge was skipped; the last column is
@@ -234,7 +236,7 @@ pub(crate) fn hit_at_cells(
     let r = hit_radius(view, step);
     cells.iter().rev().find_map(|cell| {
         let top = view.body.top() + cell.row as f32 * view.row_height - view.scroll;
-        let centre = pos2(cell.x + r, top + view.row_height / 2.0);
+        let centre = pos2(cell.x, top + view.row_height / 2.0);
         let d = Rect::from_center_size(centre, vec2(2.0 * r, 2.0 * r));
         inside_diamond(d, p).then_some(cell.note)
     })
@@ -300,7 +302,7 @@ mod tests {
     }
 
     #[test]
-    fn a_hit_is_a_diamond_whose_left_tip_is_the_onset() {
+    fn a_hit_is_a_diamond_centred_on_the_onset() {
         let rows = Rows::lanes([36_u8, 38]);
         let step = Ticks(PPQ / 4);
         let mut v = view(rows);
@@ -308,8 +310,8 @@ mod tests {
         v.time.zoom = 400.0;
         let note = Note::new(q(1), q(0), 36, 100);
         let rect = hit_rect(&v, note, step);
-        assert_eq!(rect.left(), v.x_of(q(1)));
         let r = rect.width() / 2.0;
+        assert_eq!(rect.left(), v.x_of(q(1)) - r);
         assert!(
             (r - (v.row_height * HIT_ROW)).abs() < 1e-4,
             "a third of the row: {r}"
@@ -373,8 +375,7 @@ mod tests {
         // A note of a lane the map does not show is left out.
         assert!(all.iter().all(|c| c.velocity != 120 || c.row != 1));
         // The pointer finds the cell's note without the clip's notes.
-        let r = hit_radius(&v, Ticks::quarters(1));
-        let centre = pos2(all[0].x + r, v.body.top() + ROW / 2.0);
+        let centre = pos2(all[0].x, v.body.top() + ROW / 2.0);
         assert_eq!(
             hit_at_cells(&v, &all, Ticks::quarters(1), centre),
             Some(all[0].note)
@@ -415,12 +416,26 @@ mod tests {
     }
 
     #[test]
+    fn a_hit_is_centred_on_its_onset_so_the_grid_line_runs_through_it() {
+        let v = view(Rows::lanes([36_u8]));
+        let note = Note::new(q(1), q(1), 36, 100);
+        let rect = hit_rect(&v, note, Ticks(240));
+        assert_eq!(hit_centre(rect).x, v.x_of(q(1)));
+        assert!(rect.left() < v.x_of(q(1)) && rect.right() > v.x_of(q(1)));
+        // The pointer on the line picks it, as does a point on its left half.
+        let on = pos2(v.x_of(q(1)), rect.center().y);
+        assert_eq!(hit_at(&v, &[note], Ticks(240), on), Some(0));
+        let left = pos2(v.x_of(q(1)) - rect.width() / 4.0, rect.center().y);
+        assert_eq!(hit_at(&v, &[note], Ticks(240), left), Some(0));
+    }
+
+    #[test]
     fn a_length_bar_runs_from_the_hit_to_the_notes_end() {
         let v = view(Rows::lanes([36_u8]));
         let note = Note::new(q(1), q(2), 36, 100);
         let (from, to) = length_bar(&v, note, Ticks(240)).expect("a bar");
         let rect = hit_rect(&v, note, Ticks(240));
-        assert_eq!(from, hit_centre(rect).x);
+        assert_eq!(from, rect.right(), "from the right tip");
         assert_eq!(to, v.x_of(q(3)));
         assert!(
             length_bar(&v, Note::new(q(1), Ticks(1), 36, 100), Ticks(240)).is_none(),
