@@ -52,8 +52,7 @@ impl App {
             if widgets::tip(response, tip, keys.as_ref(), None).clicked() {
                 ed.popped = !ed.popped;
             }
-            // The step grid has no lane under it: a step's velocity is its
-            // fill, set by dragging it.
+
             if drum != Some(crate::drum_editor::View::Steps) {
                 let mut shown = !ed.lane.hidden;
                 let response = icon_toggle(ui, "Lane", shown, glyphs::lane);
@@ -110,8 +109,7 @@ impl App {
         if let Some(tool) = strip.tools(self, ed.tool, tips) {
             ed.tool = tool;
         }
-        // The step grid has its own resolution in its strip; the roll's grid
-        // chip would name a grid the steps do not follow.
+
         if drum != Some(crate::drum_editor::View::Steps) {
             self.header_grid_chip(
                 &mut strip.row,

@@ -1,11 +1,6 @@
-//! The step grid drawn: its cells, the pointer and keys on them, and the name
-//! the grid gives assistive technology (M8 slice D3).
-
 use super::*;
 
 impl App {
-    /// Draws the grid: the name column, the strip, the cells and what the
-    /// pointer and the keyboard do on them.
     pub(crate) fn draw_steps(&mut self, ui: &mut Ui, frame: StepsFrame<'_>) -> StepsOut {
         let StepsFrame {
             ed,
@@ -34,7 +29,7 @@ impl App {
         let Some(layout) = setup.layout(content, meter) else {
             return blank(response);
         };
-        // The page the layout kept inside the clip is the page.
+
         let page = (layout.first / layout.count as i64) as u32;
         if page != setup.page {
             setup.page = page;
@@ -42,8 +37,6 @@ impl App {
         }
         let pitches: Vec<u8> = lanes.iter().map(|lane| lane.input).collect();
 
-        // The geometry: the page fills the body, so the editor's own
-        // `x_of` agrees with the cells.
         let mut view = EditorView {
             body,
             time: geometry::time_view(body.width(), clip.start, &layout),
@@ -88,7 +81,6 @@ impl App {
             rows: pitches.clone(),
         });
 
-        // The ground, the names, and the empty state.
         self.drum_surface(
             ui,
             &ctx,
@@ -107,7 +99,6 @@ impl App {
             },
         );
 
-        // The strip: the grid's own controls.
         if let Some(next) = self.steps_strip(ui, strip, clip, setup, &layout) {
             ed.drum.steps.set_setup(clip.id, next);
             ed.drum.steps.gesture = None;
@@ -120,8 +111,6 @@ impl App {
         let notes = notes_of(clip);
         let cells = ed.drum.steps.cells_for(clip, notes, &pitches, &layout);
 
-        // The pointer: a press on a step starts a gesture; a vertical drag
-        // sets its velocity; the release commits one undo step.
         let modifiers = ctx.input(|i| i.modifiers);
         let (pressed, down, latest, escape) = ctx.input(|i| {
             (
@@ -184,7 +173,6 @@ impl App {
             }
         }
 
-        // What the frame shows (the document may have changed above).
         let cells = if ed.drum.steps.gesture.is_none() {
             let now = self.editor_clip(clip.id).map(|(c, _)| c);
             match now {
@@ -262,8 +250,6 @@ impl App {
             ctx.request_repaint();
         }
 
-        // The accessible name says where the keyboard's step is and what it
-        // holds; the info line says what the pointer can do.
         let name = self.step_name(
             clip,
             lanes,
@@ -299,7 +285,7 @@ impl App {
                 egui::CursorIcon::Default
             });
         }
-        // The note under the pointer, for the right-click menu.
+
         let hover = hover_cell.and_then(|(row, column)| {
             let target = Target {
                 pitch: pitches[row],
@@ -321,8 +307,6 @@ impl App {
         }
     }
 
-    /// "Step grid, Beat. Snare, step 5 of 16, on, velocity 100, accent": what
-    /// the grid says to assistive technology, for the step the keyboard is on.
     pub(super) fn step_name(
         &self,
         clip: &Clip,

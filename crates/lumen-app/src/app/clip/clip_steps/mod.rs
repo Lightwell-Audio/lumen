@@ -1,15 +1,3 @@
-//! The step sequencer in the Clip tab (M8 slice D3, the owner's SQ A): the
-//! grid's strip (step count, resolution, accent, page), the pointer on its
-//! cells, its keys, and the page commands. The grid itself (its geometry and
-//! picture) is `crate::drum_editor::steps`; the notes, the selection, the
-//! history and the commands are the note editor's, so Steps is another view of
-//! the one editor, not a second editor: a step is edited through one named
-//! `Document` method (`edit_steps`, one undo step per gesture) and the notes it
-//! leaves picked are the editor's selection.
-//!
-//! None of this is saved: the grid a clip is set to (count, resolution, page,
-//! accent) lasts while the app runs, like Lanes' hidden sounds (D3's ADR).
-
 use std::sync::Arc;
 
 use eframe::egui::{
@@ -37,7 +25,6 @@ use crate::{App, theme};
 mod draw;
 mod strip;
 
-/// The most pages the strip shows as numbers; beyond it, Previous and Next.
 const NUMBERED_PAGES: u32 = 8;
 const COUNT_NAMES: [(&str, &str); 4] = [
     ("8", "8 steps a page"),
@@ -47,12 +34,10 @@ const COUNT_NAMES: [(&str, &str); 4] = [
 ];
 const PAGE_NUMBERS: [&str; NUMBERED_PAGES as usize] = ["1", "2", "3", "4", "5", "6", "7", "8"];
 
-/// The grid's Tab stop: stable for a clip, so the keys find it between frames.
 pub(crate) fn grid_id(clip: Id) -> egui::Id {
     egui::Id::new(("drum steps grid", clip.0))
 }
 
-/// What one frame of the grid needs from the editor that draws it.
 pub(crate) struct StepsFrame<'a> {
     pub ed: &'a mut NoteEditor,
     pub clip: &'a Arc<Clip>,
@@ -68,22 +53,18 @@ pub(crate) struct StepsFrame<'a> {
     pub surface: Surface,
 }
 
-/// What the grid tells the editor that drew it: the area the menu opens on,
-/// the pointer over the cells, and the note under it.
 pub(crate) struct StepsOut {
     pub response: egui::Response,
     pub over_body: Option<Pos2>,
     pub hover: Option<(usize, Zone)>,
 }
 
-/// The facts the keys and the page commands act on, read from the app.
 struct Context {
     clip: Arc<Clip>,
     layout: GridLayout,
     setup: Setup,
 }
 
-/// A key the grid answers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StepKey {
     Move(Move),
@@ -91,10 +72,6 @@ enum StepKey {
     Page(i32),
 }
 
-/// Takes the keys a focused grid answers out of `events`: the arrows, Home and
-/// End, Space and Enter (Shift for the accent), Page Up and Page Down, with
-/// nothing else held. Nothing it takes reaches the commands, so Space toggles
-/// a step while the grid has the focus and never starts the transport there.
 fn take_keys(events: &mut Vec<Event>) -> Vec<StepKey> {
     let mut taken = Vec::new();
     events.retain(|event| {
@@ -131,9 +108,6 @@ fn take_keys(events: &mut Vec<Event>) -> Vec<StepKey> {
 }
 
 impl App {
-    /// A drum clip is opened: Steps when it fits the grid, Lanes when it does
-    /// not, unless the track's view was chosen (SQ A; the owner's double-click
-    /// rule).
     pub(crate) fn pick_drum_view_for(&mut self, clip: Id) {
         if self.clip_drum_map(clip).is_none() {
             return;
@@ -151,8 +125,6 @@ impl App {
         }
     }
 
-    /// The open clip and its grid, when the open clip is a drum clip shown as
-    /// Steps.
     fn steps_context(&self) -> Option<Context> {
         let ed = &self.note_editor;
         let id = ed.clip?;
@@ -171,8 +143,6 @@ impl App {
         })
     }
 
-    /// Whether the page after (or before) the shown one exists: the commands'
-    /// availability.
     pub(crate) fn steps_page_available(&self, next: bool) -> Result<(), &'static str> {
         let Some(context) = self.steps_context() else {
             return Err("Open a drum clip in the Steps view first");
@@ -187,8 +157,6 @@ impl App {
         Ok(())
     }
 
-    /// Shows the page `by` pages on (negative for before): the keyboard's step
-    /// follows to the same column.
     pub(crate) fn steps_turn_page(&mut self, by: i64) {
         let Some(context) = self.steps_context() else {
             return;
@@ -211,7 +179,6 @@ impl App {
         }
     }
 
-    /// The keys of a focused grid, before the commands see them.
     pub(crate) fn steps_handle_keys(&mut self, ctx: &egui::Context) {
         if ctx.text_edit_focused()
             || self.typing
@@ -240,7 +207,6 @@ impl App {
     }
 
     fn steps_key(&mut self, ed: &mut NoteEditor, key: StepKey) {
-        // Each key reads the grid as the last one left it.
         let Some(id) = ed.clip else {
             return;
         };
@@ -318,9 +284,6 @@ impl App {
         }
     }
 
-    /// Commits one change to the grid: one undo step, the notes the step
-    /// leaves on picked (the editor's selection), and the sound heard when the
-    /// step is on.
     pub(crate) fn commit_step(
         &mut self,
         ed: &mut NoteEditor,
@@ -343,8 +306,6 @@ impl App {
     }
 }
 
-/// The steps of the page whose notes are picked: the picked notes in the
-/// page's window only, found by two searches (the picks are in note order).
 fn picked_cells(
     grid: &Grid<'_>,
     notes: &[lumen_project::model::Note],
@@ -371,9 +332,6 @@ fn picked_cells(
     cells
 }
 
-/// A press or a drag that needs a grid for its place is ignored when the
-/// pointer is past the last row or the page's edge: kept here so the tests of
-/// the pointer's mapping live with it.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -448,10 +406,9 @@ mod tests {
                 StepKey::Page(1),
             ]
         );
-        // What it did not take stays for the commands (Delete, Alt+Right,
-        // Ctrl+Space).
+
         assert_eq!(events.len(), 3, "{events:?}");
-        // And a release is not a press.
+
         let mut up = vec![Event::Key {
             key: Key::Space,
             physical_key: None,

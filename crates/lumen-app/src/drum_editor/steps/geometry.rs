@@ -1,11 +1,3 @@
-//! Where the step grid's cells are (M8 slice D3): the page's width divided into
-//! its steps, a row a sound at [`ROW`] points, the cell a pointer is over, and
-//! the time axis that makes the editor's own geometry (`EditorView`: the
-//! ruler's playhead, the grid lines, `x_of`) agree with the cells.
-//!
-//! A cell is the specimen's inset well: `INSET` points in from its step's
-//! edges on every side. Nothing here reads the document.
-
 use eframe::egui::{Pos2, Rect, pos2, vec2};
 use lumen_core::time::Ticks;
 
@@ -13,17 +5,12 @@ use super::Layout;
 use crate::theme;
 use crate::timeview::TimeView;
 
-/// A row's height (the specimen's 34 pt).
 pub(crate) const ROW: f32 = theme::size::STEP_ROW;
-/// How far a cell is inset from its step's edges.
+
 pub(crate) const INSET: f32 = theme::size::STEP_INSET;
-/// The strip's height above the rows (the grid's controls).
+
 pub(crate) const STRIP: f32 = theme::size::STEP_STRIP;
 
-/// The time axis that fits the page into `width` points: the page's first step
-/// at the body's left edge, its last one ending at the right edge. The
-/// editor's `EditorView` is built with it, so the playhead and `x_of` agree
-/// with the cells.
 pub(crate) fn time_view(width: f32, clip_start: Ticks, layout: &Layout) -> TimeView {
     let quarters = layout.step.as_quarters() * layout.count as f64;
     let zoom = (f64::from(width.max(1.0)) / quarters.max(1e-9)).max(1e-6);
@@ -34,8 +21,6 @@ pub(crate) fn time_view(width: f32, clip_start: Ticks, layout: &Layout) -> TimeV
     }
 }
 
-/// The grid as it is on the screen: the rows' body, the page's layout, the
-/// scroll, and which sound each row is.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Grid<'a> {
     pub body: Rect,
@@ -45,12 +30,10 @@ pub(crate) struct Grid<'a> {
 }
 
 impl Grid<'_> {
-    /// A step's width on the screen.
     pub fn step_width(&self) -> f32 {
         self.body.width() / self.layout.count as f32
     }
 
-    /// The whole step of column `k` of row `row`, before the inset.
     pub fn slot(&self, row: usize, k: usize) -> Rect {
         let w = self.step_width();
         let left = self.body.left() + k as f32 * w;
@@ -58,14 +41,12 @@ impl Grid<'_> {
         Rect::from_min_size(pos2(left, top), vec2(w, ROW))
     }
 
-    /// The cell's well, inset from its step on every side (never negative).
     pub fn cell_rect(&self, row: usize, k: usize) -> Rect {
         let slot = self.slot(row, k);
         let inset = INSET.min(slot.width() / 4.0).min(slot.height() / 4.0);
         slot.shrink(inset)
     }
 
-    /// The rows that are in view: the first and one past the last.
     pub fn rows_in_view(&self) -> (usize, usize) {
         let rows = self.pitches.len();
         let first = ((self.scroll / ROW).floor().max(0.0) as usize).min(rows);
@@ -73,8 +54,6 @@ impl Grid<'_> {
         (first, last.max(first))
     }
 
-    /// The row and column under `p`, if one is there: no row below the last
-    /// sound, no column past the page.
     pub fn cell_at(&self, p: Pos2) -> Option<(usize, usize)> {
         if !self.body.contains(p) {
             return None;
@@ -87,24 +66,19 @@ impl Grid<'_> {
         (k >= 0.0 && (k as usize) < self.layout.count).then_some((row as usize, k as usize))
     }
 
-    /// The row of the sound `pitch`, if the grid has it.
     pub fn row_of(&self, pitch: u8) -> Option<usize> {
         self.pitches.iter().position(|p| *p == pitch)
     }
 
-    /// The step index of column `k`.
     pub fn index_of(&self, k: usize) -> i64 {
         self.layout.first + k as i64
     }
 
-    /// The column of step `index`, when the page has it.
     pub fn column_of(&self, index: i64) -> Option<usize> {
         let k = index - self.layout.first;
         (k >= 0 && (k as usize) < self.layout.count).then_some(k as usize)
     }
 
-    /// Whether step `index` is past the clip's end: the grid shows it quiet
-    /// and a press there does nothing.
     pub fn past_end(&self, index: i64) -> bool {
         index >= self.layout.in_clip
     }
@@ -140,7 +114,7 @@ mod tests {
         let l = layout();
         let clip_start = Ticks::quarters(8);
         let view = time_view(800.0, clip_start, &l);
-        // The page starts four beats into the clip (16 sixteenths in).
+
         let first = (clip_start + Ticks(l.step.0 * l.first)).as_quarters();
         assert_eq!(view.x(200.0, first), 200.0);
         let end = first + 4.0;
@@ -159,7 +133,7 @@ mod tests {
         assert_eq!(cell.left(), slot.left() + INSET);
         assert_eq!(cell.top(), slot.top() + INSET);
         assert_eq!(cell.width(), 50.0 - 2.0 * INSET);
-        // The pointer maps back to the cell, in the inset or the gap.
+
         assert_eq!(g.cell_at(cell.center()), Some((1, 2)));
         assert_eq!(g.cell_at(slot.min + vec2(0.5, 0.5)), Some((1, 2)));
         assert_eq!(g.cell_at(pos2(199.0, 70.0)), None, "left of the grid");

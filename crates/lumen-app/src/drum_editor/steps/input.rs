@@ -1,38 +1,25 @@
-//! What the step grid's pointer and keys mean (M8 slice D3, SQ A): a click
-//! toggles a step, a vertical drag sets its velocity, Shift (the accent
-//! modifier) toggles its accent; the arrows move the keyboard's step and Space
-//! or Enter toggles it.
-//!
-//! Pure arithmetic: the app (`app/clip/clip_steps/`) feeds it the pointer and
-//! the keys and commits what it answers through `Document::edit_steps`, one
-//! undo step each. The notes, the selection and the history stay the note
-//! editor's.
-
 use eframe::egui::Pos2;
 use lumen_project::edit::steps::{Cell, Change, STEP_VELOCITY, Target};
 
 use super::geometry::{INSET, ROW};
 
-/// How far the pointer moves (points) before a press is a drag, not a click.
 pub(crate) const DRAG_THRESHOLD: f32 = 3.0;
-/// The velocity a point of vertical drag is worth: the cell's height is the
-/// whole range.
+
 const PER_POINT: f32 = 127.0 / (ROW - 2.0 * INSET);
 
-/// A press on a step, from the press to the release.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Gesture {
     pub target: Target,
     pub row: usize,
     pub column: usize,
     origin: Pos2,
-    /// The velocity a drag starts from: the step's own, or a click's.
+
     base: u8,
-    /// The step was on when pressed.
+
     was_on: bool,
-    /// The step was an accent when pressed.
+
     was_accent: bool,
-    /// The accent modifier was held at the press.
+
     accent_modifier: bool,
     moved: bool,
     velocity: u8,
@@ -67,8 +54,6 @@ impl Gesture {
         }
     }
 
-    /// The pointer moved to `p`: the velocity the drag now sets, once it is a
-    /// drag. A drag up is louder; the value stays inside 1 to 127.
     pub fn drag(&mut self, p: Pos2) -> Option<u8> {
         if !self.moved && (p.y - self.origin.y).abs() < DRAG_THRESHOLD {
             return None;
@@ -79,18 +64,14 @@ impl Gesture {
         Some(self.velocity)
     }
 
-    /// Whether the press has become a drag.
     pub fn is_drag(&self) -> bool {
         self.moved
     }
 
-    /// The velocity a drag in progress sets.
     pub fn velocity(&self) -> u8 {
         self.velocity
     }
 
-    /// The change the release commits: a drag sets the velocity; a click
-    /// toggles the step, or, with the accent modifier, its accent.
     pub fn release(&self, accent: u8) -> Change {
         if self.moved {
             return Change::Set(self.target, self.velocity);
@@ -102,8 +83,6 @@ impl Gesture {
     }
 }
 
-/// The accent modifier's click: an off step turns on as an accent; a step that
-/// is an accent goes back to a plain hit; any other on step becomes an accent.
 pub(crate) fn accent_toggle(target: Target, on: bool, accented: bool, accent: u8) -> Change {
     if on && accented {
         Change::Set(target, STEP_VELOCITY)
@@ -112,22 +91,18 @@ pub(crate) fn accent_toggle(target: Target, on: bool, accented: bool, accent: u8
     }
 }
 
-/// What a key does in the grid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Move {
     Left,
     Right,
     Up,
     Down,
-    /// First step of the row.
+
     Home,
-    /// Last step of the row (the clip's last, when it is shorter than a page).
+
     End,
 }
 
-/// Where the keyboard's step goes: within the clip's steps (`in_clip`) and the
-/// rows (`rows`). The step index is the whole clip's, so Right off a page's
-/// edge lands on the next page's first step (the app then turns the page).
 pub(crate) fn step_cursor(
     cursor: (usize, i64),
     movement: Move,
@@ -184,8 +159,7 @@ mod tests {
             Change::Toggle(target(), STEP_VELOCITY),
             "the toggle takes an on step away whatever the velocity"
         );
-        // Shift: off becomes an accent, a plain hit becomes one, an accent
-        // goes back to a plain hit.
+
         let off_shift = Gesture::press(target(), 0, 4, &off, origin, true, 127);
         assert_eq!(off_shift.release(127), Change::Set(target(), 127));
         let plain_shift = Gesture::press(target(), 0, 4, &on(100), origin, true, 127);
@@ -195,7 +169,7 @@ mod tests {
             accent_shift.release(127),
             Change::Set(target(), STEP_VELOCITY)
         );
-        // The remembered accent decides what counts.
+
         let softer = Gesture::press(target(), 0, 4, &on(112), origin, true, 112);
         assert_eq!(softer.release(112), Change::Set(target(), STEP_VELOCITY));
     }
@@ -210,11 +184,11 @@ mod tests {
         assert!(louder > 60, "up is louder: {louder}");
         assert!(g.is_drag());
         assert_eq!(g.release(127), Change::Set(target(), louder));
-        // Back to where it started is still a drag: the value, not a toggle.
+
         let back = g.drag(pos2(100.0, 100.0)).expect("still a drag");
         assert_eq!(back, 60);
         assert_eq!(g.release(127), Change::Set(target(), 60));
-        // The range is the cell's height; the ends are 1 and 127.
+
         assert_eq!(g.drag(pos2(100.0, -400.0)), Some(127));
         assert_eq!(g.drag(pos2(100.0, 600.0)), Some(1));
     }

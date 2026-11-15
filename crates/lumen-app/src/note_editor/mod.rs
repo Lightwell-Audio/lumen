@@ -228,8 +228,7 @@ impl App {
             self.note_editor.framed_for = None;
             self.note_editor.drum.steps.gesture = None;
             self.note_editor.drum.steps.cursor = None;
-            // A drum clip opens in Steps when it fits the grid, else in Lanes
-            // (D3), unless the track's view was chosen.
+
             self.pick_drum_view_for(clip);
         }
         self.note_editor.clip = Some(clip);

@@ -1,20 +1,3 @@
-//! The clip editors' header (M9.5 S1, the owner's TL C and KC C): one strip
-//! that the note editor and the audio editor both draw, so the two never
-//! drift apart. Its parts, left to right, in this order:
-//!
-//! - the clip's colour bar, its name and a caption ([`HeaderStrip::title`]);
-//! - a rule;
-//! - the tool switch, Pointer and Draw ([`HeaderStrip::tools`]): grey while
-//!   Pointer is chosen, filled accent while Draw is (the arrangement's rule),
-//!   with the Draw key only in its tooltip;
-//! - the grid chip ([`App::header_grid_chip`]);
-//! - the editor's own action (Quantize for notes);
-//! - at the right, the editor's view toggles and Pop out, drawn first so
-//!   the left parts take only the room left over.
-//!
-//! Every control is a raised control (the design system, ADR-0052). Icons and
-//! letters share one pixel-snapped centre line.
-
 use eframe::egui::{
     self, Align, Color32, FontId, Layout, Painter, Pos2, Rect, Response, Sense, Ui, UiBuilder,
     pos2, vec2,
@@ -29,45 +12,34 @@ use crate::timeview::TimeView;
 use crate::widgets::{self, Choice, raised};
 use crate::{App, fonts, motion, theme};
 
-/// The strip's height: roomy enough for the name over its caption.
 pub(crate) const HEADER: f32 = 40.0;
-/// The clip's colour bar.
+
 const BAR: egui::Vec2 = vec2(8.0, 22.0);
-/// An icon beside a label in the grid chip.
+
 const CHIP_ICON: f32 = 13.0;
-/// The widest the name and caption get before they are cut.
+
 const TITLE_WIDTH: f32 = 220.0;
-/// The name alone, shortened, when the header is narrow.
+
 const TITLE_SHORT: f32 = 64.0;
-/// The room of the grid chip's chevron.
+
 const CHIP_ARROW: f32 = 9.0;
 
-/// A rule's width.
 const RULE: f32 = 1.0;
 
-/// How much of itself the grid chip shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum GridChip {
-    /// The magnet, "Grid", the value and the arrow.
     Full,
-    /// Without the word.
+
     Value,
-    /// The magnet alone.
+
     Icon,
 }
 
-/// A header being drawn: its left-to-right row, which ends where the
-/// right-hand group begins.
 pub(crate) struct HeaderStrip {
     pub row: Ui,
 }
 
 impl HeaderStrip {
-    /// Paints the strip's ground in `rect` of `ui`, draws the right-hand
-    /// group with `right` (laid out right to left: the first control drawn is
-    /// at the right edge), then opens the left-to-right row in the room that
-    /// is left. The row is clipped to that room, so in a narrow panel the
-    /// left parts are cut rather than drawn over the right ones.
     pub fn new(ui: &mut Ui, rect: Rect, right: impl FnOnce(&mut Ui)) -> Self {
         let palette = theme::p();
         let painter = ui.painter();
@@ -107,8 +79,6 @@ impl HeaderStrip {
         Self { row }
     }
 
-    /// The colour bar, the clip's `name` over its `caption` (mono, hint),
-    /// then a rule. Named "Clip <name>" for assistive technology.
     pub fn title(&mut self, name: &str, caption: &str, colour: Color32) {
         let row = &mut self.row;
         let palette = theme::p();
@@ -123,7 +93,7 @@ impl HeaderStrip {
             FontId::monospace(theme::size::SCALE),
             palette.text_hint,
         );
-        // Cut a long name so the strip never grows (the title shortens).
+
         let width = name_galley
             .size()
             .x
@@ -146,7 +116,6 @@ impl HeaderStrip {
         separator(row);
     }
 
-    /// The whole title's width: what [`Self::title`] takes, rule included.
     pub fn title_width(ui: &Ui, name: &str, caption: &str) -> f32 {
         let measure = |text: &str, font| {
             ui.painter()
@@ -160,7 +129,6 @@ impl HeaderStrip {
         BAR.x + words + 2.0 * theme::space::M + RULE
     }
 
-    /// The name alone, shortened with "…" to [`TITLE_SHORT`], then a rule.
     pub fn title_short(&mut self, name: &str, colour: Color32) {
         let row = &mut self.row;
         let palette = theme::p();
@@ -186,8 +154,6 @@ impl HeaderStrip {
         BAR.x + TITLE_SHORT + 2.0 * theme::space::M + RULE
     }
 
-    /// Only the clip's colour bar, which keeps the title's name for assistive
-    /// technology.
     pub fn title_bar(&mut self, name: &str, colour: Color32) {
         let response = colour_bar(&mut self.row, colour);
         response.widget_info(|| {
@@ -199,16 +165,10 @@ impl HeaderStrip {
         BAR.x
     }
 
-    /// The tool switch: Pointer and Draw with their icons, 30 pt. Pointer
-    /// chosen is the grey thumb; Draw chosen is filled accent (TL C). The
-    /// Draw key is in Draw's tooltip, not in the control (KC C). `tips` say
-    /// what each tool does in this editor. Returns the tool picked.
     pub fn tools(&mut self, app: &App, tool: Tool, tips: [&str; 2]) -> Option<Tool> {
         self.tools_with(app, tool, tips, true)
     }
 
-    /// [`Self::tools`], with its words or as icons alone (`words` false);
-    /// the names and tooltips stay.
     pub fn tools_with(
         &mut self,
         app: &App,
@@ -223,15 +183,10 @@ impl HeaderStrip {
         widgets::segmented_tool(&mut self.row, id, tool, &choices, lit)
     }
 
-    /// The tool switch's width, with its words or without.
     pub fn tools_width(ui: &Ui, words: bool) -> f32 {
         widgets::segmented_tool_width(ui, &tool_choices(["", ""], None, words))
     }
 
-    /// The view switch on a track with a drum map (the owner's DV A, SQ A): the
-    /// clip's **Lanes** (the drum editor), **Steps** (the step grid) and
-    /// **Keys** (the piano roll with the kit's names), 30 pt like the tool
-    /// switch, in the specimen's order. Returns the view picked.
     pub fn views(&mut self, chosen: crate::drum_editor::View) -> Option<crate::drum_editor::View> {
         use crate::drum_editor::View;
         let choices = [
@@ -250,7 +205,6 @@ impl HeaderStrip {
     }
 }
 
-/// The tool switch's two choices.
 fn tool_choices<'a>(
     tips: [&'a str; 2],
     draw_keys: Option<&'a widgets::Keys>,
@@ -271,7 +225,6 @@ fn tool_choices<'a>(
 }
 
 impl App {
-    /// The grid chip's widths: as a whole, without its word, as its icon.
     pub(crate) fn grid_chip_widths(&self, ui: &Ui, time: TimeView) -> (f32, f32, f32) {
         let measure = |text: String, font| {
             ui.painter()
@@ -289,9 +242,6 @@ impl App {
         (without + word + gap, without, theme::size::CONTROL)
     }
 
-    /// The grid chip: a magnet (lit while snapping), "Grid", the value at the
-    /// editor's zoom in the mono face and an arrow; a click opens the grid
-    /// menu. `shows` says how much of that fits.
     pub(crate) fn header_grid_chip(&mut self, row: &mut Ui, time: TimeView, shows: GridChip) {
         let palette = theme::p();
         let label = self.grid_label_at(time.left, time.zoom);
@@ -366,7 +316,7 @@ impl App {
                     palette.text,
                 );
                 x += value.size().x + gap;
-                // A down chevron, as in the mock-up.
+
                 let c = pos2((x + CHIP_ARROW / 2.0).round(), mid);
                 let stroke = egui::Stroke::new(theme::stroke::LIT, palette.text_hint);
                 painter.line_segment([c + vec2(-3.0, -1.5), c + vec2(0.0, 1.5)], stroke);
@@ -385,8 +335,6 @@ impl App {
     }
 }
 
-/// The clip's colour bar, with the light top edge a lit thing has, as on the
-/// notes.
 fn colour_bar(row: &mut Ui, colour: Color32) -> Response {
     let (bar, response) = row.allocate_exact_size(BAR, Sense::hover());
     let bar = bar.round_to_pixels(row.pixels_per_point());
@@ -399,15 +347,11 @@ fn colour_bar(row: &mut Ui, colour: Color32) -> Response {
     response
 }
 
-/// A thin rule between groups in the strip.
 pub(crate) fn separator(row: &mut Ui) {
     let (rect, _) = row.allocate_exact_size(vec2(RULE, 24.0), Sense::hover());
     row.painter().rect_filled(rect, 0.0, theme::p().border);
 }
 
-/// A raised icon button that stays lit while `on` (`Tone::On`: `accent_muted`,
-/// an accent icon and hairline, cross-fading), named `name` for assistive
-/// technology.
 pub(crate) fn icon_toggle(
     ui: &mut Ui,
     name: &str,

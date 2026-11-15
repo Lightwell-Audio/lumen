@@ -1,12 +1,3 @@
-//! The step sequencer (M8 D3, the owner's SQ A): a clip that fits the grid
-//! opens as steps; a click toggles a step, a vertical drag sets its velocity,
-//! Shift-click toggles its accent; the count, the resolution and the page are
-//! settable; the keyboard reaches every step; and viewing a clip as steps never
-//! moves a note.
-//!
-//! Points come from the grid's own geometry (`App::steps_cell_point`), so a
-//! test clicks where a person would.
-
 use eframe::egui::{Key, Modifiers, Pos2, vec2};
 use egui_kittest::kittest::{NodeT, Queryable};
 use lumen_core::time::{PPQ, Ticks};
@@ -30,9 +21,6 @@ fn step(index: i64) -> Ticks {
     Ticks(index * STEP)
 }
 
-/// A kick on 1 and 3, a snare on 2 and 4, hats on the off-beat eighths: two
-/// bars, steps 0, 8; 4, 12; 2, 10. Their length and velocity are a player's,
-/// so none of them is the plain hit a click makes.
 fn kit_notes() -> Vec<Note> {
     vec![
         Note::new(Ticks::ZERO, Ticks(60), KICK, 110),
@@ -44,10 +32,7 @@ fn kit_notes() -> Vec<Note> {
     ]
 }
 
-/// A project with one clip of `beats` beats on a track that reads the 808-style
-/// map.
 fn project_with(beats: i64, mut notes: Vec<Note>) -> Project {
-    // A clip's notes are kept in start order.
     notes.sort_by_key(|n| (n.start(), n.pitch()));
     let mut project = project_of(
         "Drums",
@@ -68,8 +53,6 @@ fn project_with(beats: i64, mut notes: Vec<Note>) -> Project {
     project
 }
 
-/// Starts Lumen on `project` and opens its clip as a double-click does, with
-/// the panel the room the grid needs.
 fn launch(name: &str, project: Project) -> (Lumen, Id) {
     let clip = project.tracks[0].clips[0].id;
     let dir = TempDir::new(&format!("e2e-steps-{name}"));
@@ -118,7 +101,6 @@ fn velocity(lumen: &Lumen, pitch: u8, index: i64) -> u8 {
         .velocity
 }
 
-/// The grid's accessible name, which says where the keyboard's step is.
 fn grid_name(lumen: &Lumen) -> String {
     lumen
         .harness
@@ -132,21 +114,20 @@ fn a_clip_that_fits_the_grid_opens_as_steps_and_a_longer_one_as_lanes() {
     let (lumen, _) = launch("open-fit", project_with(8, kit_notes()));
     assert_eq!(lumen.app().drum_view_shown(), Some("steps"));
     assert!(lumen.app().steps_shown());
-    // 8 beats of 1/16 steps are 32, and a page is 16.
+
     let setup = lumen.app().steps_setup().expect("a grid");
     assert_eq!((setup.count, setup.resolution.as_str()), (16, "1/16"));
     assert_eq!((setup.page, setup.pages), (0, 2));
     assert_eq!(lumen.app().steps_page_range(), Some((0, 15)));
-    // The kit's pattern is on the grid where it was played.
+
     for (pitch, index) in [(KICK, 0), (KICK, 8), (SNARE, 4), (SNARE, 12), (HAT, 2)] {
         assert!(on(&lumen, pitch, index), "sound {pitch} step {index}");
     }
     assert!(!on(&lumen, KICK, 1));
     assert_eq!(velocity(&lumen, KICK, 0), 110);
-    // The switch, with its names, is in the header.
+
     assert!(lumen.shows("Lanes view") && lumen.shows("Steps view") && lumen.shows("Keys view"));
 
-    // Five bars do not fit 64 steps: the clip opens as lanes.
     let (long, _) = launch("open-long", project_with(20, kit_notes()));
     assert_eq!(long.app().drum_view_shown(), Some("lanes"));
     assert!(!long.app().steps_shown());
@@ -170,12 +151,10 @@ fn a_click_makes_a_plain_hit_and_a_second_click_takes_it_away_one_undo_step_each
     assert_eq!(notes_of(&lumen, clip).len(), before.len() + 1);
     assert_eq!(lumen.app().picked_note_count(), 1, "the new hit is picked");
 
-    // The second click takes the plain hit away: the clip is as it was.
     lumen.click_at(p, Modifiers::NONE);
     assert!(!on(&lumen, SNARE, 6));
     assert_eq!(notes_of(&lumen, clip), before);
 
-    // Each click was one undo step.
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert!(on(&lumen, SNARE, 6), "undo brings the hit back");
     lumen.key(Modifiers::COMMAND, Key::Z);
@@ -211,7 +190,7 @@ fn a_vertical_drag_sets_the_velocity_in_one_undo_step() {
     let before = notes_of(&lumen, clip);
     assert_eq!(velocity(&lumen, SNARE, 4), 100);
     let p = at(&lumen, SNARE, 4);
-    // Down 10 points is quieter, and the note's other facts do not move.
+
     lumen.drag(p, p + vec2(0.0, 10.0), Modifiers::NONE);
     let quiet = velocity(&lumen, SNARE, 4);
     assert!(quiet < 70, "a drag down lowers the velocity: {quiet}");
@@ -226,7 +205,6 @@ fn a_vertical_drag_sets_the_velocity_in_one_undo_step() {
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert_eq!(notes_of(&lumen, clip), before, "one undo step");
 
-    // Up is louder, and a drag from an off step makes it.
     let p = at(&lumen, SNARE, 4);
     lumen.drag(p, p - vec2(0.0, 10.0), Modifiers::NONE);
     assert_eq!(velocity(&lumen, SNARE, 4), 127);
@@ -246,18 +224,17 @@ fn a_shift_click_toggles_the_accent_and_the_accent_is_a_velocity_the_clip_rememb
     lumen.click_at(p, Modifiers::SHIFT);
     assert!(on(&lumen, HAT, 6), "and a second Shift-click keeps it");
     assert_eq!(velocity(&lumen, HAT, 6), 100, "as a plain hit");
-    // A step that is not an accent becomes one.
+
     let p = at(&lumen, SNARE, 4);
     lumen.click_at(p, Modifiers::SHIFT);
     assert_eq!(velocity(&lumen, SNARE, 4), 127);
-    // The accent is a velocity the clip's notes hold, so it survives the
-    // grid: the notes carry it.
+
     assert!(
         notes_of(&lumen, clip)
             .iter()
             .any(|n| n.pitch() == SNARE && n.velocity() == 127)
     );
-    // The accent velocity is settable from the strip.
+
     lumen.click("Accent 127");
     lumen.click("112");
     assert_eq!(lumen.app().steps_setup().expect("a grid").accent, 112);
@@ -277,7 +254,7 @@ fn an_off_grid_hit_shows_at_its_step_and_viewing_it_never_moves_it() {
     let cell = lumen.app().steps_cell(KICK, 4).expect("a grid");
     assert!(cell.on && cell.off_grid, "shown at its step, with a mark");
     assert_eq!(cell.velocity, 90);
-    // Looking around changes nothing: the page, the count, the resolution.
+
     lumen.click("Page 2");
     lumen.click("Page 1");
     lumen.click("32 steps a page");
@@ -285,7 +262,6 @@ fn an_off_grid_hit_shows_at_its_step_and_viewing_it_never_moves_it() {
     assert_eq!(notes_of(&lumen, clip), before, "viewing moves nothing");
     assert!(lumen.app().undo_label().is_none() || lumen.app().undo_label() == Some("Open"));
 
-    // Off and on again returns the notes exactly.
     let p = at(&lumen, KICK, 4);
     lumen.click_at(p, Modifiers::NONE);
     assert!(!on(&lumen, KICK, 4));
@@ -296,32 +272,30 @@ fn an_off_grid_hit_shows_at_its_step_and_viewing_it_never_moves_it() {
 #[test]
 fn the_count_the_resolution_and_the_page_are_settable() {
     let (mut lumen, _) = launch("setup", project_with(16, kit_notes()));
-    // Four bars are 64 sixteenths: four pages of 16.
+
     assert_eq!(lumen.app().steps_setup().expect("a grid").pages, 4);
     lumen.click("32 steps a page");
     let setup = lumen.app().steps_setup().expect("a grid");
     assert_eq!((setup.count, setup.pages, setup.page), (32, 2, 0));
     lumen.click("Page 2");
     assert_eq!(lumen.app().steps_page_range(), Some((32, 63)));
-    // A step on the second page is on the screen, and the first is not.
+
     assert!(lumen.app().steps_cell_point(KICK, 40).is_some());
     assert!(lumen.app().steps_cell_point(KICK, 4).is_none());
-    // A different count starts again at the first page.
+
     lumen.click("8 steps a page");
     let setup = lumen.app().steps_setup().expect("a grid");
     assert_eq!((setup.count, setup.pages, setup.page), (8, 8, 0));
     lumen.click("16 steps a page");
 
-    // The resolution: 1/8 makes each step two sixteenths, so the four bars
-    // are 32 steps: two pages of 16.
     lumen.click("1/16");
     lumen.click("1/8");
     let setup = lumen.app().steps_setup().expect("a grid");
     assert_eq!(setup.resolution, "1/8");
     assert_eq!(setup.pages, 2);
-    // A hat at 2 sixteenths is the second 1/8 step.
+
     assert!(on(&lumen, HAT, 1));
-    // Triplets are there too, and the grid is the same clip's.
+
     lumen.click("1/8");
     lumen.click("1/16T");
     assert_eq!(
@@ -355,7 +329,7 @@ fn the_page_commands_turn_the_page_and_say_when_they_cannot() {
 fn the_keyboard_reaches_every_step_and_space_toggles_a_step_not_the_transport() {
     let (mut lumen, clip) = launch("keys", project_with(8, kit_notes()));
     let before = notes_of(&lumen, clip);
-    // The grid is a Tab stop with a name that says where the keyboard is.
+
     lumen
         .harness
         .get_by_label_contains("Step grid: Drums")
@@ -365,7 +339,7 @@ fn the_keyboard_reaches_every_step_and_space_toggles_a_step_not_the_transport() 
         lumen.app().steps_has_keyboard(),
         "the grid has the keyboard"
     );
-    // The first row, the first step.
+
     let (pitch, index) = lumen.app().steps_cursor().expect("a place");
     assert_eq!(index, 0);
     let first = grid_name(&lumen);
@@ -375,7 +349,6 @@ fn the_keyboard_reaches_every_step_and_space_toggles_a_step_not_the_transport() 
         "or off: the name says: {first}"
     );
 
-    // Right, Right moves to step 3; Down moves a sound down.
     lumen.key(Modifiers::NONE, Key::ArrowRight);
     lumen.key(Modifiers::NONE, Key::ArrowRight);
     assert_eq!(lumen.app().steps_cursor(), Some((pitch, 2)));
@@ -385,8 +358,6 @@ fn the_keyboard_reaches_every_step_and_space_toggles_a_step_not_the_transport() 
     assert_eq!(index, 2);
     assert!(grid_name(&lumen).contains("step 3 of 32"));
 
-    // Space toggles the step the keyboard is on, one undo step, and never
-    // starts the transport.
     assert!(!lumen.app().is_playing());
     let was = on(&lumen, next_pitch, 2);
     lumen.key(Modifiers::NONE, Key::Space);
@@ -399,13 +370,11 @@ fn the_keyboard_reaches_every_step_and_space_toggles_a_step_not_the_transport() 
     lumen.key(Modifiers::NONE, Key::Enter);
     assert_eq!(on(&lumen, next_pitch, 2), was, "Enter toggles it back");
 
-    // Shift+Space toggles the accent.
     lumen.key(Modifiers::SHIFT, Key::Space);
     assert!(on(&lumen, next_pitch, 2));
     assert_eq!(velocity(&lumen, next_pitch, 2), 127);
     assert!(grid_name(&lumen).contains("accent"));
 
-    // End and Home run along the row; Page Down turns the page.
     lumen.key(Modifiers::NONE, Key::End);
     assert_eq!(lumen.app().steps_cursor(), Some((next_pitch, 31)));
     assert_eq!(lumen.app().steps_page_range(), Some((16, 31)));
@@ -416,7 +385,6 @@ fn the_keyboard_reaches_every_step_and_space_toggles_a_step_not_the_transport() 
     assert_eq!(lumen.app().steps_page_range(), Some((16, 31)));
     assert_eq!(lumen.app().steps_cursor(), Some((next_pitch, 16)));
 
-    // The keyboard is as strong as the mouse: undo everything it did.
     for _ in 0..3 {
         lumen.key(Modifiers::COMMAND, Key::Z);
     }
@@ -431,7 +399,7 @@ fn space_is_the_transports_when_the_grid_does_not_have_the_keyboard() {
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.wait_for("the transport", |app| app.is_playing());
     assert_eq!(notes_of(&lumen, clip), before, "no step was toggled");
-    // The step the playhead is in is lit while it plays.
+
     lumen.wait_for("a lit step", |app| app.steps_playing_step().is_some());
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.wait_for("the stop", |app| !app.is_playing());
@@ -459,7 +427,6 @@ fn the_view_switch_is_in_the_header_the_editors_menu_and_the_palette() {
         Some("The step sequencer is the view already")
     );
 
-    // The editor's menu offers the other two.
     let body = lumen.app().editor_body().expect("the grid drew");
     let empty = Pos2::new(body.right() - 40.0, body.bottom() - 6.0);
     lumen.right_click(empty);
@@ -474,7 +441,7 @@ fn a_chosen_view_is_kept_for_the_track_and_the_fit_only_decides_before_a_choice(
     let (mut lumen, clip) = launch("chosen", project_with(8, kit_notes()));
     assert_eq!(lumen.app().drum_view_shown(), Some("steps"));
     lumen.click("Lanes view");
-    // Closing and opening the clip again keeps what the user chose.
+
     lumen.key(Modifiers::NONE, Key::Escape);
     lumen.frames(3);
     lumen.app_mut().open_clip_editor(clip);
@@ -498,8 +465,7 @@ fn a_right_click_on_a_step_with_a_hit_offers_the_notes_menu_and_delete_removes_t
     );
     lumen.key(Modifiers::NONE, Key::Escape);
     lumen.frames(3);
-    // A click picks the step's hit (it was a player's, so it is muted, not
-    // deleted), and Delete removes the picked hit like any note.
+
     lumen.click_at(at(&lumen, KICK, 0), Modifiers::NONE);
     assert_eq!(
         lumen.app().picked_note_count(),
@@ -527,6 +493,6 @@ fn a_lanes_sound_with_no_hits_is_still_a_row_and_hide_unused_hides_it() {
         vec!["Kick", "Snare", "Closed Hat"],
         "the three sounds the clip plays"
     );
-    // The first of them is on the page and the grid still reaches it.
+
     assert!(lumen.app().steps_cell_point(KICK, 0).is_some());
 }

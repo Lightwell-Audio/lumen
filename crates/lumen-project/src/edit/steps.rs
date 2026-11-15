@@ -1,97 +1,48 @@
-//! The step sequencer's arithmetic (M8 slice D3): a drum clip's notes read and
-//! edited as a grid of steps, one row per sound. Pure functions over a clip's
-//! note list, like [`super::notes`]; the app wraps each in one undo step
-//! (`Document::edit_steps`).
-//!
-//! # A step is a window of time, not a position
-//!
-//! The grid is `step` ticks wide from the clip's start. A note **belongs to**
-//! the step its start falls in (`floor(start / step)`), whatever its exact
-//! start is, so a hit played a little late still shows in its step and is
-//! never moved by being looked at: only an edit changes a note, and no edit
-//! here changes a start. A step is **on** when an unmuted note of the row's
-//! pitch belongs to it. A note that does not start exactly on the step's edge
-//! is **off the grid**, and the view marks it.
-//!
-//! # Toggling gives the clip back exactly
-//!
-//! A click on an off step makes the hit a click always makes (**plain**: the
-//! step's start, the step's length cut at the clip's end, [`STEP_VELOCITY`], no
-//! mute). A click on an on step takes it away again:
-//!
-//! - when the step holds exactly one note and it is plain, the note is
-//!   **deleted** (it is what a click made, so the clip is as it was);
-//! - otherwise (an off-grid hit, a different length or velocity, two hits in a
-//!   step) every note of the step is **muted** and kept: nothing the user
-//!   made is lost, and the next click on the step unmutes them as they were.
-//!
-//! So off-then-on returns the clip's notes exactly for any step whose notes
-//! are all unmuted (or all muted); and on-then-off does for an empty step. Two
-//! cases are outside the promise and tested as such: a step that holds muted
-//! and unmuted notes together (the click unmutes them all), and a plain note
-//! the user muted by hand and then clicked on and off (the click made it look
-//! like a click's own hit, so it is deleted).
-//!
-//! The notes stay sorted by `(start, pitch)`, so a step's notes are found by
-//! two binary searches and a frame of a hundred thousand hits costs the steps
-//! on the page.
-
 use lumen_core::time::Ticks;
 
 use super::notes::{self, MIN_NOTE};
 use crate::model::Note;
 
-/// The velocity of a hit a click makes.
 pub const STEP_VELOCITY: u8 = 100;
-/// The velocity an accent is, until the user sets another.
+
 pub const ACCENT_VELOCITY: u8 = 127;
 
-/// One step of one row: the sound's note and the step's index from the clip's
-/// start.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Target {
     pub pitch: u8,
     pub index: i64,
 }
 
-/// What the grid shows for one step.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Cell {
-    /// An unmuted note belongs to the step.
     pub on: bool,
-    /// The velocity of the step's first unmuted note (0 when off).
+
     pub velocity: u8,
-    /// An unmuted note of the step starts away from the step's edge.
+
     pub off_grid: bool,
-    /// Only muted notes belong to the step: off, with its hit kept.
+
     pub held: bool,
-    /// How many notes belong to the step, muted or not.
+
     pub hits: u16,
 }
 
-/// One change to the grid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Change {
-    /// A click: on to off or off to on (a step turned on has `velocity`).
     Toggle(Target, u8),
-    /// Turns the step on at `velocity`, or sets the velocity of an on step.
+
     Set(Target, u8),
-    /// Turns the step off, as a toggle of an on step does.
+
     Off(Target),
 }
 
-/// The step a clip time falls in, or `None` before the clip's start.
 pub fn index_of(start: Ticks, step: Ticks) -> Option<i64> {
     (start >= Ticks::ZERO && step > Ticks::ZERO).then(|| start.0.div_euclid(step.0))
 }
 
-/// Where step `index` starts, in clip time.
 pub fn start_of(index: i64, step: Ticks) -> Ticks {
     Ticks(index.saturating_mul(step.0))
 }
 
-/// How many steps of `step` the clip's content holds, the last one possibly
-/// partial: the steps a click can turn on.
 pub fn steps_in(length: Ticks, step: Ticks) -> i64 {
     if length <= Ticks::ZERO || step <= Ticks::ZERO {
         0
@@ -100,7 +51,6 @@ pub fn steps_in(length: Ticks, step: Ticks) -> i64 {
     }
 }
 
-/// The hit a click makes at step `index`: what [`notes::add`] would keep.
 fn plain_note(target: Target, step: Ticks, length: Ticks, velocity: u8) -> Option<Note> {
     let start = start_of(target.index, step);
     if start < Ticks::ZERO || start >= length {
@@ -117,12 +67,10 @@ fn plain_note(target: Target, step: Ticks, length: Ticks, velocity: u8) -> Optio
     ))
 }
 
-/// Whether `note` is the hit a click makes at its step.
 fn is_plain(note: &Note, target: Target, step: Ticks, length: Ticks) -> bool {
     plain_note(target, step, length, STEP_VELOCITY).is_some_and(|plain| plain == *note)
 }
 
-/// The indices of the notes of `pitch` that belong to step `index`.
 pub fn owned(notes: &[Note], target: Target, step: Ticks) -> std::ops::Range<usize> {
     let first = start_of(target.index, step);
     let end = first + step;
@@ -140,7 +88,6 @@ fn owned_of_pitch(notes: &[Note], target: Target, step: Ticks) -> Vec<usize> {
         .collect()
 }
 
-/// What the grid shows for one step of the notes.
 pub fn cell(notes: &[Note], target: Target, step: Ticks) -> Cell {
     let mut cell = Cell::default();
     for i in owned_of_pitch(notes, target, step) {
@@ -150,8 +97,6 @@ pub fn cell(notes: &[Note], target: Target, step: Ticks) -> Cell {
 }
 
 impl Cell {
-    /// Folds in a note that belongs to the step (notes come in start order,
-    /// so the first unmuted one gives the velocity).
     fn take(&mut self, note: &Note, step: Ticks) {
         self.hits = self.hits.saturating_add(1);
         if note.muted() {
@@ -169,9 +114,6 @@ impl Cell {
     }
 }
 
-/// The cells of the rows `pitches` (one row each, in that order) for the
-/// steps `first .. first + count`, row by row into `out`: one pass over the
-/// notes that belong to those steps.
 pub fn page_into(
     notes: &[Note],
     step: Ticks,
@@ -187,7 +129,6 @@ pub fn page_into(
     }
     let mut row_of = [usize::MAX; 128];
     for (row, &pitch) in pitches.iter().enumerate() {
-        // The first row of a pitch wins; a map names a note once.
         if let Some(slot) = row_of.get_mut(usize::from(pitch))
             && *slot == usize::MAX
         {
@@ -215,9 +156,6 @@ pub fn page_into(
     }
 }
 
-/// Applies `changes` in order. `length` is the clip's content length. Returns
-/// the indices of the unmuted notes of the last step changed, in the list as it
-/// is after the edit (the editor's selection).
 pub fn apply(notes: &mut Vec<Note>, step: Ticks, length: Ticks, changes: &[Change]) -> Vec<usize> {
     let mut last = None;
     for change in changes {
@@ -265,7 +203,6 @@ fn turn_on(notes: &mut Vec<Note>, target: Target, step: Ticks, length: Ticks, ve
             notes::add(notes, hit, length);
         }
     } else {
-        // The step held its hits muted: they come back as they were.
         notes::mute(notes, &owned, Some(false));
     }
 }
@@ -384,7 +321,7 @@ mod tests {
             &[Change::Toggle(at(36, 3), STEP_VELOCITY)],
         );
         assert!(notes.is_empty(), "a cut hit is still plain");
-        // A step past the end cannot be turned on.
+
         apply(
             &mut notes,
             STEP,
@@ -435,7 +372,6 @@ mod tests {
         assert_eq!(out.iter().filter(|c| c.on).count(), 1);
     }
 
-    /// A small deterministic generator: the property tests need no crate.
     struct Rolls(u64);
     impl Rolls {
         fn next(&mut self) -> u64 {
@@ -470,7 +406,6 @@ mod tests {
         notes
     }
 
-    /// The step's notes mix muted and unmuted (the promise does not cover it).
     fn mixed(notes: &[Note], target: Target) -> bool {
         let owned = owned_of_pitch(notes, target, STEP);
         owned.iter().any(|&i| notes[i].muted()) && owned.iter().any(|&i| !notes[i].muted())
@@ -500,8 +435,7 @@ mod tests {
                     Change::Toggle(target, STEP_VELOCITY),
                 ],
             );
-            // Two clicks always return to where they began: an on step goes
-            // off and on, an off step on and off.
+
             if was_on {
                 assert_eq!(notes, original, "off then on: {target:?}");
                 checked += 1;
@@ -551,8 +485,6 @@ mod tests {
 
     #[test]
     fn viewing_never_moves_a_note() {
-        // `page_into` and `cell` take the notes by shared reference: a view
-        // cannot change them. What it must do is show an off-grid hit.
         let late = Note::new(Ticks(STEP.0 * 2 + 5), Ticks(300), 36, 80);
         let notes = vec![late];
         let mut out = Vec::new();

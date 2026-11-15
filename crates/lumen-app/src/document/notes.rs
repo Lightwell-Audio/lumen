@@ -1,20 +1,3 @@
-//! Note edits (M5 slice 3a): the piano roll's operations on a MIDI clip's
-//! notes, each one undo step through the history. The arithmetic is
-//! `lumen_project::edit::notes`; see its documentation for the selection
-//! contract (notes are picked by index; every edit returns the indices of
-//! the notes it made or changed, in the list after the edit).
-//!
-//! Gestures (drawing a note, moving, copying and resizing by dragging) take
-//! `base`, the project as the gesture found it, and the indices as they are
-//! in it, and redo their whole edit from there each frame; with the same
-//! `merge` key the frames are one undo step, as clip drags are. One-shot
-//! edits (delete, split, glue, mute, duplicate, nudge, transpose, legato)
-//! work on the project as it is.
-//!
-//! A locked clip, a clip that is not there and an audio clip refuse every
-//! edit: nothing changes and the selection given comes back. Only notes
-//! change; the clip's controller, bend, pressure and program events stay.
-
 use std::sync::Arc;
 
 use lumen_core::time::Ticks;
@@ -25,9 +8,6 @@ use super::{Document, plural};
 
 pub use ops::{End, MIN_NOTE};
 
-/// A resize: which `end` of the notes is dragged and how far (`by`, later
-/// when positive), none left shorter than `min` (the grid step; never below
-/// [`MIN_NOTE`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Resize {
     pub end: End,
@@ -35,9 +15,6 @@ pub struct Resize {
     pub min: Ticks,
 }
 
-/// The drum editor's lane move: the picked hits `time` later, each on its own
-/// pitch (`pitches`, in the order of the selection), copying them when `copy`
-/// is set (M8 D2 review H3: one lane up is the next sound, not a semitone).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LaneMove<'a> {
     pub time: Ticks,
@@ -46,15 +23,10 @@ pub struct LaneMove<'a> {
 }
 
 impl Document {
-    /// Whether the notes of `clip` can be edited now: it is a MIDI clip and
-    /// not locked.
     pub fn notes_editable(&self, clip: Id) -> bool {
         find(self.project(), clip).is_some()
     }
 
-    /// Runs `change` on the notes of the unlocked MIDI clip `clip` (starting
-    /// from `base` when given) as one step, and returns the selection it
-    /// answers with.
     fn edit_notes(
         &mut self,
         label: &str,
@@ -93,10 +65,6 @@ impl Document {
         result
     }
 
-    /// Draws `note` into the clip (clamped inside it), the way a click or a
-    /// click-and-drag in the draw tool does: for a drag, pass the project
-    /// from before it as `base` and the same `merge` key every frame, with
-    /// the note's length growing. Returns the new note's index.
     pub fn add_note(
         &mut self,
         base: Option<&Project>,
@@ -109,11 +77,6 @@ impl Document {
         })
     }
 
-    /// The step sequencer's edit (M8 D3): `changes` to a drum clip's steps, one
-    /// undo step however many there are (a click is one change, a paint or a
-    /// velocity drag is several). `step` is the grid's step in clip ticks. A
-    /// drag passes the project from before it as `base` and the same `merge`
-    /// key every frame. Returns the unmuted notes of the last step changed.
     pub fn edit_steps(
         &mut self,
         clip: Id,
@@ -137,9 +100,6 @@ impl Document {
         })
     }
 
-    /// Moves the picked notes `time` later and `pitch` semitones higher
-    /// (negative for earlier and lower), as a group clamped at the clip's
-    /// limits; a drag, from `base`.
     pub fn move_notes(
         &mut self,
         base: &Project,
@@ -160,8 +120,6 @@ impl Document {
         )
     }
 
-    /// Copies the picked notes to a new place (Ctrl-drag), leaving the
-    /// originals; from `base`. Returns the copies.
     pub fn copy_notes(
         &mut self,
         base: &Project,
@@ -182,7 +140,6 @@ impl Document {
         )
     }
 
-    /// Drags one end of the picked notes ([`Resize`]); a drag, from `base`.
     pub fn resize_notes(
         &mut self,
         base: &Project,
@@ -211,7 +168,6 @@ impl Document {
         )
     }
 
-    /// Deletes the picked notes. Nothing remains selected.
     pub fn delete_notes(&mut self, clip: Id, selection: &[usize]) -> Vec<usize> {
         let label = plural(selection.len(), "Delete note", "Delete {} notes");
         self.edit_notes(&label, None, None, clip, selection, |notes, _| {
@@ -219,8 +175,6 @@ impl Document {
         })
     }
 
-    /// Splits the picked notes that sound at `at` (clip time, see
-    /// `edit::to_clip_time`).
     pub fn split_notes(&mut self, clip: Id, selection: &[usize], at: Ticks) -> Vec<usize> {
         let label = plural(selection.len(), "Split note", "Split {} notes");
         self.edit_notes(&label, None, None, clip, selection, |notes, _| {
@@ -228,15 +182,12 @@ impl Document {
         })
     }
 
-    /// Joins picked notes of one pitch that touch or overlap.
     pub fn glue_notes(&mut self, clip: Id, selection: &[usize]) -> Vec<usize> {
         self.edit_notes("Join", None, None, clip, selection, |notes, _| {
             ops::glue(notes, selection)
         })
     }
 
-    /// Mutes the picked notes, unmutes them, or with `None` toggles (all
-    /// unmuted if all were muted, else all muted).
     pub fn mute_notes(&mut self, clip: Id, selection: &[usize], muted: Option<bool>) -> Vec<usize> {
         let label = match muted {
             Some(true) => plural(selection.len(), "Mute note", "Mute {} notes"),
@@ -252,7 +203,6 @@ impl Document {
         })
     }
 
-    /// Copies the picked notes after themselves. Returns the copies.
     pub fn duplicate_notes(&mut self, clip: Id, selection: &[usize]) -> Vec<usize> {
         let label = plural(selection.len(), "Duplicate note", "Duplicate {} notes");
         self.edit_notes(&label, None, None, clip, selection, |notes, length| {
@@ -260,10 +210,6 @@ impl Document {
         })
     }
 
-    /// Moves the picked notes `time` later and each to its own pitch (the drum
-    /// editor's lanes, where one lane up is the next sound): one undo step.
-    /// `pitches` is in the order of `selection`; with `copy` the originals
-    /// stay and the copies come back.
     pub fn move_notes_to_pitches(
         &mut self,
         base: &Project,
@@ -292,7 +238,6 @@ impl Document {
         )
     }
 
-    /// Moves the picked notes `by` in time (the arrow keys), as a group.
     pub fn nudge_notes(&mut self, clip: Id, selection: &[usize], by: Ticks) -> Vec<usize> {
         let label = plural(selection.len(), "Nudge note", "Nudge {} notes");
         self.edit_notes(&label, None, None, clip, selection, |notes, length| {
@@ -300,8 +245,6 @@ impl Document {
         })
     }
 
-    /// Transposes the picked notes by `semitones` (12 for an octave), as a
-    /// group.
     pub fn transpose_notes(&mut self, clip: Id, selection: &[usize], semitones: i32) -> Vec<usize> {
         let label = plural(selection.len(), "Transpose note", "Transpose {} notes");
         self.edit_notes(&label, None, None, clip, selection, |notes, _| {
@@ -309,7 +252,6 @@ impl Document {
         })
     }
 
-    /// Lengthens each picked note to the next note's start.
     pub fn legato_notes(&mut self, clip: Id, selection: &[usize]) -> Vec<usize> {
         let label = plural(selection.len(), "Legato", "Legato on {} notes");
         self.edit_notes(&label, None, None, clip, selection, |notes, length| {
@@ -317,7 +259,6 @@ impl Document {
         })
     }
 
-    /// Quantizes the picked notes with `settings` (slice 5), as one step.
     pub fn quantize_notes(
         &mut self,
         clip: Id,
@@ -330,9 +271,6 @@ impl Document {
         })
     }
 
-    /// Quantizes the picked notes each to its own grid where it has one (the
-    /// drum editor's per-lane quantize, M8 D2): `steps` lists a sound's own
-    /// step by its note, and every other note takes `settings`'s. One step.
     pub fn quantize_notes_each(
         &mut self,
         clip: Id,
@@ -351,8 +289,6 @@ impl Document {
         })
     }
 
-    /// Loosens the timing and velocity of the picked notes at random,
-    /// repeatably from `humanize.seed`.
     pub fn humanize_notes(
         &mut self,
         clip: Id,
@@ -365,7 +301,6 @@ impl Document {
         })
     }
 
-    /// Gives every picked note the length `len`.
     pub fn fixed_length_notes(&mut self, clip: Id, selection: &[usize], len: Ticks) -> Vec<usize> {
         let label = plural(selection.len(), "Fix note length", "Fix length of {} notes");
         self.edit_notes(&label, None, None, clip, selection, |notes, length| {
@@ -373,7 +308,6 @@ impl Document {
         })
     }
 
-    /// Moves the picked notes onto the nearest pitch of `scale` from `root`.
     pub fn scale_constrain_notes(
         &mut self,
         clip: Id,
@@ -391,7 +325,6 @@ impl Document {
         })
     }
 
-    /// Mirrors the picked notes in time.
     pub fn reverse_notes(&mut self, clip: Id, selection: &[usize]) -> Vec<usize> {
         let label = plural(selection.len(), "Reverse note", "Reverse {} notes");
         self.edit_notes(&label, None, None, clip, selection, |notes, _| {
@@ -404,7 +337,6 @@ fn is_midi(clip: &Clip) -> bool {
     matches!(clip.content, ClipContent::Midi { .. })
 }
 
-/// The unlocked MIDI clip `id`.
 fn find(project: &Project, id: Id) -> Option<&Arc<Clip>> {
     project
         .tracks
@@ -430,8 +362,6 @@ mod tests {
         Note::new(q(start), q(len), pitch, 100)
     }
 
-    /// A document with a 16-quarter MIDI clip holding `notes` and one
-    /// controller event; returns it with the clip's id.
     fn doc_with(notes: Vec<Note>) -> (Document, Id) {
         let mut doc = Document::new(crate::empty_project());
         let track = doc.add_track(TrackKind::Midi, None);
@@ -562,7 +492,7 @@ mod tests {
         assert_eq!((notes[0].start(), notes[1].start()), (q(0), q(2)));
         assert_eq!((notes[0].pitch(), notes[1].pitch()), (125, 127));
         doc.seal();
-        // Past the clip's end: the whole group stops with the last note's end.
+
         let base = doc.project().clone();
         let sel = doc.move_notes(&base, clip, &[0, 1], q(100), 0, None);
         let (notes, _) = content(&doc);
@@ -663,8 +593,7 @@ mod tests {
                 .is_empty(),
             "no note drawn"
         );
-        // The four note tools and quantize refuse too. Each would change the
-        // notes if the clip were open, so the refusal is what keeps them.
+
         let both = [0_usize, 1];
         let grid = quantize::Settings {
             step: q(4),
@@ -685,13 +614,12 @@ mod tests {
         assert_eq!(doc.reverse_notes(clip, &both), both);
         assert_eq!(doc.state(), state);
         assert_eq!(*doc.project(), before);
-        // Unlocked again, the same edit works.
+
         doc.set_clips_locked(&[clip], false);
         doc.delete_notes(clip, &sel);
         assert_eq!(content(&doc).0.len(), 1);
     }
 
-    /// An audio clip on a new audio track, which every note edit must refuse.
     fn with_audio_clip(doc: &mut Document) -> Id {
         doc.add_track(TrackKind::Audio, None);
         let clip = doc.fresh_id();
@@ -787,15 +715,15 @@ mod tests {
             Arc::make_mut(&mut t.clips[0]).loop_length = Some(q(4));
         });
         let base = doc.project().clone();
-        // The content is four quarters long: a group moved far stops there.
+
         let sel = doc.move_notes(&base, clip, &[0, 1], q(100), 0, None);
         let (notes, _) = content(&doc);
         assert_eq!(notes[sel[1]].end(), q(4));
         doc.undo();
-        // And a note cannot be drawn in the second repeat.
+
         let none = doc.add_note(None, clip, n(5, 1, 60), None);
         assert!(none.is_empty());
-        // Legato's last note runs to the loop's end.
+
         doc.legato_notes(clip, &[1]);
         assert_eq!(content(&doc).0[1].end(), q(4));
     }
@@ -807,33 +735,31 @@ mod tests {
         selection.rebind(doc.project(), vec![0, 1]);
         assert!(selection.refresh(doc.project()));
         let after = doc.duplicate_notes(clip, selection.indices());
-        // The editor stores what the edit returned.
+
         selection.rebind(doc.project(), after.clone());
         assert!(selection.refresh(doc.project()));
         assert_eq!(selection.indices(), after.as_slice());
-        // An undo changes the notes under it: cleared.
+
         doc.undo();
         assert!(!selection.refresh(doc.project()));
         assert!(selection.is_empty());
-        // An edit that leaves the notes alone keeps the picks.
+
         selection.rebind(doc.project(), vec![2]);
         doc.rename_clip(clip, "Verse");
         assert!(selection.refresh(doc.project()));
         assert_eq!(selection.indices(), [2]);
-        // The clip going away clears them too.
+
         doc.delete_clips(&[clip]);
         assert!(!selection.refresh(doc.project()));
         assert!(selection.is_empty());
     }
 
-    /// `tenths` of a beat, exact in ticks (PPQ is a multiple of ten).
     fn tenths(tenths: i64) -> Ticks {
         Ticks(PPQ * tenths / 10)
     }
 
     #[test]
     fn quantize_snaps_starts_to_the_grid_and_leaves_events() {
-        // With the default settings (a sixteenth grid), 0.1 beat is nearest 0.
         let (mut doc, clip) = doc_with(vec![Note::new(tenths(1), q(1), 60, 100)]);
         assert_eq!(
             doc.quantize_notes(clip, &[0], &quantize::Settings::default()),
@@ -841,8 +767,6 @@ mod tests {
         );
         assert_eq!(content(&doc).0, [Note::new(q(0), q(1), 60, 100)]);
 
-        // On a quarter grid: 0.1 beat goes to 0, and 2.6 beats (0.4 from
-        // beat 3, 0.6 from beat 2) goes to 3.
         let (mut doc, clip) = doc_with(vec![
             Note::new(tenths(1), q(1), 60, 100),
             Note::new(tenths(26), q(1), 62, 100),
@@ -878,9 +802,6 @@ mod tests {
 
     #[test]
     fn reverse_mirrors_the_picked_notes_within_their_span() {
-        // Span 0 to 6 beats. The note at 0 (length 2) mirrors to start at 4,
-        // the one at 2 (length 2) stays where it is (2 to 4), and the one at
-        // 5 (length 1) goes to 0. Pitches and lengths are kept.
         let (mut doc, clip) = doc_with(vec![n(0, 2, 60), n(2, 2, 62), n(5, 1, 64)]);
         let events0 = content(&doc).1;
         assert_eq!(doc.reverse_notes(clip, &[0, 1, 2]), [0, 1, 2]);
@@ -891,7 +812,6 @@ mod tests {
 
     #[test]
     fn scale_constrain_moves_c_sharp_to_c_in_c_major() {
-        // C# sits between C and D, and a tie goes down: C. D is in the scale.
         let (mut doc, clip) = doc_with(vec![n(0, 1, 61), n(2, 1, 62)]);
         let events0 = content(&doc).1;
         assert_eq!(
@@ -902,8 +822,6 @@ mod tests {
         assert_eq!(notes, [n(0, 1, 60), n(2, 1, 62)]);
         assert_eq!(events, events0);
 
-        // C in D major: C# and B are both in the scale, and the tie goes down
-        // to B (59).
         let (mut doc, clip) = doc_with(vec![n(0, 1, 60)]);
         doc.scale_constrain_notes(clip, &[0], 2, tools::Scale::Major);
         assert_eq!(content(&doc).0, [n(0, 1, 59)]);

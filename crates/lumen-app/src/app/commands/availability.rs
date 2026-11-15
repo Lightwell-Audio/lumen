@@ -1,5 +1,3 @@
-//! Whether each command can run now, and why not (M3 slice 7).
-
 use eframe::egui;
 use lumen_project::model::TrackKind;
 
@@ -7,15 +5,9 @@ use crate::App;
 use crate::app::panes;
 use crate::commands::Command;
 
-/// Why a scan cannot run in safe mode (the Plugins page of Preferences says
-/// it too).
 pub(crate) const SAFE_MODE: &str =
     "Safe mode: plugins are not loaded. Leave safe mode (the banner at the top) to scan them";
 
-/// The reasons that mean "wait": the command could act on what is chosen,
-/// but work under way holds it back. A context menu keeps such a row,
-/// greyed with its reason, and leaves out a row refused for any other
-/// reason (the interface audit's M3).
 pub(crate) mod wait {
     pub(crate) const REALTIME_EXPORT: &str =
         "Wait for the real-time export to finish, or cancel it";
@@ -50,14 +42,12 @@ pub(crate) mod wait {
         FREEZE,
     ];
 
-    /// Whether `why` is a reason to wait rather than one to look elsewhere.
     pub(crate) fn is(why: &str) -> bool {
         ALL.contains(&why)
     }
 }
 
 impl App {
-    /// Whether `command` can run now; if not, why, in a few words.
     pub(crate) fn availability(
         &self,
         ctx: &egui::Context,
@@ -67,8 +57,7 @@ impl App {
         let tracks = !self.arrangement.selected.is_empty();
         let locator = self.locators.selected.is_some();
         let clip = !self.arrangement.clips.is_empty();
-        // The clip editor has the keyboard and notes are picked: the keys
-        // that act on a selection act on them.
+
         let notes = self.note_keys_picked();
         let need = |ok: bool, why| if ok { Ok(()) } else { Err(why) };
         match command {
@@ -78,8 +67,7 @@ impl App {
             Command::Undo | Command::Redo if self.is_recording() => Err(wait::RECORDING),
             Command::Undo => need(self.document.history().can_undo(), "Nothing to undo"),
             Command::Redo => need(self.document.history().can_redo(), "Nothing to redo"),
-            // The Devices tab holding the keyboard: the editing keys act on
-            // the chosen card.
+
             Command::Copy
             | Command::Duplicate
             | Command::NudgeEarlierFine
@@ -205,9 +193,7 @@ impl App {
                 self.copy_unavailable()
             }
             Command::Revert => self.revert_unavailable(),
-            // What the command would act on comes first: a row that cannot
-            // apply is left out of a menu, and only one that can is held
-            // back by work under way (the interface audit's M3).
+
             Command::LocateMedia => need(
                 self.selected_missing_media().is_some(),
                 "Choose a missing file in the Project media tab first",
@@ -227,8 +213,7 @@ impl App {
             )
             .and(self.media_pool_unavailable())
             .and(need(!self.is_working_in_files(), wait::RENDER)),
-            // Cheap enough for every frame: a MIDI track with an unmuted
-            // clip (an empty one is refused when it runs).
+
             Command::ExportMidiFile => need(
                 self.document
                     .project()
@@ -248,9 +233,7 @@ impl App {
                 "Select a MIDI clip first",
             )
             .and(self.midi_export_unavailable()),
-            // An open menu or window takes Esc first (MT-APP-14 run 2; the
-            // slice 8 accessibility test: Esc deselected a clip instead of
-            // closing the shortcuts window).
+
             Command::Deselect => need(
                 (clips
                     || self.arrangement.tool != crate::app::tools::ArrangementTool::Pointer
@@ -380,8 +363,7 @@ impl App {
             Command::WarpClips | Command::WarpFromHere => self.warp_unavailable(),
             Command::AddWarpMarker | Command::ClearWarpMarkers => self.markers_unavailable(),
             Command::FixWarpHit => self.fix_warp_hit_unavailable(),
-            // A built-in effect can always go somewhere: on the selected
-            // track, or on a new audio track (M8 slices B0 to B3).
+
             Command::AddUtility
             | Command::AddEq
             | Command::AddDelay
@@ -524,8 +506,7 @@ impl App {
                         .is_some_and(|c| self.drum_view(c) == Some(crate::drum_editor::View::Keys)),
                 "Open a MIDI clip on a track with a drum map in the Keys view first",
             ),
-            // A drum clip's view rows: the reason says what is missing, so a
-            // clip on a track with no map is told that (review L4).
+
             Command::DrumLanesView
             | Command::DrumKeysView
             | Command::DrumStepsView
@@ -556,8 +537,7 @@ impl App {
                 self.drum_picked_lane().is_some(),
                 "Pick hits in one lane of a drum clip first",
             ),
-            // M8 D4: routing a kit's sounds needs a kit and an instrument
-            // with pairs to give them.
+
             Command::DrumRouteAll => match self.drum_routing_track() {
                 None => Err("Select a MIDI track with a drum map first"),
                 Some((track, _)) if self.sound_output_pairs(track).is_empty() => {
@@ -776,8 +756,6 @@ impl App {
 }
 
 impl App {
-    /// Why a MIDI file cannot be exported now: a file dialog is open, or
-    /// an export is under way.
     fn midi_export_unavailable(&self) -> Result<(), &'static str> {
         if self.dialog.is_some() {
             Err(wait::DIALOG)

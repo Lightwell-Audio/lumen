@@ -1,14 +1,3 @@
-//! How the step grid looks (M8 slice D3, the specimen's Steps): each step an
-//! inset well, alternate beats a shade apart; an on step is filled from the foot
-//! up to its velocity in the sound's colour with a thin outline; an accent is a
-//! rim in the warning colour (not a taller cell); the step being played is
-//! washed down its column and lit by a bar at the foot; a hit that starts away
-//! from its step's edge wears a small mark; steps past the clip's end are
-//! quiet.
-//!
-//! The drawing takes what the app computed (the page's cells, the preview of a
-//! drag, the playing step) and paints it; it never reads the document.
-
 use eframe::egui::{CornerRadius, Painter, Rect, Shape, Stroke, StrokeKind, pos2, vec2};
 use lumen_project::edit::steps::Cell;
 
@@ -16,8 +5,6 @@ use super::geometry::Grid;
 use crate::drum_editor::Lane;
 use crate::theme;
 
-/// A velocity drag's value shown before it is committed: the step it is on and
-/// the velocity it would set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Live {
     pub row: usize,
@@ -25,28 +12,25 @@ pub(crate) struct Live {
     pub velocity: u8,
 }
 
-/// What the grid draws this frame.
 pub(crate) struct Scene<'a> {
     pub grid: Grid<'a>,
     pub lanes: &'a [Lane],
-    /// The page's cells, row by row.
+
     pub cells: &'a [Cell],
-    /// Velocities at or above this wear the accent's rim.
+
     pub accent: u8,
-    /// The column being played, when the playhead is on the page.
+
     pub playing: Option<usize>,
-    /// The step under the pointer.
+
     pub hover: Option<(usize, usize)>,
-    /// The step the keyboard is on, drawn only while the grid has the focus.
+
     pub cursor: Option<(usize, usize)>,
-    /// The steps whose notes are in the editor's selection.
+
     pub picked: &'a [(usize, usize)],
-    /// A velocity drag in progress.
+
     pub live: Option<Live>,
 }
 
-/// The cell at `row`, `column` as the scene shows it: a drag's velocity over
-/// the stored one.
 pub(crate) fn shown(scene: &Scene<'_>, row: usize, column: usize) -> Cell {
     let count = scene.grid.layout.count;
     let mut cell = scene
@@ -68,7 +52,6 @@ fn rounding(radius: u8) -> CornerRadius {
     CornerRadius::same(radius)
 }
 
-/// The wells, the hits, the marks and the playing step.
 pub(crate) fn grid(painter: &Painter, scene: &Scene<'_>) {
     let g = &scene.grid;
     let painter = painter.with_clip_rect(g.body.intersect(painter.clip_rect()));
@@ -79,7 +62,7 @@ pub(crate) fn grid(painter: &Painter, scene: &Scene<'_>) {
         theme::alpha::STEP_WELL_DARK
     };
     let (first_row, last_row) = g.rows_in_view();
-    // The playing step's wash runs the column's whole height.
+
     if let Some(column) = scene.playing {
         let x = g.body.left() + column as f32 * g.step_width();
         painter.rect_filled(
@@ -116,7 +99,7 @@ pub(crate) fn grid(painter: &Painter, scene: &Scene<'_>) {
             cell_hit(&painter, rect, lane, &cell, scene.accent);
         }
     }
-    // The playing step's light, at the foot of its column.
+
     if let Some(column) = scene.playing {
         let x = g.body.left() + column as f32 * g.step_width();
         let bar = Rect::from_min_size(
@@ -131,13 +114,10 @@ pub(crate) fn grid(painter: &Painter, scene: &Scene<'_>) {
     }
 }
 
-/// One on (or held) step's fill, outline, accent and off-grid mark.
 fn cell_hit(painter: &Painter, rect: Rect, lane: &Lane, cell: &Cell, accent: u8) {
     let p = theme::p();
     if !cell.on {
         if cell.held {
-            // Muted hits are kept: a faint outline says a click brings them
-            // back.
             painter.rect_stroke(
                 rect,
                 rounding(theme::radius::SMALL),
@@ -190,8 +170,6 @@ fn cell_hit(painter: &Painter, rect: Rect, lane: &Lane, cell: &Cell, accent: u8)
     }
 }
 
-/// The off-grid mark: a small triangle in the cell's top right corner, in the
-/// text colour so it reads over the fill and over the well alike.
 fn mark(painter: &Painter, rect: Rect) {
     let p = theme::p();
     let size = theme::size::STEP_MARK.min(rect.width() / 2.0);
@@ -207,8 +185,6 @@ fn mark(painter: &Painter, rect: Rect) {
     ));
 }
 
-/// The overlay: the picked steps ringed, the step under the pointer lit, and
-/// the keyboard's step ringed while the grid has the focus.
 pub(crate) fn overlay(painter: &Painter, scene: &Scene<'_>) {
     let g = &scene.grid;
     let painter = painter.with_clip_rect(g.body.intersect(painter.clip_rect()));
@@ -232,8 +208,6 @@ pub(crate) fn overlay(painter: &Painter, scene: &Scene<'_>) {
         );
     }
     if let Some((row, column)) = scene.cursor {
-        // The keyboard's ring sits inside the cell, the accent's rim outside
-        // it, so an accented step with the focus shows both.
         painter.rect_stroke(
             g.cell_rect(row, column),
             rounding(theme::radius::SMALL),
@@ -243,7 +217,6 @@ pub(crate) fn overlay(painter: &Painter, scene: &Scene<'_>) {
     }
 }
 
-/// The colour a drag's value tooltip rests on (the chip over the pointer).
 pub(crate) fn velocity_chip(velocity: u8, accent: u8) -> String {
     if velocity >= accent {
         format!("Velocity {velocity} (accent)")
@@ -307,7 +280,7 @@ mod tests {
         assert_eq!(shown(&scene, 0, 3).velocity, 110);
         assert!(shown(&scene, 0, 3).on);
         assert_eq!(cells[3].velocity, 60, "the stored cell is untouched");
-        // A drag over an off step shows it on.
+
         let off = Live {
             row: 1,
             column: 5,

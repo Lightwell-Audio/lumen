@@ -76,8 +76,6 @@ fn a_hundred_thousand_hits_in_the_lanes_beside_the_piano_roll() {
     );
     let lanes = measure(&mut lumen, 120);
 
-    // M8 D3: the step grid on the same clip (100 pages of 16 steps; the
-    // first page is drawn, and the picked rings and cells read only it).
     lumen.app_mut().show_the_steps_view();
     lumen.frames(60);
     assert_eq!(lumen.app().drum_view_shown(), Some("steps"));

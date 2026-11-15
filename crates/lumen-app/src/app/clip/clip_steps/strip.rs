@@ -1,11 +1,6 @@
-//! The strip over the step grid: steps a page, resolution, accent and page
-//! (M8 slice D3).
-
 use super::*;
 
 impl App {
-    /// The strip over the grid: how many steps a page has, how fine a step
-    /// is, the accent, and the page. Answers the setup the user changed.
     pub(super) fn steps_strip(
         &mut self,
         ui: &mut Ui,
@@ -39,7 +34,6 @@ impl App {
             );
         };
 
-        // The page, at the right (drawn first, so the left takes what is left).
         let mut right = ui.new_child(
             UiBuilder::new()
                 .max_rect(inner)
@@ -147,7 +141,6 @@ impl App {
     }
 }
 
-/// The page's names for assistive technology.
 const PAGE_NAMES: [&str; NUMBERED_PAGES as usize] = [
     "Page 1", "Page 2", "Page 3", "Page 4", "Page 5", "Page 6", "Page 7", "Page 8",
 ];

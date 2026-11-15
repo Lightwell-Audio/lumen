@@ -1,14 +1,3 @@
-//! The drum editor's surface in the Clip tab (M8 slice D2): the lanes' name
-//! column and what its pointer does (audition, mute, solo, reorder, show a
-//! sound's length), and the state behind the view switch. The lanes
-//! themselves are `crate::drum_editor`, which holds the geometry and the
-//! painting; the editing is the clip editor's own code (selection, snapping,
-//! zoom, gestures), given the lanes' rows.
-//!
-//! None of this is saved: which view a track's clips open in, whether it hides
-//! unused lanes and which lanes show their length last while the app runs
-//! (D2's ADR), like the piano roll's own lane and folded key column.
-
 use std::sync::Arc;
 
 use eframe::egui::{self, CursorIcon, Rect, Sense, Stroke, Ui, pos2};
@@ -24,7 +13,6 @@ use crate::note_editor::view::EditorView;
 use crate::widgets;
 use crate::{App, theme};
 
-/// What the name column's pointer did this frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Action {
     Audition(usize),
@@ -34,36 +22,28 @@ enum Action {
     Length(usize),
 }
 
-/// The data of one frame of the lanes: everything the name column needs.
 pub(crate) struct DrumFrame<'a> {
     pub ed: &'a mut NoteEditor,
     pub view: &'a EditorView,
     pub clip: &'a Arc<Clip>,
     pub lanes: &'a [Lane],
-    /// The map's id and name, and how many sounds it holds (the empty state
-    /// tells a map with none from Hide unused hiding them all).
+
     pub map_id: Id,
     pub map_name: &'a str,
     pub sounds: usize,
-    /// The lanes' name column (beside and above the rows).
+
     pub keys: Rect,
-    /// The rows are the step grid's: no time grid under them, and no ruler
-    /// slot over the names (the step strip is there).
+
     pub steps: bool,
 }
 
 impl App {
-    /// The drum view the open clip's track brings (`None` when the clip's
-    /// track reads no map).
     pub(crate) fn drum_view(&self, clip: Id) -> Option<View> {
         self.clip_drum_map(clip)?;
         let track = self.track_of_clip(clip)?;
         Some(self.note_editor.drum.view(track))
     }
 
-    /// The lanes the open clip shows: the map's sounds in the map's order,
-    /// less the unused ones while its track hides them (`None` when the clip's
-    /// track reads no map).
     pub(crate) fn drum_lanes(&self, clip: Id) -> Option<Vec<Lane>> {
         let map = self.clip_drum_map(clip)?;
         let track = self.track_of_clip(clip)?;
@@ -77,19 +57,13 @@ impl App {
         ))
     }
 
-    /// Shows the lanes or the piano roll for the open clip's track.
     pub(crate) fn set_drum_view(&mut self, view: View) -> bool {
-        // The editor may be out of the app (it is taken out while it draws,
-        // and the menu switches the view from inside that draw).
         let mut ed = std::mem::take(&mut self.note_editor);
         let changed = self.set_drum_view_in(&mut ed, view);
         self.note_editor = ed;
         changed
     }
 
-    /// [`set_drum_view`](Self::set_drum_view) for an editor taken out of the
-    /// app, as it is while it draws: the menu's Lanes and Keys rows use it, so
-    /// the other view is framed again (review round 2, M4).
     pub(crate) fn set_drum_view_in(&self, ed: &mut NoteEditor, view: View) -> bool {
         let Some(clip) = ed.clip else {
             return false;
@@ -104,8 +78,7 @@ impl App {
             return false;
         }
         ed.drum.set_view(track, view);
-        // The rows and their height change: frame the view again, and a
-        // gesture of the other view means nothing here.
+
         ed.framed_for = None;
         ed.gesture = None;
         ed.drum.reorder = None;
@@ -113,7 +86,6 @@ impl App {
         true
     }
 
-    /// Turns Hide unused on or off for the open clip's track.
     pub(crate) fn toggle_hide_unused_lanes(&mut self) -> bool {
         let Some(clip) = self.note_editor.clip else {
             return false;
@@ -129,7 +101,6 @@ impl App {
         true
     }
 
-    /// Whether the open clip's track hides its unused lanes.
     pub(crate) fn hides_unused_lanes(&self) -> bool {
         let Some(clip) = self.note_editor.clip else {
             return false;
@@ -138,9 +109,6 @@ impl App {
             .is_some_and(|track| self.note_editor.drum.hides_unused(track))
     }
 
-    /// The map and the sound of the picked hits' lane, when the open clip is
-    /// shown as lanes and every picked hit is in one lane (the commands Mute
-    /// and Solo the picked lane act on it, review M4).
     pub(crate) fn drum_picked_lane(&self) -> Option<(Id, u8)> {
         let clip = self.note_editor.clip?;
         let track = self.track_of_clip(clip)?;
@@ -154,8 +122,6 @@ impl App {
         Some((map.id, pitch))
     }
 
-    /// Draws the lanes' ground, the grid's lines and the name column, and runs
-    /// the name column's pointer.
     pub(crate) fn drum_surface(
         &mut self,
         ui: &mut Ui,
@@ -184,8 +150,6 @@ impl App {
             ));
         }
         if lanes.is_empty() {
-            // M6: a map with no sounds, or Hide unused with nothing used —
-            // the second offers the way back.
             let (state, can_show) = crate::drum_editor::paint::empty_state(sounds);
             if widgets::empty_state(ui, view.body, &state) && can_show {
                 self.toggle_hide_unused_lanes();
@@ -194,7 +158,6 @@ impl App {
         self.drum_names(ui, ctx, frame);
     }
 
-    /// The lanes whose sound has a picked hit, by row.
     fn picked_rows(&self, ed: &NoteEditor, lanes: &[Lane]) -> Vec<bool> {
         let mut rows = vec![false; lanes.len()];
         let Some(clip) = ed.clip.and_then(|id| self.editor_clip(id)).map(|(c, _)| c) else {
@@ -211,10 +174,6 @@ impl App {
         rows
     }
 
-    /// The lanes' name column: a row a lane with its colour, drawing, name, M
-    /// and S. A click on the name auditions the sound, a drag on its drawing
-    /// moves the lane in the map, M and S are the map's, and the menu shows the
-    /// sound's length.
     fn drum_names(&mut self, ui: &mut Ui, ctx: &egui::Context, frame: DrumFrame<'_>) {
         let DrumFrame {
             ed,
@@ -229,10 +188,9 @@ impl App {
         } = frame;
         let painter = ui.painter().clone();
         let p = theme::p();
-        // The column's ground, and the slot over it beside the time ruler.
+
         painter.rect_filled(keys, 0.0, p.header);
-        // The step grid's strip sits where the ruler would; the column's slot
-        // above it carries the map's name there too.
+
         let ruler_h = if steps {
             crate::drum_editor::steps::geometry::STRIP
         } else {
@@ -264,7 +222,7 @@ impl App {
                 p.text_hint,
             );
         }
-        // The edge against the lanes.
+
         painter.vline(
             keys.right() - 0.5,
             keys.y_range(),
@@ -297,7 +255,7 @@ impl App {
             );
             let (mute, solo) = geometry::buttons(rect);
             let icon = geometry::icon_rect(rect);
-            // The name: a click auditions the sound.
+
             let name_rect = Rect::from_min_max(
                 pos2(rect.left() + geometry::NAME_X, rect.top() + 2.0),
                 pos2(mute.left() - theme::space::XS, rect.bottom() - 2.0),
@@ -328,7 +286,7 @@ impl App {
                     ui.label("The sound's length is set in the map editor");
                 }
             });
-            // The drawing: the lane's drag handle.
+
             let handle = ui.interact(icon, id.with(("move", row)), Sense::click_and_drag());
             handle.widget_info(|| {
                 egui::WidgetInfo::labeled(
@@ -367,8 +325,7 @@ impl App {
                 action = Some(Action::Solo(row));
             }
         }
-        // A reorder in progress: the line where the lane would land, and on
-        // release the map's order changes (one undo step).
+
         if let Some(reorder) = dragging {
             let at = ctx.input(|i| i.pointer.latest_pos());
             if let Some(at) = at
@@ -412,7 +369,6 @@ impl App {
         }
     }
 
-    /// Runs what the name column's pointer did.
     fn drum_name_action(
         &mut self,
         ed: &mut NoteEditor,
@@ -454,9 +410,6 @@ impl App {
         }
     }
 
-    /// The grids Q uses in the drum editor's lanes (M8 D2): each sound's own
-    /// quantize, by its input note, in ticks at the clip's meter. `None` when
-    /// the clip is not shown as lanes or no sound has one.
     pub(crate) fn drum_quantize_steps(
         &self,
         editor: &NoteEditor,
