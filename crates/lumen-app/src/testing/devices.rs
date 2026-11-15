@@ -380,6 +380,10 @@ impl App {
             .map_or(0.0, |reading| reading.reduction_db)
     }
 
+    pub fn builtin_since(&self, device: Id) -> Option<f32> {
+        self.builtin.since(device, self.heard_latency())
+    }
+
     pub fn show_on_strip(&mut self, device: Id, ids: &[u32]) {
         self.chain.shown.insert(device, ids.to_vec());
     }

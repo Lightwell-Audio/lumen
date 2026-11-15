@@ -448,6 +448,175 @@ fn the_feedback_decays_the_repeats_by_its_percent() {
 }
 
 #[test]
+fn ping_pong_alternates_the_repeats_between_the_sides() {
+    let lead = 2_000;
+    let mut signal = vec![0.0; 40_000];
+    signal[0] = 1.0;
+    let set = [
+        (delay::TIME, at(delay::TABLE, delay::TIME, 100.0)),
+        (delay::NOTE, 0.0),
+        (delay::FEEDBACK, at(delay::TABLE, delay::FEEDBACK, 50.0)),
+        (delay::PING, at(delay::TABLE, delay::PING, 1.0)),
+        (delay::MIX, at(delay::TABLE, delay::MIX, 100.0)),
+    ];
+    let mut device = Delay::new();
+    let lanes = move |_: usize, n: usize| table_block(delay::TABLE, n, &set);
+    let (left, right) = run_device(&mut device, lead, &signal, 128, &steady_120, &lanes);
+    for (step, want, first) in [
+        (1usize, 1.0f32, 0usize),
+        (2, 0.5, 1),
+        (3, 0.25, 0),
+        (4, 0.125, 1),
+    ] {
+        let at_frame = lead + step * 4_800;
+        let (near, far) = if first == 0 {
+            (&left, &right)
+        } else {
+            (&right, &left)
+        };
+        assert!(
+            (near[at_frame] - want).abs() < 1e-3,
+            "repeat {step} on its own side: {} (wanted {want})",
+            near[at_frame]
+        );
+        assert!(
+            far[at_frame].abs() < 1e-4,
+            "repeat {step} on the other side: {}",
+            far[at_frame]
+        );
+    }
+    for block in [64usize, 97, 256] {
+        let mut device = Delay::new();
+        let lanes = move |_: usize, n: usize| table_block(delay::TABLE, n, &set);
+        let (a, b) = run_device(&mut device, lead, &signal, block, &steady_120, &lanes);
+        for (frame, ((l, r), (x, y))) in left.iter().zip(&right).zip(a.iter().zip(&b)).enumerate() {
+            assert!(
+                (l - x).abs() < 1e-5 && (r - y).abs() < 1e-5,
+                "block {block}, frame {frame}: {l} {r} against {x} {y}"
+            );
+        }
+    }
+}
+
+#[test]
+fn ping_off_keeps_the_two_sides_the_same() {
+    let lead = 2_000;
+    let mut signal = vec![0.0; 40_000];
+    signal[0] = 1.0;
+    let set = [
+        (delay::TIME, at(delay::TABLE, delay::TIME, 100.0)),
+        (delay::NOTE, 0.0),
+        (delay::FEEDBACK, at(delay::TABLE, delay::FEEDBACK, 50.0)),
+        (delay::PING, at(delay::TABLE, delay::PING, 0.0)),
+        (delay::MIX, at(delay::TABLE, delay::MIX, 100.0)),
+    ];
+    let mut device = Delay::new();
+    let lanes = move |_: usize, n: usize| table_block(delay::TABLE, n, &set);
+    let (left, right) = run_device(&mut device, lead, &signal, 128, &steady_120, &lanes);
+    assert!(
+        left.iter().zip(&right).all(|(l, r)| l == r),
+        "the two sides are the same frame for frame"
+    );
+    for (step, want) in [(1usize, 1.0f32), (2, 0.5), (3, 0.25)] {
+        let heard = left[lead + step * 4_800];
+        assert!(
+            (heard - want).abs() < 1e-3,
+            "repeat {step} on both sides: {heard} (wanted {want})"
+        );
+    }
+}
+
+#[test]
+fn a_step_of_ping_does_not_click() {
+    let tone: Vec<f32> = (0..24_000)
+        .map(|k| (std::f32::consts::TAU * 311.0 * k as f32 / RATE as f32).sin() * 0.4)
+        .collect();
+    let points = [
+        (0u32, 0.0f32),
+        (6_000, 0.0),
+        (6_001, 1.0),
+        (12_000, 1.0),
+        (12_001, 0.0),
+    ];
+    let set = [
+        (delay::TIME, at(delay::TABLE, delay::TIME, 100.0)),
+        (delay::NOTE, 0.0),
+        (delay::FEEDBACK, at(delay::TABLE, delay::FEEDBACK, 50.0)),
+        (delay::MIX, at(delay::TABLE, delay::MIX, 100.0)),
+    ];
+    let mut device = Delay::new();
+    let lanes = move |done: usize, n: usize| {
+        table_block(delay::TABLE, n, &set).lane(delay::PING, &window(&points, done, n))
+    };
+    let (heard, _) = run_device(&mut device, 0, &tone, 128, &steady_120, &lanes);
+    let worst = heard
+        .windows(2)
+        .map(|w| (w[1] - w[0]).abs())
+        .fold(0.0f32, f32::max);
+    assert!(worst < 0.05, "a step of {worst}");
+}
+
+#[test]
+fn the_repeat_clock_says_how_long_ago_sound_entered() {
+    let (mut device, clock) = Delay::build();
+    assert_eq!(
+        clock.seconds(),
+        None,
+        "a device no sound has reached has no clock"
+    );
+    let frames = 20_096;
+    let mut left = vec![0.0; frames];
+    let mut right = left.clone();
+    for k in [1_000..1_400, 8_000..8_400] {
+        left[k.clone()].fill(0.5);
+        right[k].fill(0.5);
+    }
+    let block = 128;
+    let events = table_block(delay::TABLE, block, &[]).build();
+    let mut clocks = Vec::new();
+    for start in (0..frames).step_by(block) {
+        let n = block.min(frames - start);
+        let block = Block {
+            rate: RATE,
+            start: start as i64,
+            bpm: 120.0,
+            law: lumen_core::pan::PanLaw::Balance,
+            events: &events,
+        };
+        device.process(
+            &block,
+            Stereo {
+                left: &mut left[start..start + n],
+                right: &mut right[start..start + n],
+            },
+            None,
+        );
+        clocks.push((start + n, clock.seconds()));
+    }
+    let at = |end: usize| clocks[end / 128 - 1].1;
+    assert_eq!(at(896), None, "nothing has entered the lines yet");
+    let first = at(1_024).expect("the entrance is seen");
+    assert!(
+        (first - 24.0 / RATE as f32).abs() < 1e-9,
+        "the clock starts at the entrance's frame: {first}"
+    );
+    let next = at(1_152).expect("and keeps running");
+    assert!(
+        (next - first - 128.0 / RATE as f32).abs() < 1e-9,
+        "a sound still entering does not restart it: {first} then {next}"
+    );
+    let before = at(7_936).expect("the clock runs on through silence");
+    assert!(before > 0.14, "the clock runs on: {before}");
+    let second = at(8_064).expect("the second entrance is seen");
+    assert!(
+        (second - 64.0 / RATE as f32).abs() < 1e-9,
+        "a gap is a new entrance: {second}"
+    );
+    device.reset();
+    assert_eq!(clock.seconds(), None, "a reset forgets the entrance");
+}
+
+#[test]
 fn the_loop_s_high_cut_darkens_the_repeats() {
     let lead = 2_000;
     let mut signal = vec![0.0; 60_000];

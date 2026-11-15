@@ -1,18 +1,20 @@
+mod onset;
+mod table;
+
+pub use onset::Onset;
+pub use table::{FEEDBACK, FREEZE, HIGH_CUT, LOW_CUT, MIX, NOTE, PING, TABLE, TIME};
+
 use crate::effect::{Block, Description, Effect, Key, Stereo, Values};
-use crate::params::{self, Glide, ParamInfo, Taper};
+use crate::params::{self, Glide};
+use onset::NOTHING_YET;
+use table::{NOTES, curve_note, curve_value, note_index, value};
 
 pub const NAME: &str = "delay";
 
-pub const TIME: u32 = 1;
-pub const NOTE: u32 = 2;
-pub const FEEDBACK: u32 = 3;
-pub const PING: u32 = 4;
-pub const LOW_CUT: u32 = 5;
-pub const HIGH_CUT: u32 = 6;
-pub const MIX: u32 = 7;
-pub const FREEZE: u32 = 8;
-
 pub const MOST_SECONDS: f32 = 4.0;
+
+const ONSET_GATE: f32 = 0.001;
+const ONSET_HYSTERESIS: f32 = 0.25;
 
 const LEAST_SECONDS: f32 = 0.001;
 
@@ -21,152 +23,6 @@ pub const HIGHEST_RATE: u32 = 192_000;
 const KNOT: i64 = 32;
 
 const GLIDE_SECONDS: f32 = 0.02;
-
-const NOTES: [(&str, f32); 7] = [
-    ("Free", 0.0),
-    ("1/32", 0.125),
-    ("1/16", 0.25),
-    ("1/8", 0.5),
-    ("1/4", 1.0),
-    ("1/2", 2.0),
-    ("1/1", 4.0),
-];
-
-#[allow(clippy::too_many_arguments)]
-const fn param(
-    id: u32,
-    name: &'static str,
-    unit: &'static str,
-    low: f32,
-    high: f32,
-    taper: Taper,
-    default: f32,
-    steps: i32,
-    choices: &'static [&'static str],
-    text: fn(f32) -> String,
-    parse: fn(&str) -> Option<f32>,
-) -> ParamInfo {
-    ParamInfo {
-        id,
-        name,
-        unit,
-        low,
-        high,
-        taper,
-        default,
-        steps,
-        choices,
-        text,
-        parse,
-    }
-}
-
-pub static TABLE: &[ParamInfo] = &[
-    param(
-        TIME,
-        "Time",
-        "ms",
-        1.0,
-        4000.0,
-        Taper::Power(2.0),
-        375.0,
-        0,
-        &[],
-        time_text,
-        time_parse,
-    ),
-    param(
-        NOTE,
-        "Note",
-        "",
-        0.0,
-        1.0,
-        Taper::Linear,
-        4.0 / 6.0,
-        6,
-        &["Free", "1/32", "1/16", "1/8", "1/4", "1/2", "1/1"],
-        note_text,
-        note_parse,
-    ),
-    param(
-        FEEDBACK,
-        "Repeats",
-        "%",
-        0.0,
-        100.0,
-        Taper::Linear,
-        35.0,
-        0,
-        &[],
-        percent_text,
-        percent_parse,
-    ),
-    param(
-        PING,
-        "Ping",
-        "",
-        0.0,
-        1.0,
-        Taper::Linear,
-        0.0,
-        1,
-        &["Off", "On"],
-        on_off_text,
-        on_off_parse,
-    ),
-    param(
-        LOW_CUT,
-        "Low cut",
-        "Hz",
-        0.0,
-        2000.0,
-        Taper::Power(2.0),
-        0.0,
-        0,
-        &[],
-        low_cut_text,
-        low_cut_parse,
-    ),
-    param(
-        HIGH_CUT,
-        "High cut",
-        "Hz",
-        200.0,
-        20_000.0,
-        Taper::Power(2.0),
-        20_000.0,
-        0,
-        &[],
-        high_cut_text,
-        high_cut_parse,
-    ),
-    param(
-        MIX,
-        "Mix",
-        "%",
-        0.0,
-        100.0,
-        Taper::Linear,
-        30.0,
-        0,
-        &[],
-        percent_text,
-        percent_parse,
-    ),
-    param(
-        FREEZE,
-        "Freeze",
-        "",
-        0.0,
-        1.0,
-        Taper::Linear,
-        0.0,
-        1,
-        &["Off", "On"],
-        on_off_text,
-        on_off_parse,
-    ),
-];
 
 pub static DESCRIPTION: Description = Description {
     name: NAME,
@@ -222,128 +78,6 @@ pub fn seconds_of(values: Values<'_>, bpm: f32) -> f32 {
         quarters * 60.0 / bpm
     };
     seconds.clamp(LEAST_SECONDS, MOST_SECONDS)
-}
-
-fn note_index(values: Values<'_>) -> usize {
-    let x = params::normalised_of(TABLE, NOTE, values);
-    (x * (NOTES.len() - 1) as f32).round().clamp(0.0, 6.0) as usize
-}
-
-fn value(values: Values<'_>, id: u32) -> f32 {
-    let x = params::normalised_of(TABLE, id, values);
-    params::find(TABLE, id).map_or(0.0, |info| info.value(x))
-}
-
-fn time_text(ms: f32) -> String {
-    if ms < 999.5 {
-        format!("{ms:.0} ms")
-    } else {
-        format!("{:.2} s", ms / 1000.0)
-    }
-}
-
-fn time_parse(text: &str) -> Option<f32> {
-    let t = text.trim().replace('\u{2212}', "-").to_lowercase();
-    if let Some(rest) = t.strip_suffix(" ms").or_else(|| t.strip_suffix("ms")) {
-        return rest.trim().parse::<f32>().ok().filter(|v| v.is_finite());
-    }
-    if let Some(rest) = t.strip_suffix(" s").or_else(|| t.strip_suffix('s')) {
-        return rest
-            .trim()
-            .parse::<f32>()
-            .ok()
-            .filter(|v| v.is_finite())
-            .map(|s| s * 1000.0);
-    }
-    t.parse::<f32>().ok().filter(|v| v.is_finite())
-}
-
-fn note_text(x: f32) -> String {
-    let index = (x * (NOTES.len() - 1) as f32).round().clamp(0.0, 6.0) as usize;
-    NOTES[index].0.to_owned()
-}
-
-fn note_parse(text: &str) -> Option<f32> {
-    let t = text.trim().to_lowercase();
-    let index = match t.as_str() {
-        "free" | "off" | "ms" => 0,
-        "1/32" | "thirty-second" | "32nd" => 1,
-        "1/16" | "sixteenth" | "16th" => 2,
-        "1/8" | "eighth" | "8th" => 3,
-        "1/4" | "quarter" | "4th" => 4,
-        "1/2" | "half" => 5,
-        "1/1" | "whole" => 6,
-        _ => return None,
-    };
-    Some(index as f32 / (NOTES.len() - 1) as f32)
-}
-
-fn percent_text(percent: f32) -> String {
-    format!("{percent:.0} %")
-}
-
-fn percent_parse(text: &str) -> Option<f32> {
-    let t = text.trim().trim_end_matches('%').trim();
-    t.parse::<f32>().ok().filter(|v| v.is_finite())
-}
-
-fn low_cut_text(hz: f32) -> String {
-    if hz < 0.5 {
-        "Off".to_owned()
-    } else if hz < 999.5 {
-        format!("{hz:.0} Hz")
-    } else {
-        format!("{:.2} kHz", hz / 1000.0)
-    }
-}
-
-fn low_cut_parse(text: &str) -> Option<f32> {
-    let t = text.trim().to_lowercase();
-    if t.starts_with("off") {
-        return Some(0.0);
-    }
-    hertz(&t)
-}
-
-fn high_cut_text(hz: f32) -> String {
-    if hz >= 19_999.5 {
-        "Off".to_owned()
-    } else if hz < 999.5 {
-        format!("{hz:.0} Hz")
-    } else {
-        format!("{:.1} kHz", hz / 1000.0)
-    }
-}
-
-fn high_cut_parse(text: &str) -> Option<f32> {
-    let t = text.trim().to_lowercase();
-    if t.starts_with("off") {
-        return Some(20_000.0);
-    }
-    hertz(&t)
-}
-
-fn hertz(text: &str) -> Option<f32> {
-    let t = text.trim();
-    if let Some(rest) = t.strip_suffix("khz") {
-        return rest.trim().parse::<f32>().ok().map(|k| k * 1000.0);
-    }
-    if let Some(rest) = t.strip_suffix("hz") {
-        return rest.trim().parse::<f32>().ok();
-    }
-    t.parse::<f32>().ok().filter(|v| v.is_finite())
-}
-
-fn on_off_text(value: f32) -> String {
-    if value >= 0.5 { "On" } else { "Off" }.to_owned()
-}
-
-fn on_off_parse(text: &str) -> Option<f32> {
-    match text.trim().to_lowercase().as_str() {
-        "on" | "1" => Some(1.0),
-        "off" | "0" => Some(0.0),
-        _ => None,
-    }
 }
 
 fn one_pole(hz: f32, rate: u32) -> f32 {
@@ -420,6 +154,10 @@ pub struct Delay {
     held: [(u32, f32); 8],
     bpm: f32,
     rate: u32,
+    since: f32,
+    quiet: bool,
+    entered: bool,
+    onset: Onset,
 }
 
 impl Delay {
@@ -460,7 +198,21 @@ impl Delay {
             held,
             bpm: REFERENCE_BPM,
             rate: REFERENCE_RATE,
+            since: 0.0,
+            quiet: true,
+            entered: false,
+            onset: Onset::new(),
         }
+    }
+
+    pub fn onset(&self) -> Onset {
+        self.onset.clone()
+    }
+
+    pub fn build() -> (Self, Onset) {
+        let device = Self::new();
+        let onset = device.onset();
+        (device, onset)
     }
 
     fn read(lines: &[Box<[f32]>; 2], write: usize, side: usize, behind: f32) -> f32 {
@@ -557,6 +309,7 @@ impl Effect for Delay {
         let one_pole_rate = rate;
         let capacity = CAPACITY as f32 - 2.0;
         let len0 = self.lines[0].len();
+        let mut block_peak = 0.0f32;
 
         for frame in 0..frames {
             if (block.start + frame as i64).rem_euclid(KNOT) == 0 {
@@ -596,12 +349,33 @@ impl Effect for Delay {
             let looped_left = self.loops[0].run(wet_left, (low, high));
             let looped_right = self.loops[1].run(wet_right, (low, high));
             let gain = (feedback * (1.0 - freeze) + freeze).clamp(0.0, 1.0);
+            let dry = 1.0 - freeze;
+            let in_left = left[frame] * dry;
+            let in_right = right[frame] * dry;
+            let (enter_left, enter_right) = if ping > 0.0 {
+                let mono = 0.5 * (in_left + in_right);
+                (
+                    in_left * (1.0 - ping) + mono * ping,
+                    in_right * (1.0 - ping),
+                )
+            } else {
+                (in_left, in_right)
+            };
             let into_left = looped_left * (1.0 - ping) + looped_right * ping;
             let into_right = looped_right * (1.0 - ping) + looped_left * ping;
-            let dry = 1.0 - freeze;
+            let here = enter_left.abs().max(enter_right.abs());
+            block_peak = block_peak.max(here);
+            if self.quiet && here > ONSET_GATE {
+                self.since = 0.0;
+                self.entered = true;
+                self.quiet = false;
+            }
+            if self.entered {
+                self.since += 1.0;
+            }
             let at = self.write;
-            self.lines[0][at] = flush(left[frame] * dry + into_left * gain);
-            self.lines[1][at] = flush(right[frame] * dry + into_right * gain);
+            self.lines[0][at] = flush(enter_left + into_left * gain);
+            self.lines[1][at] = flush(enter_right + into_right * gain);
 
             let dry_gain = 1.0 - mix;
             left[frame] = flush(left[frame] * dry_gain + wet_left * mix);
@@ -624,6 +398,15 @@ impl Effect for Delay {
             (MIX, curves.mix[last]),
             (FREEZE, curves.freeze[last]),
         ];
+        let clock = if self.entered {
+            self.since / rate as f32
+        } else {
+            NOTHING_YET
+        };
+        self.onset.record(clock);
+        if block_peak < ONSET_GATE * ONSET_HYSTERESIS {
+            self.quiet = true;
+        }
     }
 
     fn tail(&self) -> u32 {
@@ -651,13 +434,9 @@ impl Effect for Delay {
         self.now = seconds_of(&self.held, self.bpm) * self.rate as f32;
         self.target = f32::NAN;
         self.step = 0.0;
+        self.since = 0.0;
+        self.quiet = true;
+        self.entered = false;
+        self.onset.record(NOTHING_YET);
     }
-}
-
-fn curve_value(id: u32, x: f32) -> f32 {
-    params::find(TABLE, id).map_or(0.0, |info| info.value(x))
-}
-
-fn curve_note(x: f32) -> usize {
-    (x * (NOTES.len() - 1) as f32).round().clamp(0.0, 6.0) as usize
 }
