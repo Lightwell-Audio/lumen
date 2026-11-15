@@ -1,11 +1,3 @@
-//! Drawing the editor's overlay (M5 slice 3c). The lanes, grid, notes and
-//! key column are slice 3b's GPU roll (`piano_roll::draw::roll`); this file
-//! is the egui-drawn part over it, and the **drawing boundary** the input
-//! code calls: dimming outside the clip, the hovered note, the originals a
-//! move leaves behind (dimmed), the gesture's preview, the marquee, the
-//! lit key and the ruler. The preview is separate from the committed notes:
-//! the document is never changed to show it.
-
 use eframe::egui::{Align2, Color32, FontId, Painter, Rect, Shape, Stroke, StrokeKind, pos2, vec2};
 use lumen_core::grid::{Level, Line};
 use lumen_core::meter::MeterMap;
@@ -16,39 +8,23 @@ use super::gesture::Preview;
 use super::view::{EditorView, pitch_name};
 use crate::{light, theme, widgets};
 
-/// Most notes that get a velocity bar or glow in one frame; past this the
-/// GPU notes stand alone (a zoomed-out roll of thousands).
 const MAX_DECORATED: usize = 4000;
-/// Notes shorter than this many points tall get no velocity bar.
 const BAR_MIN_ROW: f32 = 10.0;
-/// The velocity bar on a note's bottom edge: height, and its darkness.
 const BAR_HEIGHT: f32 = 2.0;
 const BAR_DARK: f32 = 0.32;
-/// A note's corner radius (matches the GPU boxes: `canvas::note_style`).
 const NOTE_RADIUS: f32 = 2.0;
-/// The most selected notes that glow at once.
 const MAX_GLOWING: usize = 200;
 
-/// Everything [`paint_overlay`] needs, as data.
 pub(crate) struct Scene<'a> {
     pub notes: &'a [Note],
-    /// The gesture's notes, drawn over the clip.
     pub preview: &'a Preview,
-    /// Notes a marquee would pick, outlined.
     pub boxed: &'a [usize],
-    /// How long the clip is.
     pub clip_length: Ticks,
-    /// The note under the pointer.
     pub hover: Option<usize>,
-    /// The picked notes: they glow.
     pub picked: &'a [usize],
-    /// What the quantize options would move: where each note was and went.
     pub trails: &'a [super::quantize::Trail],
 }
 
-/// Over the GPU notes: each note's thin velocity bar along its bottom edge
-/// (width in proportion to its velocity), and a light-level glow around the
-/// picked notes.
 fn paint_note_details(painter: &Painter, view: &EditorView, scene: &Scene<'_>) {
     let accent = theme::p().accent;
     if view.row_height >= BAR_MIN_ROW {
@@ -83,14 +59,12 @@ fn paint_note_details(painter: &Painter, view: &EditorView, scene: &Scene<'_>) {
     }
 }
 
-/// What goes over the GPU roll inside `view.body`.
 pub(crate) fn paint_overlay(painter: &Painter, view: &EditorView, scene: &Scene<'_>) {
     let palette = theme::p();
     let body = view.body;
     let painter = painter.with_clip_rect(body);
     paint_note_details(&painter, view, scene);
 
-    // Time outside the clip is dimmed.
     let clip_left = view.x_of(Ticks::ZERO);
     let clip_right = view.x_of(scene.clip_length);
     let dim = palette.app.gamma_multiply(theme::alpha::INK_QUIET);
@@ -108,7 +82,6 @@ pub(crate) fn paint_overlay(painter: &Painter, view: &EditorView, scene: &Scene<
             dim,
         );
     }
-    // Notes whose move is previewed fade where they were.
     for &i in &scene.preview.hidden {
         if let Some(note) = scene.notes.get(i)
             && view.shows(*note)
@@ -135,8 +108,6 @@ pub(crate) fn paint_overlay(painter: &Painter, view: &EditorView, scene: &Scene<
             );
         }
     }
-    // A note being drawn is a wash of accent (`.lm-note.is-ghost`) inside a
-    // dashed accent outline: no fill from the clip, so the lane shows through.
     for ghost in &scene.preview.ghosts {
         let rect = view.note_rect(*ghost).shrink2(vec2(0.0, 0.5));
         painter.rect_filled(
@@ -159,9 +130,6 @@ pub(crate) fn paint_overlay(painter: &Painter, view: &EditorView, scene: &Scene<
             );
         }
     }
-    // Ghost trails (the owner's A): a dashed outline where a note was, and a
-    // line along its bottom to where it goes. The note itself is already
-    // drawn at its new place.
     for trail in scene
         .trails
         .iter()
@@ -195,13 +163,8 @@ pub(crate) fn paint_overlay(painter: &Painter, view: &EditorView, scene: &Scene<
     }
 }
 
-/// Lights the key of `pitch` in the key column `column`: an accent gradient
-/// from the left edge, lighter toward the right, as far as the key goes (a
-/// black key stops where it does).
 pub(crate) fn paint_lit_key(painter: &Painter, view: &EditorView, column: Rect, pitch: i32) {
     let top = view.row_top(pitch);
-    // A mapped row has no black keys to shorten it for: the light covers the
-    // whole row.
     let black =
         view.rows.is_all() && u8::try_from(pitch).is_ok_and(crate::piano_roll::draw::is_black);
     let width = if black {
@@ -224,7 +187,6 @@ pub(crate) fn paint_lit_key(painter: &Painter, view: &EditorView, column: Rect, 
     );
 }
 
-/// A dashed outline around `rect` (a ghost note).
 fn dashed_outline(painter: &Painter, rect: Rect, stroke: Stroke) {
     let points = [
         rect.left_top(),
@@ -236,8 +198,6 @@ fn dashed_outline(painter: &Painter, rect: Rect, stroke: Stroke) {
     painter.extend(Shape::dashed_line(&points, stroke, 4.0, 3.0));
 }
 
-/// The time ruler over the notes: bar numbers and beat ticks, the clip's
-/// span underlined.
 pub(crate) fn paint_ruler(
     painter: &Painter,
     view: &EditorView,
@@ -289,7 +249,6 @@ pub(crate) fn paint_ruler(
             Level::Sub => {}
         }
     }
-    // The ruler's bottom edge is a hairline (`.lm-ruler`), not a strong border.
     painter.hline(
         strip.x_range(),
         strip.bottom(),

@@ -22,7 +22,6 @@ fn folder(label: &str) -> PathBuf {
     path
 }
 
-/// The cache's own files in its folder (not its marker).
 fn cache_files(cache: &Cache) -> Vec<fs::DirEntry> {
     fs::read_dir(cache.dir())
         .unwrap()
@@ -54,7 +53,6 @@ fn decoded(path: &Path) -> crate::Audio {
     crate::decode(path, &AtomicBool::new(false), &mut |_| {}).unwrap()
 }
 
-/// Reads `count` frames from `from` of every played channel.
 fn read(path: &Path, from: u64, count: usize) -> Vec<Vec<f32>> {
     let mut reader = Reader::open(path).unwrap();
     let mut out = vec![vec![f32::NAN; count]; reader.layout().played()];
@@ -63,8 +61,6 @@ fn read(path: &Path, from: u64, count: usize) -> Vec<Vec<f32>> {
     out
 }
 
-/// A WAV file by hand: `tag` 1 (PCM), 3 (float), 2 (compressed), or 0xFFFE
-/// (extensible, with `sub` as its sub-format).
 fn wav_bytes(tag: u16, sub: u16, channels: u16, rate: u32, bits: u16, data: &[u8]) -> Vec<u8> {
     let block = channels * bits.div_ceil(8);
     let mut fmt = Vec::new();
@@ -87,7 +83,6 @@ fn wav_bytes(tag: u16, sub: u16, channels: u16, rate: u32, bits: u16, data: &[u8
     out.extend(b"RIFF");
     out.extend((4 + 12 + 8 + fmt.len() as u32 + 8 + data.len() as u32).to_le_bytes());
     out.extend(b"WAVE");
-    // A chunk Lumen does not use, of odd length, to be skipped with its pad.
     out.extend(b"junk");
     out.extend(3_u32.to_le_bytes());
     out.extend([1, 2, 3, 0]);
@@ -228,7 +223,6 @@ fn aiff_bytes(kind: Option<&[u8; 4]>, channels: u16, bits: u16, data: &[u8]) -> 
     comm.extend(channels.to_be_bytes());
     comm.extend(frames.to_be_bytes());
     comm.extend(bits.to_be_bytes());
-    // 48,000 as an 80-bit extended number.
     comm.extend([0x40, 0x0E, 0xBB, 0x80, 0, 0, 0, 0, 0, 0]);
     if let Some(kind) = kind {
         comm.extend(kind);
@@ -349,7 +343,6 @@ fn rf64_names_its_length_in_ds64() {
     bytes.extend(b"data");
     bytes.extend(u32::MAX.to_le_bytes());
     bytes.extend(&data);
-    // Something after the audio that is not audio.
     bytes.extend(b"LIST\x04\x00\x00\x00abcd");
     let path = dir.join("long.wav");
     fs::write(&path, bytes).unwrap();
@@ -358,7 +351,6 @@ fn rf64_names_its_length_in_ds64() {
     assert_eq!(read(&path, 0, 1_000)[0], samples);
 }
 
-/// Converts in blocks of the sizes in `steps`, round and round.
 fn in_blocks(from: u32, to: u32, channels: &[Vec<f32>], steps: &[usize]) -> Vec<Vec<f32>> {
     let mut converter = Converter::new(from, to, channels.len()).unwrap();
     let mut out = vec![Vec::new(); channels.len()];
@@ -437,9 +429,7 @@ fn the_cache_converts_once_and_plays_what_memory_plays() {
     assert_eq!(streamed[0].as_slice(), memory.channel(0));
     assert_eq!(streamed[1].as_slice(), memory.channel(1));
 
-    // Found again without converting.
     assert_eq!(cache.find(&source, 48_000).unwrap(), Some(prepared.clone()));
-    // At its own rate the source streams as it is.
     let direct = cache.find(&source, 44_100).unwrap().unwrap();
     assert!(!direct.converted);
     assert_eq!(direct.path, source);
@@ -494,7 +484,6 @@ fn a_cancelled_conversion_leaves_nothing_that_is_found() {
 fn peaks_read_in_blocks_equal_the_peaks_of_the_file_in_memory() {
     let dir = folder("peaks");
     let cancel = AtomicBool::new(false);
-    // Longer than one scan block, and not a whole number of buckets.
     let frames = 2 * SCAN + 1_234;
     for channels in [
         vec![signal(frames, 0.01)],
@@ -516,7 +505,6 @@ fn peaks_read_in_blocks_equal_the_peaks_of_the_file_in_memory() {
 fn a_reversed_copy_holds_the_frames_in_the_other_order_and_is_made_once() {
     let dir = folder("reversed");
     let source = dir.join("source.wav");
-    // More than one block, so blocks are reversed and joined.
     let frames = 70_000;
     let channels = vec![signal(frames, 0.01), signal(frames, 0.003)];
     write_wav(&source, 48_000, Sample::I16, &channels);
@@ -555,14 +543,12 @@ fn peaks_are_kept_and_a_changed_file_scans_again() {
     let cancel = AtomicBool::new(false);
     let first = cache.peaks(&source, &cancel, &mut |_| {}).unwrap().unwrap();
     assert_eq!(Some(first.clone()), decoded(&source).peaks(&cancel));
-    // Kept: found again with no scan, even when a scan would be cancelled.
     cancel.store(true, Ordering::Relaxed);
     assert_eq!(
         cache.peaks(&source, &cancel, &mut |_| {}).unwrap(),
         Some(first.clone())
     );
     cancel.store(false, Ordering::Relaxed);
-    // A changed file is scanned again.
     write_wav(&source, 48_000, Sample::F32, &[signal(40_000, 0.07)]);
     let second = cache.peaks(&source, &cancel, &mut |_| {}).unwrap().unwrap();
     assert_ne!(second, first);
@@ -573,7 +559,6 @@ fn peaks_are_kept_and_a_changed_file_scans_again() {
 fn an_analysis_is_kept_and_a_changed_file_is_scanned_again() {
     let dir = folder("kept-analysis");
     let source = dir.join("source.wav");
-    // Four clicks a second apart, then the same file with them moved.
     let clicks = |at: [usize; 4]| {
         let mut samples = vec![0.0_f32; 48_000 * 5];
         for start in at {
@@ -596,7 +581,6 @@ fn an_analysis_is_kept_and_a_changed_file_is_scanned_again() {
         .unwrap()
         .unwrap();
     assert_eq!(first.transients.len(), 4);
-    // Kept: found again with no scan, even when a scan would be cancelled.
     cancel.store(true, Ordering::Relaxed);
     assert_eq!(
         cache.analysis(&source, &cancel, &mut |_| {}).unwrap(),
@@ -620,8 +604,6 @@ fn an_analysis_is_kept_and_a_changed_file_is_scanned_again() {
         .unwrap();
     assert_ne!(second, first);
     assert!((second.transients[0].seconds - 0.2).abs() < 0.005);
-    // The cache counts it; a clear that keeps the playing file keeps its
-    // analysis (and drops the one of the file as it was).
     let both = cache.size();
     cache.clear(std::slice::from_ref(&source));
     let kept = cache.size();
@@ -641,10 +623,6 @@ fn trimming_clears_the_entries_used_longest_ago_and_never_one_playing() {
     let dir = folder("trim");
     let cache = Cache::new(dir.join("cache")).fresh_for(Duration::ZERO);
     let cancel = AtomicBool::new(false);
-    // Three converted files, each with its peaks, made one after another.
-    // Each step waits longer than the file system's time step (a few ms on
-    // Linux), or a copy and its peaks can share a modified time and trim's
-    // order between them is left to chance.
     let prepared: Vec<_> = (0..3)
         .map(|i| {
             let source = dir.join(format!("{i}.wav"));
@@ -668,15 +646,12 @@ fn trimming_clears_the_entries_used_longest_ago_and_never_one_playing() {
     assert_eq!(cache.trim(total, &[]), 0, "under the limit nothing goes");
     assert_eq!(count(), 9);
 
-    // The oldest is the first, but it is playing: the second goes, then the
-    // second's peaks.
     let playing = [prepared[0].path.clone()];
     let cleared = cache.trim(total - 1, &playing);
     assert!(cleared > 0);
     assert!(!prepared[1].path.exists(), "the oldest entry not playing");
     assert!(prepared[0].path.exists() && prepared[2].path.exists());
     assert_eq!(count(), 7, "only the second's copy and key");
-    // Its peaks are kept, read with no scan.
     cancel.store(true, Ordering::Relaxed);
     assert!(
         cache
@@ -686,8 +661,6 @@ fn trimming_clears_the_entries_used_longest_ago_and_never_one_playing() {
     );
     cancel.store(false, Ordering::Relaxed);
 
-    // A hit makes an entry the newest: with room for the third's copy
-    // alone, every other entry goes.
     std::thread::sleep(std::time::Duration::from_millis(30));
     assert!(cache.find(&dir.join("2.wav"), 48_000).unwrap().is_some());
     let third: u64 = cache_files(&cache)
@@ -711,8 +684,6 @@ fn trimming_clears_the_entries_used_longest_ago_and_never_one_playing() {
     assert_eq!(count(), 0, "a limit below every entry clears them all");
 }
 
-/// The cache folder can be one the user chose (M9 R7): trim and Clear act
-/// only on the cache's own names, so a file of the user's survives both.
 #[test]
 fn trimming_and_clearing_never_touch_a_file_the_cache_did_not_make() {
     let dir = folder("foreign");
@@ -727,7 +698,6 @@ fn trimming_and_clearing_never_touch_a_file_the_cache_did_not_make() {
         cache.dir().join(MARKER).is_file(),
         "marked when first written"
     );
-    // The user's files beside the cache's, old enough to go first.
     let foreign = [
         "notes.txt",
         "song.wav",
@@ -767,16 +737,12 @@ fn trimming_and_clearing_never_touch_a_file_the_cache_did_not_make() {
     assert!(cache.dir().join(MARKER).exists(), "the mark stays");
 }
 
-/// Ages a file: its time of last use `seconds` ago.
 fn age(path: &Path, seconds: u64) {
     let file = fs::OpenOptions::new().write(true).open(path).unwrap();
     file.set_modified(SystemTime::now() - Duration::from_secs(seconds))
         .unwrap();
 }
 
-/// A folder without the mark that holds anything but the cache's names is
-/// not the cache's: it is used, but never marked, and nothing in it is
-/// counted or cleared, even names the cache would give (review of M9 R7).
 #[test]
 fn a_folder_with_files_of_the_users_is_never_claimed() {
     let dir = folder("unmarked");
@@ -789,7 +755,6 @@ fn a_folder_with_files_of_the_users_is_never_claimed() {
     assert_eq!(cache.clear(&[]), 0);
     assert!(lookalike.exists());
 
-    // Converting into it works, and still leaves it unmarked.
     let source = dir.join("source.wav");
     write_wav(&source, 44_100, Sample::F32, &[signal(20_000, 0.01)]);
     let cancel = AtomicBool::new(false);
@@ -802,9 +767,6 @@ fn a_folder_with_files_of_the_users_is_never_claimed() {
     assert!(prepared.path.exists() && lookalike.exists());
 }
 
-/// A cache made before the mark (slice R6) holds only the cache's names: it
-/// is claimed, so Count and Clear see it, even when every load was a hit
-/// (review of M9 R7).
 #[test]
 fn a_cache_made_before_the_mark_is_claimed() {
     let dir = folder("before-mark");
@@ -824,9 +786,6 @@ fn a_cache_made_before_the_mark_is_claimed() {
     assert_eq!(cache.clear(&[]), 3000);
 }
 
-/// A hit while a trim runs, after the trim listed the entries and before it
-/// removes the one hit, keeps that entry: the trim reads its last use again
-/// (review of M9 R7, round 2).
 #[test]
 fn a_hit_during_a_trim_keeps_its_entry() {
     let dir = folder("hit-during-trim");
@@ -846,8 +805,6 @@ fn a_hit_during_a_trim_keeps_its_entry() {
     assert!(hit.path.exists(), "the copy the hit returned is kept");
 }
 
-/// An entry used in the last two minutes is not cleared: a load prepares
-/// its file before the app lists it as playing (review of M9 R7).
 #[test]
 fn an_entry_used_just_now_is_not_cleared() {
     let dir = folder("fresh");
@@ -895,9 +852,6 @@ fn the_limit_can_change() {
     assert_eq!(cache.limit(), 5_000_000_000);
 }
 
-/// A copy that cannot be removed (open in another instance, here a handle
-/// that does not share deletion) keeps its key, so the entry stays whole,
-/// and is not counted as cleared (review of slice R6).
 #[cfg(windows)]
 #[test]
 fn trimming_counts_only_what_it_removed_and_keeps_an_entry_it_cannot_remove_whole() {
@@ -917,7 +871,6 @@ fn trimming_counts_only_what_it_removed_and_keeps_an_entry_it_cannot_remove_whol
     let key = prepared[0].path.with_extension("key");
     let stuck = size(&prepared[0].path) + size(&key);
     let free = size(&prepared[1].path) + size(&prepared[1].path.with_extension("key"));
-    // Read sharing only: the file cannot be deleted while this is open.
     let open = {
         use std::os::windows::fs::OpenOptionsExt;
         const FILE_SHARE_READ: u32 = 1;
@@ -955,7 +908,6 @@ fn small_files_are_stored_whole_counted_and_cleared() {
         Some(&b"index"[..])
     );
     assert_eq!(cache.size(), 305);
-    // Something the cache did not make stays.
     std::fs::write(dir.join("notes.txt"), b"mine").unwrap();
     assert_eq!(cache.clear(&[]), 305);
     assert_eq!(cache.load(Small::Thumb, &key, 128), None);

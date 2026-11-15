@@ -1,5 +1,3 @@
-//! Writing a Standard MIDI File.
-
 use std::fmt;
 
 use lumen_core::time::{PPQ, TempoMap, Ticks};
@@ -11,24 +9,14 @@ use midly::{
 use super::{FileTrack, MidiFile};
 use crate::model::EventKind;
 
-/// Ticks per quarter note in written files: the most widely read division.
-/// Lumen's ticks round to the nearest of these (at most half a step, about
-/// 0.26 ms at 120 BPM).
 pub const DIVISION: u16 = 960;
 
-/// How a file's parts are laid out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Layout {
-    /// Type 0: one track holding everything, each part on its channel.
     Single,
-    /// Type 1: a conductor track with the tempo map and time signature,
-    /// then a track per part, named after it.
     Parallel,
 }
 
-/// The order of events at one tick: names and tempo first, then note-offs
-/// (so a note ending where the next begins does not cut it), then
-/// controllers and programs, then note-ons.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Rank {
     Meta,
@@ -37,12 +25,8 @@ enum Rank {
     On,
 }
 
-/// Why a file could not be written.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WriteError {
-    /// Two events lie further apart than a MIDI file can say: its delta
-    /// times are 28 bits, so at [`DIVISION`] about 78 hours. Projects may
-    /// reach much further, and such a gap has no event that fills it.
     TooSparse,
 }
 
@@ -58,14 +42,10 @@ impl fmt::Display for WriteError {
 
 impl std::error::Error for WriteError {}
 
-/// One event before deltas: its tick at [`DIVISION`], its rank, the event.
 type Timed<'a> = (u64, Rank, TrackEventKind<'a>);
 
-/// A file's bytes, at [`DIVISION`] ticks per quarter note, or why they
-/// cannot be made.
 pub fn write(file: &MidiFile, layout: Layout) -> Result<Vec<u8>, WriteError> {
     let mut conductor: Vec<Timed<'static>> = Vec::new();
-    // A file holds steps only: a ramp is written as a run of short steps.
     let steps = if file.tempo.iter().any(|p| p.ramp) {
         TempoMap::new(file.tempo.clone()).map_or_else(|_| file.tempo.clone(), |map| map.stepped())
     } else {
@@ -134,7 +114,6 @@ fn name_event(name: &str) -> Timed<'_> {
     )
 }
 
-/// A part's notes and events on its channel.
 fn part_events(part: &FileTrack) -> Vec<Timed<'static>> {
     let channel = u4::new(part.channel);
     let midi = |message| TrackEventKind::Midi { channel, message };
@@ -200,9 +179,6 @@ fn part_events(part: &FileTrack) -> Vec<Timed<'static>> {
     out
 }
 
-/// Events sorted into a track, with its end. The sort is stable, so events
-/// of one rank at one tick keep their order (a bank select before its
-/// program change). A gap too long for a delta time is an error.
 fn finish(mut events: Vec<Timed<'_>>) -> Result<Vec<TrackEvent<'_>>, WriteError> {
     events.sort_by_key(|&(at, rank, _)| (at, rank));
     let mut last = 0;
@@ -222,7 +198,6 @@ fn finish(mut events: Vec<Timed<'_>>) -> Result<Vec<TrackEvent<'_>>, WriteError>
     Ok(track)
 }
 
-/// A position at [`DIVISION`], rounded to the nearest; never before zero.
 fn tick(at: Ticks) -> u64 {
     let step = PPQ / i64::from(DIVISION);
     let at = at.0.max(0);

@@ -1,34 +1,19 @@
-//! A scroll bar that shows only when it says something (the interface
-//! audit's U2, the owner's A): it fades in (`FAST`) while the view scrolls
-//! or the pointer nears its edge, and out (`BASE`) a moment after; it can
-//! be dragged. Long arrangements and wide mixers say where you are without
-//! a permanent bar.
-
 use eframe::egui::{self, Id as EguiId, Rect, Sense, Ui, pos2, vec2};
 
 use crate::{motion, theme};
 
-/// How long after the last scroll or approach the bar stays.
 const LINGER: f64 = motion::SCROLL_BAR_LINGER;
-/// How near its edge the pointer brings the bar in.
 const NEAR: f32 = 24.0;
-/// The bar's thickness, and its inset from the edge.
 const THICKNESS: f32 = 6.0;
 const INSET: f32 = 3.0;
-/// The handle is never shorter than this.
 const MIN_HANDLE: f32 = 24.0;
 
-/// Which way a bar runs.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Axis {
-    /// Along the right edge.
     Vertical,
-    /// Along the bottom edge.
     Horizontal,
 }
 
-/// What a bar shows: `area` scrolled by `offset` through `content` points,
-/// of which `area` shows its length along `axis`.
 #[derive(Debug, Clone, Copy)]
 pub struct ScrollBar {
     pub area: Rect,
@@ -41,11 +26,9 @@ pub struct ScrollBar {
 struct State {
     offset: f32,
     active_at: f64,
-    /// The handle is held.
     held: bool,
 }
 
-/// Draws the bar; returns a new offset while it is dragged.
 pub fn scroll_bar(ui: &mut Ui, id: EguiId, bar: ScrollBar) -> Option<f32> {
     let ScrollBar {
         area,
@@ -88,7 +71,6 @@ pub fn scroll_bar(ui: &mut Ui, id: EguiId, bar: ScrollBar) -> Option<f32> {
     };
     let handle = handle_rect(at(offset));
 
-    // Shown while scrolling, near its edge, or held.
     let near = ctx
         .pointer_hover_pos()
         .is_some_and(|p| area.contains(p) && track.expand(NEAR).contains(p));

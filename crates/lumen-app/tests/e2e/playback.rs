@@ -1,5 +1,3 @@
-//! The transport: play and stop, the playhead, metronome, loop and Follow.
-
 use eframe::egui::{Key, Modifiers};
 use lumen_core::time::Ticks;
 
@@ -28,8 +26,6 @@ fn the_drawn_playhead_keeps_up_while_playing_and_lands_exactly_on_stop() {
     lumen.wait_for("the playhead to move", |app| {
         app.is_playing() && app.playhead() > Ticks::quarters(1)
     });
-    // Smoothed (owner: Follow was choppy), never left behind: within a
-    // quarter of a second of the engine (half a beat at 120 BPM).
     let (drawn, engine) = (lumen.app().drawn_playhead(), lumen.app().playhead());
     assert!(
         (drawn.as_quarters() - engine.as_quarters()).abs() <= 0.5,
@@ -64,7 +60,6 @@ fn metronome_loop_and_follow_toggle() {
         lumen.click(label);
         assert_eq!(lumen.is_on(label), !was, "{label}");
     }
-    // Follow is on by default (owner decision); Ctrl+Shift+F turns it off.
     let follow = "Follow playhead";
     assert!(lumen.is_on(follow));
     lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::F);
@@ -73,8 +68,6 @@ fn metronome_loop_and_follow_toggle() {
 
 #[test]
 fn dropouts_show_in_words_and_the_panel_explains_them() {
-    // Owner (2026-10-09): a bare amber number meant nothing. Healthy audio
-    // shows no chip; dropouts show "Dropouts ×3", which opens the panel.
     let mut lumen = Lumen::start("dropouts");
     lumen.wait_for("audio", |app| app.audio_running());
     lumen.frames(2);
@@ -87,7 +80,6 @@ fn dropouts_show_in_words_and_the_panel_explains_them() {
         lumen.shows("⚠ 3 dropouts just now · 3 since audio started"),
         "the panel says how many and since when"
     );
-    // Reset clears the chip and the panel's line.
     lumen.click("Reset overload and dropout counts");
     lumen.frames(3);
     assert!(!lumen.shows("⚠ 3 dropouts just now · 3 since audio started"));

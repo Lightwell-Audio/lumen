@@ -1,8 +1,3 @@
-//! What plugins do inside themselves becomes edits of the project (M6 slice
-//! 4, the owner's P1): a control moved in a plugin's own window is a gesture
-//! (begin, values, end) and one undo step, and values a plugin changes outside
-//! a gesture (loading a patch) are one step for the whole batch.
-
 use lumen_hosting::{Edit, EditKind};
 use lumen_project::model::Id;
 
@@ -10,8 +5,6 @@ use crate::App;
 use crate::document::Document;
 
 impl App {
-    /// Records the plugins' own edits since the last frame. Called every
-    /// frame after the hosts have been polled.
     pub(crate) fn apply_plugin_edits(&mut self, ctx: &eframe::egui::Context) {
         self.poll_presets(ctx);
         self.apply_presets();
@@ -33,8 +26,6 @@ impl App {
                     .find(|p| p.id == id)
                     .map_or_else(|| "parameter".to_owned(), |p| p.title.clone())
             };
-            // While a program the user chose is being loaded, what the plugin
-            // sets in answer is part of that choice.
             let loading = hosting.program_loading(news.device).map(str::to_owned);
             record(
                 &mut self.document,
@@ -63,7 +54,6 @@ impl App {
                 .iter()
                 .find(|p| p.id == typed.id)
                 .map_or_else(|| "parameter".to_owned(), |p| p.title.clone());
-            // A typed value is a step of its own, not part of a drag.
             self.document.override_param(typed.device, typed.id);
             self.document.seal();
             let _ = self.document.set_device_params(
@@ -78,15 +68,10 @@ impl App {
     }
 }
 
-/// The merge key of one parameter's gesture.
 fn gesture_key(device: Id, parameter: u32) -> String {
     format!("param:{}:{parameter}", device.0)
 }
 
-/// Applies `edits`, which a plugin made in this order, to `device`. A
-/// gesture's values merge into the step its begin opens; the rest are
-/// gathered into one step. While `loading` names a program the user chose,
-/// every edit joins that choice's step instead, whatever its shape.
 pub(crate) fn record(
     doc: &mut Document,
     device: Id,
@@ -128,8 +113,6 @@ pub(crate) fn record(
             }
             EditKind::Perform if inside => {
                 flush(doc, &mut loose);
-                // A control a lane drives, moved in the plugin's own window,
-                // takes the lane over (a program the user chose does not).
                 if loading.is_none() {
                     doc.override_param(device, edit.id);
                 }
@@ -142,20 +125,16 @@ pub(crate) fn record(
                 };
                 let _ = doc.set_device_params(device, &[(edit.id, edit.value)], &label, Some(&key));
             }
-            EditKind::Perform => {
-                // Several values for one parameter in a row: the last counts.
-                match loose.iter_mut().find(|(id, _)| *id == edit.id) {
-                    Some(slot) => slot.1 = edit.value,
-                    None => loose.push((edit.id, edit.value)),
-                }
-            }
+            EditKind::Perform => match loose.iter_mut().find(|(id, _)| *id == edit.id) {
+                Some(slot) => slot.1 = edit.value,
+                None => loose.push((edit.id, edit.value)),
+            },
             EditKind::End => {
                 flush(doc, &mut loose);
                 if loading.is_none() {
                     doc.seal();
                 }
             }
-            // Not an edit of the project.
             EditKind::Output | EditKind::Dirty | EditKind::Retitled => {}
         }
     }
@@ -248,7 +227,6 @@ mod tests {
             name,
             None,
         );
-        // The frame-by-frame seal does not run while the gesture is open.
         record(
             &mut doc,
             device,
@@ -310,7 +288,6 @@ mod tests {
         let lane = Lane::new(vec![Point::new(lumen_core::time::Ticks::ZERO, 0.5)]).unwrap();
         let target = Target::Device { device, param: 3 };
         doc.set_lane(track, target, lane, false).unwrap();
-        // A program the user chose sets the parameter: the lane plays on.
         record(
             &mut doc,
             device,
@@ -319,7 +296,6 @@ mod tests {
             Some("Warm"),
         );
         assert!(!doc.overrides().contains(track, target));
-        // Another parameter, moved by hand in the plugin's window, is no lane's.
         record(
             &mut doc,
             device,
@@ -332,8 +308,6 @@ mod tests {
             None,
         );
         assert!(!doc.overrides().contains(track, target));
-        // Taking hold of the driven one without moving it does nothing; moving
-        // it takes the lane over.
         record(
             &mut doc,
             device,

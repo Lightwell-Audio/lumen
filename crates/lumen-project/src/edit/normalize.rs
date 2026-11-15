@@ -1,37 +1,20 @@
-//! Normalize (M7b slice E1): the pure parts. A clip is normalized by setting
-//! its gain so that the loudest sample of the stretch of its file that it
-//! plays reaches 0 dBFS. The scan of the audio is the app's (it runs on a
-//! worker); this module says which stretch that is and what gain a peak
-//! asks for.
-
 use lumen_core::time::{TempoMap, Ticks};
 
 use crate::edit::tempo_of;
 use crate::model::{Clip, ClipContent, Id, Project};
 
-/// A peak at or below this (-100 dBFS) is silence: nothing is normalized to
-/// it.
 pub const SILENT: f32 = 1e-5;
 
-/// The stretch of a clip's file it plays, in seconds of that file (of its
-/// reversed twin, when the clip is reversed).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Window {
-    /// Where the stretch begins.
     pub from: f64,
-    /// How long it is: the clip, or one repeat of its loop.
     pub span: f64,
 }
 
-/// The stretch of the file an audio clip plays, or `None` for a MIDI clip.
-/// `rate` is the file's sample rate (the media offset counts its frames).
-/// The span ignores where the file ends; a reader clamps it.
 pub fn window(clip: &Clip, rate: f64, tempo: &TempoMap) -> Option<Window> {
     let ClipContent::Audio { offset, .. } = &clip.content else {
         return None;
     };
-    // The material begins at the clip's start, or for a loop at the origin
-    // its repeats are counted from.
     let (begin, end) = match clip.loop_length {
         Some(period) => {
             let origin = clip.start - clip.loop_phase;
@@ -40,7 +23,6 @@ pub fn window(clip: &Clip, rate: f64, tempo: &TempoMap) -> Option<Window> {
         None => (clip.start, clip.start + clip.length),
     };
     let from = *offset as f64 / rate + clip.audio_phase_seconds;
-    // A warped clip plays the file at the map's pace, not the tempo's.
     let span = match &clip.warp {
         Some(warp) => warp.source_at(end - begin) - warp.source_at(Ticks::ZERO),
         None => tempo.seconds_at(end) - tempo.seconds_at(begin),
@@ -48,10 +30,6 @@ pub fn window(clip: &Clip, rate: f64, tempo: &TempoMap) -> Option<Window> {
     Some(Window { from, span })
 }
 
-/// What a scan reads for a clip: which file (its reversed twin when
-/// `reversed`) and which stretch of it. If any of these differ when the scan
-/// ends, the clip no longer plays what was scanned, and its peak is not
-/// applied.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Source {
     pub media: Id,
@@ -59,8 +37,6 @@ pub struct Source {
     pub window: Window,
 }
 
-/// The [`Source`] of an audio clip in `project`, or `None` for a MIDI clip or
-/// a clip whose media is not in the project.
 pub fn source_of(project: &Project, clip: &Clip) -> Option<Source> {
     let ClipContent::Audio { media, .. } = &clip.content else {
         return None;
@@ -73,8 +49,6 @@ pub fn source_of(project: &Project, clip: &Clip) -> Option<Source> {
     })
 }
 
-/// Whether the clip `id` is still on a track of `project` and still plays
-/// exactly what `scanned` read.
 pub fn is_current(project: &Project, id: Id, scanned: &Source) -> bool {
     project
         .tracks
@@ -85,8 +59,6 @@ pub fn is_current(project: &Project, id: Id, scanned: &Source) -> bool {
         .is_some_and(|now| now == *scanned)
 }
 
-/// The clip gain in decibels that brings a peak of `peak` (a linear sample
-/// value) to full scale, or `None` when the stretch is silent.
 pub fn gain_for_peak(peak: f32) -> Option<f32> {
     (peak.is_finite() && peak > SILENT).then(|| -20.0 * peak.log10())
 }
@@ -109,7 +81,6 @@ mod tests {
         let id = project.tracks[0].clips[0].id;
         let scanned = source_of(&project, &clip(&project)).unwrap();
         assert!(is_current(&project, id, &scanned));
-        // Trimmed, slipped, reversed, retimed or removed while it scanned.
         let edit = |f: &dyn Fn(&mut Clip)| {
             let mut p = project.clone();
             f(Arc::make_mut(&mut Arc::make_mut(&mut p.tracks[0]).clips[0]));
@@ -132,7 +103,6 @@ mod tests {
         let mut gone = project.clone();
         Arc::make_mut(&mut gone.tracks[0]).clips.remove(0);
         assert!(!is_current(&gone, id, &scanned));
-        // A gain change does not matter: the gain is what the scan sets.
         assert!(is_current(
             &edit(
                 &|c| if let ClipContent::Audio { gain_db, .. } = &mut c.content {
@@ -155,7 +125,6 @@ mod tests {
         }
         let rate = f64::from(project.media[0].sample_rate);
         let w = window(&clip(&project), rate, &tempo_of(&project)).unwrap();
-        // 120 BPM: four quarters are two seconds.
         assert!((w.from - 48_000.0 / rate).abs() < 1e-9);
         assert!((w.span - 2.0).abs() < 1e-9);
     }
@@ -166,8 +135,6 @@ mod tests {
         let t = Arc::make_mut(&mut project.tracks[0]);
         let c = Arc::make_mut(&mut t.clips[0]);
         c.length = q(4);
-        // One second of the file over four quarters, which are two seconds of
-        // song at 120 BPM: the map runs at half speed.
         let mut warp = crate::model::Warp::new(120.0, 0.0);
         warp.markers = vec![
             lumen_core::warp::Marker::new(0.0, Ticks::ZERO),

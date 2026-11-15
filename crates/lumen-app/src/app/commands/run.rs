@@ -1,5 +1,3 @@
-//! What each command does (M3 slice 7).
-
 use eframe::egui;
 use lumen_core::automation::Shape;
 use lumen_core::pan::PanLaw;
@@ -23,8 +21,6 @@ use crate::preferences::Page;
 use crate::recording::record_settings::CountIn;
 
 impl App {
-    /// Runs `command`, whether it came from a key, the palette or a menu.
-    /// Callers check [`App::availability`] first.
     pub(crate) fn run(&mut self, ctx: &egui::Context, command: Command) {
         let clips = self.clips_chosen();
         let clip = !self.arrangement.clips.is_empty();
@@ -38,9 +34,6 @@ impl App {
         let note_keys = self.note_keys();
         let audio_keys = !note_keys && self.audio_editor_live(ctx);
         let audio_points = audio_keys && self.audio_envelope_picked();
-        // The audio editor holding the keyboard takes the keys from the
-        // arrangement's picked points and lanes: a Delete means the editor's
-        // range or point, whatever stands picked above.
         let auto_point = auto_point && !audio_keys;
         let song_point = song_point && !audio_keys;
         let lane_points = lane_points && !audio_keys;
@@ -167,8 +160,6 @@ impl App {
             Command::Cut => self.edit(Edit::Cut),
             Command::Copy => self.edit(Edit::Copy),
             Command::Paste => self.edit(Edit::Paste),
-            // With the clip editor holding the keyboard and notes picked,
-            // the keys that act on a selection act on them.
             Command::Delete if song_point => self.song_delete(),
             Command::Delete if lane_points => self.lane_delete(),
             Command::Delete if auto_point && !notes => self.auto_delete(),
@@ -196,8 +187,6 @@ impl App {
                 direction: 1,
                 fine: false,
             }),
-            // A picked automation point: the arrows move it, Shift for
-            // fine value steps.
             Command::FoldTracks if auto_point => self.auto_nudge(-1, 0, false),
             Command::UnfoldTracks if auto_point => self.auto_nudge(1, 0, false),
             Command::SelectTrackAbove if auto_point => self.auto_nudge(0, 1, false),
@@ -340,8 +329,6 @@ impl App {
                     self.note_op(NoteOp::Split(at));
                 }
             }
-            // The audio editor's cursor, when it has one and no range is picked
-            // (M9.5 CU A).
             Command::SplitNotes if let Some((at, id)) = audio_split => {
                 self.arrangement.clips = std::collections::BTreeSet::from([id]);
                 self.split_at(at);
@@ -483,8 +470,6 @@ impl App {
             Command::UnfoldAllGroups => self.arrangement.collapse_all(doc.project(), false),
             Command::MoveTracksUp => self.arrangement.move_selected(doc, -1),
             Command::MoveTracksDown => self.arrangement.move_selected(doc, 1),
-            // The arrows follow the selection (the owner's choice for H2):
-            // clips when a clip is selected, tracks otherwise.
             Command::SelectTrackAbove if clip => self.step_clips(ClipStep::Above, false),
             Command::SelectTrackBelow if clip => self.step_clips(ClipStep::Below, false),
             Command::ExtendSelectionUp if clip => self.step_clips(ClipStep::Above, true),
@@ -499,8 +484,6 @@ impl App {
             Command::ExtendSelectionDown => self.arrangement.step_selection(doc, 1, true),
             Command::FoldTracks => self.arrangement.fold_selected(doc.project(), true),
             Command::UnfoldTracks => self.arrangement.fold_selected(doc.project(), false),
-            // With the clip editor's keys live, the zoom keys zoom its roll
-            // (its view is its own, ADR-0048); otherwise the arrangement.
             Command::ZoomIn if note_keys => self.note_editor.zooms.push(EditorZoom::In),
             Command::ZoomOut if note_keys => self.note_editor.zooms.push(EditorZoom::Out),
             Command::ZoomIn if audio_keys => self.audio_editor.zooms.push(EditorZoom::In),
@@ -589,8 +572,6 @@ impl App {
             Command::TripletGrid => self.grid.toggle_triplet(),
             Command::SnapToGrid => self.grid.snap = !self.grid.snap,
             Command::FixedGrid => {
-                // Fix the grid the pointer's view shows: the roll's own
-                // zoom while the editor holds the keys.
                 let step = if note_keys {
                     let t = self.note_editor.time;
                     self.grid_step_at(t.left, t.zoom)

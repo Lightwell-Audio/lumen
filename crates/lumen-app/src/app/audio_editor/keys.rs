@@ -1,9 +1,3 @@
-//! The audio editor's handles from the keyboard (M9.5 D17, D18): each is a
-//! Tab stop with a name that says its value. Left and Right move it by the
-//! grid, Up and Down set a gain or bend a fade, Alt goes finely, Enter types
-//! the value, and Delete takes a fade away or puts the gain back. Every press
-//! is one undo step.
-
 use eframe::egui::{self, Event, EventFilter, Key, Modifiers, Popup, Response, Sense, Ui};
 use lumen_core::curve::{self, Curve};
 use lumen_core::fade::Fade;
@@ -21,32 +15,23 @@ use crate::audio_editor::{AudioEditor, Popover};
 use crate::widgets::{self, raised};
 use crate::{position, theme};
 
-/// How far a press bends a fade: the dot's level, finely with Alt.
 const BEND_STEP: f32 = 0.05;
 const BEND_FINE: f32 = 0.01;
-/// How far a press moves the gain line, in dB, finely with Alt.
 const GAIN_STEP: f32 = 1.0;
 const GAIN_FINE: f32 = 0.1;
-/// The typed value's field.
 const FIELD_WIDTH: f32 = 140.0;
-/// The widest a popover's message gets before it wraps.
 const POPOVER_WIDTH: f32 = 240.0;
 
-/// The stable id of a handle's Tab stop, seen every frame even scrolled away.
 pub(crate) fn stop_id(part: Part) -> egui::Id {
     egui::Id::new(("audio editor handle", part.key()))
 }
 
-/// The handle with the keyboard.
 pub(crate) fn focused_stop(ctx: &egui::Context) -> Option<Part> {
     STOPS
         .into_iter()
         .find(|part| ctx.memory(|m| m.has_focus(stop_id(*part))))
 }
 
-/// Takes the keys a focused handle answers from `events`: the arrows, with
-/// nothing or Alt held, Enter, and Delete. An arrow it has no use for does
-/// not reach anything else (Alt and Up would move the track).
 fn take_keys(events: &mut Vec<Event>) -> Vec<(Key, bool)> {
     let mut taken = Vec::new();
     events.retain(|event| {
@@ -75,7 +60,6 @@ fn take_keys(events: &mut Vec<Event>) -> Vec<(Key, bool)> {
 }
 
 impl App {
-    /// The keys of a focused handle, before the commands see them.
     pub(crate) fn audio_handle_keys(&mut self, ctx: &egui::Context) {
         if ctx.text_edit_focused()
             || self.typing
@@ -145,7 +129,6 @@ impl App {
         self.audio_editor.reveal = Some(part);
     }
 
-    /// The grid line next to `t` in `direction`, or a fine step from it.
     pub(super) fn key_step(&self, zoom: f64, t: Ticks, direction: i64, fine: bool) -> Ticks {
         if fine {
             return t + Ticks(FINE.0 * direction);
@@ -175,24 +158,15 @@ impl App {
         self.document.trim_clip(&base, id, edge, to, false, None);
     }
 
-    /// Where the handle of the fade at `edge` is now: where a drag would put
-    /// it to leave it as it is.
     fn fade_handle_at(&self, clip: &Clip, edge: Edge) -> Ticks {
         let (fade, incoming) = self.fade_of(clip, edge);
         match edge {
-            // The clip a crossfade runs into starts where it ends.
             Edge::Start if incoming => clip.start,
             Edge::Start => clip.start + fade.length,
             Edge::End => clip.start + clip.length - fade.length,
         }
     }
 
-    /// The fade at `edge` of `shown` (as `App::shown_clip` gives it) and
-    /// whether a crossfade runs into the clip there. The preview marks the
-    /// fade-out side: its fade-out is the crossfade out of it, and the
-    /// `crossfade` flag says that one is there; an incoming clip's fade-in is
-    /// cleared. So the fade-in side is read from the clip as saved, where
-    /// `crossfade` means one runs in and the fade-in is its length and curve.
     fn fade_of(&self, shown: &Clip, edge: Edge) -> (Fade, bool) {
         match edge {
             Edge::Start => self.clip(shown.id).map_or_else(
@@ -238,8 +212,6 @@ impl App {
         self.document.set_clip_gain(&[id], db, None);
     }
 
-    /// Slides the opened clip's audio by one grid step of the editor (the
-    /// keyboard's slip, M9.5 D17).
     pub(crate) fn slip_opened_clip(&mut self, direction: i64) {
         let Some(id) = self.detail_audio_clip() else {
             return;
@@ -257,8 +229,6 @@ impl App {
         self.select_opened_clip(id);
     }
 
-    /// A place in words, for a handle's name: "bar 3 beat 1", with the
-    /// sixteenth when it is not on a beat.
     pub(super) fn place_words(&self, t: Ticks) -> String {
         let bbt = self.transport.timeline.meter.bbt_at(t);
         let sixteenth = bbt.ticks.0 / (PPQ / 4);
@@ -270,8 +240,6 @@ impl App {
         }
     }
 
-    /// "Trim start at bar 3 beat 1", "Fade in 125 ms, bent 30%", "Clip gain
-    /// −3.0 dB": a handle's accessible name, with its value (M9.5 D18).
     pub(super) fn stop_name(&self, clip: &Clip, part: Part) -> String {
         let place = |t: Ticks| self.place_words(t);
         match part {
@@ -314,9 +282,6 @@ impl App {
         }
     }
 
-    /// The handles' Tab stops: each has its id and name every frame, focus
-    /// or not, wherever the handle is. Returns the one with the keyboard and
-    /// its response.
     pub(super) fn audio_stops(
         &mut self,
         ui: &mut Ui,
@@ -327,14 +292,11 @@ impl App {
     ) -> Option<(Part, Response)> {
         let clip = self.shown_clip(id)?;
         let mut focused = None;
-        // The gain line has no stop while the Gain envelope hides it.
         let gain = Part::Handle(crate::arrangement::handles::Handle::Gain);
         for part in STOPS
             .into_iter()
             .filter(|p| !(handles.gain_hidden && *p == gain))
         {
-            // The warp markers come between the gain line and the fade out,
-            // in the editor's time order (D17).
             if part == Part::Handle(crate::arrangement::handles::Handle::Fade(Edge::End))
                 && let Some(strip) = strip
             {
@@ -347,7 +309,6 @@ impl App {
                 egui::WidgetInfo::labeled(egui::WidgetType::Slider, true, name.clone())
             });
             if response.has_focus() {
-                // The arrows are its own, not egui's for moving the focus.
                 ui.memory_mut(|m| {
                     m.set_focus_lock_filter(
                         response.id,
@@ -370,7 +331,6 @@ impl App {
         focused
     }
 
-    /// Enter on a handle: its value in a field, under it.
     fn open_audio_popover(&mut self, ctx: &egui::Context, id: Id, part: Part) {
         let Some(clip) = self.shown_clip(id) else {
             return;
@@ -386,7 +346,6 @@ impl App {
         widgets::Menu::open_for(ctx, stop_id(part));
     }
 
-    /// The value as the field starts with it.
     fn popover_text(&self, clip: &Clip, part: Part) -> String {
         match part {
             Part::Trim(edge) => {
@@ -404,7 +363,6 @@ impl App {
                 let (fade, incoming) = self.fade_of(clip, edge);
                 let length = fade.length;
                 let from = match edge {
-                    // A crossfade into the clip ends at its start.
                     Edge::Start if incoming => clip.start - length,
                     Edge::Start => clip.start,
                     Edge::End => clip.start + clip.length - length,
@@ -416,8 +374,6 @@ impl App {
         }
     }
 
-    /// Draws the popover of `part` while it is open, and when it closes gives
-    /// the keyboard back to the handle.
     fn audio_popover(
         &mut self,
         ui: &Ui,
@@ -440,11 +396,8 @@ impl App {
             widgets::Menu::close_for(&ctx, response.id);
         }
         if done || !widgets::Menu::is_open_for(&ctx, response.id) {
-            // A click elsewhere is leaving the field; Esc is not.
             let esc = ctx.input(|i| i.key_pressed(Key::Escape));
             if !done && !esc {
-                // A value that can't be read has nowhere left to be said but
-                // the notice.
                 if let Err(why) = self.apply_typed(id, &popover) {
                     self.say(why);
                 }
@@ -455,8 +408,6 @@ impl App {
         ed.popover = Some(popover);
     }
 
-    /// The field, what is wrong with it, and on a fade its shapes. True when
-    /// the value is in and the popover should close.
     fn popover_contents(&mut self, ui: &mut Ui, id: Id, popover: &mut Popover) -> bool {
         let part = popover.part;
         let name = match part {
@@ -531,8 +482,6 @@ impl App {
         done
     }
 
-    /// Takes the popover's text as the handle's new value. Nothing happens,
-    /// and no undo step is made, when it was not changed.
     fn apply_typed(&mut self, id: Id, popover: &Popover) -> Result<(), String> {
         if popover.text.trim() == popover.initial.trim() {
             return Ok(());
@@ -557,7 +506,6 @@ impl App {
         Ok(())
     }
 
-    /// The fade at `edge` set to last `seconds`, wherever the tempo puts that.
     fn fade_typed(&mut self, id: Id, edge: Edge, seconds: f64) {
         let Some(clip) = self.shown_clip(id) else {
             return;
@@ -565,7 +513,6 @@ impl App {
         let tempo = edit::tempo_of(self.document.project());
         let from = self.fade_begins(id, edge);
         let at = match (edge, from) {
-            // A crossfade into this clip ends that long after it begins.
             (Edge::Start, Some(begin)) => tempo.ticks_at_seconds(tempo.seconds_at(begin) + seconds),
             (Edge::Start, None) => tempo.ticks_at_seconds(tempo.seconds_at(clip.start) + seconds),
             (Edge::End, _) => {

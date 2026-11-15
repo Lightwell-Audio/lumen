@@ -1,20 +1,11 @@
-//! The list the browser shows: every device a track can hold, from the
-//! cache and from Lumen itself, and the questions asked of it.
-//!
-//! A device's id is what a project will store to find it again:
-//! `builtin:<name>` for Lumen's own, `vst3:<class id>` for a plugin, the
-//! class id being 32 hexadecimal digits of the factory's 16 bytes.
-
 use std::collections::HashSet;
 use std::path::PathBuf;
 
 use crate::blocklist::display_name;
 use crate::cache::{Cache, Reason, Result};
 
-/// The factory category of a class that processes audio.
 const AUDIO_CLASS: &str = "Audio Module Class";
 
-/// The class id as 32 uppercase hexadecimal digits.
 pub fn class_id(id: &[u8; 16]) -> String {
     id.iter().map(|b| format!("{b:02X}")).collect()
 }
@@ -40,7 +31,6 @@ pub enum Source {
     Vst3,
 }
 
-/// One thing that can go on a track.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Device {
     pub id: String,
@@ -48,14 +38,11 @@ pub struct Device {
     pub vendor: String,
     pub kind: Kind,
     pub source: Source,
-    /// What it is for (`Synth`, `Reverb`...), without `Fx` or `Instrument`.
     pub categories: Vec<String>,
     pub version: String,
-    /// The module a plugin lives in; none for a built-in device.
     pub module: Option<PathBuf>,
 }
 
-/// A module Lumen will not load, and why.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Blocked {
     pub name: String,
@@ -64,7 +51,6 @@ pub struct Blocked {
     pub at: u64,
 }
 
-/// Lumen's own devices. The synth is the only one until M8.
 pub fn builtin_devices() -> Vec<Device> {
     vec![Device {
         id: "builtin:synth".into(),
@@ -78,7 +64,6 @@ pub fn builtin_devices() -> Vec<Device> {
     }]
 }
 
-/// Kind and categories from a factory's `Instrument|Synth` style text.
 fn classify(subcategories: &str) -> (Kind, Vec<String>) {
     let parts: Vec<&str> = subcategories
         .split('|')
@@ -100,13 +85,10 @@ fn classify(subcategories: &str) -> (Kind, Vec<String>) {
     (kind, categories)
 }
 
-/// What to ask the catalog.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Query<'a> {
-    /// Words to find; every word must match somewhere. Empty matches all.
     pub text: &'a str,
     pub kind: Option<Kind>,
-    /// Only these ids (favorites), when set.
     pub only: Option<&'a HashSet<String>>,
 }
 
@@ -117,7 +99,6 @@ pub struct Catalog {
 }
 
 impl Catalog {
-    /// The devices in `cache` and in `builtins`, and the blocked modules.
     pub fn build(cache: &Cache, builtins: Vec<Device>) -> Self {
         let mut devices = builtins;
         let mut seen: HashSet<String> = devices.iter().map(|d| d.id.clone()).collect();
@@ -129,7 +110,6 @@ impl Catalog {
                 } => {
                     for class in classes.iter().filter(|c| c.category == AUDIO_CLASS) {
                         let id = format!("vst3:{}", class.id);
-                        // The same plugin installed twice is one device.
                         if !seen.insert(id.clone()) {
                             continue;
                         }
@@ -175,7 +155,6 @@ impl Catalog {
         self.devices.iter().find(|d| d.id == id)
     }
 
-    /// The devices that match, best first and then by name.
     pub fn search(&self, query: &Query<'_>) -> Vec<&Device> {
         let words: Vec<String> = query
             .text
@@ -189,12 +168,10 @@ impl Catalog {
             .filter(|d| query.only.is_none_or(|only| only.contains(&d.id)))
             .filter_map(|d| rank(d, &words).map(|score| (score, d)))
             .collect();
-        // The device list is already by name, and the sort is stable.
         hits.sort_by_key(|(score, _)| *score);
         hits.into_iter().map(|(_, d)| d).collect()
     }
 
-    /// The vendors present, by name, with how many devices each has.
     pub fn vendors(&self) -> Vec<(String, usize)> {
         let mut counts: Vec<(String, usize)> = Vec::new();
         for device in &self.devices {
@@ -211,7 +188,6 @@ impl Catalog {
     }
 }
 
-/// How well a device matches every word (lower is better), or `None`.
 fn rank(device: &Device, words: &[String]) -> Option<u32> {
     let name = device.name.to_lowercase();
     let vendor = device.vendor.to_lowercase();
@@ -368,7 +344,6 @@ mod tests {
             .unwrap();
         assert_eq!(comp.kind, Kind::Effect);
         assert_eq!(comp.categories, ["Dynamics"]);
-        // The class had no vendor of its own: the factory's stands in.
         assert_eq!(comp.vendor, "Vendor B");
     }
 

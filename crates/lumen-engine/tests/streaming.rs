@@ -1,7 +1,3 @@
-//! Clips played from disk (M9 slice R6): with its pages in memory a streamed
-//! clip plays exactly what the same clip in memory plays; with a page
-//! missing it fades out before it and counts one underrun.
-
 use std::sync::Arc;
 
 use lumen_core::fade::FadeShape;
@@ -14,7 +10,6 @@ use lumen_engine::{
 
 const RATE: u32 = 48_000;
 
-/// Every sample distinct: left `(i + 1) / 1e7`, right negated.
 fn ramp(frames: usize) -> (Vec<f32>, Vec<f32>) {
     let left: Vec<f32> = (0..frames).map(|i| (i + 1) as f32 / 1e7).collect();
     let right = left.iter().map(|v| -v).collect();
@@ -29,7 +24,6 @@ fn in_memory(frames: usize) -> Arc<ClipAudio> {
     })
 }
 
-/// The same audio as a stream in its own pool, with `pages` of it loaded.
 fn streamed(
     frames: usize,
     pages: std::ops::Range<usize>,
@@ -91,7 +85,7 @@ fn clip(audio: &Arc<ClipAudio>, shape: ClipShape) -> Clip {
         envelope: Default::default(),
         id: 1,
         track: 0,
-        start: Ticks::quarters(1), // sample 24,000 at 120 BPM
+        start: Ticks::quarters(1),
         offset: 1_000,
         length: 40_000,
         gain: 0.8,
@@ -113,7 +107,6 @@ fn a_streamed_clip_in_memory_plays_exactly_what_the_clip_in_memory_plays() {
     };
     let shapes = [
         ClipShape::default(),
-        // Fades, and a loop of 9,000 frames that wraps across pages.
         ClipShape {
             fade_in: fade(2_000),
             fade_out: fade(5_000),
@@ -143,7 +136,6 @@ fn a_streamed_clip_in_memory_plays_exactly_what_the_clip_in_memory_plays() {
 fn a_missing_page_fades_the_clip_out_before_it_and_counts_one_underrun() {
     let frames = 40 * PAGE;
     let memory = in_memory(frames);
-    // Pages 0 to 4 are in memory; 5 on are not.
     let (stream, table, mut writer) = streamed(frames, 0..5);
     let plain = |audio: &Arc<ClipAudio>| Clip {
         start: Ticks::ZERO,
@@ -159,10 +151,8 @@ fn a_missing_page_fades_the_clip_out_before_it_and_counts_one_underrun() {
     handle.send(Command::Play).unwrap();
     let got = run(&mut engine, 10 * PAGE, 128);
     let missing = 5 * PAGE;
-    // Plays exactly until the look-ahead (40 ms) and a block reach the gap.
     let exact = missing - RATE as usize / 25 - 128;
     assert!(got[..exact] == want[..exact]);
-    // Glides out in the 40 ms before it: below what it was, then silent.
     let before = missing - 1;
     assert!(got[before].0.abs() < want[before].0.abs() / 10.0);
     assert!(got[missing..].iter().all(|&s| s == (0.0, 0.0)));
@@ -172,8 +162,6 @@ fn a_missing_page_fades_the_clip_out_before_it_and_counts_one_underrun() {
         "one underrun, not one per block"
     );
 
-    // The pages arrive: the clip glides back in, and plays exactly once it
-    // settles.
     for page in 5..40 {
         load(&mut writer, &table, page);
     }
@@ -185,7 +173,6 @@ fn a_missing_page_fades_the_clip_out_before_it_and_counts_one_underrun() {
     assert!(later[offset..] == reference_later[offset..]);
     assert_eq!(table.pool().underruns(), 1);
 
-    // A second gap is a second underrun.
     writer.tick();
     writer.drop_stream(&table);
     writer.reclaim();
@@ -220,7 +207,6 @@ fn a_looped_transport_counts_no_underrun_while_its_pages_are_there() {
         length: frames as i64,
         ..clip(&stream, ClipShape::default())
     }]);
-    // A one-beat loop (24,000 frames), played round many times.
     handle
         .send(Command::SetLoop(Region::new(
             Ticks::ZERO,
@@ -242,7 +228,6 @@ fn an_offline_render_loads_what_it_reads_and_equals_the_render_from_memory() {
 
     let frames = 30 * PAGE;
     let memory = in_memory(frames);
-    // Eight pages for a file of thirty: the render evicts as it goes.
     let pool = PagePool::new(8);
     let loads = Arc::new(AtomicUsize::new(0));
     let counted = Arc::clone(&loads);
@@ -258,7 +243,6 @@ fn an_offline_render_loads_what_it_reads_and_equals_the_render_from_memory() {
             Some(n)
         }),
     );
-    // The live stream it stands for: only its shape and id are taken.
     let live = StreamAudio::new(&PagePool::new(1), 1, RATE, 2, frames as u64);
     let stream = loader.stream(&live);
     assert!(stream.is_offline() && !live.is_offline());

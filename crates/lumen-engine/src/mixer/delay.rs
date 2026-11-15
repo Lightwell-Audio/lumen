@@ -1,84 +1,37 @@
-//! Delay lines for delay compensation (M4 slice 6, ADR-0041).
-//!
-//! Every path that arrives early at a meeting point (a group, a return, a
-//! sidechain input, the device outputs) goes through a line as long as the
-//! difference, so all paths line up sample for sample. Latent devices are
-//! lines too, until real devices arrive (the synthetic test device).
-//!
-//! The lines of a plan share one buffer, allocated when the plan is
-//! compiled. A new plan takes over the contents of the lines it shares with
-//! the old one (by [`LineKey`]), so a reroute while playing keeps what is
-//! in flight.
-
 use super::plan::{CHUNK, Tap};
 
-/// What a line delays, so a new plan can take over the old one's contents.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(super) enum LineKey {
-    /// What the tracks play into node `node`, which waits for a later
-    /// input (a latent sidechain).
-    Input {
-        node: u64,
-    },
-    /// Device `index` of node `node`.
-    Device {
-        node: u64,
-        index: u32,
-    },
-    /// Node `from`'s output, to a node or the device outputs.
-    Output {
-        from: u64,
-    },
-    Send {
-        from: u64,
-        to: u64,
-        pre_fader: bool,
-    },
-    Sidechain {
-        from: u64,
-        to: u64,
-        tap: Tap,
-    },
-    /// Node `from` on the cue bus.
-    Cue {
-        from: u64,
-    },
+    Input { node: u64 },
+    Device { node: u64, index: u32 },
+    Output { from: u64 },
+    Send { from: u64, to: u64, pre_fader: bool },
+    Sidechain { from: u64, to: u64, tap: Tap },
+    Cue { from: u64 },
 }
 
-/// A line's place in the shared buffer.
 #[derive(Debug, Clone, Copy)]
 struct Line {
     key: LineKey,
-    /// Its left ring starts here, its right ring `frames` later.
     start: usize,
     frames: usize,
-    /// Where the next frame is written (and the oldest read).
     write: usize,
 }
 
-/// A line's index; [`NO_LINE`] when a path needs no delay.
 pub(super) type LineId = u32;
 pub(super) const NO_LINE: LineId = u32::MAX;
 
-/// The longest delay a device may report: about 5.5 s at 48 kHz. Longer
-/// reports are taken as this.
 pub const MAX_DEVICE_LATENCY: u32 = 1 << 18;
 
-/// A plan's delay lines.
 #[derive(Debug, Default)]
 pub(super) struct Lines {
     lines: Vec<Line>,
-    /// `(key, line)` sorted by key, to match lines across plans.
     by_key: Vec<(LineKey, LineId)>,
     data: Vec<f32>,
-    /// Nothing is delayed: a scrub follows the hand, not the song, and is
-    /// heard when it plays (M6 slice 6a). The rings are left as they are;
-    /// playback clears them when it starts.
     bypass: bool,
 }
 
 impl Lines {
-    /// Adds a line `frames` long (none when 0). Allocates; compile only.
     pub fn add(&mut self, key: LineKey, frames: u32) -> LineId {
         if frames == 0 {
             return NO_LINE;
@@ -95,7 +48,6 @@ impl Lines {
         id
     }
 
-    /// Call once every line is added.
     pub fn finish(&mut self) {
         self.by_key = self
             .lines
@@ -106,23 +58,16 @@ impl Lines {
         self.by_key.sort_unstable_by_key(|&(key, _)| key);
     }
 
-    /// Every line's key and length, in key order: part of a plan's shape.
     pub fn shape(&self) -> impl Iterator<Item = (LineKey, usize)> + '_ {
         self.by_key
             .iter()
             .map(|&(key, id)| (key, self.lines[id as usize].frames))
     }
 
-    /// Silences every line (playback starts). Real-time safe.
     pub fn clear(&mut self) {
         self.data.fill(0.0);
     }
 
-    /// Takes over `old`'s lines whole when both plans hold the same lines
-    /// in the same places (a plan that changes only levels): the buffers
-    /// swap and nothing is copied. Otherwise as [`Lines::carry`]. `old` is
-    /// left with this plan's silent buffer, so only for a plan that will
-    /// not play again. Real-time safe: a comparison per line and a swap.
     pub fn take_over(&mut self, old: &mut Lines) {
         let same = self.data.len() == old.data.len()
             && self.lines.len() == old.lines.len()
@@ -140,10 +85,6 @@ impl Lines {
         }
     }
 
-    /// Takes over the contents of `old`'s lines with the same keys: the
-    /// newest frames, as many as both hold (a longer line starts with
-    /// silence before them). Real-time safe: one merge over two sorted
-    /// lists and a copy per line.
     pub fn carry(&mut self, old: &Lines) {
         let (mut i, mut j) = (0, 0);
         while let (Some(&(a, here)), Some(&(b, there))) = (self.by_key.get(i), old.by_key.get(j)) {
@@ -157,14 +98,9 @@ impl Lines {
                     for side in 0..2 {
                         let ring = &mut self.data[line.start + side * line.frames..][..line.frames];
                         let source = &old.data[from.start + side * from.frames..][..from.frames];
-                        // Reads start at 0: silence first, then the newest
-                        // `keep` frames, oldest first, so the newest is
-                        // read last.
                         let (silence, kept) = ring.split_at_mut(line.frames - keep);
                         silence.fill(0.0);
                         if keep > 0 {
-                            // The newest `keep` frames lie in the ring from
-                            // `begin`, wrapping at most once: two copies.
                             let begin = (from.write + from.frames - keep) % from.frames;
                             let first = keep.min(from.frames - begin);
                             kept[..first].copy_from_slice(&source[begin..begin + first]);
@@ -179,12 +115,10 @@ impl Lines {
         }
     }
 
-    /// Passes audio straight through (a scrub) or delays it again.
     pub fn set_bypass(&mut self, bypass: bool) {
         self.bypass = bypass;
     }
 
-    /// Delays `left` and `right` in place through `line`. Real-time safe.
     pub fn run(&mut self, line: LineId, left: &mut [f32], right: &mut [f32]) {
         if self.bypass {
             return;
@@ -199,8 +133,6 @@ impl Lines {
         l.write = next;
     }
 
-    /// `left` and `right` through `line`, into `scratch` (both sides,
-    /// `CHUNK` frames each); without a line, `left` and `right` themselves.
     pub fn through<'a>(
         &mut self,
         line: LineId,
@@ -221,8 +153,6 @@ impl Lines {
     }
 }
 
-/// Delays `samples` in place through `ring`, from `write`; returns the
-/// next write position.
 #[inline]
 fn delay(ring: &mut [f32], mut write: usize, samples: &mut [f32]) -> usize {
     for sample in samples {
@@ -275,8 +205,6 @@ mod tests {
         assert_eq!(left, ramp(0, 4));
     }
 
-    /// Plays `frames` of the ramp from `from` through a line of `length`
-    /// that took over from `old`.
     fn continue_from(old: &Lines, length: u32, from: usize, frames: usize) -> Vec<f32> {
         let mut lines = Lines::default();
         let line = lines.add(KEY, length);
@@ -305,7 +233,6 @@ mod tests {
         new.run(line, &mut left, &mut right);
         assert_eq!(left, ramp(6, 6), "the stream carries on");
 
-        // Another length: copied as `carry` does.
         let mut longer = Lines::default();
         let line = longer.add(KEY, 6);
         longer.finish();
@@ -320,14 +247,10 @@ mod tests {
         let mut old = Lines::default();
         let line = old.add(KEY, 7);
         old.finish();
-        // Ten frames through a ring of seven: the write position has wrapped.
         let (mut left, mut right) = (ramp(0, 10), ramp(0, 10));
         old.run(line, &mut left, &mut right);
-        // Shorter: the newest five frames in flight are 6 to 10.
         assert_eq!(continue_from(&old, 5, 10, 5), ramp(5, 5));
-        // As long: all seven, 4 to 10.
         assert_eq!(continue_from(&old, 7, 10, 7), ramp(3, 7));
-        // Longer: silence first, then the seven.
         let longer = continue_from(&old, 10, 10, 10);
         assert_eq!(&longer[..3], [0.0; 3]);
         assert_eq!(&longer[3..], ramp(3, 7));
@@ -341,13 +264,10 @@ mod tests {
         let (mut left, mut right) = (ramp(0, 10), ramp(0, 10));
         old.run(line, &mut left, &mut right);
 
-        // The same length: the stream carries on as if nothing changed.
         let same = continue_from(&old, 4, 10, 6);
         assert_eq!(same, ramp(6, 6));
-        // Shorter: the newest frames, so the stream jumps ahead by 2.
         let shorter = continue_from(&old, 2, 10, 4);
         assert_eq!(shorter, ramp(8, 4));
-        // Longer: silence, then what the old line held.
         let longer = continue_from(&old, 6, 10, 8);
         assert_eq!(longer, [0.0, 0.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0]);
     }

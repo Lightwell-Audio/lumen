@@ -1,8 +1,3 @@
-//! The file tabs as the app runs them (audit M12): starting the workers and
-//! the preview, reading what the open tab needs, taking their answers, and
-//! the places and folders the person keeps. What a tab shows, and how it is
-//! drawn, are `crate::browser::files`.
-
 mod head;
 mod list;
 mod row;
@@ -20,13 +15,10 @@ use crate::browser::files::walk::{self, Entry, Kind, Wanted};
 use crate::browser::files::{At, Place, saved};
 
 impl App {
-    /// The sample folders: the chosen ones, or the system's Music folder.
     pub(crate) fn sample_folders(&self) -> Vec<PathBuf> {
         browser_files::sample_folders(&self.settings.browser.sample_folders)
     }
 
-    /// Starts the workers and the preview the first time a file tab shows,
-    /// and reads what the open tab needs.
     pub(crate) fn files_ready(&mut self, ctx: &egui::Context) {
         let files = &mut self.browser.files;
         if files.disk.is_none() {
@@ -54,7 +46,6 @@ impl App {
         }
     }
 
-    /// Walks `roots` for `tab` unless their rows are read already.
     fn read_tree(&mut self, tab: Tab, roots: Vec<PathBuf>, wanted: Wanted, refresh: bool) {
         let files = &mut self.browser.files;
         let Some(disk) = files.disk.as_mut() else {
@@ -72,7 +63,6 @@ impl App {
         listing.start(disk, Job::Walk { roots, wanted }, of);
     }
 
-    /// Reads the folder Places is in, or its search.
     fn read_places(&mut self, refresh: bool) {
         let words = self.browser.files.words(Tab::Places).trim().to_owned();
         if !words.is_empty() {
@@ -132,7 +122,6 @@ impl App {
         }
     }
 
-    /// Takes the workers' answers and follows the preview. Every frame.
     pub(crate) fn poll_browser_files(&mut self, ctx: &egui::Context) {
         let on_file_tab = self.show_browser
             && matches!(self.browser.tab, Tab::Samples | Tab::Projects | Tab::Places);
@@ -167,7 +156,6 @@ impl App {
                     _ => {}
                 }
             }
-            // A row back in view asks again for a picture that gave way.
             for path in disk.dropped_pictures() {
                 files.asked.remove(&path);
             }
@@ -184,8 +172,6 @@ impl App {
                 files.asked.clear();
             }
         }
-        // The preview: heard on the cue pair when there is one (O A), and
-        // ended by leaving the file tabs or by the device stopping.
         let running = matches!(
             self.transport.audio.status,
             crate::audio::Status::Running { .. }
@@ -203,8 +189,6 @@ impl App {
         }
     }
 
-    /// Plays `path` from `from` seconds (an audio file; MIDI files are not
-    /// previewed, the owner's M A).
     pub(crate) fn preview_file(&mut self, path: &Path, from: f64) {
         if Kind::of_file(path) != Some(Kind::Audio) {
             return;
@@ -214,14 +198,12 @@ impl App {
         }
     }
 
-    /// Stops the preview.
     pub(crate) fn stop_preview(&mut self) {
         if let Some(preview) = &mut self.browser.files.preview {
             preview.stop();
         }
     }
 
-    /// Whether a preview is playing.
     pub(crate) fn previewing(&self) -> bool {
         self.browser
             .files
@@ -230,21 +212,15 @@ impl App {
             .is_some_and(|p| p.playing.is_some())
     }
 
-    /// The selected row of the open file tab.
     pub(crate) fn selected_file(&self) -> Option<PathBuf> {
         self.browser.files.selected.get(&self.browser.tab).cloned()
     }
 
-    /// Adds `paths` where Import would: the selected track at the playhead,
-    /// or new tracks (the rule devices follow, D3 of M6 slice 2), as one
-    /// undo step each.
     pub(crate) fn add_browser_files(&mut self, paths: Vec<PathBuf>, ctx: &egui::Context) {
         let (at, places) = self.import_places();
         self.add_files(paths, at, places, ctx);
     }
 
-    /// Enter or a double-click on a row: a folder opens, a project opens
-    /// (asking about unsaved changes), a sound is added.
     pub(crate) fn open_row(&mut self, entry: &Entry, ctx: &egui::Context) {
         match entry.kind {
             Kind::Folder => self.enter_folder(entry.path.clone()),
@@ -256,7 +232,6 @@ impl App {
         }
     }
 
-    /// Opens `dir` in Places.
     pub(crate) fn enter_folder(&mut self, dir: PathBuf) {
         self.browser.tab = Tab::Places;
         let files = &mut self.browser.files;
@@ -267,7 +242,6 @@ impl App {
         self.remember_place_folder();
     }
 
-    /// Goes up a folder in Places, to the top after a place's own folder.
     pub(crate) fn folder_up(&mut self) {
         let files = &mut self.browser.files;
         let from = match &files.at {
@@ -299,7 +273,6 @@ impl App {
         self.remember_place_folder();
     }
 
-    /// Keeps Places' folder in the settings.
     fn remember_place_folder(&mut self) {
         let folder = match &self.browser.files.at {
             At::Top => None,
@@ -312,7 +285,6 @@ impl App {
         }
     }
 
-    /// Restores Places' folder from the settings (at start).
     pub(crate) fn restore_place_folder(&mut self) {
         self.browser.files.at = match self.settings.browser.place_folder.as_deref() {
             None => At::Top,
@@ -321,7 +293,6 @@ impl App {
         };
     }
 
-    /// Adds `dir` as a place (a picker, a dropped folder, a row's menu).
     pub(crate) fn add_place(&mut self, dir: &Path) {
         let path = dir.to_string_lossy().into_owned();
         let places = &mut self.settings.browser.places;
@@ -336,7 +307,6 @@ impl App {
         self.settings_changed = Some(std::time::Instant::now());
     }
 
-    /// Removes the place at `path`.
     pub(crate) fn remove_place(&mut self, path: &Path) {
         self.settings
             .browser
@@ -345,7 +315,6 @@ impl App {
         self.settings_changed = Some(std::time::Instant::now());
     }
 
-    /// Adds a sample folder (Choose a folder…, Add a sample folder…).
     pub(crate) fn add_sample_folder(&mut self, dir: &Path) {
         let path = dir.to_string_lossy().into_owned();
         let saved = &mut self.settings.browser;
@@ -357,7 +326,6 @@ impl App {
         self.settings_changed = Some(std::time::Instant::now());
     }
 
-    /// Removes a sample folder.
     pub(crate) fn remove_sample_folder(&mut self, dir: &Path) {
         self.settings
             .browser
@@ -367,27 +335,23 @@ impl App {
         self.settings_changed = Some(std::time::Instant::now());
     }
 
-    /// Keep Music: the first visit's question is answered.
     pub(crate) fn keep_music(&mut self) {
         self.settings.browser.music_answered = true;
         self.settings_changed = Some(std::time::Instant::now());
     }
 
-    /// Asks for a folder to add to Samples.
     pub(crate) fn pick_sample_folder(&mut self, ctx: &egui::Context) {
         self.pick_folder(ctx, "Choose a sample folder", |path| {
             crate::app::projects::FileDialog::SampleFolder(path)
         });
     }
 
-    /// Asks for a folder to add as a place.
     pub(crate) fn pick_place(&mut self, ctx: &egui::Context) {
         self.pick_folder(ctx, "Add a place", |path| {
             crate::app::projects::FileDialog::Place(path)
         });
     }
 
-    /// Asks for the folder a missing place moved to.
     pub(crate) fn find_place(&mut self, ctx: &egui::Context, path: PathBuf) {
         self.browser.files.finding = Some(path);
         self.pick_folder(ctx, "Find the place", |path| {
@@ -419,7 +383,6 @@ impl App {
         self.file_dialog(ctx, show, move |paths| answer(paths.into_iter().next()));
     }
 
-    /// A place folder was chosen: added, or put in place of a missing one.
     pub(crate) fn place_chosen(&mut self, dir: PathBuf) {
         if let Some(missing) = self.browser.files.finding.take() {
             let path = dir.to_string_lossy().into_owned();

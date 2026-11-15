@@ -1,12 +1,6 @@
-//! The position readout: its texts laid out once a frame, and the piece, whose
-//! bars are a field to type a place.
-
 use super::*;
 
 impl Transport {
-    /// The position's texts, laid out, and the width of its piece: the
-    /// piece keeps that width while a place is typed (the interface
-    /// audit's T1).
     pub(super) fn position_text(
         &self,
         ui: &Ui,
@@ -61,10 +55,6 @@ impl Transport {
         }
     }
 
-    /// The position, a piece of the numeric well: bars and beats, then the
-    /// time, both Martian Mono. Clicking the bars types a place to go to, in
-    /// the same piece. While counting in, it counts up through the bars
-    /// before 1 in the secondary colour (M5 slice 6d).
     pub(super) fn position_piece(&mut self, ui: &mut Ui, piece: egui::Rect, text: PositionText) {
         let radius = widgets::well::piece_radius(piece.height());
         if let Some(typed) = &mut self.editing {
@@ -146,16 +136,13 @@ impl Transport {
     }
 }
 
-/// The position readout's texts, laid out once a frame (`position_text`).
 pub(super) struct PositionText {
     bbt: String,
     time: String,
     bars: std::sync::Arc<egui::Galley>,
     clock: std::sync::Arc<egui::Galley>,
     bars_colour: egui::Color32,
-    /// The room before the bars and after the time, and between them.
     pad: f32,
     gap: f32,
-    /// The piece's width.
     pub(super) width: f32,
 }

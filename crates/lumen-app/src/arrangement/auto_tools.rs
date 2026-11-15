@@ -1,8 +1,3 @@
-//! The lane's tools and the marks a gesture leaves on screen (M7 slice A2):
-//! the strip that picks the pointer, the pencil or a shape, the box being
-//! dragged, the dot that bends a segment, and the live value beside a point
-//! being moved or a stroke being drawn.
-
 use eframe::egui::{self, Painter, Pos2, Rect, Stroke, Ui, pos2, vec2};
 use lumen_core::automation::{Lane, Shape};
 use lumen_core::time::Ticks;
@@ -19,14 +14,10 @@ use crate::note_editor::glyphs;
 use crate::theme;
 use crate::widgets::{self, Choice};
 
-/// The Re-enable button's label.
 const REENABLE: &str = "Re-enable";
 
-/// A segment narrower than this on screen has no bend dot: it could not be
-/// grabbed apart from its points.
 const BEND_MIN_WIDTH: f32 = 3.0 * theme::size::AUTO_GRAB;
 
-/// The waves a shape tool draws, in the order the menu lists them.
 pub(crate) const WAVES: [Wave; 5] = [
     Wave::Ramp,
     Wave::Sine,
@@ -36,8 +27,6 @@ pub(crate) const WAVES: [Wave; 5] = [
 ];
 
 impl Arrangement {
-    /// The filled amber button beside the chip of a lane taken over: it lets
-    /// the lane play again (M7 slice A4a).
     pub(super) fn reenable_button(
         &mut self,
         ui: &mut Ui,
@@ -75,21 +64,16 @@ impl Arrangement {
 }
 
 impl Frame {
-    /// The height (0 to 1) of the lane at screen `y`.
     pub fn height_at(&self, y: f32) -> f32 {
         let area = self.area();
         ((area.bottom() - y) / area.height().max(1.0)).clamp(0.0, 1.0)
     }
 
-    /// The screen `y` of height `h` (0 to 1).
     pub fn y_at_height(&self, h: f32) -> f32 {
         let area = self.area();
         area.bottom() - h * area.height()
     }
 
-    /// Where the dot that bends the segment leaving point `index` is, if the
-    /// segment has one: it runs to a next point at another value, is not a
-    /// step, and is wide enough on screen to grab.
     pub fn bend_dot(&self, target: Target, lane: &Lane, index: usize) -> Option<Pos2> {
         let points = lane.points();
         let (from, to) = (points.get(index)?, points.get(index + 1)?);
@@ -112,8 +96,6 @@ impl Frame {
 }
 
 impl Arrangement {
-    /// The tool strip, to the right of the lane's chip, and the wave chooser
-    /// when a shape tool is in hand.
     pub(super) fn lane_tools(&mut self, ui: &mut Ui, frame: &Frame, chip: Rect, track: &str) {
         let area = Rect::from_min_size(
             pos2(chip.right() + theme::space::S, chip.top()),
@@ -184,8 +166,6 @@ impl Arrangement {
         }
     }
 
-    /// What a gesture draws over the lane: the box being dragged and the
-    /// dot that bends the one picked segment.
     pub(super) fn draw_marks(
         &self,
         painter: &Painter,
@@ -225,7 +205,6 @@ impl Arrangement {
                 matches!(&a.how, Gesture::Bend(b) if b.index == one.index) && a.track == track
             });
             let big = if hot { 1.0 } else { 0.0 };
-            // Solid, where the points are hollow: it is a handle, not a point.
             painter.circle_filled(
                 dot,
                 theme::size::AUTO_BEND + 3.0 + big,
@@ -235,8 +214,6 @@ impl Arrangement {
         }
     }
 
-    /// The value, and where in the song, beside the point being moved or the
-    /// stroke being drawn, over everything.
     pub(super) fn lane_tip(
         &mut self,
         ctx: &egui::Context,
@@ -270,7 +247,6 @@ impl Arrangement {
             self.auto.value_text(target, value),
             position(at)
         );
-        // Above the point, or below it when that would cover the tool strip.
         let y = frame.y(target, value);
         let lift = if y - 14.0 < frame.area().top() {
             16.0
@@ -322,7 +298,6 @@ mod tests {
         assert!((dot.x - f.x(Ticks::quarters(2))).abs() < 0.01);
         let mid = f.y(Target::Volume, -10.0);
         assert!((dot.y - mid).abs() < 0.01);
-        // The dot sits on the curve it bent.
         let bent = Curve::from_handle(lumen_core::curve::Handle {
             dot: [0.3, 0.7],
             s: 0.0,

@@ -1,31 +1,17 @@
-//! The interface every driver model implements. Backends run on the audio
-//! control thread (which, for ASIO, is the COM apartment the driver lives in).
-
 use crate::types::{AudioCallback, AudioError, DeviceInfo, StreamConfig, StreamInfo};
 
-/// Something the running stream reports to its supervisor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StreamEvent {
-    /// The driver asks to be reset (buffer size or rate changed in its panel,
-    /// or the device went away).
     ResetRequested,
-    /// No callbacks for longer than the watchdog allows.
     Stalled,
-    /// The driver missed `n` buffers (an overload): audio goes on, and they
-    /// count as dropouts.
     Dropped(u64),
 }
 
-/// A failed open hands the callback back so nothing is lost.
 pub struct OpenError {
     pub error: AudioError,
     pub callback: Box<dyn AudioCallback>,
 }
 
-/// A callback that does nothing: for a stream whose real callback went with a
-/// thread that died before it could hand it back. Audio is silent and the
-/// failure is reported, rather than the app panicking over a callback it
-/// cannot recover.
 pub(crate) fn silent() -> Box<dyn AudioCallback> {
     Box::new(|_: &mut crate::types::Block<'_>| {})
 }
@@ -39,23 +25,17 @@ impl std::fmt::Debug for OpenError {
 }
 
 pub trait Backend {
-    /// Devices of this driver model (may load drivers; not real-time).
     fn devices(&mut self) -> Vec<DeviceInfo>;
 
-    /// Opens and starts a stream. The callback runs on the driver's thread
-    /// until the stream is closed.
     fn open(
         &mut self,
         config: &StreamConfig,
         callback: Box<dyn AudioCallback>,
     ) -> Result<Box<dyn Stream>, OpenError>;
 
-    /// Called regularly on the control thread (message pumping for drivers
-    /// that need it).
     fn pump(&mut self) {}
 }
 
-/// Lets the driver model be chosen at run time.
 impl<B: Backend + ?Sized> Backend for Box<B> {
     fn devices(&mut self) -> Vec<DeviceInfo> {
         (**self).devices()
@@ -74,10 +54,6 @@ impl<B: Backend + ?Sized> Backend for Box<B> {
     }
 }
 
-/// A driver model that could not start (for example, Windows could not set
-/// up COM for ASIO). It lists no devices and refuses every open with the
-/// reason, so the app shows "audio could not start" with a way forward
-/// instead of the audio thread failing.
 #[derive(Debug, Clone)]
 pub struct Unavailable {
     reason: String,
@@ -111,16 +87,12 @@ impl Backend for Unavailable {
 pub trait Stream {
     fn info(&self) -> StreamInfo;
 
-    /// Non-blocking check for driver events.
     fn poll(&mut self) -> Option<StreamEvent>;
 
-    /// Opens the driver's own settings window (ASIO). Changes made there
-    /// arrive as a reset request.
     fn control_panel(&mut self) -> Result<(), String> {
         Err("this driver has no control panel".into())
     }
 
-    /// Stops the stream, releases the device and returns the callback.
     fn close(self: Box<Self>) -> Box<dyn AudioCallback>;
 }
 

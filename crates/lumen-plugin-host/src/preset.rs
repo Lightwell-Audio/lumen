@@ -1,26 +1,9 @@
-//! VST3 preset files (`.vstpreset`): reading, checking and writing.
-//!
-//! A file is a 48-byte header (the tag `VST3`, a version, the plugin class id
-//! as 32 hexadecimal characters, and the offset of the chunk list), the chunks'
-//! data, and the chunk list: the tag `List`, a count, and for each chunk its
-//! four-character id, its offset and its size. All numbers are little-endian.
-//! The chunks Lumen uses are `Comp` (the component's state), `Cont` (the edit
-//! controller's state) and `Info` (descriptive XML); others are skipped.
-//!
-//! A preset file comes from outside Lumen, so nothing in it is trusted: every
-//! offset, size and count is checked against the file and against the limits
-//! below before anything is read or allocated, and a damaged file is an error
-//! that says what is wrong, never a panic.
-
 use std::fmt;
 
 use crate::protocol::{ClassId, MAX_STATE};
 
-/// The longest file read: both states and the description, with room.
 pub const MAX_FILE: usize = 2 * MAX_STATE + MAX_INFO + 4096;
-/// The longest description chunk kept.
 pub const MAX_INFO: usize = 1 << 16;
-/// The most chunks a file may list.
 pub const MAX_CHUNKS: usize = 64;
 
 const TAG: &[u8; 4] = b"VST3";
@@ -33,39 +16,24 @@ const COMP: [u8; 4] = *b"Comp";
 const CONT: [u8; 4] = *b"Cont";
 const INFO: [u8; 4] = *b"Info";
 
-/// What Lumen takes from a preset file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Preset {
-    /// The plugin class the preset was made for.
     pub class_id: ClassId,
-    /// The component's state: what `IComponent::setState` reads.
     pub component: Vec<u8>,
-    /// The edit controller's own state, when the file holds it.
     pub controller: Option<Vec<u8>>,
-    /// The description (XML), when the file holds it.
     pub info: Option<Vec<u8>>,
 }
 
-/// Why a file is not a preset Lumen can use.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PresetError {
-    /// Shorter than a header, or longer than Lumen reads.
     Size,
-    /// Not a VST3 preset file.
     NotAPreset,
-    /// A format version Lumen does not know.
     Version(i32),
-    /// The class id is not 32 hexadecimal characters.
     ClassId,
-    /// The chunk list is missing, past the end of the file or too long.
     List,
-    /// A chunk lies outside the file or over the list.
     Chunk([u8; 4]),
-    /// The same chunk is listed twice.
     Duplicate([u8; 4]),
-    /// A state chunk or the description is larger than Lumen accepts.
     TooLarge([u8; 4]),
-    /// The file has no component state.
     NoState,
 }
 
@@ -109,7 +77,6 @@ fn i64_at(bytes: &[u8], at: usize) -> Option<i64> {
 }
 
 impl Preset {
-    /// Checks and reads a preset file.
     pub fn parse(bytes: &[u8]) -> Result<Self, PresetError> {
         if bytes.len() < HEADER + 8 || bytes.len() > MAX_FILE {
             return Err(PresetError::Size);
@@ -145,7 +112,6 @@ impl Preset {
             let (Ok(offset), Ok(size)) = (usize::try_from(offset), usize::try_from(size)) else {
                 return Err(PresetError::Chunk(id));
             };
-            // The data sits between the header and the list.
             if offset < HEADER || offset.checked_add(size).is_none_or(|end| end > list_at) {
                 return Err(PresetError::Chunk(id));
             }
@@ -174,7 +140,6 @@ impl Preset {
         })
     }
 
-    /// The preset as a file.
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut chunks: Vec<([u8; 4], &[u8])> = vec![(COMP, &self.component)];
         if let Some(c) = &self.controller {
@@ -206,8 +171,6 @@ impl Preset {
     }
 }
 
-/// A description chunk naming the plugin the preset is for, as other hosts
-/// write it.
 pub fn info_xml(plugin_name: &str) -> Vec<u8> {
     let name: String = plugin_name
         .chars()
@@ -272,7 +235,6 @@ mod tests {
     #[test]
     fn unknown_chunks_are_skipped() {
         let mut bytes = sample().to_bytes();
-        // Add a chunk "Prog" after the data, before the list: rebuild by hand.
         let list_at = i64::from_le_bytes(bytes[40..48].try_into().unwrap()) as usize;
         let list = bytes.split_off(list_at);
         bytes.extend_from_slice(&[7, 7, 7]);
@@ -308,7 +270,6 @@ mod tests {
         let mut bad = good.clone();
         bad[40..48].copy_from_slice(&(-5_i64).to_le_bytes());
         assert_eq!(Preset::parse(&bad), Err(PresetError::List));
-        // A truncated file loses its list.
         assert_eq!(
             Preset::parse(&good[..good.len() - 30]),
             Err(PresetError::List)
@@ -325,8 +286,6 @@ mod tests {
             f(&mut b);
             Preset::parse(&b)
         };
-        // An offset before the header, a size past the list, a negative size,
-        // an offset plus size that overflows.
         assert_eq!(
             with(&|b| b[entry + 4..entry + 12].copy_from_slice(&0_i64.to_le_bytes())),
             Err(PresetError::Chunk(COMP))
@@ -346,7 +305,6 @@ mod tests {
             }),
             Err(PresetError::Chunk(COMP))
         );
-        // The same id twice.
         assert_eq!(
             with(&|b| {
                 let (first, second) = (entry, entry + ENTRY);
@@ -355,7 +313,6 @@ mod tests {
             }),
             Err(PresetError::Duplicate(COMP))
         );
-        // A count that claims more entries than the file holds or allows.
         assert_eq!(
             with(&|b| b[list_at + 4..list_at + 8].copy_from_slice(&1000_i32.to_le_bytes())),
             Err(PresetError::List)

@@ -1,22 +1,5 @@
-//! Curves from (0, 0) to (1, 1) (M3 slice 6d, the owner's choice C3): the
-//! shape of a fade now, and of automation segments later (M7), so every
-//! envelope in Lumen bends the same way.
-//!
-//! A curve is a cubic Bézier with two inner control points, as CSS easing
-//! curves are. With every control point inside the unit square and the
-//! first left of the second, the level only ever rises with x, so a curve
-//! is a function of x. The four preset shapes are exact cases of it: a
-//! straight line, x², 1 − (1 − x)² and smoothstep.
-//!
-//! It is edited through one free handle (C3): the curve passes through the
-//! handle's dot, which can go anywhere in the curve's middle three
-//! quarters, and holding Alt adds S-shape (flat at both ends) while the
-//! curve still passes through the dot.
-
 use serde::{Deserialize, Serialize};
 
-/// A cubic Bézier from (0, 0) to (1, 1) through control points `p1` and
-/// `p2`, each `[x, y]` in the unit square. Saved as `[x1, y1, x2, y2]`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(from = "[f32; 4]", into = "[f32; 4]")]
 pub struct Curve {
@@ -45,49 +28,37 @@ impl Default for Curve {
     }
 }
 
-/// The handle a curve is edited by (C3): the curve's middle point, and how
-/// S-shaped it is, 0 (none) to 1 (flat at both ends).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Handle {
     pub dot: [f32; 2],
     pub s: f32,
 }
 
-/// How far the handle's dot can go: the curve's middle three quarters.
 pub const DOT_MIN: f32 = 1.0 / 8.0;
 pub const DOT_MAX: f32 = 7.0 / 8.0;
 
-/// Control points sit a sixth either side of the curve's centre, as in all
-/// four presets.
 const SPREAD: f32 = 1.0 / 6.0;
 
-/// Within this, two curves count as the same (for presets and saving).
 const SAME: f32 = 1e-5;
 
 impl Curve {
-    /// Straight.
     pub const LINEAR: Self = Self {
         p1: [1.0 / 3.0, 1.0 / 3.0],
         p2: [2.0 / 3.0, 2.0 / 3.0],
     };
-    /// x²: slow at first, then quick.
     pub const SLOW: Self = Self {
         p1: [1.0 / 3.0, 0.0],
         p2: [2.0 / 3.0, 1.0 / 3.0],
     };
-    /// 1 − (1 − x)²: quick at first, then slow.
     pub const FAST: Self = Self {
         p1: [1.0 / 3.0, 2.0 / 3.0],
         p2: [2.0 / 3.0, 1.0],
     };
-    /// Smoothstep, 3x² − 2x³: slow at both ends.
     pub const S_CURVE: Self = Self {
         p1: [1.0 / 3.0, 0.0],
         p2: [2.0 / 3.0, 1.0],
     };
 
-    /// Every control point finite, inside the unit square, the first left
-    /// of the second: a curve that rises with x and stays in 0 to 1.
     pub fn is_valid(&self) -> bool {
         let inside = |v: f32| v.is_finite() && (0.0..=1.0).contains(&v);
         [self.p1[0], self.p1[1], self.p2[0], self.p2[1]]
@@ -97,7 +68,6 @@ impl Curve {
             && self.p1[1] <= self.p2[1]
     }
 
-    /// Whether `other` is the same curve, to within rounding.
     pub fn same(&self, other: &Curve) -> bool {
         let a: [f32; 4] = (*self).into();
         let b: [f32; 4] = (*other).into();
@@ -108,7 +78,6 @@ impl Curve {
         self.same(&Self::LINEAR)
     }
 
-    /// The point at parameter `t` (0 to 1) along the curve.
     pub fn point(&self, t: f32) -> [f32; 2] {
         let u = 1.0 - t;
         let (a, b, c) = (3.0 * u * u * t, 3.0 * u * t * t, t * t * t);
@@ -118,7 +87,6 @@ impl Curve {
         ]
     }
 
-    /// The curve's level at `x` (0 to 1): the y where it crosses x.
     pub fn at(&self, x: f32) -> f32 {
         if x <= 0.0 {
             return 0.0;
@@ -126,7 +94,6 @@ impl Curve {
         if x >= 1.0 {
             return 1.0;
         }
-        // x rises with t, so halve the interval: 24 steps is f32 precision.
         let (mut lo, mut hi) = (0.0_f32, 1.0_f32);
         for _ in 0..24 {
             let mid = 0.5 * (lo + hi);
@@ -139,18 +106,12 @@ impl Curve {
         self.point(0.5 * (lo + hi))[1].clamp(0.0, 1.0)
     }
 
-    /// The curve's level at `n + 1` evenly spaced x from 0 to 1, for the
-    /// audio thread to read from (it does no solving of its own).
     pub fn table(&self, n: usize) -> Vec<f32> {
         (0..=n).map(|i| self.at(i as f32 / n as f32)).collect()
     }
 
-    /// The curve edited by `handle` (C3): through the handle's dot, with
-    /// its S-shape.
     pub fn from_handle(handle: Handle) -> Self {
         let dot = handle.dot.map(|v| v.clamp(DOT_MIN, DOT_MAX));
-        // The middle of a cubic Bézier is (P0 + 3·P1 + 3·P2 + P3) / 8; with
-        // P1 and P2 either side of a centre, that centre is (8·dot − 1) / 6.
         let [cx, cy] = dot.map(|v| ((8.0 * v - 1.0) / 6.0).clamp(0.0, 1.0));
         let h = SPREAD.min(cx).min(1.0 - cx);
         let room = cy.min(1.0 - cy);
@@ -162,8 +123,6 @@ impl Curve {
         }
     }
 
-    /// The handle that edits this curve; [`Curve::from_handle`] of it is
-    /// the same curve (for the presets and every curve the handle made).
     pub fn handle(&self) -> Handle {
         let [x, y] = self.point(0.5);
         let cy = 0.5 * (self.p1[1] + self.p2[1]);
@@ -233,7 +192,6 @@ mod tests {
             let [x, y] = c.point(0.5);
             assert!(close(x, dot[0]) && close(y, dot[1]), "{dot:?}: {x}, {y}");
         }
-        // Past the middle three quarters, the dot stops at the edge.
         let edge = Curve::from_handle(Handle {
             dot: [0.0, 1.0],
             s: 0.0,
@@ -260,7 +218,6 @@ mod tests {
         }
         assert_eq!(Curve::LINEAR.handle().s, 0.0);
         assert_eq!(Curve::S_CURVE.handle().s, 1.0);
-        // S-shape keeps the dot where it is.
         let flat = Curve::from_handle(Handle {
             dot: [0.5, 0.5],
             s: 0.0,

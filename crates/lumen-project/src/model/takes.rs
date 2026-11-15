@@ -1,57 +1,31 @@
-//! Takes (format v31, M9 slice R3): the passes of a loop recording that a
-//! clip keeps besides the one it plays.
-//!
-//! A clip that was recorded with Loop on has one *active* pass, which is the
-//! clip's own content, so editing it never leaves a stale copy. The other
-//! passes are held here, by number. Playing another pass is a swap
-//! (`edit::takes`): the clip's current pass goes into the slot of the number
-//! it had, and the chosen one becomes the clip's content. Playback sees an
-//! ordinary clip.
-//!
-//! Passes are numbered from 0 here and shown from 1.
-
 use serde::{Deserialize, Serialize};
 
 use super::{Clip, ClipContent, ClipEvent, Note, Warp};
 
-/// The passes a clip keeps.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Takes {
-    /// The number of the pass the clip plays.
     pub active: u32,
-    /// How many passes there are, the active one included.
     pub count: u32,
-    /// The other passes, in order of number.
     pub others: Vec<OtherTake>,
 }
 
-/// One pass the clip does not play now.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OtherTake {
-    /// Its number, from 0.
     pub take: u32,
     #[serde(flatten)]
     pub pass: Pass,
 }
 
-/// What distinguishes one pass from another on a clip.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Pass {
-    /// Where the clip's start falls in the file: the pass is a window on the
-    /// same media. `offset` and `audio_phase_seconds` are the clip's own
-    /// fields of those names; an earlier pass than the file's first frame
-    /// has a negative `audio_phase_seconds`, which plays silence.
     Audio {
         offset: i64,
         #[serde(default, skip_serializing_if = "is_zero")]
         audio_phase_seconds: f64,
-        /// The pass's own warp (format v33): each take keeps its own map,
-        /// since the same seconds of the file play at other ticks.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         warp: Option<Warp>,
     },
-    /// The notes and events of the pass, relative to the clip's start.
     Midi {
         notes: Vec<Note>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -64,7 +38,6 @@ fn is_zero(seconds: &f64) -> bool {
 }
 
 impl Pass {
-    /// The pass a clip plays now, or `None` for content that has no passes.
     pub fn of(clip: &Clip) -> Option<Pass> {
         match &clip.content {
             ClipContent::Audio { offset, .. } => Some(Pass::Audio {
@@ -79,7 +52,6 @@ impl Pass {
         }
     }
 
-    /// Whether the pass is of the kind of content `clip` has.
     pub fn fits(&self, clip: &Clip) -> bool {
         matches!(
             (self, &clip.content),
@@ -88,8 +60,6 @@ impl Pass {
         )
     }
 
-    /// Makes `clip` play this pass. Returns false, changing nothing, when the
-    /// kind of pass does not match the clip.
     pub fn put_on(self, clip: &mut Clip) -> bool {
         match (self, &mut clip.content) {
             (
@@ -122,8 +92,6 @@ impl Pass {
 }
 
 impl Takes {
-    /// A set of `count` passes, `active` of them played, holding the others.
-    /// `others` need not be sorted.
     pub fn new(active: u32, count: u32, mut others: Vec<OtherTake>) -> Self {
         others.sort_by_key(|o| o.take);
         Takes {
@@ -133,8 +101,6 @@ impl Takes {
         }
     }
 
-    /// Whether the numbers describe a set: every number below `count`, each
-    /// once, the active one not among the others, and a pass of one kind.
     pub fn is_sound(&self) -> bool {
         let mut seen = vec![false; self.count as usize];
         if self.active >= self.count || self.others.len() + 1 != self.count as usize {
@@ -158,7 +124,6 @@ impl Takes {
         true
     }
 
-    /// The pass held under `take`.
     pub fn other(&self, take: u32) -> Option<&Pass> {
         self.others.iter().find(|o| o.take == take).map(|o| &o.pass)
     }

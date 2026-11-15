@@ -1,28 +1,11 @@
-//! A WAV file writer (M7b slice E3). Rendered audio (a consolidated clip, a
-//! bounce) is written here: 16 or 24-bit integer or 32-bit float, mono or
-//! stereo, streamed block by block so a long render never holds its file
-//! twice in memory.
-//!
-//! The file is written beside its destination under a temporary name, flushed
-//! and renamed over it by [`Writer::finish`], so a crash or a cancel leaves
-//! the old file or none, never half of a new one. Integer formats round and
-//! clip without dither; the float format stores every sample exactly.
-//!
-//! A file made by [`Writer::create_long`] has no 4 GiB limit (M9 slice R6):
-//! it keeps room for an RF64 `ds64` chunk in a `JUNK` chunk, and becomes
-//! RF64 when finished only if its audio passed RIFF's 32-bit sizes. Below
-//! that it stays a plain WAV every reader opens (unknown chunks are skipped).
-
 use std::fs::{self, File};
 use std::io::{BufWriter, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use crate::MediaError;
 
-/// RIFF sizes are 32 bits: a file may not pass this many bytes of audio.
 const MOST_DATA: u64 = u32::MAX as u64 - 64;
 
-/// How a sample is stored.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sample {
     I16,
@@ -39,7 +22,6 @@ impl Sample {
         }
     }
 
-    /// The format tag: 1 for integer PCM, 3 for IEEE float.
     fn tag(self) -> u16 {
         match self {
             Sample::I16 | Sample::I24 => 1,
@@ -48,24 +30,17 @@ impl Sample {
     }
 }
 
-/// The shape of a file to write.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Spec {
     pub sample_rate: u32,
-    /// One or two.
     pub channels: u16,
     pub sample: Sample,
 }
 
-/// The size of the header in front of the audio: `RIFF`, `fmt ` and the start
-/// of `data`.
 pub(crate) const HEADER: u64 = 44;
 
-/// The header of a long file: [`HEADER`] and a 36-byte `JUNK` chunk (or
-/// `ds64` once RF64) after `WAVE`.
 const LONG_HEADER: u64 = HEADER + 36;
 
-/// The 24 bytes of a `fmt ` chunk.
 fn format_chunk(spec: Spec) -> Vec<u8> {
     let block = spec.channels * spec.sample.bytes();
     let mut out = Vec::with_capacity(24);
@@ -80,9 +55,6 @@ fn format_chunk(spec: Spec) -> Vec<u8> {
     out
 }
 
-/// The header of a long file holding `data` bytes of audio: a WAV with a
-/// `JUNK` chunk while `data` fits in `most` bytes, else RF64, whose 32-bit
-/// sizes are all ones and whose `ds64` chunk holds the real ones.
 fn long_header(spec: Spec, data: u64, most: u64) -> [u8; LONG_HEADER as usize] {
     let mut out = Vec::with_capacity(LONG_HEADER as usize);
     let riff = LONG_HEADER - 8 + data;
@@ -120,9 +92,6 @@ pub(crate) fn header(spec: Spec, data: u32) -> [u8; HEADER as usize] {
     out.try_into().expect("the header is 44 bytes")
 }
 
-/// A sample as a signed integer of `bits + 1` bits: scaled by 2^bits, as the
-/// decoders read it back, and clipped to the range (+1.0 becomes the largest
-/// value, one step below the scale).
 fn whole(v: f32, bits: u32) -> i32 {
     let scale = f64::from(1_u32 << bits);
     (f64::from(v).clamp(-1.0, 1.0) * scale)
@@ -134,36 +103,26 @@ pub(crate) fn io(error: std::io::Error) -> MediaError {
     MediaError::Io(error.to_string())
 }
 
-/// A file being written. Dropping it without calling [`Writer::finish`]
-/// removes the partial file.
 pub struct Writer {
     file: Option<BufWriter<File>>,
     temp: PathBuf,
     destination: PathBuf,
     spec: Spec,
     frames: u64,
-    /// Long files ([`Writer::create_long`]) may pass 4 GiB as RF64.
     long: bool,
-    /// The most bytes of audio a RIFF file holds (lowered by tests to make
-    /// RF64 files small).
     most: u64,
 }
 
 impl Writer {
-    /// As [`create`](Self::create), for a file that may pass 4 GiB: it is
-    /// written as RF64 if it does (export, M9 slice R6).
     pub fn create_long(destination: &Path, spec: Spec) -> Result<Self, MediaError> {
         Self::start(destination, spec, true)
     }
 
-    /// Makes a long file RF64 past `most` bytes of audio, so tests make
-    /// small ones.
     #[cfg(test)]
     pub(crate) fn rf64_past(&mut self, most: u64) {
         self.most = most;
     }
 
-    /// Starts a file that [`finish`](Self::finish) will put at `destination`.
     pub fn create(destination: &Path, spec: Spec) -> Result<Self, MediaError> {
         Self::start(destination, spec, false)
     }
@@ -211,7 +170,6 @@ impl Writer {
         })
     }
 
-    /// Appends a block: one slice of samples per channel, all the same length.
     pub fn write(&mut self, block: &[&[f32]]) -> Result<(), MediaError> {
         let frames = block.first().map_or(0, |c| c.len());
         if block.len() != usize::from(self.spec.channels) || block.iter().any(|c| c.len() != frames)
@@ -243,8 +201,6 @@ impl Writer {
         Ok(())
     }
 
-    /// Writes the sizes, flushes to disk and puts the file at its destination.
-    /// Returns the number of frames written.
     pub fn finish(mut self) -> Result<u64, MediaError> {
         let data =
             self.frames * u64::from(self.spec.channels) * u64::from(self.spec.sample.bytes());
@@ -277,7 +233,6 @@ impl Drop for Writer {
     }
 }
 
-/// Makes the rename durable where a directory can be flushed; NTFS journals it.
 fn sync_dir(path: &Path) {
     #[cfg(unix)]
     if let Some(dir) = path

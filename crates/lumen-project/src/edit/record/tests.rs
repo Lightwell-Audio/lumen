@@ -79,9 +79,6 @@ fn midi(notes: Vec<Note>) -> ClipContent {
     }
 }
 
-/// Track 1 (MIDI, `clips`) and track 2 (MIDI, one clip of its own, so a
-/// test can see that it is left alone). The master is replaced so its id
-/// cannot collide with the test ids.
 fn base(clips: Vec<Clip>) -> Project {
     let mut p = crate::testing::small_project(1);
     p.markers.clear();
@@ -100,7 +97,6 @@ fn base(clips: Vec<Clip>) -> Project {
     p
 }
 
-/// Fresh ids counting from 900, as one call's `fresh` would.
 fn ids() -> impl FnMut() -> Id {
     let mut next = 900;
     move || {
@@ -112,14 +108,10 @@ fn ids() -> impl FnMut() -> Id {
 
 #[test]
 fn a_note_played_again_wins_its_pitch() {
-    // An old 60 from 0 to 4; the take plays 60 again at 2: the old one
-    // is cut at 2, not stacked under the new one.
     assert_eq!(
         settle(vec![note(0, 4, 60)], vec![note(2, 1, 60)]),
         vec![note(0, 2, 60), note(2, 1, 60)]
     );
-    // An old note that starts under the new one goes; one that starts
-    // after it ends stays; other pitches are left alone.
     assert_eq!(
         settle(
             vec![note(3, 1, 60), note(6, 1, 60), note(3, 2, 64)],
@@ -127,7 +119,6 @@ fn a_note_played_again_wins_its_pitch() {
         ),
         vec![note(2, 3, 60), note(3, 2, 64), note(6, 1, 60)]
     );
-    // Played on the same start: the new note replaces the old.
     assert_eq!(
         settle(vec![note(1, 2, 60)], vec![Note::new(q(1), q(1), 60, 30)]),
         vec![Note::new(q(1), q(1), 60, 30)]
@@ -136,7 +127,6 @@ fn a_note_played_again_wins_its_pitch() {
 
 #[test]
 fn new_notes_settle_among_themselves_the_later_winning() {
-    // A loop pass over a note of the pass before.
     assert_eq!(
         settle(Vec::new(), vec![note(3, 1, 60), note(1, 4, 60)]),
         vec![note(1, 2, 60), note(3, 1, 60)]
@@ -178,8 +168,6 @@ fn an_overdub_over_the_same_pitch_cuts_the_old_note() {
     assert_eq!(notes, &vec![note(0, 2, 60), note(0, 4, 67), note(2, 1, 60)]);
 }
 
-/// Places `take` on track 1 as a Replace or an Overdub with the take clip
-/// id 50.
 fn put(p: &mut Project, base: &Project, take: &Take, mode: Mode) -> Result<Vec<Id>, Blocked> {
     let placement = Placement {
         mode,
@@ -189,7 +177,6 @@ fn put(p: &mut Project, base: &Project, take: &Take, mode: Mode) -> Result<Vec<I
     place(p, base, Id(1), take, placement, &mut ids())
 }
 
-/// `(id, start, length)` of track 1's clips.
 fn spans(p: &Project) -> Vec<(Id, Ticks, Ticks)> {
     p.tracks[0]
         .clips
@@ -255,8 +242,6 @@ fn replace_cuts_the_clip_it_covers_and_keeps_both_outside_parts() {
             (Id(900), q(4), q(4)),
         ]
     );
-    // The pieces of the old clip are windows onto all its notes (format
-    // v15): each shows its own, and keeps the other's hidden.
     assert_eq!(
         clip_of(&p, 10).content,
         midi(vec![note(1, 1, 60), note(5, 1, 64)])
@@ -273,9 +258,6 @@ fn replace_cuts_the_clip_it_covers_and_keeps_both_outside_parts() {
 
 #[test]
 fn overdub_begun_at_a_clips_start_is_a_new_clip_and_the_rest_stays_its_own() {
-    // The owner's case: begun exactly at a clip's start, the take is a
-    // new clip carrying what the old one played there, and the rest of
-    // the old clip stays a clip of its own after it.
     let base = base(vec![clip(10, 0, 8, vec![note(0, 1, 48), note(5, 1, 50)])]);
     let mut p = base.clone();
     let placed = put(
@@ -321,11 +303,9 @@ fn overdub_begun_inside_a_clip_is_a_new_clip_from_there_to_the_stop() {
             (Id(900), q(4), q(4)),
         ]
     );
-    // The new clip carries what the old one played there, and the take.
     let new = clip_of(&p, 50);
     assert_eq!(new.content, midi(vec![note(0, 1, 50), note(1, 1, 64)]));
     assert_eq!((new.name.as_str(), new.color), ("c10", Some(Color(3))));
-    // What it covers is hidden in the pieces, not lost.
     assert_eq!(shown_notes(clip_of(&p, 10)), vec![0]);
     assert_eq!(shown_notes(clip_of(&p, 900)), vec![2]);
     assert_eq!(crate::validate(&p), Ok(()));
@@ -333,8 +313,6 @@ fn overdub_begun_inside_a_clip_is_a_new_clip_from_there_to_the_stop() {
 
 #[test]
 fn overdub_keeps_a_note_held_past_the_stop() {
-    // The visible clip ends with the take, but trimming it later can
-    // recover the recorded note's full length.
     let base = base(vec![clip(10, 0, 16, vec![])]);
     let mut p = base.clone();
     put(
@@ -350,9 +328,6 @@ fn overdub_keeps_a_note_held_past_the_stop() {
 
 #[test]
 fn overdub_begun_over_a_sounding_note_carries_it_on_whole() {
-    // A note from 2 to 10 sounds when the take begins at 4 (the owner's
-    // boundary case): the new clip keeps it whole, starting before it,
-    // so it carries on through both seams instead of stopping at 4.
     let base = base(vec![clip(10, 0, 12, vec![note(2, 8, 60)])]);
     let mut p = base.clone();
     put(&mut p, &base, &take(4, 6, vec![]), Mode::Overdub).unwrap();
@@ -375,8 +350,6 @@ fn overdub_begun_over_a_sounding_note_carries_it_on_whole() {
 
 #[test]
 fn overdub_begun_inside_keeps_carried_notes_the_same_as_the_take_grows() {
-    // A note that runs past the take's end is not cut at it, so each
-    // commit leaves it as it was and the engine does not strike it again.
     let base = base(vec![clip(10, 0, 16, vec![note(2, 8, 60), note(5, 6, 62)])]);
     let carried = |end: i64| {
         let mut p = base.clone();
@@ -405,7 +378,6 @@ fn a_note_played_over_a_carried_one_ends_it_there() {
         midi(vec![note(-2, 3, 60), note(1, 1, 60)]),
         "the played note wins its pitch from 5"
     );
-    // Cut short, the old note no longer reaches the rest of the clip.
     assert_eq!(
         crate::edit::seams::carried(&p.tracks[0]),
         vec![vec![], vec![0], vec![]]
@@ -414,7 +386,6 @@ fn a_note_played_over_a_carried_one_ends_it_there() {
 
 #[test]
 fn an_empty_overdub_over_empty_lane_shows_its_clip_at_once() {
-    // Nothing played yet: the clip is there from the record start.
     let base = base(vec![clip(10, 0, 2, vec![])]);
     for end in [5, 8] {
         let mut p = base.clone();
@@ -445,10 +416,6 @@ fn overdub_inside_a_new_clip_skips_what_a_muted_clip_holds() {
 
 #[test]
 fn overdub_begun_before_a_clip_and_reaching_it_is_a_new_clip_beside_it() {
-    // The owner's case: begun before a clip and running into it, the
-    // take is a new clip from the record start, carrying the old notes
-    // it reaches; the old clip keeps the rest as a clip of its own and
-    // does not move or grow.
     let base = base(vec![clip(10, 4, 4, vec![note(0, 1, 48), note(3, 1, 50)])]);
     let mut p = base.clone();
     let placed = put(
@@ -503,8 +470,6 @@ fn overdub_begun_at_a_clips_end_is_a_new_clip_after_it() {
 
 #[test]
 fn overdub_over_whole_clips_carries_what_they_played_into_one_clip() {
-    // Clips the take covers end to end are recorded over, as in Replace,
-    // but what they played is in the new clip.
     let base = base(vec![
         clip(10, 0, 2, vec![note(1, 1, 48)]),
         clip(11, 4, 2, vec![note(0, 1, 50)]),
@@ -532,7 +497,6 @@ fn overdub_over_whole_clips_carries_what_they_played_into_one_clip() {
 
 #[test]
 fn overdub_over_empty_lane_keeps_captured_content_outside_its_window() {
-    // The take begins after the clip has ended: nothing borders it.
     let base = base(vec![clip(10, 0, 2, vec![])]);
     let mut p = base.clone();
     let mut t = take(3, 6, vec![tn(3, 1, 60), tn(7, 1, 62)]);
@@ -597,8 +561,6 @@ fn overdub_in_a_looping_clip_is_a_new_clip_carrying_its_repeats() {
     let at_50 = spans(&p).iter().position(|s| s.0 == Id(50)).unwrap();
     assert_eq!(spans(&p)[at_50], (Id(50), q(4), q(2)));
     assert_eq!(spans(&p).len(), 3, "the loop before and after it stays");
-    // The repeat at 4 played its note at 5; the captured long note keeps
-    // its full length beyond the visible take window.
     assert_eq!(
         clip_of(&p, 50).content,
         midi(vec![note(0, 3, 60), note(1, 1, 48), note(1, 1, 67)])
@@ -625,7 +587,6 @@ fn punch_limits_the_clip_window_and_keeps_the_full_capture_hidden() {
     );
     assert_eq!(placed, Ok(vec![Id(50)]));
     assert_eq!(spans(&p), [(Id(50), q(2), q(2))]);
-    // Content before and after the punch remains hidden in the clip.
     assert_eq!(
         clip_of(&p, 50).content,
         midi(vec![
@@ -662,9 +623,6 @@ fn punch_limits_the_clip_window_and_keeps_the_full_capture_hidden() {
 
 #[test]
 fn a_hidden_capture_before_a_punch_does_not_carry_an_old_note_on() {
-    // An old 60 sounds 1 to 3; Replace punches 2 to 4 while the take
-    // captured a 60 from 1 to 5. The old note stops at the punch-in; the
-    // captured one stays hidden in the take, as trimming can recover it.
     let base = base(vec![clip(10, 0, 8, vec![note(1, 2, 60)])]);
     let mut p = base.clone();
     let placed = place(
@@ -692,9 +650,6 @@ fn a_hidden_capture_before_a_punch_does_not_carry_an_old_note_on() {
 
 #[test]
 fn identical_and_shorter_hidden_captures_do_not_carry_at_a_seam() {
-    // The old note is 1 to 2.5. The visible take is 2 to 4, and the
-    // captured note starts at 1 in hidden content. Matching or ending before
-    // the old note used to make its hidden copy indistinguishable at a seam.
     let one = q(1);
     let two_and_half = q(2) + Ticks(PPQ / 2);
     let base = base(vec![clip(
@@ -797,8 +752,6 @@ fn punch_keeps_full_capture_in_both_modes_and_trim_recovers_it() {
             );
             assert_eq!(shown_notes(recorded), vec![1, 2]);
         } else {
-            // The pre-window same-pitch note remains hidden and does not
-            // shorten the old note carried into the visible window.
             assert_eq!(
                 notes,
                 &vec![
@@ -816,9 +769,6 @@ fn punch_keeps_full_capture_in_both_modes_and_trim_recovers_it() {
         let loaded = crate::from_bytes(&bytes).expect("hidden captured content loads");
         assert_eq!(loaded, p, "{mode:?} round trip retains hidden content");
 
-        // Widen both clip edges using the normal trim operation. The
-        // content and its absolute timing are restored without rewriting
-        // the captured notes or events.
         let tempo = lumen_core::time::TempoMap::new(p.tempo.clone()).unwrap();
         let end = crate::edit::trim(&p, &tempo, recorded, crate::edit::Edge::End, q(6), false);
         let widened = crate::edit::trim(&p, &tempo, &end, crate::edit::Edge::Start, q(1), false);
@@ -928,8 +878,6 @@ fn capture_wholly_outside_punch_gets_a_hidden_anchor_clip() {
     };
     assert_eq!(range_of(&empty, Some((q(4), q(8)))), None);
 
-    // Before the loop head reaches its start, keep the capture hidden at
-    // that start until a later commit has a visible intersection.
     let loop_capture = Take {
         start: q(4),
         end: q(2),
@@ -974,7 +922,6 @@ fn lengths_are_at_least_the_shortest_note_and_keep_the_captured_length() {
 
 #[test]
 fn calls_with_a_growing_take_match_one_call_with_the_final_take() {
-    // Begun inside a clip, and (Overdub) before one.
     let cases = [(Mode::Replace, 0), (Mode::Overdub, 0), (Mode::Overdub, 4)];
     for (mode, at) in cases {
         let base = base(vec![clip(10, at, 8, vec![note(0, 1, 48)])]);
@@ -1008,7 +955,6 @@ fn a_locked_clip_in_the_range_blocks_the_take_and_the_track_is_as_base() {
         );
         assert_eq!(p, base, "{mode:?}");
     }
-    // A take that placed something first is put back to base when blocked.
     let mut p = base.clone();
     assert_eq!(
         put(
@@ -1034,22 +980,18 @@ fn a_locked_clip_in_the_range_blocks_the_take_and_the_track_is_as_base() {
 #[test]
 fn empty_takes_and_ranges_change_only_what_they_must() {
     let base = base(vec![clip(10, 0, 8, vec![note(1, 1, 48)])]);
-    // An empty take from the clip's start is a new clip there, holding
-    // what the old one played.
     let mut p = base.clone();
     assert_eq!(
         put(&mut p, &base, &take(0, 4, vec![]), Mode::Overdub),
         Ok(vec![Id(50)])
     );
     assert_eq!(clip_of(&p, 50).content, midi(vec![note(1, 1, 48)]));
-    // Begun inside the clip too.
     let mut p = base.clone();
     assert_eq!(
         put(&mut p, &base, &take(1, 4, vec![]), Mode::Overdub),
         Ok(vec![Id(50)])
     );
     assert_eq!(clip_of(&p, 50).content, midi(vec![note(0, 1, 48)]));
-    // An empty take still replaces what is under a non-empty range.
     let mut p = base.clone();
     assert_eq!(
         put(&mut p, &base, &take(2, 4, vec![]), Mode::Replace),
@@ -1058,8 +1000,6 @@ fn empty_takes_and_ranges_change_only_what_they_must() {
     assert_eq!(clip_of(&p, 50).content, midi(vec![]));
     assert_eq!(clip_of(&p, 50).length, q(2));
 
-    // An empty range puts the track's clips back as base has them, and
-    // leaves the rest of the track as it is.
     let mut dirty = base.clone();
     dirty.tracks[0] = Arc::new(Track::new(Id(1), "x", TrackKind::Midi, Color(0)));
     let t = take(3, 3, vec![]);
@@ -1067,7 +1007,6 @@ fn empty_takes_and_ranges_change_only_what_they_must() {
     assert_eq!(dirty.tracks[0].clips, base.tracks[0].clips);
     assert_eq!(dirty.tracks[0].name, "x");
 
-    // An audio track takes nothing and its clips are put back as base has them.
     let mut audio_base = base.clone();
     Arc::make_mut(&mut audio_base.tracks[0]).kind = TrackKind::Audio;
     let mut p = audio_base.clone();
@@ -1076,7 +1015,6 @@ fn empty_takes_and_ranges_change_only_what_they_must() {
     assert_eq!(put(&mut p, &audio_base, &t, Mode::Replace), Ok(vec![]));
     assert_eq!(p.tracks[0].clips, audio_base.tracks[0].clips);
 
-    // A track base does not have changes nothing.
     let mut p = base.clone();
     let placed = place(
         &mut p,
@@ -1096,9 +1034,6 @@ fn empty_takes_and_ranges_change_only_what_they_must() {
 
 #[test]
 fn what_else_changed_on_the_track_while_it_recorded_is_kept() {
-    // The fader, an automation lane and a device's values are the user's to
-    // change during a take: each commit re-places the take on the clips the
-    // track had at the start, and nothing else of the track goes back.
     use crate::automation::{AutomationLane, Target};
     use lumen_core::automation::{Lane, Point};
     let base = base(vec![clip(10, 0, 4, vec![note(0, 1, 60)])]);
@@ -1130,8 +1065,6 @@ fn what_else_changed_on_the_track_while_it_recorded_is_kept() {
         keys.clips.iter().any(|c| c.start == q(1)),
         "and the take was placed"
     );
-    // A second commit of the same take, from the same snapshot, does not
-    // stack a second take on the first.
     let first = p.tracks[0].clips.clone();
     put(
         &mut p,
@@ -1143,8 +1076,6 @@ fn what_else_changed_on_the_track_while_it_recorded_is_kept() {
     assert_eq!(p.tracks[0].clips.len(), first.len());
 }
 
-/// A loop of four quarters recorded for three passes: the pass numbers are
-/// 0, 1 and 2, each with a note of its own.
 fn three_passes() -> Take {
     let pass = |notes: Vec<TakeNote>| PassTake {
         notes,

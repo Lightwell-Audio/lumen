@@ -1,26 +1,13 @@
-//! The time signature as one field, "4 / 4" (the interface audit's S7): it
-//! was a drag value and a combo box side by side. A piece of the transport
-//! bar's numeric well (the interface audit's TB1): its digits in Martian
-//! Mono, the Ember wash on the half under the pointer. Drag up or down, or turn
-//! the wheel, over the top number to change the beats; over the bottom one
-//! to change the beat unit. Click and type "7/8" (Enter applies, Esc
-//! cancels); double-click for 4/4; arrow keys when focused.
-
 use eframe::egui::{self, Align2, FontId, Id as EguiId, Key, Rect, Sense, Ui, pos2};
 use eframe::emath::GuiRounding as _;
 
 use super::{raised, well, wheel};
 use crate::{motion, theme};
 
-/// The beat units a signature can have.
 pub const UNITS: [u32; 7] = [1, 2, 4, 8, 16, 32, 64];
-/// Points of drag for one step.
 const DRAG_STEP: f32 = 12.0;
-/// The field's width: room for "12 / 16".
 pub const WIDTH: f32 = 56.0;
 
-/// Reads "7/8", "7 / 8", "7 8" or "7" (keeping `unit`); `None` when it is
-/// not a signature Lumen has.
 pub fn parse(text: &str, unit: u32, max_beats: u32) -> Option<(u32, u32)> {
     let mut parts = text
         .split(|c: char| c == '/' || c.is_whitespace())
@@ -36,8 +23,6 @@ pub fn parse(text: &str, unit: u32, max_beats: u32) -> Option<(u32, u32)> {
     Some((beats, unit))
 }
 
-/// The time signature field, in `rect` (a piece of a well the caller has
-/// painted); returns a new signature when it changed.
 pub fn time_signature(
     ui: &mut Ui,
     rect: Rect,
@@ -51,7 +36,6 @@ pub fn time_signature(
     let rect = rect.round_to_pixels(ui.pixels_per_point());
     let radius = well::piece_radius(rect.height());
     if let Some(mut text) = ui.data(|d| d.get_temp::<String>(typing_id)) {
-        // Typed in place: the piece keeps its size, the well is its ground.
         let mut field = ui.new_child(egui::UiBuilder::new().max_rect(rect));
         let edit = field.add_sized(
             rect.size(),
@@ -101,7 +85,6 @@ pub fn time_signature(
     };
     let step_beats = |beats: u32, by: i32| (beats as i32 + by).clamp(1, max_beats as i32) as u32;
 
-    // Drag: up adds, down takes away, a step every few points.
     let travel_id = id.with("travel");
     if response.drag_started() {
         ui.data_mut(|d| d.insert_temp(travel_id, 0.0_f32));
@@ -153,7 +136,6 @@ pub fn time_signature(
         );
         let controls = theme::controls(false);
         let painter = ui.painter();
-        // Ember on the half the wheel or a drag would change.
         if hover > 0.0 {
             let half = if over_unit {
                 Rect::from_min_max(pos2(rect.center().x, rect.top()), rect.max)
@@ -166,7 +148,6 @@ pub fn time_signature(
                 palette.ember.gamma_multiply(hover),
             );
         }
-        // The half the wheel or a drag would change brightens.
         let lit = |right: bool| hover > 0.0 && over_unit == right;
         let colour = |right: bool| {
             if lit(right) {

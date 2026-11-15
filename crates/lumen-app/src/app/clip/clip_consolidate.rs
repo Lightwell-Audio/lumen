@@ -1,12 +1,3 @@
-//! Consolidate (M7b slice E3): renders the selected audio clips of each track
-//! into one new file and replaces them with a clip that plays it, gaps as
-//! silence, as one undo step. The render runs on a worker
-//! (`consolidate::Render`) with progress in the toast and Esc to stop. The
-//! file holds the clips as the clip player plays them: clip gain, polarity,
-//! reverse, fades, crossfades and envelopes; not the track's fader, pan,
-//! sends or devices. Selected MIDI clips need no file: their loops are baked
-//! and each track's clips merge into one, in the same undo step.
-
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -18,16 +9,12 @@ use crate::App;
 use crate::consolidate::{Job, Poll, Render, remove_files};
 use crate::export::render_audio::RenderAudio;
 
-/// A render under way.
 pub(crate) struct Running {
     render: Render,
-    /// The MIDI clips to consolidate when the audio is done.
     midi: Vec<Id>,
 }
 
 impl App {
-    /// Where rendered audio is written until a save copies it into the
-    /// project: beside the autosaves, or the system's temporary folder.
     pub(crate) fn renders_dir(&self) -> PathBuf {
         self.autosave
             .as_ref()
@@ -39,8 +26,6 @@ impl App {
             )
     }
 
-    /// Consolidates the selected clips: audio is rendered on a worker, MIDI
-    /// is merged when it is done (at once when there is no audio).
     pub(crate) fn consolidate_selected_clips(&mut self, ctx: &egui::Context) {
         if self.consolidating.is_some() {
             self.say("Already joining".to_owned());
@@ -58,8 +43,6 @@ impl App {
             self.finish_consolidation(&[], &midi);
             return;
         }
-        // The file is made at the project's rate (Project settings); the
-        // worker reads the audio again when the device runs at another.
         let audio = RenderAudio::new(
             &self.lanes,
             self.document.project(),
@@ -102,8 +85,6 @@ impl App {
         });
     }
 
-    /// Follows the render: shows its progress, stops it on Esc and replaces
-    /// the clips when it is done. Call every frame.
     pub(crate) fn poll_consolidate(&mut self, ctx: &egui::Context) {
         let Some(running) = &self.consolidating else {
             return;
@@ -117,7 +98,6 @@ impl App {
         match running.render.poll() {
             Poll::Running(done) => {
                 let shown = (done * 100.0).floor() as u32;
-                // Keeps the note up while the render goes.
                 self.toast = Some((
                     format!("Joining {shown}% \u{b7} Esc to stop"),
                     Instant::now(),
@@ -142,8 +122,6 @@ impl App {
         }
     }
 
-    /// Puts the rendered files and the MIDI merge into the project as one
-    /// step, selects the result, and tells the user what happened.
     fn finish_consolidation(&mut self, baked: &[Baked], midi: &[Id]) {
         let made = self.document.consolidate_clips(baked, midi);
         if made.is_empty() {

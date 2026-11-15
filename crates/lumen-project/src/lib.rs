@@ -1,10 +1,3 @@
-//! The project document and the `.lumen` file format (ADR-0004).
-//!
-//! A project is a folder holding `<name>.lumen` (pretty-printed UTF-8 JSON),
-//! `Samples/` and `Backups/`. The document is wrapped in an envelope
-//! `{ "format": "lumen-project", "version": N, "generator": ..., "project": ... }`.
-//! Older versions are upgraded by [`migrate`]; newer ones are refused.
-
 pub mod automation;
 pub mod drums;
 pub mod edit;

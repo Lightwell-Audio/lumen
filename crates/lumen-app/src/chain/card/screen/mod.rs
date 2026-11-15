@@ -1,10 +1,3 @@
-//! A built-in's card as a set piece (M8, the owner's round 2, 2026-11-12;
-//! DESIGN.md §7k): a header tinted with the device's hue, a deep screen with the
-//! device's picture, a row of lit dials. What differs from device to device is
-//! the device's own `chain/face` drawing; this draws the rest, at each step the
-//! panel's height allows (whole, short, compact; the folded rail is
-//! [`rail`]).
-
 use std::hash::{Hash, Hasher};
 
 use eframe::egui::{self, Color32, CornerRadius, Rect, Response, Shadow, Stroke, StrokeKind, Ui};
@@ -30,30 +23,21 @@ use controls::live;
 pub(in crate::chain) use glass::glass as gradient_panel;
 use plan::Plan;
 
-/// What a built-in adds to its card: its hue and drawing, the values the drawing
-/// reads, the step the panel's height asks for and what the device is hearing.
 pub(in crate::chain) struct Personal<'a> {
     pub hue: Color32,
     pub drawing: &'static Drawing,
     pub slots: &'a [strip::Slot],
     pub table: &'static [ParamInfo],
     pub step: Step,
-    /// What the device hears, 0 to 1 (0 while motion is reduced).
     pub level: f32,
-    /// A drawing made of parts (Iris's bands), the one it has picked, the
-    /// device's live analysis when it has one and the rate the project runs at.
     pub parts: Option<&'static Parts>,
     pub picked: usize,
     pub spectrum: Option<&'a [f32]>,
     pub rate: u32,
-    /// The tempo at the playhead, for a drawing that keeps time with the song.
     pub bpm: f32,
-    /// What the device's gain-reduction meter read this frame, if it has one.
     pub reading: Option<lumen_devices::MeterReading>,
 }
 
-/// A meter's peak (dB, both sides; silence is negative infinity) as a level, 0
-/// to 1, over the range [`c::LEVEL_FLOOR_DB`] to 0.
 pub(in crate::chain) fn level_of(peak: [f32; 2]) -> f32 {
     let db = peak[0].max(peak[1]);
     if db.is_finite() {
@@ -63,14 +47,10 @@ pub(in crate::chain) fn level_of(peak: [f32; 2]) -> f32 {
     }
 }
 
-/// The level a screen shows: what the device hears, or nothing while motion is
-/// reduced (the picture is then the values alone).
 fn seen(level: f32, still: bool) -> f32 {
     if still { 0.0 } else { level }
 }
 
-/// How far the readouts of a changed preset have come back, 0 to 1: it starts
-/// at 0 when the sound's name changes and rises over the base time.
 fn settle(ctx: &egui::Context, id: egui::Id, look: &Look<'_>) -> f32 {
     let mut hasher = std::hash::DefaultHasher::new();
     look.field.as_ref().and_then(|f| f.name).hash(&mut hasher);
@@ -88,7 +68,6 @@ fn settle(ctx: &egui::Context, id: egui::Id, look: &Look<'_>) -> f32 {
     motion::appear(ctx, since)
 }
 
-/// A whole, short or compact built-in card in `rect`. Returns what it answers.
 pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body: Response) -> Out {
     let Some(personal) = look.personal.as_ref() else {
         unreachable!("a screen card has its drawing");
@@ -114,8 +93,6 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body
     );
     painter.rect_filled(rect, radius, palette.raised);
 
-    // The device's power: off dims the screen and drains the hue to a cool grey
-    // with a short fade, and lighting it again powers the screen up.
     let off = look.bypass || !look.running;
     let power = motion::fade(&ctx, id.with("lit"), !off);
     let hue = live(personal.hue, power);
@@ -125,7 +102,6 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body
     chrome::titles(&painter, &plan, look, off);
     let field = chrome::preset(ui, &plan, id, look, hue);
 
-    // The screen: its ground, then what the handles show, then the picture.
     glass::screen(
         &painter,
         plan.screen,
@@ -200,8 +176,6 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body
             &mut pill_picked,
         );
     }
-    // The sidechain chip of an effect that is keyed (or can be): on the
-    // screen, over the handles it overlaps.
     let key = look
         .sidechain
         .filter(|_| matches!(look.face, Face::Ready))
@@ -216,8 +190,6 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body
         asked.push(Output::All);
     }
 
-    // The edge: chosen is a 1.5 pt accent line, otherwise the strong edge, and
-    // Ember washes a card under the hand.
     painter.rect_filled(
         rect,
         radius,
@@ -248,8 +220,6 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body
     }
 }
 
-/// A folded built-in: the hue's bar glowing with the level, the name set on end
-/// and the power button. Returns the power button's response.
 pub(super) fn rail(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> Response {
     let Some(personal) = look.personal.as_ref() else {
         unreachable!("a screen rail has its drawing");

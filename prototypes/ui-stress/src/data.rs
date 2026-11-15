@@ -1,5 +1,3 @@
-//! Synthetic session at quality-bar scale, plus a waveform peak pyramid.
-
 use eframe::egui::Color32;
 
 pub const TRACKS: usize = 200;
@@ -7,7 +5,7 @@ pub const CLIPS_PER_TRACK: usize = 100;
 pub const NOTES: usize = 100_000;
 pub const NOTE_SPAN_BEATS: f32 = 4_000.0;
 pub const SAMPLE_RATE: f32 = 48_000.0;
-pub const SECONDS_PER_BEAT: f32 = 0.5; // 120 BPM
+pub const SECONDS_PER_BEAT: f32 = 0.5;
 
 pub struct Clip {
     pub start: f32,
@@ -95,8 +93,6 @@ pub fn notes() -> Vec<Note> {
     notes
 }
 
-/// Min/max peaks of a synthetic drum-like signal at several resolutions,
-/// so a column of any width needs only a few buckets.
 pub struct Peaks {
     levels: Vec<(usize, Vec<(f32, f32)>)>,
     len: usize,
@@ -133,7 +129,6 @@ impl Peaks {
         Self { levels, len }
     }
 
-    /// (min, max) over `count` samples starting at `start` (wrapping).
     pub fn range(&self, start: usize, count: usize) -> (f32, f32) {
         let (bucket, peaks) = self
             .levels

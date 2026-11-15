@@ -1,8 +1,3 @@
-//! The plugin's editor window through a real host process. Windows has real
-//! windows; here the host's stand-in (`LUMEN_HOST_HEADLESS_EDITOR`) records
-//! where a window would be, so the requests, the remembered place, a window
-//! the user closes and a main thread that stops answering are all exercised.
-
 mod support;
 
 use std::path::Path;
@@ -14,8 +9,6 @@ use lumen_plugin_host::protocol::{EditorBounds, FailureKind, Response};
 use lumen_plugin_host::server::EDITOR_WAIT_VAR;
 use support::{FAULT, HOST, SLOW, plugin};
 
-/// A host with the stand-in window, which says a window is not responding
-/// after 600 ms rather than the system's five seconds.
 fn host_with(headless: &str) -> HostProcess {
     let mut host = HostProcess::spawn(
         Path::new(HOST),
@@ -48,12 +41,10 @@ fn an_editor_opens_where_it_was_and_closes() {
     assert!(opened.open);
     assert_eq!(opened.bounds, Some(AT));
     assert_eq!(host.editor_status(SLOW).unwrap(), opened);
-    // The control path goes on working while the window is up.
     assert!(host.param_text(0, 0.5, SLOW).is_ok());
     let closed = host.close_editor(SLOW).unwrap();
     assert!(!closed.open);
     assert_eq!(closed.bounds, Some(AT), "where it was, to be remembered");
-    // And it opens again, now at the system's place.
     assert!(host.open_editor(None, SLOW).unwrap().open);
 }
 
@@ -66,12 +57,10 @@ fn a_hidden_editor_stays_open_and_comes_back_where_it_was() {
     assert!(hidden.open, "hiding is not closing");
     assert!(!hidden.visible);
     assert_eq!(hidden.bounds, Some(AT));
-    // A second editor is still refused: the window is there.
     assert!(host.open_editor(None, SLOW).is_err());
     let shown = host.show_editor(true, SLOW).unwrap();
     assert!(shown.open && shown.visible);
     assert_eq!(shown.bounds, Some(AT));
-    // With no window there is nothing to show.
     host.close_editor(SLOW).unwrap();
     let none = host.show_editor(true, SLOW).unwrap();
     assert!(!none.open && !none.visible);
@@ -168,15 +157,12 @@ fn an_editor_that_stops_answering_is_reported_not_waited_for_and_recovers() {
         waited < Duration::from_millis(1400),
         "answered after {waited:?}: the host waited for the window"
     );
-    // While the main thread is stuck every request says so at once.
     let began = Instant::now();
     match host.editor_status(SLOW) {
         Err(HostError::Failed { kind, .. }) => assert_eq!(kind, FailureKind::Unresponsive),
         other => panic!("{other:?}"),
     }
     assert!(began.elapsed() < Duration::from_millis(300));
-    // Then the window code returns, the late answer is dropped, and the
-    // host answers again; the window it was making is there.
     let end = Instant::now() + Duration::from_secs(10);
     let status = loop {
         match host.editor_status(SLOW) {
@@ -195,10 +181,6 @@ fn an_editor_that_stops_answering_is_reported_not_waited_for_and_recovers() {
     host.close_editor(SLOW).unwrap();
 }
 
-/// MT-VST-4 run 1 (RP-5): the plugin took more than the window's wait to open
-/// its editor, and setting it up again in the meantime was refused as "not
-/// responding". Only window requests are answered that way; the rest wait
-/// their turn and are done.
 #[test]
 fn while_the_window_is_stuck_other_requests_wait_and_are_answered() {
     let mut host = host_with("on,hang=1500");
@@ -214,13 +196,9 @@ fn while_the_window_is_stuck_other_requests_wait_and_are_answered() {
     assert!(host.editor_status(SLOW).unwrap().open);
 }
 
-/// MT-VST-4 run 1 (RP-7): an answer that came after its request was given up on
-/// was read as the answer to the next one ("expected Configured"). The host
-/// answers in order, so the late answer is dropped.
 #[test]
 fn a_late_answer_is_never_taken_for_the_next_one() {
     let mut host = host_with("on,hang=800");
-    // Given up on long before the window opens.
     assert_eq!(
         host.open_editor(None, Duration::from_millis(100)),
         Err(HostError::Timeout)
@@ -236,8 +214,6 @@ fn a_late_answer_is_never_taken_for_the_next_one() {
     assert!(before >= 1);
 }
 
-/// The owner's choice (M6 slice 4): with the computer keyboard on, its keys
-/// pressed in a plugin's window are taken and told to Lumen.
 #[test]
 fn keys_asked_for_are_told_as_they_are_pressed_in_the_window() {
     let mut host = host_with("on,press=75");
@@ -246,7 +222,6 @@ fn keys_asked_for_are_told_as_they_are_pressed_in_the_window() {
         let _ = tx.send(news);
     }));
     host.open_editor(None, SLOW).unwrap();
-    // Not asked for: the plugin keeps it.
     host.capture_keys(vec![b'A'], SLOW).unwrap();
     assert!(rx.recv_timeout(Duration::from_millis(200)).is_err());
     host.capture_keys(vec![b'A', b'K'], SLOW).unwrap();
@@ -266,7 +241,6 @@ fn keys_asked_for_are_told_as_they_are_pressed_in_the_window() {
             }
         ]
     );
-    // The news never stands for an answer.
     assert!(host.param_text(0, 0.5, SLOW).is_ok());
     host.capture_keys(Vec::new(), SLOW).unwrap();
 }

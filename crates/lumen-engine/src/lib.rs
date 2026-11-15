@@ -1,23 +1,3 @@
-//! Lumen's real-time engine (ADR-0003, ADR-0017).
-//!
-//! - [`engine`]: creates the [`EngineHandle`] (UI side) and [`Engine`]
-//!   (audio thread) pair. The engine owns the transport: play, pause, stop,
-//!   locate, loop and punch, all sample-accurate, and scrubbing while
-//!   stopped ([`ScrubStyle`]).
-//! - [`Timeline`]: tempo and time-signature maps, swapped in whole.
-//! - [`Source`]: what the engine plays: the [`Mixer`], which runs the
-//!   routing ([`Routing`]: tracks, groups, returns, the master) over what a
-//!   [`TrackSource`] plays into each track; [`ClipPlayer`] plays audio
-//!   clips.
-//! - [`TransportSnapshot`]: the transport as the UI sees it.
-//! - [`loopback`]: measuring the round trip through a cable (M9 slice R2b).
-//! - [`chime`]: the sound check, left, right, then both (M9 slice R7b).
-//! - [`preview`]: a file previewed from the browser (M9 R7c).
-//!
-//! The engine runs inside the device callback and never allocates, locks or
-//! blocks there; `tests/realtime.rs` checks that, and RealtimeSanitizer
-//! checks it again in Linux CI.
-
 mod capture;
 pub mod chime;
 mod clips;

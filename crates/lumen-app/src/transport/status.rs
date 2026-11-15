@@ -1,6 +1,3 @@
-//! The audio status at the end of the transport bar: CPU and dropouts,
-//! the device readout and its panel, and the settings window.
-
 use std::time::{Duration, Instant};
 
 use eframe::egui::{self, RichText, Ui};
@@ -16,26 +13,20 @@ use crate::{theme, widgets};
 use super::Transport;
 use super::{compensation, dropouts};
 
-/// The audio light's radius, in the status chip.
 const DOT_RADIUS: f32 = theme::size::STATUS_DOT;
 
-/// What dropouts mean, and what helps.
 const DROPOUT_HELP: &str =
     "Audio didn't reach the interface in time: you may have heard a click. A larger buffer helps.";
 
-/// What a late disk read means, and what helps (M9 slice R6).
 const DISK_HELP: &str = "A file playing from disk was read too late, so it was silent for a \
      moment. A faster disk helps, as does turning off Play audio from disk in the audio settings.";
 
 impl Transport {
-    /// Shows `peak` as the CPU load until the next reading, a second on.
     pub(crate) fn show_cpu_load(&mut self, peak: f32) {
         self.cpu_peak = peak;
         self.cpu_taken = Some(Instant::now());
     }
 
-    /// CPU load (the peak over the last second) and, after dropouts, the
-    /// dropout chip; returns the chip, which opens the audio panel.
     fn health(&mut self, ui: &mut Ui) -> Option<egui::Response> {
         let meters = self.audio.meters().cloned()?;
         if self
@@ -53,10 +44,6 @@ impl Transport {
             } else {
                 theme::p().text_secondary
             };
-            // Martian Mono like the other readouts (the Transport card), in
-            // a slot as wide as "CPU 100%" with the figure on its right, so
-            // the audio chip after it never moves as the load changes
-            // (up to 999%, the most the slot holds).
             let font = egui::FontId::monospace(theme::size::BODY);
             let slot = super::fit::text_width(ui, "CPU 100%", font.clone());
             let text = format!("CPU {:.0}%", cpu.min(999.0));
@@ -83,9 +70,6 @@ impl Transport {
         chip
     }
 
-    /// The widths the CPU readout, the dropout chip and the delay
-    /// compensation readout want in the bar (0 when one has nothing to
-    /// show), for `fit`.
     pub(super) fn status_wants(&self, ui: &Ui) -> (f32, f32, f32) {
         let gap = super::fit::gap(ui);
         let small = egui::TextStyle::Small.resolve(ui.style());
@@ -113,8 +97,6 @@ impl Transport {
         (cpu, dropout, compensation)
     }
 
-    /// What the warning chip says while dropouts or late disk reads are
-    /// recent, and what it means: dropouts first, as the worse news.
     fn warning(&self, now: Instant) -> Option<(String, &'static str)> {
         if let Some(episode) = self.dropouts.showing(now) {
             return Some((dropouts::chip(episode), DROPOUT_HELP));
@@ -123,9 +105,6 @@ impl Transport {
         Some((late_chip(episode), DISK_HELP))
     }
 
-    /// "Dropout" or "Dropouts ×3" in amber while dropouts are recent, or
-    /// "Disk late" after an underrun (M9 slice R6); it fades out after 10 s
-    /// of clean audio (owner's A).
     fn dropout_chip(&mut self, ui: &mut Ui) -> Option<egui::Response> {
         let now = Instant::now();
         let showing = self.warning(now);
@@ -143,7 +122,6 @@ impl Transport {
         if shown <= 0.0 {
             return None;
         }
-        // While fading out, what it last showed.
         let (words, help) =
             showing.or_else(|| ui.ctx().data(|d| d.get_temp::<(String, &'static str)>(id)))?;
         let text = format!("⚠ {words}");
@@ -152,7 +130,6 @@ impl Transport {
             egui::FontId::proportional(theme::size::CAPTION),
             theme::p().warning.gamma_multiply(shown),
         );
-        // A pill, 20 pt tall (the Notices card).
         let size = egui::vec2(
             galley.size().x + 2.0 * theme::space::S,
             theme::size::CONTROL_SMALL,
@@ -183,26 +160,20 @@ impl Transport {
         )
     }
 
-    /// What the MIDI chip's popover asked for since the last frame.
     pub fn take_midi_asked(&mut self) -> Vec<crate::midi::Action> {
         std::mem::take(&mut self.midi_asked)
     }
 
-    /// The test tone is on.
     pub fn test_tone(&self) -> bool {
         self.test_tone
     }
 
-    /// Why the loopback helper cannot measure now, if it cannot.
     pub fn measure_held(&self) -> Option<&'static str> {
         let snap = self.audio.engine.transport();
         (snap.playing || snap.recording || snap.count_in_left > 0)
             .then_some("Stop playback to measure")
     }
 
-    /// Carries out what the Audio page of Preferences asked of the device:
-    /// the app keeps the rest (the offset, Play audio from disk), and gets
-    /// those back.
     pub fn audio_action(
         &mut self,
         action: crate::preferences::audio::Action,
@@ -236,15 +207,9 @@ impl Transport {
 
     fn audio_panel(&mut self, ui: &mut Ui, project: &Project) {
         ui.set_min_width(280.0);
-        // Long lines (the dropout help, notices) wrap rather than widen it.
         ui.set_max_width(300.0);
-        // With a long plugin list the panel can be taller than the room
-        // under the bar in a small window: then it scrolls (ADR-0075).
-        // The plugin list gives way first, down to two rows.
         let room = ui.ctx().content_rect().bottom() - ui.cursor().top() - theme::space::L;
         self.budget.list_room = room - self.budget.outside;
-        // The shared menu owns scrolling; a second scroll area here would
-        // reserve width twice and clip the budget labels at the right.
         let top = ui.cursor().top();
         self.budget.list_height = 0.0;
         self.audio_panel_rows(ui, project);
@@ -307,7 +272,6 @@ impl Transport {
             .clicked()
         {
             self.open_preferences = Some(crate::preferences::Page::Audio);
-            // Close this panel, so the window is not hidden behind it.
             ui.close();
         }
         if widgets::switch(ui, &mut self.test_tone, "Test tone (1 kHz, −20 dBFS)", true)
@@ -342,8 +306,6 @@ impl Transport {
                         .on_hover_text("Buffers that took longer to process than they last");
                     ui.label(meters.overloads().to_string());
                     ui.end_row();
-                    // Which check found them: the driver's position
-                    // skipping, or audio arriving slower than real time.
                     let total = meters.dropouts();
                     let slow = meters.slow_dropouts().min(total);
                     let causes = format!(
@@ -357,7 +319,6 @@ impl Transport {
                     ui.label("Clip audio in memory");
                     ui.label(format!("{:.0} MB", self.clip_memory as f64 / 1_048_576.0));
                     ui.end_row();
-                    // Only while audio plays from disk (the owner's D A).
                     if let Some(disk) = self.disk {
                         let late = disk.underruns.saturating_sub(self.disk_base);
                         let tip = "The share of the last second spent reading files that play \
@@ -372,7 +333,6 @@ impl Transport {
                         ui.end_row();
                     }
                 });
-            // CPU is a live reading; only the counts can be reset.
             let late = self
                 .disk
                 .map_or(0, |d| d.underruns.saturating_sub(self.disk_base));
@@ -407,9 +367,6 @@ impl Transport {
         }
     }
 
-    /// The device's rows, one label and value each (the interface audit's
-    /// T2): rate, buffer and latencies, then delay compensation (D1:
-    /// always here, even at 0) and the path that sets it.
     fn latency(&self, ui: &mut Ui, project: &Project) {
         let rate = self.state().sample_rate;
         let found = self.audio.mixer.compensation();
@@ -430,7 +387,6 @@ impl Transport {
                         compensation::ms(info.output_latency, info.sample_rate)
                     ));
                     ui.end_row();
-                    // As the device line shows it.
                     ui.label("Round trip");
                     ui.label(format!("{:.1} ms", info.round_trip_ms()));
                     ui.end_row();
@@ -466,7 +422,6 @@ impl Transport {
             .disk
             .map_or(0, |d| d.underruns.saturating_sub(self.disk_base));
         self.late.update(late, Instant::now());
-        // What shows beyond the dot is `fit`'s to say (transport/fit.rs).
         let chip = self.health(ui);
         let (text, color, tip) = match &self.audio.status {
             Status::Starting => (
@@ -486,11 +441,8 @@ impl Transport {
             ),
             Status::Off(why) => ("Audio off".to_owned(), theme::p().warning, why.clone()),
         };
-        // A dot that always fits shows the state at a glance; the text
-        // shortens in narrow windows, and the tooltip always has all of it.
         let hidden_dropouts = !self.fit.plan.dropout && self.warning(Instant::now()).is_some();
         let dot = match self.audio.status {
-            // The dropout chip gave way: the dot says so.
             Status::Running { .. } if hidden_dropouts => theme::p().warning,
             Status::Running { .. } => theme::p().accent,
             Status::Starting => theme::p().text_hint,
@@ -506,8 +458,6 @@ impl Transport {
             format!("{text}\n\n{tip}\n\n{memory}")
         };
         let tip = format!("{tip}\n\nClick for the audio panel");
-        // Delay compensation ends the device line while there is some
-        // (D1), a step brighter than the rest.
         let rate = self.state().sample_rate;
         let found = self.audio.mixer.compensation().clone();
         let extra = match self.audio.status {
@@ -518,15 +468,12 @@ impl Transport {
             Some(extra) => format!("Audio: {text} · {extra}"),
             None => format!("Audio: {text}"),
         };
-        // The chip shows the device and its rate; the buffer and the round
-        // trip are in the tooltip and the panel (the interface audit's TB1).
         let shown = match &self.audio.status {
             Status::Running { device, rate, .. } => format!("{device} · {rate}"),
             _ => text,
         };
         let small = egui::TextStyle::Small.resolve(ui.style());
         let gap = theme::space::XS;
-        // The device text, shortened to its room (`fit`'s plan).
         let device = (self.fit.plan.device > gap).then(|| {
             let mut job = egui::text::LayoutJob::single_section(
                 shown,
@@ -535,7 +482,6 @@ impl Transport {
             job.wrap = egui::text::TextWrapping::truncate_at_width(self.fit.plan.device - gap);
             ui.fonts_mut(|fonts| fonts.layout_job(job))
         });
-        // The compensation readout, a step brighter than the device text.
         let tail = extra
             .as_ref()
             .filter(|_| self.fit.plan.compensation)
@@ -546,11 +492,8 @@ impl Transport {
                 tail.append(extra, 0.0, section(theme::p().text));
                 ui.fonts_mut(|fonts| fonts.layout_job(tail))
             });
-        // What the text takes beyond the dot is `fit`'s optional room.
         let texts = device.as_ref().map_or(0.0, |g| gap + g.size().x)
             + tail.as_ref().map_or(0.0, |g| g.size().x);
-        // A raised chip holding the light and the text: the light always
-        // fits and shows the state at a glance (the owner kept it, TB1).
         let pad = theme::space::S;
         let light = 2.0 * DOT_RADIUS;
         let size = egui::vec2(2.0 * pad + light + texts, theme::size::CONTROL);
@@ -599,7 +542,6 @@ impl Transport {
     }
 }
 
-/// The chip's words after late disk reads: "Disk late", or "Disk late ×3".
 fn late_chip(episode: u64) -> String {
     if episode == 1 {
         "Disk late".into()
@@ -608,8 +550,6 @@ fn late_chip(episode: u64) -> String {
     }
 }
 
-/// The panel's warning while late disk reads are recent: "2 late disk reads
-/// just now · 5 since audio started".
 fn late_summary(late: &dropouts::Dropouts, now: Instant) -> Option<String> {
     let episode = late.showing(now)?;
     let plural = if episode == 1 { "read" } else { "reads" };

@@ -1,6 +1,3 @@
-//! Dense views painted directly with egui's painter: viewport culling plus
-//! level of detail (items narrower than a few pixels merge into spans).
-
 use eframe::egui::{
     Align2, Color32, FontId, Mesh, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, pos2, vec2,
 };
@@ -29,7 +26,6 @@ pub struct DrawStats {
 }
 
 fn grid(painter: &Painter, rect: Rect, view: &View) {
-    // Bars every 4 beats; thin out until lines are at least 8 px apart.
     let mut step = 4.0;
     while step * view.px_per_beat < 8.0 {
         step *= 2.0;

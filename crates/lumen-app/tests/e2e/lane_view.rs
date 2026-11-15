@@ -1,8 +1,3 @@
-//! Seeing and adding an automation lane (M7 slice A1): the A button and key
-//! show a lane over a track's clips, a click adds a point, a drag moves it,
-//! Ctrl reaches the clip underneath, the chip chooses the parameter, and the
-//! keys alone can do all of it. Every edit is one undo step.
-
 use std::time::Duration;
 
 use eframe::egui::{Event, Key, Modifiers, Pos2};
@@ -14,11 +9,8 @@ use lumen_project::model::Id;
 
 use super::{Lumen, wav};
 
-/// The test tone's peak (`wav`): 3,000 of 32,768.
 const TONE: f32 = 3_000.0 / 32_768.0;
 
-/// A project with one track holding a long tone, selected, on a one-beat
-/// grid, with the lane not yet shown.
 pub(super) fn tone(name: &str) -> (Lumen, Id) {
     let mut lumen = Lumen::start(name);
     let file = wav(&lumen.dir().join("tone.wav"), 20.0);
@@ -33,7 +25,6 @@ pub(super) fn tone(name: &str) -> (Lumen, Id) {
     (lumen, track)
 }
 
-/// The lane of `track` for `target`, as the project holds it.
 pub(super) fn points(lumen: &Lumen, track: Id, target: Target) -> Vec<(Ticks, f32)> {
     lumen
         .app()
@@ -71,7 +62,6 @@ pub(super) fn click_at(lumen: &mut Lumen, p: Pos2) {
     lumen.frames(3);
 }
 
-/// Types `query` into the palette and presses Enter on its first row.
 pub(super) fn run_command(lumen: &mut Lumen, query: &str) {
     if !lumen.app().palette_open() {
         lumen.key(Modifiers::COMMAND, Key::K);
@@ -125,8 +115,6 @@ fn the_a_key_shows_a_lane_over_the_clips_and_makes_room_for_it() {
 
 #[test]
 fn an_unfolded_header_has_no_a_button_and_the_a_key_still_shows_the_lane() {
-    // ADR-0101: the A button left the header; the A key, the track's menu
-    // and the command palette show the lane.
     let (mut lumen, track) = tone("lane-button");
     let ctx = lumen.harness.ctx.clone();
     let folded = lumen.app().tracks_height(&ctx);
@@ -151,7 +139,6 @@ fn an_unfolded_header_has_no_a_button_and_the_a_key_still_shows_the_lane() {
     lumen.key(Modifiers::NONE, Key::A);
     lumen.frames(5);
     assert_eq!(lumen.app().automation_shown(track), None);
-    // The mouse's way: the track's right-click menu.
     let name = lumen
         .harness
         .query_by_label_contains("Track tone,")
@@ -181,7 +168,6 @@ fn a_click_adds_a_point_on_the_grid_and_it_is_heard() {
     );
     assert_eq!(lumen.app().automation_picked(), Some((track, vec![0])));
     assert!(lumen.app().is_dirty());
-    // The lane plays: a single point holds its value.
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.wait_for("playback", |app| app.playhead() > Ticks::quarters(1));
     let level = peak(&mut lumen);
@@ -306,11 +292,9 @@ fn ctrl_reaches_the_clip_under_the_lane() {
     lumen.frames(40);
     let clip = lumen.app().project().tracks[0].clips[0].id;
     let at = spot(&lumen, track, 3.0, -6.0);
-    // Plain: the lane takes the click.
     click_at(&mut lumen, at);
     assert!(lumen.app().selected_clips().is_empty());
     assert_eq!(points(&lumen, track, Target::Volume).len(), 1);
-    // Ctrl: the clip does, and the lane gets no second point.
     let elsewhere = spot(&lumen, track, 7.0, -6.0);
     lumen
         .harness
@@ -372,14 +356,12 @@ fn the_chip_chooses_which_parameter_the_lane_draws() {
     lumen.click("Pan");
     assert_eq!(lumen.app().automation_shown(track), Some(Target::Pan));
     assert!(lumen.shows("Automation lane of tone: Pan"));
-    // A click now makes a pan lane, and leaves volume alone.
     let at = spot(&lumen, track, 4.0, 0.5);
     click_at(&mut lumen, at);
     let held = points(&lumen, track, Target::Pan);
     assert_eq!(held.len(), 1);
     assert!(held[0].1 > 0.3 && held[0].1 < 0.7, "{}", held[0].1);
     assert!(points(&lumen, track, Target::Volume).is_empty());
-    // The chooser says how many points each lane holds.
     lumen.click("Automation lane of tone: Pan");
     assert!(lumen.shows("Pan  \u{00B7}  1 point"));
 }
@@ -389,7 +371,6 @@ fn the_keys_alone_make_a_lane_and_move_and_delete_its_point() {
     let (mut lumen, track) = tone("lane-keys");
     lumen.key(Modifiers::NONE, Key::A);
     lumen.frames(40);
-    // The playhead goes to bar 2; the command adds a point there.
     run_command(&mut lumen, "bar 2");
     lumen.wait_for("the playhead at bar 2", |app| {
         (app.playhead() - Ticks::quarters(4)).0.abs() < Ticks::quarters(1).0 / 1000
@@ -400,7 +381,6 @@ fn the_keys_alone_make_a_lane_and_move_and_delete_its_point() {
     assert_eq!(held[0].0, Ticks::quarters(4));
     assert_eq!(held[0].1, 0.0, "the control's own value, so nothing jumps");
     assert_eq!(lumen.app().automation_picked(), Some((track, vec![0])));
-    // Right moves it a grid step later, Up raises it, Delete takes it.
     lumen.key(Modifiers::NONE, Key::ArrowRight);
     assert_eq!(
         points(&lumen, track, Target::Volume)[0].0,

@@ -1,14 +1,3 @@
-//! The metronome and the test tone (M2 slice 7). Both are synthesized, so
-//! there are no sample files or licences to manage.
-//!
-//! Clicks start on the exact sample of each beat, with the downbeat
-//! accented (higher and louder). A click that is still ringing carries on
-//! across loop wraps, locates and stops: only new beats start clicks, so the
-//! metronome never cuts itself off.
-//!
-//! The count-in clicks (M5 slice 6) sound whether or not the metronome is
-//! on; "only while recording" is the app's, which switches the metronome.
-
 use std::f32::consts::TAU;
 
 use lumen_core::time::Ticks;
@@ -17,10 +6,8 @@ use crate::timeline::Timeline;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ClickSound {
-    /// A short sine blip (1 kHz, 1.5 kHz on the downbeat).
     #[default]
     Beep,
-    /// A woody tick: two fast-decaying partials and a breath of noise.
     Wood,
 }
 
@@ -38,12 +25,8 @@ impl ClickSound {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MetronomeSettings {
     pub enabled: bool,
-    /// Linear gain, 0.0–1.0.
     pub volume: f32,
     pub sound: ClickSound,
-    /// The first device channel it plays on (M4 slice 4): 0 for the main
-    /// pair, the cue pair's first channel for the cue. A pair the device
-    /// does not have falls back to the main one.
     pub channel: u16,
 }
 
@@ -58,14 +41,10 @@ impl Default for MetronomeSettings {
     }
 }
 
-/// One click in progress.
 #[derive(Debug, Clone, Copy, Default)]
 struct Voice {
-    /// Frames played so far.
     age: u32,
-    /// Frames the click lasts.
     length: u32,
-    /// Frames at the end that fade to zero.
     fade: u32,
     accent: bool,
     sound: ClickSound,
@@ -81,8 +60,6 @@ impl Voice {
     fn next(&mut self, rate: f32) -> f32 {
         let t = self.age as f32 / rate;
         self.age += 1;
-        // The last `TAIL` fades to exactly zero (smoothstep, cheap enough
-        // per sample), so a click never stops short with sound in it.
         let left = self.length - self.age;
         let tail = if left < self.fade {
             let x = left as f32 / self.fade as f32;
@@ -115,14 +92,9 @@ impl Voice {
     }
 }
 
-/// How long a click lasts.
 const CLICK: f32 = 0.050;
-/// The fade at the end of a click; the beep is already 26 dB down where it
-/// starts, so the sound is unchanged.
 const TAIL: f32 = 0.015;
 
-/// Where the metronome writes in a channel-major buffer: `count` frames from
-/// `offset`, for `channels` channels that are `stride` frames apart.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Window {
     pub stride: usize,
@@ -137,14 +109,11 @@ pub(crate) struct Metronome {
     voice: Voice,
 }
 
-/// The beats before recording starts: `beats` clicks `beat` frames apart,
-/// the first of every bar (`per_bar` beats) accented. The song waits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct CountIn {
     pub beat: i64,
     pub beats: u32,
     pub per_bar: u32,
-    /// Frames counted so far.
     pub done: i64,
 }
 
@@ -158,7 +127,6 @@ impl CountIn {
     }
 }
 
-/// Downbeats are at full level; other beats a little quieter.
 const ACCENT_GAIN: f32 = 1.0;
 const BEAT_GAIN: f32 = 0.6;
 
@@ -175,8 +143,6 @@ impl Metronome {
         };
     }
 
-    /// Adds the ringing click to `count` frames from `offset` of channel-major
-    /// `data`.
     fn ring(
         &mut self,
         data: &mut [f32],
@@ -199,9 +165,6 @@ impl Metronome {
         }
     }
 
-    /// Clicks for the timeline samples `start .. start + window.count`,
-    /// written to frames `window.offset ..` of `data`. Only new beats start
-    /// clicks; a ringing one carries on.
     pub fn render(
         &mut self,
         timeline: &Timeline,
@@ -223,7 +186,6 @@ impl Metronome {
         }
         let end = start + count as i64;
         let mut done = 0;
-        // Start a quarter early so a beat that rounds onto `start` is kept.
         let mut beat = timeline
             .meter
             .next_beat(timeline.ticks_at(start, rate) - Ticks::quarters(1));
@@ -243,8 +205,6 @@ impl Metronome {
         self.ring(data, stride, channels, offset + done, count - done, rate_f);
     }
 
-    /// Clicks for the next `window.count` frames of a count-in (or the frames
-    /// it has left, if fewer), and moves it on. Returns the frames used.
     pub fn count(
         &mut self,
         count_in: &mut CountIn,
@@ -276,7 +236,6 @@ impl Metronome {
         n
     }
 
-    /// Lets a ringing click finish while stopped.
     pub fn ring_out(
         &mut self,
         data: &mut [f32],
@@ -293,8 +252,6 @@ impl Metronome {
     }
 }
 
-/// The test tone: 1 kHz at −20 dBFS on every output, playing or not, with
-/// 5 ms ramps on and off.
 #[derive(Debug, Default)]
 pub(crate) struct TestTone {
     pub on: bool,
@@ -302,7 +259,6 @@ pub(crate) struct TestTone {
     gain: f32,
 }
 
-/// −20 dBFS.
 const TONE_LEVEL: f32 = 0.1;
 
 impl TestTone {
@@ -344,7 +300,6 @@ impl TestTone {
 mod tests {
     use super::*;
 
-    /// One whole click, sample by sample.
     fn click(sound: ClickSound, accent: bool) -> Vec<f32> {
         let mut metronome = Metronome::default();
         metronome.settings.sound = sound;
@@ -359,16 +314,12 @@ mod tests {
 
     #[test]
     fn every_click_fades_to_silence_instead_of_stopping_short() {
-        // Owner: a little static on the metronome. Cut off at a fixed
-        // length, the beep still had 1.5% of its level and stepped to
-        // silence, ticking after every click.
         for sound in ClickSound::ALL {
             for accent in [false, true] {
                 let out = click(sound, accent);
                 let peak = out.iter().fold(0.0_f32, |m, v| m.max(v.abs()));
                 let last = out.last().copied().unwrap_or(0.0).abs();
                 assert!(last < peak * 1e-4, "{sound:?}: ends at {last}, peak {peak}");
-                // The final 5 ms are at least 40 dB down, fading out.
                 let tail = out[out.len() - 240..]
                     .iter()
                     .fold(0.0_f32, |m, v| m.max(v.abs()));

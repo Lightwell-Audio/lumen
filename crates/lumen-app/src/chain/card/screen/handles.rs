@@ -1,11 +1,3 @@
-//! On-screen handles: where the picture is the idea, the picture is the control
-//! (drag Prism's beam spread). A handle moves one parameter, as its dial does,
-//! through the same edit: the value is `Output::Set`, so a drag is one undo
-//! step. Shift is fine adjustment, Alt moves freely (no snapping to a stepped
-//! parameter's steps), double-click is the default, the arrow keys move it, and
-//! it is a Tab stop with an accessible name. The pointer over it shows the
-//! handle's cursor and lights it; while it is dragged a chip says the value.
-
 use eframe::egui::{
     self, Align, Color32, Key, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2,
 };
@@ -18,17 +10,12 @@ use crate::theme::personality::card as c;
 use crate::widgets::param::{snap, step_by};
 use crate::{motion, theme};
 
-/// What the handles showed this frame.
 #[derive(Default)]
 pub(super) struct Hot {
-    /// How lit each handle is, for the drawing.
     pub lit: [f32; MAX_HANDLES],
-    /// The live chip while one is dragged: where it hangs from, and its words.
     pub chip: Option<(Pos2, String)>,
 }
 
-/// Registers the handles of `drawing` on the picture, applies what they were
-/// given and says what to show.
 pub(super) fn interact(
     ui: &mut Ui,
     plan: &Plan,
@@ -38,14 +25,10 @@ pub(super) fn interact(
     out: &mut Vec<Output>,
 ) -> Hot {
     let mut hot = Hot::default();
-    // The compact card's picture is a band too thin to grab a tip on: the dials
-    // under it are what is touched there.
     if plan.step == crate::chain::geometry::Step::Compact {
         return hot;
     }
     for (index, handle) in drawing.handles.iter().enumerate().take(MAX_HANDLES) {
-        // A handle may stand for another parameter while the values say so, and
-        // may move a second one by the pointer's other axis.
         let param = handle.follows.map_or(handle.param, |f| f(values));
         let Some(slot) = values.slots.iter().find(|s| s.id == param) else {
             continue;
@@ -61,8 +44,6 @@ pub(super) fn interact(
         if grab.width() <= 0.0 || grab.height() <= 0.0 {
             continue;
         }
-        // A handle that follows a parameter is a new handle when the parameter
-        // changes: a drag in progress ends there.
         let id = id.with(("handle", index, param));
         let read_only = slot.read_only || also.is_some_and(|(_, other)| other.read_only);
         let sense = if read_only {
@@ -118,7 +99,6 @@ pub(super) fn interact(
                     plan.picture,
                 );
                 if response.double_clicked() {
-                    // Both back to their defaults: a step of its own.
                     out.push(Output::Reset(vec![
                         (slot.id, snap(slot.default, slot.steps)),
                         (other_slot.id, snap(other_slot.default, other_slot.steps)),
@@ -133,7 +113,6 @@ pub(super) fn interact(
         }
         if response.dragged() {
             let shown = next.unwrap_or(slot.value);
-            // A wide grab hangs its chip from the pointer; a tip from itself.
             let from = if also.is_some() {
                 ui.input(|i| i.pointer.interact_pos())
                     .unwrap_or(grab.center())
@@ -157,11 +136,8 @@ pub(super) fn interact(
     hot
 }
 
-/// How a pointer's place becomes a value (a handle's `value_at`).
 type ValueAt = fn(&Values<'_>, Pos2, Rect) -> f64;
 
-/// Which arrow keys move a handle's parameter: both pairs (one parameter), the
-/// left and right pair (the first of two) or the up and down pair (the second).
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Keys {
     Both,
@@ -169,9 +145,6 @@ enum Keys {
     Up,
 }
 
-/// The value a handle's pointer and keys ask for this frame for one of its
-/// parameters, if any: how the pointer's place becomes its value, the
-/// parameter's slot and the keys that move it.
 fn moved(
     ui: &Ui,
     response: &egui::Response,
@@ -232,7 +205,6 @@ fn moved(
     next
 }
 
-/// The live value chip, hung above `from` and kept on the screen.
 pub(super) fn chip(painter: &egui::Painter, plan: &Plan, from: Pos2, words: &str, hue: Color32) {
     let font = egui::FontId::monospace(c::CHIP_TEXT);
     let galley = painter.layout_no_wrap(words.to_owned(), font, Color32::WHITE);

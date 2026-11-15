@@ -1,17 +1,9 @@
-//! Streams for offline renders (bounce, join, freeze, export): a render's own
-//! pool, filled on the render's thread as the clip player reads, so a render
-//! never starves and plays exactly what is in the files. Not real-time code.
-
 use std::sync::{Arc, Mutex};
 
 use super::{PAGE, PageLoader, PagePool, PoolWriter, StreamAudio};
 
-/// Reads `audio`'s `page` into `left` and `right` ([`PAGE`] frames each;
-/// `right` is left alone for a mono file); returns the frames read, or
-/// `None` when the file cannot be read (that page stays silent).
 pub type ReadPage = dyn FnMut(&StreamAudio, usize, &mut [f32], &mut [f32]) -> Option<usize> + Send;
 
-/// A [`PageLoader`] over one pool, reading through a function.
 pub struct OfflineLoader {
     pool: Arc<PagePool>,
     inner: Mutex<Inner>,
@@ -25,8 +17,6 @@ struct Inner {
 }
 
 impl OfflineLoader {
-    /// A loader of `pool`'s pages, reading with `read`. The pool must have
-    /// at least two pages and no other writer.
     pub fn new(pool: &Arc<PagePool>, read: Box<ReadPage>) -> Arc<Self> {
         Arc::new(Self {
             pool: Arc::clone(pool),
@@ -39,8 +29,6 @@ impl OfflineLoader {
         })
     }
 
-    /// `stream` as an offline stream of this loader's pool, with the same id
-    /// and shape.
     pub fn stream(self: &Arc<Self>, stream: &StreamAudio) -> StreamAudio {
         StreamAudio::offline(
             &self.pool,
@@ -65,8 +53,6 @@ impl PageLoader for OfflineLoader {
             right,
         } = &mut *inner;
         writer.tick();
-        // A page taken out while a block renders is free only after the
-        // block, so half the pool is kept free for what a block reads.
         let reserve = (writer.pool().pages() as usize / 2).max(1);
         if writer.reclaim() < reserve {
             writer.evict(reserve);

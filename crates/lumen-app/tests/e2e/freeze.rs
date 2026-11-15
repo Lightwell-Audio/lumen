@@ -1,7 +1,3 @@
-//! M7b E5: Freeze renders a track into a file it plays instead of its clips
-//! and devices, makes it read-only with a way back (the Frozen badge), and
-//! Flatten turns it into a plain audio track. Each is one undo step.
-
 use std::sync::atomic::AtomicBool;
 
 use eframe::egui::{Key, Modifiers};
@@ -98,7 +94,6 @@ fn a_frozen_track_refuses_edits_and_says_why_and_the_badge_unfreezes_it() {
         frozen.tracks[0].clips,
         "the clips are exactly as they were"
     );
-    // Free again: the same delete now works.
     lumen.app_mut().select_clip(clip);
     lumen.key(Modifiers::NONE, Key::Delete);
     assert!(lumen.app().project().tracks[0].clips.is_empty());
@@ -202,8 +197,6 @@ fn nothing_selected_means_nothing_to_freeze() {
     assert_eq!(lumen.app().project(), &before);
 }
 
-/// The point of freezing: the plugin's process ends while the track is
-/// frozen, and unfreezing starts it again from the state it had.
 #[test]
 fn a_frozen_plugin_track_runs_no_plugin_and_unfreezing_starts_it_again() {
     use super::hosting::{PLUGIN, instrument_device, launch, timing_sensitive, wait_for_state};
@@ -245,8 +238,6 @@ fn a_frozen_plugin_track_runs_no_plugin_and_unfreezing_starts_it_again() {
     assert!(lumen.app().project().tracks[0].frozen.is_none());
 }
 
-/// Tap tempo is refused at its first tap while a track is frozen, with the
-/// frozen notice, and no run starts (M9 R7).
 #[test]
 fn a_tap_with_a_frozen_track_says_why_and_starts_no_run() {
     let (mut lumen, _path) = keys_project("freeze-tap");

@@ -1,8 +1,3 @@
-//! The app menu (click "Lumen"): files, undo, appearance (theme, interface
-//! size, Reduce motion) and Preferences; and saving settings in the
-//! background (audit H1). The Preferences window is `window.rs`, its pages
-//! `pages.rs`.
-
 mod files;
 mod pages;
 mod window;
@@ -18,11 +13,8 @@ use crate::commands::Command;
 use crate::{App, fonts, motion, settings, theme, widgets};
 
 impl App {
-    /// The product name opens the app menu: files, undo, a quick change of
-    /// appearance (theme, interface size, Reduce motion) and Preferences.
     pub(crate) fn app_menu(&mut self, ui: &mut egui::Ui) {
         let before = self.settings.appearance.clone();
-        // Lit while its menu shows, as egui's menu buttons are.
         let open = widgets::Menu::is_open_for(ui.ctx(), ui.next_auto_id());
         let button = widgets::raised::text_button(
             ui,
@@ -108,8 +100,6 @@ impl App {
         self.appearance_chosen(&before, ui.ctx());
     }
 
-    /// After the menu or the Appearance page changed the appearance from
-    /// `before`: it becomes the saved one, applies and is written.
     pub(crate) fn appearance_chosen(&mut self, before: &settings::Appearance, ctx: &egui::Context) {
         if self.settings.appearance != *before {
             self.appearance_override = false;
@@ -119,8 +109,6 @@ impl App {
         }
     }
 
-    /// Applies the saved (or one-off) appearance: palette and egui style,
-    /// motion, and UI scale.
     pub(crate) fn apply_appearance(&mut self, ctx: &egui::Context) {
         let appearance = &self.settings.appearance;
         motion::set_reduced(appearance.reduce_motion);
@@ -130,16 +118,11 @@ impl App {
             motion::time(motion::BASE),
         );
         ctx.set_zoom_factor(appearance.scale());
-        // The zoom takes effect at the start of the next pass, and the window
-        // command is converted then; the least size is sent again from the
-        // pass whose monitor size has moved (`app/window_size.rs`).
         self.apply_window_minimum(ctx);
         self.system_theme = ctx.system_theme();
     }
 
-    /// Notes settings changes and writes them once they settle.
     pub(crate) fn save_settings_when_settled(&mut self, ctx: &egui::Context) {
-        // A device setup that worked (chosen in the audio settings).
         if let Some(audio) = self.transport.audio.confirmed.take() {
             self.settings.audio = Some(audio);
             self.settings_changed = Some(Instant::now());
@@ -165,8 +148,6 @@ impl App {
         let Some(changed) = self.settings_changed else {
             return;
         };
-        // The clock is read once: read twice, the time can cross the end of
-        // the wait between the reads and the subtraction underflows.
         if let Some(left) = settle_left(changed.elapsed(), crate::motion::SETTLE) {
             ctx.request_repaint_after(left);
             return;
@@ -174,7 +155,6 @@ impl App {
         self.write_settings();
     }
 
-    /// Queues the settings for the background writer.
     pub(crate) fn write_settings(&mut self) {
         self.settings_changed = None;
         let mut file = self.settings.clone();
@@ -187,7 +167,6 @@ impl App {
     }
 }
 
-/// How much longer a change has to settle, or `None` once `settle` has passed.
 fn settle_left(elapsed: Duration, settle: Duration) -> Option<Duration> {
     settle.checked_sub(elapsed).filter(|left| !left.is_zero())
 }
@@ -204,8 +183,6 @@ mod settle_tests {
             Some(Duration::from_millis(380))
         );
         assert_eq!(settle_left(settle, settle), None, "exactly settled");
-        // A slow frame that comes after the wait ended: the subtraction this
-        // replaces panicked here.
         assert_eq!(settle_left(Duration::from_millis(900), settle), None);
     }
 }

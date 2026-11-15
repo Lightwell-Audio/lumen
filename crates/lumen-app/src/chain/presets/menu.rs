@@ -1,18 +1,11 @@
-//! The menu under a card's preset field: the search, the rows, and Save, Save
-//! as and Show presets folder.
-
 use super::state::{Choice, Focus, MenuState};
 use super::*;
 
-/// Where the field of the card of `device` is: its id, for opening the menu
-/// from a key.
 pub(in crate::chain) fn field_id(device: Id) -> egui::Id {
     egui::Id::new(("device", device.0)).with("preset field")
 }
 
 impl App {
-    /// Opens the menu of the chosen device's field (the command); with
-    /// `naming` it opens on the name for Save as….
     pub(crate) fn open_preset_menu(&mut self, ctx: &egui::Context, device: Id, naming: bool) {
         let offered = naming.then(|| self.current_name(device));
         self.chain.presets.menu = MenuState {
@@ -27,10 +20,7 @@ impl App {
         widgets::Menu::open_for(ctx, field_id(device));
     }
 
-    /// The menu under `device`'s field, when it is open.
     pub(in crate::chain) fn preset_menu(&mut self, field: &egui::Response, device: Id) {
-        // Staying: typing a name is no reason for the menu to go when the
-        // pointer leaves it; Esc or a click elsewhere closes it.
         let shown = widgets::Menu::below(field)
             .staying()
             .show(|ui| self.preset_menu_body(ui, device));
@@ -43,7 +33,6 @@ impl App {
         let ctx = ui.ctx().clone();
         ui.set_width(WIDTH);
         if self.chain.presets.menu.open_for != Some(device) {
-            // Opened by a click on the field.
             self.chain.presets.menu = MenuState {
                 open_for: Some(device),
                 focus: Focus::Search,
@@ -78,7 +67,6 @@ impl App {
             if menu.focus == Focus::Name {
                 field.request_focus();
                 menu.focus = Focus::None;
-                // The name offered is all selected: typing replaces it.
                 if let Some(mut edit) = egui::TextEdit::load_state(&ctx, field.id) {
                     let end = egui::text::CCursor::new(name.chars().count());
                     edit.cursor
@@ -145,7 +133,6 @@ impl App {
                     close = true;
                     self.begin_preset_save(&ctx, device, name, Some(path));
                 }
-                // No file of the user's own to write over: ask for a name.
                 None => {
                     menu.naming = Some(self.current_name(device));
                     menu.focus = Focus::Name;
@@ -172,7 +159,6 @@ impl App {
         }
     }
 
-    /// The name offered for Save as…: the sound's own, cut to the limit.
     fn current_name(&self, device: Id) -> String {
         self.chain
             .presets
@@ -182,8 +168,6 @@ impl App {
             .unwrap_or_default()
     }
 
-    /// The list of sounds: headings, then rows, as many as are in view. The
-    /// one picked, if any.
     fn preset_list(
         &self,
         ui: &mut Ui,
@@ -201,8 +185,6 @@ impl App {
             ui.label(egui::RichText::new(words).small().weak());
             return None;
         }
-        // Rows and the headings between them, as a flat list so only the
-        // rows in view are drawn.
         enum Line<'a> {
             Heading(String),
             Item(&'a Choice),
@@ -229,7 +211,6 @@ impl App {
                 for line in &lines[range] {
                     match line {
                         Line::Heading(text) => {
-                            // As tall as a row, so the list's height is exact.
                             let (rect, _) = ui.allocate_exact_size(
                                 egui::vec2(ui.available_width(), row_height),
                                 egui::Sense::hover(),
@@ -262,7 +243,6 @@ impl App {
     }
 }
 
-/// The indexes of the choices that match every word of `search`, in order.
 pub(in crate::chain) fn filter(choices: &[Choice], search: &str) -> Vec<usize> {
     let words: Vec<String> = search.split_whitespace().map(str::to_lowercase).collect();
     choices

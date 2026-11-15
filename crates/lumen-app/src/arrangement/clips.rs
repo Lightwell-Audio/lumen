@@ -1,14 +1,3 @@
-//! The lanes and their clips (M3 slice 4): dark clips with a
-//! track-coloured title bar, the armed and soloed lane hints, dimmed clips
-//! on tracks that cannot be heard, and the hover lookup for the file card.
-//!
-//! Clip bodies are drawn on the GPU (slice 4b, ADR-0026). The boxes are
-//! uploaded only when the project, the media or the theme change; where
-//! rows are (scrolling, folding, resizing) goes up as a small table each
-//! frame. Names, and the few clips still loading for import, are egui text
-//! and shapes, drawn only where they are visible. The selection is drawn
-//! by `selection_look`.
-
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -32,23 +21,14 @@ use crate::theme;
 use crate::timeview::TimeView;
 use crate::widgets::{draw_edge_glow, gradient};
 
-/// Space between a lane's edges and its clips.
 pub(super) const INSET: f32 = 3.0;
-/// Space between the title bar and the waveform, and below it.
 pub(super) const WAVE_GAP: f32 = 2.0;
-/// Below this height (in points), stereo is drawn as one waveform.
 pub(super) const SPLIT_BELOW: f32 = 40.0;
-/// Clips narrower than this show no name: a letter or two is noise, and
-/// at wide zooms thousands of names cost more than the clips.
 const NAME_MIN_WIDTH: f32 = 24.0;
-/// Width of a clip still loading for import, before it has a length.
 const PENDING_WIDTH: f32 = 160.0;
-/// How far a warp marker's tick hangs under the title bar.
 const WARP_TICK: f32 = 7.0;
-/// A locked clip's clamps: bars this wide at both ends (the owner's K3).
 pub(super) const CLAMP: f32 = 3.0;
 
-/// A clip's left and right edges in `view`.
 pub(super) fn span(view: TimeView, canvas: Rect, clip: &Clip) -> (f32, f32) {
     (
         view.x(canvas.left(), clip.start.as_quarters()),
@@ -56,7 +36,6 @@ pub(super) fn span(view: TimeView, canvas: Rect, clip: &Clip) -> (f32, f32) {
     )
 }
 
-/// The x range of a span of the timeline.
 pub(super) fn span_of(view: TimeView, canvas: Rect, from: Ticks, to: Ticks) -> (f32, f32) {
     (
         view.x(canvas.left(), from.as_quarters()),
@@ -64,10 +43,6 @@ pub(super) fn span_of(view: TimeView, canvas: Rect, from: Ticks, to: Ticks) -> (
     )
 }
 
-/// The body and title of an audio take being recorded (M9 slice R2), in
-/// record red; its waveform is drawn over it by `audio_take_look`. The body is
-/// a tint, so an opaque base goes under it: a clip the take is recording over
-/// is hidden exactly as far as the take has gone, however fast it grows.
 pub(super) fn draw_recording_take(painter: &Painter, rect: Rect, lane: Rect, name: &str) {
     painter.rect_filled(rect, theme::radius::SMALL, theme::p().lane);
     let look = ClipLook {
@@ -85,39 +60,22 @@ pub(super) fn draw_recording_take(painter: &Painter, rect: Rect, lane: Rect, nam
     draw_name(painter, rect, lane, &look);
 }
 
-/// The clip bodies and waveforms on the GPU, and what they were built
-/// from.
 #[derive(Debug, Default)]
 pub(super) struct GpuClips {
     boxes: Arc<Vec<BoxInstance>>,
     waves: Arc<Vec<WaveInstance>>,
-    /// Each wave's exact place, and the samples of those drawn sample by
-    /// sample (slice 4d).
     geometry: Vec<Geometry>,
     strips: Strips,
-    /// The notes inside MIDI clips, and the tracks their bands belong to.
     mini: Arc<Vec<BoxInstance>>,
     mini_tracks: Vec<usize>,
     generation: u64,
-    /// Peak slots by the peaks they hold (files with the same peaks share
-    /// one), and the list the GPU side uploads from.
     slots: HashMap<usize, (u32, Arc<Peaks>)>,
     next_slot: u32,
     peaks: Arc<Vec<(u32, Arc<Peaks>)>>,
-    /// The document state, media revision, device rate and palette the
-    /// boxes show.
     built: Option<(u64, u64, u32, theme::Palette)>,
-    /// The recording the boxes show (none while nothing records, so the
-    /// check costs nothing then).
     built_recording: Option<RecordingLook>,
-    /// A clip is fading in or loading: rebuild next frame too.
     moving: bool,
-    /// The tracks left out of the boxes above because they are being
-    /// recorded: their clips and notes are `live` and `live_mini`, rebuilt
-    /// every frame from the take as far as it has gone (after MT-MIDI-7).
     built_live: Vec<lumen_project::model::Id>,
-    /// While recording: the other tracks the boxes were built from, by
-    /// identity.
     built_others: Vec<usize>,
     live: Arc<Vec<BoxInstance>>,
     live_mini: Arc<Vec<BoxInstance>>,
@@ -126,8 +84,6 @@ pub(super) struct GpuClips {
 }
 
 impl GpuClips {
-    /// The waves of every audio clip whose peaks are ready at `rate`, giving
-    /// each set of peaks a slot (shared peaks share one).
     fn waves_for(
         &mut self,
         project: &Project,
@@ -157,7 +113,6 @@ impl GpuClips {
                 },
             );
         }
-        // Peaks no file holds any more (replaced after a rate change).
         self.slots
             .retain(|_, (_, peaks)| Arc::strong_count(peaks) > 1);
         self.peaks = Arc::new(
@@ -176,9 +131,6 @@ impl GpuClips {
 }
 
 impl Arrangement {
-    /// Drops the drum pictures of clips that were not drawn this frame: a clip
-    /// deleted, hidden, moved to another track or scrolled out of view leaves
-    /// the cache (review M1).
     pub(super) fn prune_drum_cache(
         &mut self,
         drawn: &std::collections::BTreeMap<Id, (usize, usize, f32)>,
@@ -186,7 +138,6 @@ impl Arrangement {
         self.drum_cache.retain(|id, _| drawn.contains_key(id));
     }
 
-    /// The lanes and clips in `canvas`.
     pub fn lanes(
         &mut self,
         ctx: &egui::Context,
@@ -197,10 +148,7 @@ impl Arrangement {
         time: TimeView,
     ) {
         let palette = *theme::p();
-        // The drum pictures' gathered cells, taken out for this frame and put
-        // back at its end (review H2).
         let mut drum_cache = std::mem::take(&mut self.drum_cache);
-        // Clips moved by an edit are drawn on their way (M4.5, M1).
         let now = ctx.input(|i| i.time);
         self.glides.update(
             now,
@@ -211,8 +159,6 @@ impl Arrangement {
         if self.glides.moving() {
             ctx.request_repaint();
         }
-        // While recording, the take as far as it has gone (nothing glides
-        // then).
         let preview = self.preview.clone();
         let shown = match &preview {
             Some(preview) => std::borrow::Cow::Borrowed(&**preview),
@@ -220,8 +166,6 @@ impl Arrangement {
         };
         let project: &Project = &shown;
         let audible = audible(project);
-        // The returns and master pinned at the bottom (slice 4) draw their
-        // own lanes; everything below works in the scrolling tracks' zone.
         let all = self.rows(ctx, project, lanes.pending().len());
         self.pinned_lanes(ctx, painter, canvas, project, &all);
         let canvas = Rect::from_x_y_ranges(
@@ -240,15 +184,12 @@ impl Arrangement {
             (lane.bottom() >= canvas.top() && lane.top() <= canvas.bottom()).then_some(lane)
         };
 
-        // Lane hints, under the clips.
         for row in &rows {
             let (Some(lane), RowKind::Track(index)) = (lane_of(row), row.kind) else {
                 continue;
             };
             let track = &project.tracks[index];
             if track.armed {
-                // A red wash, strongest at the left, with thin red edges
-                // (owner's choice: "glow and breathe").
                 let fade = Rect::from_min_size(
                     lane.min,
                     vec2((lane.width() * 0.18).min(220.0), lane.height()),
@@ -282,13 +223,10 @@ impl Arrangement {
             }
         }
 
-        // Clip bodies, on the GPU.
         let gliding = self.glides.moving();
         self.refresh_boxes(ctx, doc.state(), project, lanes, gliding);
         self.refresh_live(ctx, project, lanes);
         let ppp = ctx.pixels_per_point();
-        // One slot per track, by its index (boxes and waves name their
-        // track's index); tracks hidden in a folded group draw nothing.
         let mut slots = vec![RowSlot::HIDDEN; project.tracks.len()];
         for row in &rows {
             if let RowKind::Track(index) = row.kind {
@@ -303,8 +241,6 @@ impl Arrangement {
                 slots[index] = RowSlot::new(row.y * ppp, row.height * ppp, alpha);
             }
         }
-        // Deep zoom: the visible samples of waves past the peaks' detail,
-        // between the first and last tracks in view.
         let top = self.top;
         let shown = |r: &Row| r.y - top < canvas.height() && r.y + r.height - top > 0.0;
         let indices = rows
@@ -366,7 +302,6 @@ impl Arrangement {
             },
         ));
 
-        // Names; clips loading for import; lane edges.
         let mut drum_pictures = std::collections::BTreeMap::new();
         for row in &rows {
             let Some(lane) = lane_of(row) else {
@@ -385,8 +320,6 @@ impl Arrangement {
                             x0..=x1,
                             lane.top() + INSET..=lane.bottom() - INSET,
                         );
-                        // What undo or redo changed, washed in the accent
-                        // (M4.5, M4).
                         let wash = self.glides.wash(clip.id, now);
                         if wash > 0.0 {
                             painter.rect_filled(
@@ -396,8 +329,6 @@ impl Arrangement {
                             );
                         }
                         if let Some(warp) = &clip.warp {
-                            // A warped clip's markers, read here and edited in
-                            // the audio editor (M9.5 S5b).
                             let ticks = super::warp_ticks::xs(
                                 time,
                                 canvas.left(),
@@ -428,8 +359,6 @@ impl Arrangement {
                         if x1 - x0 < NAME_MIN_WIDTH {
                             continue;
                         }
-                        // A MIDI clip on a track with a drum map is drawn as
-                        // one row a sound, a cell a hit (M8 D2, DV A).
                         if let Some(map) = project.drum_map_of(track) {
                             let body = Rect::from_min_max(
                                 pos2(x0 + INSET, rect.top() + TITLE + WAVE_GAP),
@@ -465,7 +394,6 @@ impl Arrangement {
                             look.alpha *= theme::UNDER_LANE;
                         }
                         if row.clipped {
-                            // Folding shut: the name stays inside the lane.
                             draw_name(
                                 &painter.with_clip_rect(lane.intersect(painter.clip_rect())),
                                 rect,
@@ -484,8 +412,6 @@ impl Arrangement {
                         time,
                         canvas,
                     );
-                    // Files dropped on this track, while they load (slice
-                    // 6e), side by side from where they were dropped.
                     let landing: Vec<Landing> = lanes
                         .landing()
                         .iter()
@@ -560,7 +486,6 @@ impl Arrangement {
                     palette.border.gamma_multiply(theme::alpha::EDGE_DIM),
                 ),
             );
-            // The resize glow continues across the lane.
             if let (RowKind::Track(index), Some((hot, t))) = (row.kind, self.hot_edge)
                 && project.tracks[index].id == hot
             {
@@ -570,10 +495,8 @@ impl Arrangement {
         self.prune_drum_cache(&drum_pictures);
         self.drum_pictures = drum_pictures;
         self.drum_cache = drum_cache;
-        // The drop line of a track drag continues across the lanes.
         self.draw_drop_line(painter, canvas, false);
         self.draw_selection(painter, canvas, project, &rows, time);
-        // A device from the browser, over a track's lane.
         for row in &rows {
             if let (RowKind::Track(index), Some(lane)) = (row.kind, lane_of(row)) {
                 self.browser_drop_target(ctx, painter, lane, project.tracks[index].id);
@@ -581,8 +504,6 @@ impl Arrangement {
         }
     }
 
-    /// Rebuilds the GPU boxes if the project, the media or the theme
-    /// changed, or a clip is still fading in, loading or gliding.
     fn refresh_boxes(
         &mut self,
         ctx: &egui::Context,
@@ -596,9 +517,6 @@ impl Arrangement {
         let key = (state, lanes.revision(), rate, palette);
         let recording = self.recording.as_ref();
         let live = self.live_tracks();
-        // While a take grows, commits change only the tracks being recorded,
-        // which these boxes leave out: the others are compared by identity
-        // instead of the document's state, so a commit rebuilds nothing here.
         let others: Vec<usize> = if live.is_empty() {
             Vec::new()
         } else {
@@ -622,9 +540,6 @@ impl Arrangement {
             return;
         }
         let recording = recording.cloned();
-        // Any file loading (an import, or an opened project's media) has a
-        // progress fill to keep moving.
-        // A glide rebuilds once more after it lands.
         let mut moving = lanes.library.is_loading() || gliding;
         let count = project.tracks.iter().map(|t| t.clips.len()).sum();
         let mut boxes = Vec::with_capacity(count);
@@ -656,8 +571,6 @@ impl Arrangement {
         gpu.moving = moving;
     }
 
-    /// The tracks drawn on the live layers: the ones being recorded, while
-    /// the take is drawn as it grows (none otherwise).
     fn live_tracks(&self) -> Vec<lumen_project::model::Id> {
         match (&self.preview, &self.recording) {
             (Some(_), Some(look)) => look.tracks.clone(),
@@ -665,9 +578,6 @@ impl Arrangement {
         }
     }
 
-    /// Rebuilds the live layers: every frame while a take grows, from the
-    /// tracks being recorded only, so the cost is theirs, not the
-    /// project's. Emptied once when it ends.
     fn refresh_live(&mut self, ctx: &egui::Context, project: &Project, lanes: &mut Lanes) {
         let live = self.live_tracks();
         if live.is_empty() {
@@ -700,8 +610,6 @@ impl Arrangement {
         gpu.live_generation += 1;
     }
 
-    /// The file of the audio clip under `pointer`, and what was done to the
-    /// clip, for the hover card.
     pub fn item_at<'a>(
         &self,
         ctx: &egui::Context,

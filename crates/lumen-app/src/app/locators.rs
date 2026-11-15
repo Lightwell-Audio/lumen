@@ -1,10 +1,3 @@
-//! Named locators on the strip (M3 slice 5d): flags above
-//! the loop brace. Set one at the playhead with the Set button or M (again
-//! on the same place removes it); click a flag to jump there, drag it to
-//! move it (snapped; Alt places freely), double-click or F2 to rename,
-//! Delete to remove; jump between them with ◂ ▸ or Ctrl+Left and
-//! Ctrl+Right. Every change is one undo step.
-
 use eframe::egui::{self, Align2, CursorIcon, FontId, Key, Rect, Sense, Stroke, pos2, vec2};
 use eframe::emath::GuiRounding as _;
 use lumen_core::time::Ticks;
@@ -15,43 +8,35 @@ use super::rulers::Layout;
 use crate::commands::Command;
 use crate::{App, motion, ruler, theme, widgets};
 
-/// The flags' height, from the strip's top; the brace takes the rest.
 const FLAG_HEIGHT: f32 = 14.0;
-/// The flag's triangle, and the gap before the name.
 const FLAG_POINT: f32 = 6.0;
 const NAME_GAP: f32 = 3.0;
 
-/// The selected locator and the one being renamed (not saved).
 #[derive(Debug, Default)]
 pub(crate) struct Locators {
     pub selected: Option<Id>,
     renaming: Option<(Id, String)>,
 }
 
-/// The latest locator strictly before `at`.
 pub(crate) fn previous(markers: &[Marker], at: Ticks) -> Option<Ticks> {
     markers.iter().rev().map(|m| m.at).find(|t| *t < at)
 }
 
-/// The earliest locator strictly after `at`.
 pub(crate) fn next(markers: &[Marker], at: Ticks) -> Option<Ticks> {
     markers.iter().map(|m| m.at).find(|t| *t > at)
 }
 
-/// A locator exactly at `at`, if there is one.
 pub(crate) fn at(markers: &[Marker], at: Ticks) -> Option<Id> {
     markers.iter().find(|m| m.at == at).map(|m| m.id)
 }
 
 impl App {
-    /// Starts renaming locator `id` on its flag.
     pub(crate) fn start_locator_rename(&mut self, id: Id) {
         if let Some(m) = self.document.project().markers.iter().find(|m| m.id == id) {
             self.locators.renaming = Some((id, m.name.clone()));
         }
     }
 
-    /// Adds a locator at the playhead, or removes the one already there.
     pub(crate) fn set_locator(&mut self) {
         let here = self.transport.state().ticks;
         match at(&self.document.project().markers, here) {
@@ -68,7 +53,6 @@ impl App {
         }
     }
 
-    /// Moves the playhead to the previous (`forward` false) or next locator.
     pub(crate) fn jump_to_locator(&mut self, forward: bool) {
         let here = self.transport.state().ticks;
         let markers = &self.document.project().markers;
@@ -83,8 +67,6 @@ impl App {
         }
     }
 
-    /// The flags, on the strip's upper part. Called after the loop brace,
-    /// so a flag wins where the two meet.
     pub(crate) fn locator_flags(
         &mut self,
         ui: &mut egui::Ui,
@@ -163,7 +145,6 @@ impl App {
                 self.arrangement.selected.clear();
                 self.arrangement.clips.clear();
                 self.arrangement.range = None;
-                // Where on the flag it was grabbed, so it doesn't jump.
                 let grabbed = ui
                     .input(|i| i.pointer.press_origin())
                     .map_or(0.0, |p| p.x - x);
@@ -216,7 +197,6 @@ impl App {
             } else {
                 palette.start_marker
             };
-            // The post down through the strip, the flag's point, the name.
             painter.line_segment(
                 [pos2(x, at.strip.top()), pos2(x, at.strip.bottom())],
                 Stroke::new(theme::stroke::HAIRLINE, colour),
@@ -251,8 +231,6 @@ impl App {
         }
     }
 
-    /// The strip's corner over the track headers: "Locators", then a well
-    /// of ◂ Set ▸ at the right (the interface audit's H1).
     pub(crate) fn locator_buttons(&mut self, ui: &mut egui::Ui, rect: Rect) {
         let palette = theme::p();
         let here = self.transport.state().ticks;
@@ -317,7 +295,6 @@ impl App {
                 0 => widgets::draw_arrow(ui.painter(), r.center(), 2.0, ink),
                 2 => widgets::draw_arrow(ui.painter(), r.center(), 0.0, ink),
                 _ => {
-                    // A locator at the playhead: Set would remove it.
                     ui.painter().text(
                         r.center(),
                         Align2::CENTER_CENTER,

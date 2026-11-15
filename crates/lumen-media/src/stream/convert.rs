@@ -1,13 +1,3 @@
-//! Converting a file into a stream file without holding it in memory: decode
-//! packet by packet, convert the rate block by block, write as it goes.
-//!
-//! [`Converter`] gives the same samples as [`crate::resample`] does on the
-//! whole file at once. It hands rubato the same chunks in the same order as
-//! `process_all`: full chunks while more than a chunk is left, then the rest
-//! as a partial chunk, then empty chunks until the output is long enough. It
-//! also trims the same start-up delay and stops at the same length. So a clip
-//! streamed from its converted copy sounds exactly as it does in memory.
-
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
 
@@ -17,29 +7,21 @@ use rubato::{Fft, FixedSync, Indexing, Resampler};
 use crate::wav::{Sample, Spec, Writer};
 use crate::{MediaError, cancelled};
 
-/// Input frames per conversion step, as [`crate::resample`] uses.
 const CHUNK: usize = 4096;
 
-/// What converted blocks are handed to: one slice per channel.
 pub type Sink<'s> = dyn FnMut(&[&[f32]]) -> Result<(), MediaError> + 's;
 
 fn failed(error: impl std::fmt::Display) -> MediaError {
     MediaError::Resample(error.to_string())
 }
 
-/// Sample-rate conversion in blocks.
 pub struct Converter {
-    /// `None` when the rates are equal: blocks pass through.
     resampler: Option<Fft<f32>>,
     ratio: f64,
     channels: usize,
-    /// Input not converted yet: at most one chunk plus a block.
     pending: Vec<Vec<f32>>,
-    /// Input frames taken so far.
     taken: u64,
-    /// Output frames given so far.
     given: u64,
-    /// Start-up delay still to drop.
     trim: usize,
     out: Vec<Vec<f32>>,
 }
@@ -77,8 +59,6 @@ impl Converter {
         })
     }
 
-    /// Takes a block (one slice per channel, all the same length) and hands
-    /// `sink` whatever output is ready.
     pub fn push(&mut self, block: &[&[f32]], sink: &mut Sink<'_>) -> Result<(), MediaError> {
         let frames = block.first().map_or(0, |c| c.len());
         if block.len() != self.channels || block.iter().any(|c| c.len() != frames) {
@@ -92,8 +72,6 @@ impl Converter {
         for (pending, part) in self.pending.iter_mut().zip(block) {
             pending.extend_from_slice(part);
         }
-        // A chunk is converted only while more than a chunk is left, as
-        // `process_all` does: the last chunk may be partial.
         while self.pending[0].len() > CHUNK {
             self.step(None, None, sink)?;
             for pending in &mut self.pending {
@@ -103,8 +81,6 @@ impl Converter {
         Ok(())
     }
 
-    /// Converts what is left and pads to the full length; returns the output
-    /// frames given in all.
     pub fn finish(mut self, sink: &mut Sink<'_>) -> Result<u64, MediaError> {
         if self.resampler.is_none() {
             return Ok(self.given);
@@ -120,8 +96,6 @@ impl Converter {
         Ok(self.given)
     }
 
-    /// One call to the resampler on the start of `pending`: a full chunk for
-    /// `None`, else the `partial` frames left; output past `most` is dropped.
     fn step(
         &mut self,
         partial: Option<usize>,
@@ -159,9 +133,6 @@ impl Converter {
     }
 }
 
-/// Decodes `source`, converts it to `rate` and writes its first two channels
-/// as a 32-bit float WAV at `destination` (in place only when finished, as
-/// [`Writer`] does). Returns the frames written.
 pub fn convert(
     source: &Path,
     rate: u32,

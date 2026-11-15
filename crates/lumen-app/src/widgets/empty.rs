@@ -1,35 +1,22 @@
-//! Empty states (the interface audit's S5, the owner's A): one layout for
-//! every area with nothing in it yet: a quiet icon, a title, one line of
-//! hint, and the action that fills it as a real button, all centred, with
-//! `space::S` between each (the Notices card, ADR-0052).
-
 use eframe::egui::{self, Align2, FontId, Painter, Pos2, Rect, Ui, pos2, vec2};
 
 use super::keys::{Keys, tip};
 use crate::{fonts, theme};
 
-/// What an empty area says.
 pub struct EmptyState<'a> {
-    /// Draws a small icon centred at a point, in a colour.
     pub icon: Option<fn(&Painter, Pos2, egui::Color32)>,
-    /// The icon's height: `theme::space::L` for a small icon, more for the
-    /// mark above an empty arrangement.
     pub icon_size: f32,
     pub title: &'a str,
     pub hint: &'a str,
-    /// The button that fills the area: its label, its shortcut and what it
-    /// does (its tooltip).
     pub action: Option<Action<'a>>,
 }
 
-/// An empty state's button.
 pub struct Action<'a> {
     pub label: &'a str,
     pub keys: Option<&'a Keys>,
     pub tip: &'a str,
 }
 
-/// Draws `state` centred in `rect`; true when its button was clicked.
 pub fn empty_state(ui: &mut Ui, rect: Rect, state: &EmptyState<'_>) -> bool {
     let palette = theme::p();
     let wrap = (rect.width() - 2.0 * theme::space::M).max(40.0);
@@ -56,10 +43,6 @@ pub fn empty_state(ui: &mut Ui, rect: Rect, state: &EmptyState<'_>) -> bool {
     } else {
         0.0
     };
-    // In a short area (a small window) the whole stack would run past the
-    // edges, over the rulers. Parts give way in order: the icon, the hint,
-    // the button, and last the words (cut at the edge) so that nothing is
-    // ever drawn outside `rect`.
     let room = rect.height() - 2.0 * theme::space::S;
     let needed = |icon: f32, hint: f32, button: f32| icon + title.size().y + hint + button;
     let (icon_room, hint_room, button_room) = [
@@ -73,8 +56,6 @@ pub fn empty_state(ui: &mut Ui, rect: Rect, state: &EmptyState<'_>) -> bool {
     .unwrap_or((0.0, 0.0, 0.0));
     let height = needed(icon_room, hint_room, button_room);
     let mut y = (rect.center().y - height / 2.0).max(rect.top() + theme::space::S);
-    // The words are painted, which assistive technology cannot read: the
-    // state says them as one labelled thing.
     ui.interact(
         rect,
         ui.id().with(("empty state", state.title)),

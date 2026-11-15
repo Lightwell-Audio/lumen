@@ -1,7 +1,3 @@
-//! Running commands (M3 slice 7): whether each can run now and why not,
-//! what it does, and the keyboard, which runs the command a pressed chord
-//! is bound to. The palette and menus run commands the same way.
-
 use eframe::egui;
 use lumen_core::time::Ticks;
 use lumen_project::model::TrackKind;
@@ -16,12 +12,10 @@ mod run;
 pub(crate) use availability::wait;
 
 impl App {
-    /// Clips or a time range are selected.
     fn clips_chosen(&self) -> bool {
         !self.arrangement.clips.is_empty() || self.arrangement.range.is_some()
     }
 
-    /// Where the selected clips or the time range start and end.
     fn selection_span(&self) -> Option<(Ticks, Ticks)> {
         if let Some(range) = &self.arrangement.range {
             return Some((range.start, range.end));
@@ -41,15 +35,10 @@ impl App {
         })
     }
 
-    /// A window is open (the shortcuts, Preferences, history, the
-    /// first-run window, or the unsaved-changes question): it takes Esc, and Shift+Tab moves focus in
-    /// it.
     pub(crate) fn window_open(&self) -> bool {
         self.other_window_open() || self.welcome.open
     }
 
-    /// Whether a window other than the first-run window is open: it takes
-    /// Esc before the first-run window does.
     pub(crate) fn other_window_open(&self) -> bool {
         self.shortcuts.open
             || self.preferences.open
@@ -62,14 +51,9 @@ impl App {
             || self.prompt.is_some()
     }
 
-    /// Selections are one kind at a time: selecting tracks deselects clips
-    /// (and a range on other tracks), and selecting anything deselects the
-    /// locator.
     pub(crate) fn sync_selection(&mut self) {
         if !self.arrangement.selected.is_empty() {
             self.arrangement.clips.clear();
-            // A range lives on the selected tracks (ADR-0049): a range that
-            // covers other tracks goes when the selection changes.
             let keep = self
                 .arrangement
                 .range
@@ -84,7 +68,6 @@ impl App {
         }
     }
 
-    /// The selected tracks that are MIDI tracks.
     pub(crate) fn selected_midi_tracks(&self) -> Vec<lumen_project::model::Id> {
         let selected = &self.arrangement.selected;
         let tracks = &self.document.project().tracks;
@@ -95,9 +78,6 @@ impl App {
             .collect()
     }
 
-    /// A menu row for `command` named `label`, with its shortcut as
-    /// keycaps from the keymap, greyed when it cannot run now; runs it when
-    /// clicked. True when it ran.
     pub(crate) fn menu_command(
         &mut self,
         ui: &mut egui::Ui,
@@ -115,11 +95,6 @@ impl App {
         clicked
     }
 
-    /// A context-menu row for `command` (the interface audit's M3): a
-    /// command that cannot act on what was clicked is left out; one that
-    /// could but is waiting (a join, a bounce or an export under way; the
-    /// reasons in [`wait`]) stays, greyed, and its hover says why. True
-    /// when it ran.
     pub(crate) fn context_command(
         &mut self,
         ui: &mut egui::Ui,
@@ -146,21 +121,11 @@ impl App {
         false
     }
 
-    /// The keyboard: each chord pressed this frame runs the command it is
-    /// bound to, when that can run now, and is then taken from the input so
-    /// nothing else sees it. Not while typing in a field, which has its own
-    /// keys (an Esc just typed included: `App::typing`). With another
-    /// control focused (a button, a slider, a pane), the keys it uses
-    /// itself go to it and the rest still run commands: egui's
-    /// `egui_wants_keyboard_input` is true for any focused widget, which
-    /// stopped every shortcut once a button had been reached with Tab.
     pub(crate) fn command_keys(&mut self, ctx: &egui::Context) {
         self.sync_selection();
         if ctx.text_edit_focused() || self.typing || self.rebind.is_some() {
             return;
         }
-        // The clip editor, held by the keyboard through its pane, is not a
-        // control that wants the arrows: they are its notes' keys.
         let editor_owns = self.note_editor.live && panes::focused(ctx) == Some(panes::Pane::Detail);
         let focused = ctx.memory(|m| m.focused().is_some()) && !editor_owns;
         let pressed: Vec<(Chord, bool)> = ctx.input(|i| {
@@ -185,20 +150,12 @@ impl App {
             if (focused && chord.used_by_controls()) || self.availability(ctx, command).is_err() {
                 continue;
             }
-            // The slip keys are the audio editor's: the palette runs them from
-            // anywhere, the keys only while it is in use (M9.5 D17).
             if matches!(command, Command::SlipClipEarlier | Command::SlipClipLater)
                 && !self.audio_editor_live(ctx)
             {
                 continue;
             }
-            // A key held down taps once: its repeats are not taps.
             let ignored = repeat && command == Command::TapTempo;
-            // While a window is up (the save question, the bounce popover,
-            // Export, Project settings, ...), a plain Enter runs no command:
-            // it belongs to the window, and would otherwise open the
-            // selected clip behind it. A popped-out editor has its own
-            // keyboard, and there Enter does nothing.
             if self.window_open()
                 && chord == Chord::pressed(egui::Modifiers::NONE, egui::Key::Enter)
             {
@@ -220,13 +177,10 @@ impl App {
     }
 }
 
-/// How a context menu shows a command (the interface audit's M3).
 #[derive(Debug, PartialEq, Eq)]
 enum ContextRow {
     Ready,
-    /// Greyed, saying why: work under way holds it back.
     Waiting(&'static str),
-    /// Left out: it cannot act on what was clicked.
     Left,
 }
 

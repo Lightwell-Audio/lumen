@@ -1,7 +1,3 @@
-//! The stages, run in order against one class in a host process of its own.
-//! A stage that the host does not survive ends the run: the rest are
-//! skipped, and the report says where it ended.
-
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -12,43 +8,30 @@ use lumen_plugin_host::shm::{Layout, Poll, Wake};
 
 use crate::report::{Found, Kind, Stage, Verdict};
 
-/// What the stages are run with.
 pub struct Setup {
     pub host: PathBuf,
     pub rate: f64,
     pub frames: u32,
-    /// How long any one call may take before the host is ended.
     pub deadline: Duration,
-    /// Blocks rendered by the process and link stages.
     pub blocks: u32,
-    /// Open the plugin's window.
     pub editor: bool,
 }
 
-/// The pitch an instrument is played at.
 const PITCH: i16 = 69;
-/// Blocks of silence before the note or the signal.
 const LEAD: u32 = 4;
-/// The input given to an effect, in amplitude.
 const SIGNAL: f32 = 0.25;
-/// A block that takes longer than this share of its period is worth saying.
 const BUDGET_SHARE: f64 = 0.75;
-/// Under this a plugin's output is silent.
 const SILENT: f32 = 1e-6;
 
 type Outcome = Result<(Verdict, String), HostError>;
 
 struct Run {
     stages: Vec<Stage>,
-    /// Why the stages after this one do not run.
     stopped: Option<String>,
     log: Option<std::sync::Arc<HostLog>>,
 }
 
 impl Run {
-    /// Runs `f` as the stage `name`, unless an earlier one ended the run.
-    /// `ends` makes a failure end it too (a plugin that did not load has
-    /// nothing to configure).
     fn stage(&mut self, name: &'static str, ends: bool, f: impl FnOnce() -> Outcome) {
         if let Some(why) = &self.stopped {
             self.skip(name, why.clone());
@@ -88,7 +71,6 @@ fn ms_since(start: Instant) -> u32 {
     u32::try_from(start.elapsed().as_millis()).unwrap_or(u32::MAX)
 }
 
-/// A host error as a verdict: how the call failed says which.
 fn classify(error: HostError) -> (Verdict, String) {
     match error {
         HostError::Timeout => (
@@ -123,7 +105,6 @@ fn db(level: f32) -> f32 {
     20.0 * level.max(1e-9).log10()
 }
 
-/// The `share` quantile of `values` (sorted in place), in the same unit.
 fn quantile(values: &mut [u32], share: f64) -> u32 {
     if values.is_empty() {
         return 0;
@@ -142,8 +123,6 @@ fn timing(micros: &mut [u32]) -> String {
     )
 }
 
-/// What every block is given: an instrument a note, an effect a signal, for
-/// the first half of the blocks and nothing after.
 struct Score {
     kind: Kind,
     frames: u32,
@@ -191,7 +170,6 @@ impl Score {
         vec![Event { offset: 0, kind }]
     }
 
-    /// The input for `block`, one slice per channel.
     fn input(&mut self, block: u32) -> Vec<Vec<f32>> {
         let frames = self.frames as usize;
         let live = self.kind == Kind::Effect && self.sounding(block);
@@ -206,7 +184,6 @@ impl Score {
     }
 }
 
-/// Runs the stages after the scan against `class` of `module`.
 pub fn probe_class(setup: &Setup, module: &Path, class: &ScanClass, kind: Kind) -> Vec<Stage> {
     let mut run = Run {
         stages: Vec::new(),
@@ -244,8 +221,6 @@ pub fn probe_class(setup: &Setup, module: &Path, class: &ScanClass, kind: Kind) 
         Ok((Verdict::Pass, text))
     });
 
-    // The main bus of each direction; a plugin without buses is given the
-    // usual stereo pair.
     let main = |list: &[BusInfo], fallback: u8| {
         list.iter()
             .find(|b| b.main)
@@ -328,7 +303,6 @@ pub fn probe_class(setup: &Setup, module: &Path, class: &ScanClass, kind: Kind) 
     run.stages
 }
 
-/// Blocks over the pipe: finite output, a status of zero, and how loud.
 fn process(host: &mut HostProcess, setup: &Setup, kind: Kind, inputs: u8, outputs: u8) -> Outcome {
     let mut score = Score::new(setup, kind, inputs);
     let mut micros = Vec::new();
@@ -396,8 +370,6 @@ fn process(host: &mut HostProcess, setup: &Setup, kind: Kind, inputs: u8, output
     Ok((Verdict::Pass, text))
 }
 
-/// The same blocks over the shared-memory link, which is what Lumen plays
-/// through, timed against the period of a block.
 fn link(host: &mut HostProcess, setup: &Setup, kind: Kind, inputs: u8, outputs: u8) -> Outcome {
     let mut link = host.attach(
         Layout::new(setup.frames, inputs, outputs),
@@ -465,8 +437,6 @@ fn link(host: &mut HostProcess, setup: &Setup, kind: Kind, inputs: u8, outputs: 
     Ok((verdict, text))
 }
 
-/// The plugin's parameters: listed, one set and read back, and a block
-/// rendered after.
 fn parameters(host: &mut HostProcess, setup: &Setup, inputs: u8, within: Duration) -> Outcome {
     let (total, list) = host.parameters(within)?;
     let programs = host.programs(within).map(|p| p.len()).unwrap_or(0);
@@ -507,7 +477,6 @@ fn parameters(host: &mut HostProcess, setup: &Setup, inputs: u8, within: Duratio
     })
 }
 
-/// The editor window: opened, left alone for a moment, and closed.
 fn editor(host: &mut HostProcess, setup: &Setup) -> Outcome {
     if !setup.editor {
         return Ok((Verdict::Skipped, "not asked for (--editor)".into()));

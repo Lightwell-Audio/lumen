@@ -1,7 +1,3 @@
-//! Playing audio from disk (M9 slice R6): with "Play audio from disk" on, a
-//! long file plays from its stream file and is heard as it was from memory;
-//! a short one stays in memory; turning the switch off loads them back.
-
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
@@ -13,7 +9,6 @@ use lumen_project::model::ClipContent;
 use super::clip_commands::command;
 use super::{Lumen, TempDir, wav, wav_at, wav_rated};
 
-/// The loudest left sample of a stretch of playback.
 fn loudest(lumen: &mut Lumen) -> f32 {
     lumen
         .listen(Duration::from_millis(100), 4_800)
@@ -47,7 +42,6 @@ fn a_long_file_plays_from_disk_and_a_short_one_from_memory() {
 
     play(&mut lumen);
     let peak = loudest(&mut lumen);
-    // Both tones at 3,000 of 32,767, on two tracks at unity.
     assert!(peak > 0.15, "the streamed tone is heard: {peak}");
     let reading = lumen.app().disk_reading().expect("the disk thread runs");
     assert_eq!(reading.failed, 0);
@@ -84,7 +78,6 @@ fn the_switch_loads_files_again_in_memory_or_from_disk() {
     );
 }
 
-/// The waveform peaks kept in the test's cache folder.
 fn kept_peaks(lumen: &Lumen) -> Vec<std::path::PathBuf> {
     std::fs::read_dir(lumen.dir().join("Cache"))
         .map(|files| {
@@ -106,7 +99,6 @@ fn a_file_opened_again_shows_its_waveform_from_the_cache() {
     lumen.drop_files(std::slice::from_ref(&long));
     let kept = kept_peaks(&lumen);
     assert_eq!(kept.len(), 1, "the long file's peaks are kept: {kept:?}");
-    // Aged, so a hit is seen as the entry being used now.
     let aged = std::time::UNIX_EPOCH + Duration::from_secs(1_000);
     std::fs::OpenOptions::new()
         .write(true)
@@ -115,7 +107,6 @@ fn a_file_opened_again_shows_its_waveform_from_the_cache() {
         .set_modified(aged)
         .unwrap();
 
-    // A new session opens the same file.
     let dir = lumen.crash();
     let mut lumen = Lumen::start_with(dir, |launch| launch.playing_from_disk());
     lumen.drop_files(&[long]);
@@ -125,7 +116,6 @@ fn a_file_opened_again_shows_its_waveform_from_the_cache() {
     assert!(used > aged, "the waveform came from the cache");
 }
 
-/// The quietest stretch of 10 ms in `heard`: zero if any stretch was silent.
 fn quietest(heard: &[[f32; 4]]) -> f32 {
     heard
         .chunks(480)
@@ -142,7 +132,6 @@ fn a_loop_and_a_jump_play_from_disk_without_a_gap() {
     lumen.drop_files(&[long]);
     assert_eq!(lumen.app().media_from_disk(), [("long".into(), true)]);
 
-    // A loop over the clip's second and third beats, once its row settled.
     lumen.frames(30);
     let clip = lumen.app().project().tracks[0].clips[0].id;
     let rect = lumen.app().clip_rect(&lumen.harness.ctx, clip).unwrap();
@@ -157,11 +146,9 @@ fn a_loop_and_a_jump_play_from_disk_without_a_gap() {
     assert!(on && end > start, "the loop plays");
 
     play(&mut lumen);
-    // Two seconds: the one-second loop goes round twice.
     let looped = lumen.listen(Duration::from_millis(100), 96_000);
     assert!(quietest(&looped) > 0.04, "no gap: {}", quietest(&looped));
 
-    // Back to the start while playing, then on into the loop again.
     lumen.key(Modifiers::NONE, Key::Home);
     let jumped = lumen.listen(Duration::from_millis(100), 48_000);
     assert!(quietest(&jumped) > 0.04, "no gap: {}", quietest(&jumped));
@@ -181,15 +168,10 @@ fn a_disk_too_slow_to_keep_up_is_reported_as_late() {
     lumen.drop_files(&[long]);
     assert!(!lumen.shows("Audio: Disk late"));
 
-    // Play waits at most 150 ms for the first pages (the owner's L A), then
-    // starts without them.
     play(&mut lumen);
     lumen.wait_for("a late read", |app| {
         app.disk_reading().is_some_and(|r| r.underruns > 0)
     });
-    // The chip says "Disk late", or "Dropouts" when the test device also
-    // fell behind (dropouts are the worse news, so they come first); either
-    // opens the audio panel, which counts the late reads.
     lumen.frames(3);
     lumen
         .harness
@@ -209,7 +191,6 @@ fn decode(path: &std::path::Path) -> lumen_media::Audio {
     lumen_media::decode(path, &AtomicBool::new(false), &mut |_| {}).unwrap()
 }
 
-/// Exports the whole project to `path` from the export window.
 fn export(lumen: &mut Lumen, path: &std::path::Path) {
     lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::E);
     lumen.frames(5);
@@ -221,8 +202,6 @@ fn export(lumen: &mut Lumen, path: &std::path::Path) {
     lumen.frames(3);
 }
 
-/// Bounces the selected clip with the popover's choices, and returns the
-/// bounced file's audio.
 fn bounce(lumen: &mut Lumen) -> lumen_media::Audio {
     command(lumen, "Bounce");
     lumen.frames(3);
@@ -276,9 +255,6 @@ fn export_and_bounce_are_the_same_from_disk_and_from_memory() {
     );
 }
 
-/// The audio callback plays a real-time export, so what it plays from disk
-/// is read into memory first, never on the audio thread; it sounds as the
-/// offline export does (review of slice R6).
 #[test]
 fn a_real_time_export_from_disk_is_the_same_as_an_offline_one() {
     let mut lumen = Lumen::start_with(TempDir::new("e2e-streaming-real-time"), |launch| {
@@ -289,8 +265,6 @@ fn a_real_time_export_from_disk_is_the_same_as_an_offline_one() {
     lumen.wait_for("import", |a| !a.is_busy() && !a.project().tracks.is_empty());
     assert_eq!(lumen.app().media_from_disk(), [("long".into(), true)]);
 
-    // A time selection of two beats, once the clip's row settled: a second
-    // of real time.
     lumen.frames(30);
     let clip = lumen.app().project().tracks[0].clips[0].id;
     let rect = lumen.app().clip_rect(&lumen.harness.ctx, clip).unwrap();
@@ -326,8 +300,6 @@ fn a_real_time_export_from_disk_is_the_same_as_an_offline_one() {
     assert_eq!(a, b);
 }
 
-/// A page a render cannot read would be silence in the file: the export
-/// fails and says so instead (review of slice R6).
 #[test]
 fn an_export_whose_file_has_gone_fails_and_leaves_no_file() {
     let mut lumen = Lumen::start_with(TempDir::new("e2e-streaming-gone"), |launch| {
@@ -338,8 +310,6 @@ fn an_export_whose_file_has_gone_fails_and_leaves_no_file() {
     lumen.drop_files(&[long]);
     lumen.wait_for("import", |a| !a.is_busy() && !a.project().tracks.is_empty());
     assert_eq!(lumen.app().media_from_disk(), [("long".into(), true)]);
-    // At the device's rate the file streams as it is, so this is the
-    // stream file going.
     std::fs::remove_file(&path).unwrap();
 
     let out = lumen.dir().join("out.wav");
@@ -365,7 +335,6 @@ fn a_file_changed_on_disk_is_converted_again() {
     let before = loudest(&mut lumen);
     stop(&mut lumen);
 
-    // The file is recorded over, louder, and opened again in a new session.
     let dir = lumen.crash();
     wav_at(&path, 40.0, 9_000.0);
     let mut lumen = Lumen::start_with(dir, |launch| launch.playing_from_disk());
@@ -380,7 +349,6 @@ fn a_file_changed_on_disk_is_converted_again() {
     );
 }
 
-/// This process's private memory, in MB, as the system counts it.
 fn private_mb() -> f64 {
     let out = std::process::Command::new("powershell")
         .args([
@@ -397,8 +365,6 @@ fn private_mb() -> f64 {
     bytes / 1e6
 }
 
-/// Opens `project` in `lumen` and waits until every file of it is ready:
-/// the time that took, and the memory it added.
 fn open_and_measure(lumen: &mut Lumen, project: &std::path::Path, files: usize) -> (f64, f64) {
     lumen.frames(30);
     let before = private_mb();
@@ -420,8 +386,6 @@ fn open_and_measure(lumen: &mut Lumen, project: &std::path::Path, files: usize) 
     (seconds, private_mb() - before)
 }
 
-/// One measurement of [`measure_streaming_memory_and_open_time`]: 64 files
-/// at `rate` (a rate other than the device's is converted on a cold cache).
 fn measure(rate: u32) {
     const FILES: usize = 64;
     let media = TempDir::new("measure-streaming-media");
@@ -463,12 +427,6 @@ fn measure(rate: u32) {
     );
 }
 
-/// R6 step 7's measurement: 64 stereo files of two minutes, opened with
-/// audio in memory, then from disk with a cold cache and a warm one, at the
-/// device's rate (played as they are) and at 44.1 kHz (converted). Windows
-/// only (it asks PowerShell for the memory). Run in release, with the
-/// temporary folder on a drive with 8 GB free:
-/// `cargo test --release -p lumen-app --test e2e measure_streaming -- --ignored --nocapture`.
 #[test]
 #[ignore = "a measurement: writes 3 GB of files and takes minutes"]
 fn measure_streaming_memory_and_open_time() {
@@ -476,11 +434,6 @@ fn measure_streaming_memory_and_open_time() {
     measure(44_100);
 }
 
-/// Writes the project MT-STREAM-1 plays: 64 tracks, each a three-minute
-/// stereo file of its own (a quiet chord of two tones, different on every
-/// track, so a gap in one is heard), into the folder named by
-/// `LUMEN_STREAM_TEST_DIR`, with `Streaming test.lumen` beside them:
-/// `$env:LUMEN_STREAM_TEST_DIR = "D:\LumenStreamTest"; cargo test --release -p lumen-app --test e2e make_the_streaming_test_project -- --ignored`.
 #[test]
 #[ignore = "writes 2.2 GB for a manual test"]
 fn make_the_streaming_test_project() {

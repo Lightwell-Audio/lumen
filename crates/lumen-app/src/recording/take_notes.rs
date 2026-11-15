@@ -1,19 +1,3 @@
-//! When a take's sidecar may go (M9 review H3).
-//!
-//! A take's sidecar (`<file>.take`, `take_worker.rs`) is how recovery finds
-//! the take after a crash. It must outlive the moment the take is placed:
-//! until a save or an autosave that holds the clip has been written, the only
-//! record of the take is the sidecar. So a placed take's sidecar is *held*
-//! here, and *claimed* by the next save or autosave that starts; when that
-//! write succeeds the sidecars it claimed are deleted (on a thread of their
-//! own), and when it fails they are held again for the next one.
-//!
-//! A held sidecar belongs to one document. When the document is replaced
-//! (another project opens, New), the user has saved it or chosen not to, so
-//! its sidecars go. While any are held, or a take is being recorded, the app
-//! autosaves even a project with no unsaved changes, so a crash always leaves
-//! an autosave for recovery to start from (H4).
-
 use std::path::PathBuf;
 
 use crate::recording::take_worker::sidecar_path;
@@ -24,7 +8,6 @@ struct Held {
     document: u64,
 }
 
-/// The sidecars of placed takes that no finished save holds yet.
 #[derive(Debug, Default)]
 pub(crate) struct TakeNotes {
     held: Vec<Held>,
@@ -33,7 +16,6 @@ pub(crate) struct TakeNotes {
 }
 
 impl TakeNotes {
-    /// The takes in `files` were placed in document `document`.
     pub(crate) fn hold(&mut self, document: u64, files: impl IntoIterator<Item = PathBuf>) {
         for file in files {
             let sidecar = sidecar_path(&file);
@@ -47,14 +29,10 @@ impl TakeNotes {
         self.held.iter().chain(&self.autosaving).chain(&self.saving)
     }
 
-    /// Some take is not yet in a finished save: autosave, however clean the
-    /// project.
     pub(crate) fn any(&self) -> bool {
         self.all().next().is_some()
     }
 
-    /// The document is now `document`: the sidecars held for any other are
-    /// returned, to delete.
     pub(crate) fn keep_only(&mut self, document: u64) -> Vec<PathBuf> {
         let mut gone = Vec::new();
         for list in [&mut self.held, &mut self.autosaving, &mut self.saving] {
@@ -69,24 +47,19 @@ impl TakeNotes {
         gone
     }
 
-    /// An autosave has started: it holds every take placed so far.
     pub(crate) fn autosave_started(&mut self) {
         self.autosaving.append(&mut self.held);
     }
 
-    /// The autosave finished: returns the sidecars to delete.
     pub(crate) fn autosave_done(&mut self, written: bool) -> Vec<PathBuf> {
         let claimed = std::mem::take(&mut self.autosaving);
         Self::settle(&mut self.held, claimed, written)
     }
 
-    /// A save of the project has started: it holds every take placed so
-    /// far.
     pub(crate) fn save_started(&mut self) {
         self.saving.append(&mut self.held);
     }
 
-    /// The save finished: returns the sidecars to delete.
     pub(crate) fn save_done(&mut self, written: bool) -> Vec<PathBuf> {
         let claimed = std::mem::take(&mut self.saving);
         Self::settle(&mut self.held, claimed, written)
@@ -101,7 +74,6 @@ impl TakeNotes {
         }
     }
 
-    /// A normal close: nothing is left to recover. Returns every sidecar.
     pub(crate) fn close(&mut self) -> Vec<PathBuf> {
         let all: Vec<PathBuf> = self.all().map(|h| h.sidecar.clone()).collect();
         *self = Self::default();
@@ -109,8 +81,6 @@ impl TakeNotes {
     }
 }
 
-/// Deletes `files` on a thread of their own: the interface never waits on
-/// the disk (H1, sweep M3). Returns whether the deletion was queued.
 pub(crate) fn delete_later(files: Vec<PathBuf>) -> bool {
     if files.is_empty() {
         return true;
@@ -122,9 +92,6 @@ pub(crate) fn delete_later(files: Vec<PathBuf>) -> bool {
                 let _ = std::fs::remove_file(file);
             }
         });
-    // A thread that cannot start leaves the files: a sidecar left over does
-    // no harm (recovery skips a take a project already holds), and a render
-    // nothing refers to goes with the work folder's next tidy-up.
     match spawned {
         Ok(_) => true,
         Err(error) => {
@@ -153,7 +120,6 @@ mod tests {
         notes.hold(1, [take(1)]);
         assert!(notes.any(), "placed, not yet saved: kept");
         notes.autosave_started();
-        // Placed while that autosave is written: not in it.
         notes.hold(1, [take(2)]);
         assert_eq!(notes.autosave_done(true), vec![side(1)]);
         assert!(notes.any(), "the second take waits for the next save");
@@ -186,8 +152,6 @@ mod tests {
         assert!(!notes.any());
     }
 
-    /// Rendered files go the same way as sidecars: the deletion is queued and
-    /// the caller never waits on the disk (sweep M3).
     #[test]
     fn a_deletion_is_queued_and_happens_afterwards() {
         let dir = lumen_project::testing::TempDir::new("delete-later");

@@ -1,11 +1,3 @@
-//! The audio editor's range and edit cursor (M9.5 S2b, the owner's WD A and
-//! CU A, D15, D23). A drag on the part the clip plays picks a time range on
-//! the clip's track, which is the arrangement's own range, so its commands
-//! act on it; a click puts the edit cursor there. Both are cut to the heard
-//! stretch: only there is the beat in the editor the beat the song plays the
-//! frame at. With Zero crossings on, an edge then moves within 5 ms to the
-//! frame where the louder channel is nearest zero.
-
 use eframe::egui::{self, CursorIcon, Painter, Pos2, Rect, Stroke, pos2};
 use lumen_core::time::{PPQ, Ticks};
 use lumen_project::model::Id;
@@ -19,18 +11,15 @@ use crate::audio_editor::{AudioEditor, SampleCache, crossing};
 use crate::theme;
 use crate::timeview::TimeView;
 
-/// Beat `q` as ticks.
 pub(super) fn ticks_of(q: f64) -> Ticks {
     Ticks((q * PPQ as f64).round() as i64)
 }
 
-/// The heard stretch, in ticks.
 pub(super) fn heard(file: &WholeFile) -> (Ticks, Ticks) {
     (ticks_of(file.heard.0), ticks_of(file.heard.1))
 }
 
 impl App {
-    /// The index and id of the track that holds clip `id`.
     pub(super) fn clip_track_index(&self, id: Id) -> Option<(usize, Id)> {
         self.document
             .project()
@@ -41,11 +30,6 @@ impl App {
             .map(|(i, t)| (i, t.id))
     }
 
-    /// Where an edge at `to` lands: on the nearest quiet frame within 5 ms
-    /// when Zero crossings is on and `free` (Alt) is not held. The second
-    /// value says it moved onto a crossing, so its guide lights. A file
-    /// played from disk answers on a later frame: until then the edge stays
-    /// where the grid put it (D23).
     pub(super) fn crossing_at(
         &self,
         ctx: &egui::Context,
@@ -92,8 +76,6 @@ impl App {
             .map_or((to, false), |q| (ticks_of(q), true))
     }
 
-    /// An edge at `at`: on the editor's grid (Alt: free), then on a
-    /// crossing, kept to the heard stretch.
     pub(super) fn wave_edge(
         &self,
         ctx: &egui::Context,
@@ -108,7 +90,6 @@ impl App {
         (edge.clamp(from, to), crossed)
     }
 
-    /// A press on the part played that becomes a drag: a range from there.
     pub(super) fn start_wave_range(
         &mut self,
         id: Id,
@@ -127,8 +108,6 @@ impl App {
         })
     }
 
-    /// One frame of a range drag: from where it began to the pointer, cut to
-    /// the heard stretch, on the clip's track.
     pub(super) fn step_wave_range(
         &mut self,
         ctx: &egui::Context,
@@ -155,8 +134,6 @@ impl App {
         ctx.set_cursor_icon(CursorIcon::Text);
     }
 
-    /// A click on the part played: the edit cursor goes there (Alt: off the
-    /// grid), the clip is selected, and a range goes.
     pub(super) fn place_wave_cursor(
         &mut self,
         ctx: &egui::Context,
@@ -173,8 +150,6 @@ impl App {
         self.select_opened_clip(id);
     }
 
-    /// The arrangement's range on the opened clip's track, cut to the heard
-    /// stretch, in beats.
     pub(super) fn range_in_editor(&self, id: Id, file: &WholeFile) -> Option<(f64, f64)> {
         let range = self.arrangement.range.as_ref()?;
         let (_, track) = self.clip_track_index(id)?;
@@ -186,7 +161,6 @@ impl App {
         (b > a).then_some((a, b))
     }
 
-    /// The range over the wave and the ruler, and the edit cursor.
     pub(super) fn paint_range_and_cursor(
         &self,
         painter: &Painter,
@@ -205,8 +179,6 @@ impl App {
             let (xa, xb) = (time.x(body.left(), a), time.x(body.left(), b));
             let (xa, xb) = (xa.max(body.left() - 1.0), xb.min(body.right() + 1.0));
             if xb > xa {
-                // The arrangement's look (`selection_look.rs`): a wash, its
-                // edges, and a bracket along its top.
                 painter.rect_filled(
                     Rect::from_x_y_ranges(xa..=xb, body.y_range()),
                     0.0,
@@ -246,8 +218,6 @@ impl App {
     }
 }
 
-/// The guide at an edge being placed: the accent when it landed on a
-/// crossing (D23), so the hand can tell.
 pub(super) fn draw_edge_guide(painter: &Painter, x: f32, body: Rect, crossed: bool) {
     if crossed {
         painter.vline(
@@ -261,9 +231,6 @@ pub(super) fn draw_edge_guide(painter: &Painter, x: f32, body: Rect, crossed: bo
 }
 
 impl App {
-    /// Esc in the audio editor (D28): the envelope's picks go first; a range
-    /// is left to Deselect, and the keyboard's cursor comes back after it;
-    /// then the cursor goes. Returns whether it used the key.
     pub(crate) fn audio_editor_deselect(&mut self) -> bool {
         let ed = &mut self.audio_editor;
         if ed.hands.picks.take().is_some() {

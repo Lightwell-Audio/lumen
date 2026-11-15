@@ -1,16 +1,3 @@
-//! Hardware check for the engine: a click on every beat (higher on the
-//! downbeat), driven from the keyboard. Listen for steady clicks, clean loop
-//! wraps and tempo changes that keep the bar.
-//!
-//! ```text
-//! cargo run --release -p lumen-engine --example transport_demo -- "Focusrite USB ASIO" [--driver D]
-//! ```
-//! Type a command and press Enter:
-//! `p` play from the start marker · `c` continue from the playhead · `a` pause · `s` stop · `g 5` go to bar 5 · `l 2 4` loop bars 2–3
-//! · `l` loop off · `t 140` tempo · `m 7/8` time signature · `q` quit.
-//! Drivers as in `audio_tone`: `asio` (Windows default), `wasapi`,
-//! `exclusive`, `cpal` (macOS and Linux default).
-
 use std::io::BufRead;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -20,10 +7,8 @@ use lumen_core::meter::Meter;
 use lumen_core::time::{TempoMap, Ticks};
 use lumen_engine::{Command, Jump, Output, Region, RenderContext, Source, Timeline, engine};
 
-/// Short sine bursts on every beat.
 #[derive(Default)]
 struct Click {
-    /// Samples left in the current click, and its frequency.
     remaining: usize,
     length: usize,
     frequency: f32,
@@ -32,7 +17,7 @@ struct Click {
 
 impl Click {
     fn start(&mut self, downbeat: bool, sample_rate: u32) {
-        self.length = sample_rate as usize / 40; // 25 ms
+        self.length = sample_rate as usize / 40;
         self.remaining = self.length;
         self.frequency = if downbeat { 1_760.0 } else { 880.0 };
         self.phase = 0.0;
@@ -60,7 +45,6 @@ impl Source for Click {
         let (timeline, rate) = (cx.timeline, cx.sample_rate);
         let end = cx.start + out.frames() as i64;
         let mut written = 0;
-        // Start a quarter early so a beat that rounds onto `cx.start` is kept.
         let mut beat = timeline
             .meter
             .next_beat(timeline.ticks_at(cx.start, rate) - Ticks::quarters(1));
@@ -120,7 +104,6 @@ fn find_device(driver: &str, make: MakeBackend, name: &str) -> Option<DeviceId> 
         .map(|d| d.id)
 }
 
-/// Start of a one-based bar, as the user types it.
 fn bar(meter: Meter, n: i64) -> Ticks {
     Ticks((n - 1) * meter.bar().0)
 }

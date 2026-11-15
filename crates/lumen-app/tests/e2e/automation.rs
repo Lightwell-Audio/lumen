@@ -1,8 +1,3 @@
-//! Automation lanes (M7 slice A0): a project that holds lanes plays them, a
-//! lane that is switched off plays nothing, and the lanes survive a save and
-//! a reopen. There is no lane interface until slice A1, so the scenarios give
-//! the tracks their lanes through `App::give_lane`.
-
 use std::time::Duration;
 
 use eframe::egui::{Key, Modifiers};
@@ -16,7 +11,6 @@ use lumen_app::testing::project_file;
 
 use super::{Lumen, wav};
 
-/// The test tone's peak (`wav`): 3,000 of 32,768.
 const TONE: f32 = 3_000.0 / 32_768.0;
 
 fn lane(points: &[(i64, f32, Shape)]) -> Lane {
@@ -29,7 +23,6 @@ fn lane(points: &[(i64, f32, Shape)]) -> Lane {
     .unwrap()
 }
 
-/// A project with one track holding a long tone; returns the track's id.
 fn tone(name: &str) -> (Lumen, Id) {
     let mut lumen = Lumen::start(name);
     let file = wav(&lumen.dir().join("tone.wav"), 20.0);
@@ -44,7 +37,6 @@ fn play(lumen: &mut Lumen, from: i64) {
     lumen.wait_for("playback", |app| app.playhead() > Ticks::quarters(from));
 }
 
-/// The loudest left and right sample of `ms` of audio, once any glide is over.
 fn peaks(lumen: &mut Lumen, ms: u64) -> (f32, f32) {
     lumen
         .listen(Duration::from_millis(ms), 1_000)
@@ -61,7 +53,6 @@ fn near(got: f32, want: f32) -> bool {
 #[test]
 fn a_fader_lane_in_the_project_is_heard() {
     let (mut lumen, track) = tone("auto-fader");
-    // 0 dB for the first quarter note, then down to −40 dB by the fifth.
     lumen
         .app_mut()
         .give_lane(
@@ -80,7 +71,6 @@ fn a_fader_lane_in_the_project_is_heard() {
     lumen.wait_for("the lane's middle", |app| {
         app.playhead() > Ticks::quarters(3)
     });
-    // Halfway down: −20 dB, a tenth of the level.
     let (left, _) = peaks(&mut lumen, 20);
     assert!(left < TONE * 0.5 && left > TONE * 0.01, "{left}");
     lumen.wait_for("the lane's end", |app| app.playhead() > Ticks::quarters(7));
@@ -193,7 +183,6 @@ fn lanes_survive_a_save_and_a_reopen_and_still_play() {
     again.wait_for("the project to open", |app| !app.is_busy());
     again.frames(5);
     assert_eq!(again.app().project().tracks, saved.tracks);
-    // The reopened project plays its lane: −6 dB once past the fourth quarter.
     play(&mut again, 5);
     let (left, _) = peaks(&mut again, 150);
     assert!(near(left, TONE * 0.5012), "{left}");

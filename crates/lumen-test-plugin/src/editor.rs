@@ -1,27 +1,10 @@
-//! The test plugins' editor view, for the editor-focus spike (M6 slice 0) and
-//! slice 4. Switched on by the `editor` entry in `LUMEN_TEST_PLUGIN_FAULT`
-//! (see [`crate::faults`]); without it there is no view, as before.
-//!
-//! The view is a child window of whatever window the host gives it, holding
-//! a text field (what typing is checked against), a button that asks the host
-//! to grow the view (plugin-initiated resizing), and a label with the view's
-//! size and content scale. It accepts user resizing within limits and, with
-//! `editor_hang=MS`, stops answering its window's messages `MS` milliseconds
-//! after it is attached, the way a plugin stuck in its own UI code does.
-//!
-//! Windows and macOS provide a small native view; elsewhere `create` returns
-//! no view.
-
 use vst3::Steinberg::IPlugView;
 
 use crate::faults::Faults;
 
-/// The view's size when the content scale is 1, in pixels.
 pub const BASE_WIDTH: i32 = 320;
 pub const BASE_HEIGHT: i32 = 200;
 
-/// A new view object for `createView`, or null where there is no editor.
-/// The caller owns the reference.
 pub fn create(faults: &Faults) -> *mut IPlugView {
     #[cfg(windows)]
     {
@@ -81,9 +64,7 @@ mod windows {
         text.encode_utf16().chain(Some(0)).collect()
     }
 
-    /// What the window procedure and the view object share.
     struct Shared {
-        /// The window the view made (a child of the host's), or 0.
         hwnd: AtomicUsize,
         edit: AtomicUsize,
         label: AtomicUsize,
@@ -91,7 +72,6 @@ mod windows {
         width: AtomicI32,
         height: AtomicI32,
         scale: AtomicU32,
-        /// The view's COM pointer, for `resizeView`. Not an owning reference.
         view: AtomicUsize,
         frame: Mutex<Option<ComPtr<IPlugFrame>>>,
         hang_after_ms: AtomicU32,
@@ -120,7 +100,6 @@ mod windows {
             )
         }
 
-        /// Puts the children in their places for the current size and scale.
         fn layout(&self) {
             let (w, h) = self.size();
             let (label, edit, button) = (
@@ -132,7 +111,6 @@ mod windows {
                 return;
             }
             let (bar, foot) = (self.px(24), self.px(32));
-            // SAFETY: windows this view made, on its own thread.
             unsafe {
                 MoveWindow(label, 0, 0, w, bar, 1);
                 MoveWindow(edit, 0, bar, w, (h - bar - foot).max(1), 1);
@@ -192,8 +170,6 @@ mod windows {
         static ONCE: Once = Once::new();
         ONCE.call_once(|| {
             let name = wide(CLASS);
-            // SAFETY: a window class naming a procedure in this module; the
-            // strings live for the call, the system copies them.
             unsafe {
                 let class = WNDCLASSEXW {
                     cbSize: size_of::<WNDCLASSEXW>() as u32,
@@ -215,10 +191,7 @@ mod windows {
     }
 
     fn shared_of(hwnd: HWND) -> Option<&'static Shared> {
-        // SAFETY: the pointer was stored at creation from a leaked `Arc` and
-        // is released only at `WM_NCDESTROY`, after which no message arrives.
         let p = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) } as *const Shared;
-        // SAFETY: a non-null pointer is the leaked `Arc` described above.
         (!p.is_null()).then(|| unsafe { &*p })
     }
 
@@ -230,18 +203,13 @@ mod windows {
     ) -> LRESULT {
         match msg {
             WM_NCCREATE => {
-                // SAFETY: `lparam` is the system's `CREATESTRUCTW`.
                 let params = unsafe { (*(lparam as *const CREATESTRUCTW)).lpCreateParams };
-                // SAFETY: storing the pointer `attached` passed.
                 unsafe { SetWindowLongPtrW(hwnd, GWLP_USERDATA, params as isize) };
             }
             WM_NCDESTROY => {
-                // SAFETY: reading back the pointer stored at `WM_NCCREATE`.
                 let p = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) } as *const Shared;
                 if !p.is_null() {
-                    // SAFETY: balances the `Arc::into_raw` of `attached`.
                     drop(unsafe { Arc::from_raw(p) });
-                    // SAFETY: clearing the slot so no later message reads it.
                     unsafe { SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0) };
                 }
             }
@@ -254,15 +222,11 @@ mod windows {
                 if let Some(shared) = shared_of(hwnd) {
                     let edit = shared.edit.load(Ordering::Relaxed) as HWND;
                     if !edit.is_null() {
-                        // SAFETY: a window this view made.
                         unsafe { SetFocus(edit) };
                     }
                 }
             }
             WM_TIMER if wparam == HANG_TIMER => {
-                // The plugin's UI code gets stuck: this thread never pumps
-                // another message.
-                // SAFETY: a timer this view set.
                 unsafe { KillTimer(hwnd, HANG_TIMER) };
                 faults::hang();
             }
@@ -276,11 +240,9 @@ mod windows {
             }
             _ => {}
         }
-        // SAFETY: the default handling for a message we did not finish.
         unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
     }
 
-    /// The plugin asks its host for a bigger view.
     fn grow(shared: &Shared) {
         let frame = shared
             .frame
@@ -300,7 +262,6 @@ mod windows {
             right: w,
             bottom: h,
         };
-        // SAFETY: a live frame the host gave us; `view` is this object.
         unsafe {
             frame.resizeView(
                 shared.view.load(Ordering::Relaxed) as *mut IPlugView,
@@ -314,7 +275,6 @@ mod windows {
             if kind.is_null() {
                 return kInvalidArgument;
             }
-            // SAFETY: a NUL-terminated platform name per the VST3 ABI.
             let (given, want) = unsafe {
                 (
                     std::ffi::CStr::from_ptr(kind),
@@ -329,7 +289,6 @@ mod windows {
         }
 
         unsafe fn attached(&self, parent: *mut c_void, kind: *const c_char) -> tresult {
-            // SAFETY: as above.
             if unsafe { self.isPlatformTypeSupported(kind) } != kResultTrue || parent.is_null() {
                 return kInvalidArgument;
             }
@@ -343,9 +302,6 @@ mod windows {
             shared.height.store(h, Ordering::Relaxed);
             let class = wide(CLASS);
             let empty = wide("");
-            // SAFETY: windows made here, children of the host's `parent`,
-            // owned and used on the calling (window) thread. The leaked
-            // `Arc` is released when the window is destroyed.
             unsafe {
                 let instance = GetModuleHandleW(null());
                 let hwnd = CreateWindowExW(
@@ -408,7 +364,6 @@ mod windows {
                 slot.store(0, Ordering::Relaxed);
             }
             if !hwnd.is_null() {
-                // SAFETY: the window this view made, on its own thread.
                 unsafe { DestroyWindow(hwnd) };
             }
             kResultOk
@@ -435,7 +390,6 @@ mod windows {
             } else {
                 self.shared.size()
             };
-            // SAFETY: the host passes a valid out pointer.
             unsafe {
                 *size = ViewRect {
                     left: 0,
@@ -451,14 +405,12 @@ mod windows {
             if new_size.is_null() {
                 return kInvalidArgument;
             }
-            // SAFETY: the host passes a valid rectangle.
             let r = unsafe { &*new_size };
             let (w, h) = self.shared.clamp((r.right - r.left, r.bottom - r.top));
             self.shared.width.store(w, Ordering::Relaxed);
             self.shared.height.store(h, Ordering::Relaxed);
             let hwnd = self.shared.hwnd.load(Ordering::Relaxed) as HWND;
             if !hwnd.is_null() {
-                // SAFETY: the window this view made, on its own thread.
                 unsafe { MoveWindow(hwnd, 0, 0, w, h, 1) };
             }
             kResultOk
@@ -467,14 +419,12 @@ mod windows {
         unsafe fn onFocus(&self, state: u8) -> tresult {
             let edit = self.shared.edit.load(Ordering::Relaxed) as HWND;
             if state != 0 && !edit.is_null() {
-                // SAFETY: a window this view made.
                 unsafe { SetFocus(edit) };
             }
             kResultOk
         }
 
         unsafe fn setFrame(&self, frame: *mut IPlugFrame) -> tresult {
-            // SAFETY: the host passes a live frame or null.
             let frame = unsafe { ComRef::from_raw(frame) }.map(|f| f.to_com_ptr());
             *self.shared.frame.lock().unwrap_or_else(|e| e.into_inner()) = frame;
             kResultOk
@@ -488,7 +438,6 @@ mod windows {
             if rect.is_null() {
                 return kInvalidArgument;
             }
-            // SAFETY: the host passes a valid rectangle to adjust.
             let r = unsafe { &mut *rect };
             let (w, h) = self.shared.clamp((r.right - r.left, r.bottom - r.top));
             r.right = r.left + w;
@@ -505,8 +454,6 @@ mod windows {
             let before = self.shared.scale();
             self.shared.scale.store(factor.to_bits(), Ordering::Relaxed);
             if self.shared.hwnd.load(Ordering::Relaxed) != 0 {
-                // The same view in new pixels: the size follows the scale, as
-                // a plugin's own would. The host asks `getSize` and follows.
                 let ratio = f64::from(factor) / f64::from(before);
                 let (w, h) = self.shared.size();
                 let now = self.shared.clamp((

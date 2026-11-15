@@ -1,7 +1,3 @@
-//! The controls above the list: the search field, the type switch, the
-//! category chips and the scan line. Each draws itself and says what was
-//! done; the panel applies it.
-
 use std::time::Duration;
 
 use eframe::egui::{self, FontId, Id, Rect, Sense, Ui, pos2, vec2};
@@ -12,22 +8,14 @@ use crate::icons::{self, Icon};
 use crate::plugins::{Plugins, Status};
 use crate::{theme, widgets};
 
-/// The magnifier's side, the list's icon size (the interface audit's B1).
 const MAGNIFIER: f32 = super::list::ICON;
 
-/// Where the search field's words start, from its left edge: a step in,
-/// the magnifier and a step. The magnifier's centre is then on the list's
-/// icon column and the words on the list's names.
 const TEXT_EDGE: f32 = theme::space::S + MAGNIFIER + theme::space::S;
 
-/// What the search field did this frame.
 pub(crate) struct Searched {
-    /// Esc pressed while the field had the keyboard.
     pub escaped: bool,
 }
 
-/// The search field: a sunk well with a magnifier and, once there are words,
-/// a way to clear them. `focus` asks for the keyboard (a command did).
 pub(crate) fn search(
     ui: &mut Ui,
     text: &mut String,
@@ -40,7 +28,6 @@ pub(crate) fn search(
         Sense::hover(),
     );
     widgets::raised::paint_field(ui.painter(), rect, theme::radius::MEDIUM, 0.0);
-    // The magnifier sits a step inside the well, over the list's icons.
     let icon = Rect::from_center_size(
         pos2(
             rect.left() + theme::space::S + MAGNIFIER / 2.0,
@@ -117,15 +104,10 @@ pub(crate) fn search(
         }
         widgets::raised::focus_ring(ui.painter(), &response, clear.shrink(2.0));
     }
-    // egui drops the field's focus on Esc before this code runs, so the
-    // field also counts as escaped when it lost focus that way.
     escaped |= field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape));
     Searched { escaped }
 }
 
-/// All, Instruments and Effects across the search field's width: in equal
-/// pieces where they fit so.
-/// Returns the choice made, if another.
 pub(crate) fn type_filter(ui: &mut Ui, kind: TypeFilter) -> Option<TypeFilter> {
     widgets::segmented_full(
         ui,
@@ -145,23 +127,14 @@ pub(crate) fn type_filter(ui: &mut Ui, kind: TypeFilter) -> Option<TypeFilter> {
     )
 }
 
-/// The chip a click on `chip` chooses: turning the one that is on off goes
-/// back to everything.
 fn flip(chip: Chip, on: bool) -> Chip {
     if on { Chip::All } else { chip }
 }
 
-/// Category chips shown before the rest go under "More".
 const CHIPS_SHOWN: usize = 5;
 
-/// The chips: Favorites, Recent and the commonest categories in one flow,
-/// filling each line, their words starting on the search field's left
-/// edge, the rest under "More ▾". A chip that is on turns off when clicked
-/// again. Returns the chip now chosen (`Chip::All` when the one on was
-/// clicked off).
 pub(crate) fn chips(ui: &mut Ui, chosen: &Chip, categories: &[(String, usize)]) -> Option<Chip> {
     let mut picked = None;
-    // A chosen category stays in view even when it is not among the commonest.
     let mut shown: Vec<&(String, usize)> = categories.iter().take(CHIPS_SHOWN).collect();
     if let Chip::Category(wanted) = chosen
         && !shown.iter().any(|(n, _)| n.eq_ignore_ascii_case(wanted))
@@ -175,9 +148,6 @@ pub(crate) fn chips(ui: &mut Ui, chosen: &Chip, categories: &[(String, usize)]) 
         .iter()
         .filter(|c| !shown.iter().any(|s| s.0 == c.0))
         .collect();
-    // Each chip has a step of room before and after its words, so the flow
-    // starts and ends that much outside the field's edges: the words line
-    // up with the field and the filter, and a lit chip's fill hangs out.
     let hang = -(theme::space::S as i8);
     egui::Frame::NONE
         .outer_margin(egui::Margin {
@@ -186,9 +156,6 @@ pub(crate) fn chips(ui: &mut Ui, chosen: &Chip, categories: &[(String, usize)]) 
             ..Default::default()
         })
         .show(ui, |ui| {
-            // The pane clips its body a step in from its edge, which would
-            // cut the hanging fill of a lit first chip: let the chips draw
-            // to half a step from the pane's edge.
             ui.set_clip_rect(ui.clip_rect().expand2(vec2(theme::space::XS, 0.0)));
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = vec2(theme::space::XS, theme::space::XS);
@@ -225,7 +192,6 @@ pub(crate) fn chips(ui: &mut Ui, chosen: &Chip, categories: &[(String, usize)]) 
     picked
 }
 
-/// What the scan line asks for.
 #[derive(Default)]
 pub(crate) struct ScanActions {
     pub rescan: bool,
@@ -233,7 +199,6 @@ pub(crate) struct ScanActions {
     pub dismiss_note: bool,
 }
 
-/// "2 min ago" for a scan that finished `since` ago.
 pub(super) fn ago(since: Duration) -> String {
     let secs = since.as_secs();
     match secs {
@@ -244,9 +209,6 @@ pub(super) fn ago(since: Duration) -> String {
     }
 }
 
-/// The list's header under a hairline: what is installed and when it was
-/// looked for, or how far a scan is; Rescan or Cancel as a bare word, like
-/// the chips; a card for a problem. Returns what was pressed.
 pub(crate) fn scan_line(ui: &mut Ui, plugins: &Plugins) -> ScanActions {
     let palette = *theme::p();
     let mut actions = ScanActions::default();
@@ -263,7 +225,6 @@ pub(crate) fn scan_line(ui: &mut Ui, plugins: &Plugins) -> ScanActions {
         .count();
     let blocked = catalog.blocked().len();
 
-    // The line says little so it fits a narrow pane; the rest is its tip.
     let (text, detail, warn, button) = match plugins.status() {
         Status::Off => {
             let t = "Plugins are off for this run".to_owned();
@@ -304,7 +265,6 @@ pub(crate) fn scan_line(ui: &mut Ui, plugins: &Plugins) -> ScanActions {
             (text, detail, false, Some("Rescan"))
         }
     };
-    // The hairline parts the filters from the list (the interface audit's B3).
     ui.add_space(theme::space::XS);
     let (rule, _) = ui.allocate_exact_size(
         vec2(ui.available_width(), theme::stroke::HAIRLINE),
@@ -335,8 +295,6 @@ pub(crate) fn scan_line(ui: &mut Ui, plugins: &Plugins) -> ScanActions {
                     }
                 }
             }
-            // What is left of the line is the words, from the left edge, cut
-            // with "…" when short.
             let rest = vec2(ui.available_width(), theme::size::CONTROL);
             ui.allocate_ui_with_layout(
                 rest,
@@ -379,8 +337,6 @@ pub(crate) fn scan_line(ui: &mut Ui, plugins: &Plugins) -> ScanActions {
     actions
 }
 
-/// A short card for a problem: the words wrapped, and a Dismiss when it can
-/// be put away.
 fn card(ui: &mut Ui, text: &str, warning: bool, dismiss: Option<&mut bool>) {
     let palette = *theme::p();
     egui::Frame::new()

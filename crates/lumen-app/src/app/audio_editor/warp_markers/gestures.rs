@@ -1,8 +1,3 @@
-//! What the pointer does on a warped clip's strip (M9.5 S5b): hover, the ghost
-//! under it, a drag that picks a marker or makes one and moves it, Shift to
-//! slide the audio under it, Alt to leave the grid, double-click to add and
-//! remove, and the right-click menu.
-
 use std::sync::Arc;
 
 use eframe::egui::{self, CursorIcon, PointerButton, Pos2, Rect, Response, Ui, pos2};
@@ -26,7 +21,6 @@ use crate::theme;
 use crate::widgets;
 
 impl App {
-    /// The clip's marker in the project's clip `id`: where `base` holds it.
     fn clip_in(project: &lumen_project::model::Project, id: Id) -> Option<&Clip> {
         project
             .tracks
@@ -36,9 +30,6 @@ impl App {
             .map(|c| &**c)
     }
 
-    /// The warp strip's pointer work: hover (a marker, or the ghost), a drag
-    /// that moves a marker or makes one, double-click, and the right-click
-    /// menu.
     pub(in crate::app::audio_editor) fn warp_strip_pointer(
         &mut self,
         response: &Response,
@@ -49,8 +40,6 @@ impl App {
     ) {
         let ctx = response.ctx.clone();
         let left = strip.rect.left();
-        // The editor's findings, not the app's: the app's editor is taken out
-        // while it draws.
         let found = ed.detect.found(clip).map(|(_, a, s)| (a, s));
         let ghost_at = |x: f32, ed: &AudioEditor| -> Option<Ghost> {
             warp_strip::ghost(
@@ -109,7 +98,6 @@ impl App {
         } else if response.clicked()
             && let Some(StripHover::Marker(i)) = ed.markers.hover
         {
-            // A click picks the marker, and the keyboard goes to it.
             ed.markers.picked = Some(i);
             ctx.memory_mut(|m| m.request_focus(stop_id(i)));
         }
@@ -128,8 +116,6 @@ impl App {
         self.warp_hover_info(&ctx, ed);
     }
 
-    /// The right-click menu of the strip: a transient's "Fix this hit", the
-    /// marker under the pointer, and the clip's markers.
     fn warp_strip_menu(
         &mut self,
         ui: &mut Ui,
@@ -145,9 +131,6 @@ impl App {
                 ui.close();
             }
         }
-        // On a hit: pin the hits either side with it, so only it moves when
-        // its marker is dragged (M9.5 review M2, the owner's C). Left out when
-        // nothing would be added, as menus list what can apply.
         if let Some(StripMenu::Hit { source }) = menu
             && let Some(sides) = super::markers::fix_target(clip, source, found)
         {
@@ -165,7 +148,6 @@ impl App {
         }
     }
 
-    /// What the pointer on the strip does, in the info line, and its cursor.
     fn warp_hover_info(&mut self, ctx: &egui::Context, ed: &AudioEditor) {
         match ed.markers.hover {
             Some(StripHover::Marker(_)) => {
@@ -197,8 +179,6 @@ impl App {
         }
     }
 
-    /// Picks the marker or makes the one a drag moves: `None` when there is
-    /// nothing to pick up or no marker can be made.
     fn start_marker_drag(
         &mut self,
         (clip, strip): (&Clip, &WarpStrip),
@@ -242,9 +222,6 @@ impl App {
         })
     }
 
-    /// One frame of a marker drag at `p`: the view scrolls at the wave's side,
-    /// the edit is redone from where the drag began, and the chip says the
-    /// speeds beside the marker.
     fn step_marker_drag(
         &mut self,
         ctx: &egui::Context,
@@ -277,10 +254,6 @@ impl App {
                 }
             }
             None => {
-                // On the grid the marker goes to the line nearest the pointer
-                // (the owner, 2026-11-09: it did not snap "as expected" when
-                // the marker was grabbed a few points off its centre); with
-                // Alt, or snapping off, it keeps its grip and moves freely.
                 let pointer = ticks_of(ed.time.beat_at(left, p.x));
                 let target = if self.snaps_here(ctx) {
                     let line = self.snapped_at_zoom(pointer, false, ed.time.zoom);
@@ -301,7 +274,6 @@ impl App {
         {
             Ok(done) => ed.markers.held = done.held.then_some(AT_LIMIT),
             Err(Refused::Unchanged) => {
-                // Still where it was: held, if the pointer asks for more.
                 if let MarkerEdit::Move { index, to } = change
                     && let Some(now) = self.shown_clip(clip.id)
                 {
@@ -357,7 +329,6 @@ impl App {
     }
 }
 
-/// The seconds of the file in a beat at the flag `x`.
 fn seconds_per_beat(area: &WaveArea<'_>, x: f32, left: f32, ed: &AudioEditor) -> f64 {
     let beat = ed.time.beat_at(left, x);
     area.file

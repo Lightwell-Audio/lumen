@@ -1,10 +1,6 @@
-//! What a row will act on, in words: "Duplicate 2 clips", "Undo: Move clip",
-//! "Rename track “Bass”".
-
 use crate::App;
 use crate::commands::Command;
 
-/// "2 clips", "clip “kick”".
 fn count(n: usize, one: &str, many: &str, name: Option<&str>) -> String {
     match (n, name) {
         (1, Some(name)) => format!("{one} \u{201C}{name}\u{201D}"),
@@ -14,8 +10,6 @@ fn count(n: usize, one: &str, many: &str, name: Option<&str>) -> String {
 }
 
 impl App {
-    /// What `command` will act on, in words: "Duplicate 2 clips", "Undo:
-    /// Move clip", "Rename track “Bass”". Plain names otherwise.
     pub(crate) fn command_label(&self, command: Command) -> String {
         let project = self.document.project();
         let clips: Vec<_> = project
@@ -69,7 +63,6 @@ impl App {
             Command::ClipProperties => {
                 first_clip.map(|n| format!("Properties of \u{201C}{n}\u{201D}"))
             }
-            // The arrows follow the selection (M3 review H2).
             Command::FoldTracks if !clips.is_empty() => Some("Previous clip on the track".into()),
             Command::UnfoldTracks if !clips.is_empty() => Some("Next clip on the track".into()),
             Command::SelectTrackAbove if !clips.is_empty() => Some("Select the clip above".into()),

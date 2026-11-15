@@ -1,13 +1,3 @@
-//! The ICO container: one 32-bit image per size, the 256 px one as PNG
-//! (the form the Windows shell reads for its large tiles), the others as
-//! uncompressed bitmaps with an empty mask (their alpha carries the shape).
-
-/// An ICO file holding `images`: `(size, straight RGBA)` pairs, each image
-/// `size` pixels square.
-///
-/// # Panics
-/// If an image is larger than 256 pixels or its pixel data is the wrong
-/// length: both are mistakes in the caller's code, not in input.
 pub fn ico(images: &[(u32, &[u8])]) -> Vec<u8> {
     let entries: Vec<Vec<u8>> = images
         .iter()
@@ -22,17 +12,15 @@ pub fn ico(images: &[(u32, &[u8])]) -> Vec<u8> {
         })
         .collect();
     let mut out = Vec::new();
-    // ICONDIR: reserved, type 1 (icon), count.
     out.extend_from_slice(&0u16.to_le_bytes());
     out.extend_from_slice(&1u16.to_le_bytes());
     out.extend_from_slice(&(images.len() as u16).to_le_bytes());
     let mut offset = 6 + 16 * images.len() as u32;
     for (&(size, _), data) in images.iter().zip(&entries) {
-        // ICONDIRENTRY: 256 is written as 0.
         let side = if size == 256 { 0 } else { size as u8 };
         out.extend_from_slice(&[side, side, 0, 0]);
-        out.extend_from_slice(&1u16.to_le_bytes()); // planes
-        out.extend_from_slice(&32u16.to_le_bytes()); // bits per pixel
+        out.extend_from_slice(&1u16.to_le_bytes());
+        out.extend_from_slice(&32u16.to_le_bytes());
         out.extend_from_slice(&(data.len() as u32).to_le_bytes());
         out.extend_from_slice(&offset.to_le_bytes());
         offset += data.len() as u32;
@@ -43,20 +31,18 @@ pub fn ico(images: &[(u32, &[u8])]) -> Vec<u8> {
     out
 }
 
-/// A BITMAPINFOHEADER, the pixels bottom up as BGRA, then a mask of zeros.
 fn bitmap(size: u32, rgba: &[u8]) -> Vec<u8> {
     let mask_row = size.div_ceil(32) * 4;
     let pixels = size * size * 4;
     let mut out = Vec::with_capacity((40 + pixels + mask_row * size) as usize);
     out.extend_from_slice(&40u32.to_le_bytes());
     out.extend_from_slice(&(size as i32).to_le_bytes());
-    // The height counts the colour image and the mask.
     out.extend_from_slice(&(2 * size as i32).to_le_bytes());
     out.extend_from_slice(&1u16.to_le_bytes());
     out.extend_from_slice(&32u16.to_le_bytes());
-    out.extend_from_slice(&0u32.to_le_bytes()); // BI_RGB
+    out.extend_from_slice(&0u32.to_le_bytes());
     out.extend_from_slice(&(pixels + mask_row * size).to_le_bytes());
-    out.extend_from_slice(&[0; 16]); // resolution and palette: unused
+    out.extend_from_slice(&[0; 16]);
     for y in (0..size).rev() {
         for x in 0..size {
             let i = ((y * size + x) * 4) as usize;
@@ -72,7 +58,6 @@ fn png(size: u32, rgba: &[u8]) -> Vec<u8> {
     let mut encoder = png::Encoder::new(&mut out, size, size);
     encoder.set_color(png::ColorType::Rgba);
     encoder.set_depth(png::BitDepth::Eight);
-    // Writing to memory cannot fail but for a wrong length, checked above.
     let mut writer = encoder.write_header().expect("PNG header in memory");
     writer.write_image_data(rgba).expect("PNG data in memory");
     writer.finish().expect("PNG end in memory");
@@ -121,17 +106,13 @@ mod tests {
 
     #[test]
     fn bitmaps_are_bottom_up_bgra() {
-        // A 2 px image: top left red, bottom left blue.
         let mut rgba = vec![0u8; 16];
         rgba[..4].copy_from_slice(&[255, 0, 0, 255]);
         rgba[8..12].copy_from_slice(&[0, 0, 255, 128]);
         let file = ico(&[(2, &rgba)]);
         let image = &file[6 + 16..];
-        // The first row written is the bottom one: blue as BGRA.
         assert_eq!(&image[40..44], &[255, 0, 0, 128]);
-        // Then the top row: red as BGRA.
         assert_eq!(&image[48..52], &[0, 0, 255, 255]);
-        // A mask row is padded to 4 bytes: 2 rows of zeros.
         assert_eq!(image.len(), 40 + 16 + 8);
     }
 

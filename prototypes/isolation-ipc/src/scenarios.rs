@@ -1,5 +1,3 @@
-//! Measured scenarios: transport latency, fan-out, crash and hang survival.
-
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -21,13 +19,10 @@ pub struct Config {
     pub frames: usize,
     pub rate: f64,
     pub seconds: f64,
-    /// Share of the period the parent waits for hosts before using silence.
     pub deadline_fraction: f64,
-    /// Inject into host 0 at this block.
     pub fault: Option<(Fault, usize)>,
 }
 
-/// Consecutive missed deadlines before a live host is declared hung.
 const MISS_LIMIT: u32 = 3;
 
 struct Supervisor {
@@ -37,8 +32,6 @@ struct Supervisor {
     thread: Option<std::thread::JoinHandle<Vec<String>>>,
 }
 
-/// Restarts failed hosts off the audio thread. Receives dead hosts, kills
-/// and frees them, spawns replacements.
 fn supervisor(job: Arc<Job>, spin: bool) -> Supervisor {
     let (requests, mut incoming) = rtrb::RingBuffer::<Box<Host>>::new(16);
     let (mut outgoing, replacements) = rtrb::RingBuffer::<Box<Host>>::new(16);
@@ -183,7 +176,6 @@ pub fn run(config: &Config) -> std::io::Result<Report> {
                         if host.is_done(seq) {
                             break true;
                         }
-                        // A stale wake-up from a late earlier block just loops.
                         if !wait_either(host.done_handle(), deadline_timer.handle()) {
                             break host.is_done(seq);
                         }
@@ -200,7 +192,6 @@ pub fn run(config: &Config) -> std::io::Result<Report> {
                         report.mismatches[id] += 1;
                     }
                 } else {
-                    // Silence for this host this block; the audio loop moves on.
                     report.deadline_misses[id] += 1;
                     report.silent_blocks[id] += 1;
                     consecutive_misses[id] += 1;
@@ -214,7 +205,7 @@ pub fn run(config: &Config) -> std::io::Result<Report> {
                         if let Some(dead) = slot.take()
                             && let Err(rtrb::PushError::Full(dead)) = sup.requests.push(dead)
                         {
-                            *slot = Some(dead); // retry next block
+                            *slot = Some(dead);
                         }
                     }
                 }

@@ -1,8 +1,3 @@
-//! A track's device chain (M6 slice 2, format v17): adding a plugin, taking
-//! one away and bypassing one. Each is one undo step, and every refusal says
-//! why, so the interface can show the reason. A MIDI track has at most one
-//! instrument, always first; an effect goes anywhere after it.
-
 use std::fmt;
 
 use std::sync::Arc;
@@ -16,46 +11,27 @@ use lumen_project::routing::all_tracks;
 
 use super::Document;
 
-/// Where an added effect goes in a chain (the owner's D5: a double-click puts
-/// it after the selected card or at the end; a drag drops it where the
-/// preview shows).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Slot {
     End,
-    /// Right after this device.
     After(Id),
-    /// At this position (past the end means the end).
     At(usize),
 }
 
-/// Why a device edit was refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Refusal {
-    /// The track is gone.
     NoTrack,
     InstrumentNeedsMidi,
     BeforeInstrument,
-    /// A track plays one instrument, so one can't be copied onto its own track.
     OneInstrument,
-    /// The device is gone.
     NoDevice,
-    /// The plugin's identity could not be saved.
     BadPlugin,
-    /// A preset can only be loaded into a plugin.
     NotAPlugin,
-    /// The preset's state is larger than a project keeps.
     TooLarge,
-    /// Only an effect with a sidechain input takes a sidechain.
     NotAnEffect,
-    /// A track cannot key its own effect.
     SidechainSelf,
-    /// Only a plugin instrument has outputs to turn on.
     NotAnInstrument,
-    /// An output to turn off has a track with clips or devices: it is removed
-    /// or kept as the person chooses.
     OutputHasContent,
-    /// The source is fed by this track (through its output, a send or another
-    /// sidechain), so the sound would go round.
     SidechainLoop,
 }
 
@@ -79,22 +55,15 @@ impl fmt::Display for Refusal {
     }
 }
 
-/// What the interface calls a device in a menu or an undo label.
 pub fn name_of(device: &Device) -> String {
     match &device.plugin {
         PluginRef::Vst3 { name, .. } => name.clone(),
-        // A built-in has a personality: its own name (M8 slice B0; the
-        // synth's is Flare, B4).
         PluginRef::Builtin { name } => crate::builtin::identity(name)
             .map(|identity| identity.name.to_owned())
             .unwrap_or_else(|| name.clone()),
     }
 }
 
-/// Where in `track`'s chain a device of `kind` lands for `slot`, counted in
-/// the chain as it stands (a drop gap is a position between today's cards).
-/// An instrument goes first and needs a MIDI track; an effect never goes
-/// before the instrument.
 fn place_in(track: &Track, kind: DeviceKind, slot: Slot) -> Result<usize, Refusal> {
     match kind {
         DeviceKind::Instrument => {
@@ -130,27 +99,21 @@ fn place_in(track: &Track, kind: DeviceKind, slot: Slot) -> Result<usize, Refusa
     }
 }
 
-/// A checked move or copy (see `Document::transfer`).
 struct Transfer {
     device: Device,
-    /// Where the device sits on its own track.
     from_at: usize,
-    /// The gap it goes to on the target, in the target's chain as it stands.
     index: usize,
     to_name: String,
 }
 
-/// A track, or the master (the chain of every one of them can be edited).
 fn find(project: &Project, id: Id) -> Option<&Track> {
     all_tracks(project).find(|t| t.id == id)
 }
 
-/// The track that holds `device`, and the device.
 pub fn find_device(project: &Project, device: Id) -> Option<(Id, &Device)> {
     all_tracks(project).find_map(|t| t.devices.iter().find(|d| d.id == device).map(|d| (t.id, d)))
 }
 
-/// The same, to change.
 fn find_mut(project: &mut Project, id: Id) -> Option<&mut Track> {
     let slot = if project.master.id == id {
         Some(&mut project.master)
@@ -160,7 +123,6 @@ fn find_mut(project: &mut Project, id: Id) -> Option<&mut Track> {
     slot.map(Arc::make_mut)
 }
 
-/// Takes `device` off `track` and hands it back.
 fn take_device(project: &mut Project, track: Id, device: Id) -> Device {
     let track = find_mut(project, track).expect("the move was checked against this project");
     let at = track
@@ -171,8 +133,6 @@ fn take_device(project: &mut Project, track: Id, device: Id) -> Device {
     track.devices.remove(at)
 }
 
-/// Puts `device` on `track` at `index`. An instrument first drives out the
-/// one there and returns a MIDI-output track to it.
 fn put_device(project: &mut Project, track: Id, device: Device, index: usize, instrument: bool) {
     let track = find_mut(project, track).expect("the edit was checked against this project");
     if instrument {
@@ -187,8 +147,6 @@ fn valid_vst3(class_id: &str, name: &str) -> bool {
     class_id.len() == 32 && class_id.bytes().all(|b| b.is_ascii_hexdigit()) && !name.is_empty()
 }
 
-/// A device as the browser makes it: the synth starts on the default
-/// preset's values, a plugin with no state.
 fn fresh_device(id: Id, plugin: PluginRef) -> Device {
     match &plugin {
         PluginRef::Builtin { name } if name == SYNTH => {
@@ -198,7 +156,6 @@ fn fresh_device(id: Id, plugin: PluginRef) -> Device {
     }
 }
 
-/// `device` with the values its table gives it (M8 slice B0).
 fn with_values(mut device: Device, values: &[(u32, f32)]) -> Device {
     for &(param, value) in values {
         device.params.insert(param, f64::from(value));
@@ -207,10 +164,6 @@ fn with_values(mut device: Device, values: &[(u32, f32)]) -> Device {
 }
 
 impl Document {
-    /// Makes a track for `plugin` (a MIDI track for an instrument, an audio
-    /// track for an effect) after `after`, with the plugin as its first
-    /// device, as one undo step (the owner's D3). Returns the track and the
-    /// device.
     pub fn add_device_on_new_track(
         &mut self,
         plugin: PluginRef,
@@ -219,8 +172,6 @@ impl Document {
         self.add_device_on_new_track_with(plugin, &[], after)
     }
 
-    /// As [`Document::add_device_on_new_track`], with the values a built-in
-    /// device starts from (M8 slice B0).
     pub fn add_device_on_new_track_with(
         &mut self,
         plugin: PluginRef,
@@ -242,18 +193,10 @@ impl Document {
         Ok((track, id))
     }
 
-    /// Adds `plugin` to `track`'s chain. An instrument goes first and takes
-    /// the place of the one there (the built-in synth or another plugin),
-    /// and a track that was playing to a MIDI output plays it again; an
-    /// effect goes at `slot`, never before the instrument. Returns the new
-    /// device's id.
     pub fn add_device(&mut self, track: Id, plugin: PluginRef, slot: Slot) -> Result<Id, Refusal> {
         self.add_device_with(track, plugin, &[], slot)
     }
 
-    /// As [`Document::add_device`], with the values a built-in device starts
-    /// from (M8 slice B0): its table's defaults, saved with the device so a
-    /// control a lane takes over shows the value that was there.
     pub fn add_device_with(
         &mut self,
         track: Id,
@@ -288,7 +231,6 @@ impl Document {
         Ok(id)
     }
 
-    /// Takes `device` off `track`'s chain.
     pub fn remove_device(&mut self, track: Id, device: Id) -> Result<(), Refusal> {
         let name = self.device_name(track, device)?;
         self.edit_chain(&format!("Remove {name}"), track, |t| {
@@ -298,8 +240,6 @@ impl Document {
         Ok(())
     }
 
-    /// Bypasses `device` (`true`) or turns it on again. A device already in
-    /// that state is left alone and nothing is recorded.
     pub fn set_device_bypass(
         &mut self,
         track: Id,
@@ -320,9 +260,6 @@ impl Document {
         Ok(())
     }
 
-    /// Why `device` could not be keyed from track `from`, if it could not:
-    /// the track is its own, or it is fed by this one so the sound would go
-    /// round. The menu greys such tracks with the reason.
     pub fn sidechain_refusal(&self, device: Id, from: Id) -> Option<Refusal> {
         let (track, _) = find_device(self.project(), device)?;
         if from == track {
@@ -338,12 +275,6 @@ impl Document {
         lumen_project::routing::has_loop(&trial).then_some(Refusal::SidechainLoop)
     }
 
-    /// Sets which track keys `device` and where on it the signal is taken, or
-    /// takes the sidechain away (`None`). Refused when `device` is not a
-    /// plugin effect or a built-in with a sidechain input, when the source is
-    /// the device's own track, and when it would make the routing feed back. A
-    /// source that is not there is kept as named, so undoing a track's removal
-    /// restores the link. One undo step; the same choice again records nothing.
     pub fn set_sidechain(
         &mut self,
         device: Id,
@@ -378,13 +309,6 @@ impl Document {
         Ok(())
     }
 
-    /// Sets plugin parameters (normalized, 0 to 1, by the plugin's own ids) on
-    /// whichever track holds `device`. The project keeps these values over the
-    /// plugin's saved state, so undo and redo are edits to them (format v19).
-    /// Values with the same `merge` key while a gesture is open (until
-    /// [`Document::seal`]) are one undo step, so a drag undoes in one go; a
-    /// value that is already there records nothing. Values outside 0 to 1
-    /// are clamped and a value that is not a number is left out.
     pub fn set_device_params(
         &mut self,
         device: Id,
@@ -403,7 +327,6 @@ impl Document {
                 && let Some(d) = t.devices.iter_mut().find(|d| d.id == device)
             {
                 for &(id, value) in &values {
-                    // A value the plugin already holds is no edit.
                     if d.params.get(&id) != Some(&value) {
                         d.params.insert(id, value);
                     }
@@ -413,11 +336,6 @@ impl Document {
         Ok(())
     }
 
-    /// Replaces a plugin's whole sound with a preset's: its state, its
-    /// controller's state when the preset has one, and no held parameter values
-    /// over them (they belonged to the sound that is gone). One undo step,
-    /// "Load <name>"; undo gives back the exact state and values it had.
-    /// `state_rev` goes up so the running plugin is set up from the new state.
     pub fn load_device_state(
         &mut self,
         device: Id,
@@ -437,7 +355,6 @@ impl Document {
             return Err(Refusal::TooLarge);
         }
         let label = format!("Load {name}");
-        // A step of its own, whatever came before and after.
         self.seal();
         self.history.apply(&label, None, |project| {
             if let Some(t) = find_mut(project, track)
@@ -455,18 +372,10 @@ impl Document {
         Ok(())
     }
 
-    /// Moves `device` to `slot` on `to`, which may be its own track (a
-    /// reorder) or another (the device and its host go with it, state and
-    /// bypass kept). `slot` counts the chain as it stands, so a drop gap
-    /// after the device itself, or just before it, changes nothing and
-    /// records nothing. An instrument takes the first place and replaces the
-    /// one on a MIDI track it moves to (D4); an effect is never put before
-    /// the instrument. One undo step.
     pub fn move_device(&mut self, from: Id, device: Id, to: Id, slot: Slot) -> Result<(), Refusal> {
         let plan = self.transfer(from, device, to, slot)?;
         let instrument = plan.device.is_instrument();
         if from == to && instrument {
-            // Already first; nothing to move, and the MIDI output stays.
             return Ok(());
         }
         let label = if from == to {
@@ -474,14 +383,12 @@ impl Document {
         } else {
             format!("Move {} to {}", name_of(&plan.device), plan.to_name)
         };
-        // The gap was counted with the device still in the chain.
         let index = if from == to && plan.from_at < plan.index {
             plan.index - 1
         } else {
             plan.index
         };
         self.history.apply(&label, None, |project| {
-            // The device's lanes go with it.
             let lanes = if from == to {
                 Vec::new()
             } else {
@@ -491,7 +398,6 @@ impl Document {
             };
             let mut moved = take_device(project, from, device);
             if from != to {
-                // A sidechain is a path into the track the effect sits on.
                 moved.sidechain = None;
             }
             put_device(project, to, moved, index, instrument);
@@ -502,12 +408,6 @@ impl Document {
         Ok(())
     }
 
-    /// Copies `device` to `slot` on `to` (its own track too) as a new device:
-    /// a fresh id, so its host and state are its own, with the source's saved
-    /// state, bypass and reported latency. Returns the copy's id. A track
-    /// plays one instrument, so an instrument copied to another MIDI track
-    /// replaces the one there (D4) and cannot be copied onto its own track.
-    /// One undo step.
     pub fn copy_device(&mut self, from: Id, device: Id, to: Id, slot: Slot) -> Result<Id, Refusal> {
         let plan = self.transfer(from, device, to, slot)?;
         if from == to && plan.device.is_instrument() {
@@ -526,7 +426,6 @@ impl Document {
             format!("Copy {name} to {}", plan.to_name)
         };
         let instrument = copy.is_instrument();
-        // The copy's lanes are the original's, on the copy.
         let lanes: Vec<_> = find(self.project(), from)
             .into_iter()
             .flat_map(|t| &t.automation)
@@ -548,10 +447,6 @@ impl Document {
         Ok(id)
     }
 
-    /// Puts a copy of `device`, kept earlier by a Copy, at `slot` on `to`: a
-    /// new device with a fresh id and the saved settings. The source may be
-    /// gone or changed since. An instrument replaces the one on the track
-    /// (D4). Returns the copy's id. One undo step.
     pub fn paste_device(&mut self, device: &Device, to: Id, slot: Slot) -> Result<Id, Refusal> {
         let target = find(self.project(), to).ok_or(Refusal::NoTrack)?;
         let index = place_in(target, device.kind(), slot)?;
@@ -567,8 +462,6 @@ impl Document {
         Ok(id)
     }
 
-    /// What a move or a copy needs, checked: the device, where it lands and
-    /// the target's name.
     fn transfer(&self, from: Id, device: Id, to: Id, slot: Slot) -> Result<Transfer, Refusal> {
         let source = find(self.project(), from).ok_or(Refusal::NoTrack)?;
         let target = find(self.project(), to).ok_or(Refusal::NoTrack)?;
@@ -587,7 +480,6 @@ impl Document {
         })
     }
 
-    /// One undo step changing the chain of `track` (the master included).
     fn edit_chain(&mut self, label: &str, track: Id, change: impl FnOnce(&mut Track)) {
         self.history.apply(label, None, |project| {
             if let Some(track) = find_mut(project, track) {
@@ -612,7 +504,6 @@ mod tests {
     use super::*;
 
     const CLASS: &str = "ABCDEF0123456789ABCDEF0123456789";
-    /// An id no track or device has.
     const GONE: Id = Id(9_999_999);
 
     fn plugin(name: &str, kind: DeviceKind) -> PluginRef {
@@ -624,7 +515,6 @@ mod tests {
         }
     }
 
-    /// A document with a MIDI track (with the synth) and an audio track.
     fn doc() -> (Document, Id, Id) {
         let mut doc = Document::new(crate::empty_project());
         let midi = doc.add_track(TrackKind::Midi, None);
@@ -809,8 +699,6 @@ mod tests {
             doc.set_sidechain(comp, key(audio)),
             Err(Refusal::SidechainSelf)
         );
-        // The audio track keys the MIDI track's effect; the MIDI track then
-        // cannot be keyed from the audio track.
         let tail = doc
             .add_device(midi, plugin("Tail", DeviceKind::Effect), Slot::End)
             .unwrap();
@@ -820,7 +708,6 @@ mod tests {
             Err(Refusal::SidechainLoop)
         );
         assert_eq!(track(&doc, midi).devices.last().unwrap().sidechain, None);
-        // A source that is gone is kept as named.
         doc.set_sidechain(comp, key(GONE)).unwrap();
         assert_eq!(track(&doc, audio).devices[0].sidechain, key(GONE));
     }
@@ -959,7 +846,6 @@ mod tests {
             .unwrap()
     }
 
-    /// Gives a device saved state and bypass, as a plugin that was set up has.
     fn set_up(doc: &mut Document, on: Id, device: Id, state: &[u8]) {
         doc.apply("Set up", None, |p| {
             let t = p.tracks.iter_mut().find(|t| t.id == on).unwrap();
@@ -999,7 +885,6 @@ mod tests {
         assert_eq!(names(&doc, audio), ["C", "A", "B"]);
         assert_eq!(doc.undo().as_deref(), Some("Move C"));
         assert_eq!(names(&doc, audio), ["A", "B", "C"]);
-        // Gaps count the chain as it stands: the gap before C is index 2.
         doc.move_device(audio, a, audio, Slot::At(2)).unwrap();
         assert_eq!(names(&doc, audio), ["B", "A", "C"]);
         doc.move_device(audio, a, audio, Slot::After(c)).unwrap();
@@ -1007,7 +892,6 @@ mod tests {
         doc.move_device(audio, b, audio, Slot::End).unwrap();
         assert_eq!(names(&doc, audio), ["C", "A", "B"]);
 
-        // B is last: the gaps before and after it leave it where it is.
         let before = steps(&doc);
         for slot in [Slot::At(2), Slot::At(3), Slot::After(a), Slot::After(b)] {
             doc.move_device(audio, b, audio, slot).unwrap();
@@ -1182,7 +1066,6 @@ mod tests {
         );
         let ids = device_ids(&doc);
         assert!(ids.windows(2).all(|w| w[0] != w[1]), "every id is its own");
-        // Changing the copy leaves the original alone.
         doc.set_device_bypass(other, copy, false).unwrap();
         assert!(track(&doc, audio).devices[0].bypass);
 
@@ -1222,7 +1105,6 @@ mod tests {
         set_up(&mut doc, audio, a, &[4, 5]);
         let kept = track(&doc, audio).devices[0].clone();
         doc.remove_device(audio, a).unwrap();
-        // The source is gone; the paste still has what was copied.
         let id = doc.paste_device(&kept, midi, Slot::End).unwrap();
         assert_ne!(id, a);
         let pasted = track(&doc, midi).devices[1].clone();
@@ -1230,8 +1112,6 @@ mod tests {
         expected.id = id;
         assert_eq!(pasted, expected);
         assert_eq!(doc.undo().as_deref(), Some("Paste A"));
-        // The same rules as an add: not before the instrument, an instrument
-        // pasted on an audio track or the master is refused.
         assert_eq!(
             doc.paste_device(&kept, midi, Slot::At(0)),
             Err(Refusal::BeforeInstrument)
@@ -1268,8 +1148,6 @@ mod tests {
         };
         assert_eq!(names_of(&doc), ["Limiter"]);
 
-        // A track's effect moves to the master, ahead of the limiter, and
-        // another is copied there; undo takes each back.
         doc.move_device(audio, a, master, Slot::At(0)).unwrap();
         assert_eq!(names_of(&doc), ["A", "Limiter"]);
         assert!(names(&doc, audio).is_empty());
@@ -1288,7 +1166,6 @@ mod tests {
         doc.undo();
         assert_eq!(*doc.project(), before);
 
-        // It survives a save.
         doc.add_device(master, plugin("Limiter", DeviceKind::Effect), Slot::End)
             .unwrap();
         let bytes = lumen_project::to_bytes(doc.project()).expect("the project can be saved");
@@ -1358,7 +1235,6 @@ mod tests {
         doc.set_device_params(pad, &[(1, 0.5)], "Change Level", None)
             .unwrap();
         assert_eq!(doc.state(), after_first, "nothing recorded");
-        // Out of range is clamped; NaN is left out; several at once are one step.
         doc.set_device_params(
             pad,
             &[(1, 7.0), (2, -3.0), (3, f64::NAN)],
@@ -1386,7 +1262,6 @@ mod tests {
             doc.set_device_params(GONE, &[(0, 0.1)], "x", None),
             Err(Refusal::NoDevice)
         );
-        // The master's chain too.
         let master = doc.project().master.id;
         let on_master = doc
             .add_device(master, plugin("Limiter", DeviceKind::Effect), Slot::End)
@@ -1441,8 +1316,6 @@ mod tests {
             (&back.state, &back.controller_state, &back.params),
             (&before.state, &before.controller_state, &before.params)
         );
-        // The revision goes back too: the running plugin sees a different
-        // sound than the one it has and is set up from the old state.
         assert_eq!(back.state_rev, before.state_rev);
         doc.redo();
         assert_eq!(whole(&doc, verb), loaded);

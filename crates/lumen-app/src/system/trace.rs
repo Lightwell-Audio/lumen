@@ -1,9 +1,3 @@
-//! Developer tracing: with `LUMEN_TRACE` set, timestamped lines for frames,
-//! input and transport commands. Used to measure UI latency.
-//!
-//! `LUMEN_TRACE=1` writes to stderr; any other value is a file to write to,
-//! for example `LUMEN_TRACE=trace.txt`.
-
 use std::fs::File;
 use std::io::Write;
 use std::sync::{Mutex, OnceLock};
@@ -32,12 +26,10 @@ fn sink() -> Option<&'static Sink> {
     .as_ref()
 }
 
-/// Whether tracing is on.
 pub fn enabled() -> bool {
     sink().is_some()
 }
 
-/// Writes `message` with milliseconds since tracing started.
 pub fn log(message: impl FnOnce() -> String) {
     let Some(sink) = sink() else {
         return;

@@ -1,9 +1,3 @@
-//! The velocity and controller lane under the piano roll (M5 slice 4b):
-//! drawing velocities across stems, controllers with the pencil, a line and
-//! a curve that can be bent, moving, boxing and deleting points, the lane
-//! tabs and tools, Live A (the document changes once, on release), Esc, and
-//! hearing what was drawn on a MIDI port. Every edit is one undo step.
-
 use eframe::egui::{Key, Modifiers, Pos2, vec2};
 use lumen_app::TimeView;
 use lumen_core::time::{PPQ, Ticks};
@@ -31,9 +25,6 @@ fn cc(at: i64, number: u8, value: u8) -> ClipEvent {
     }
 }
 
-/// One MIDI track whose clip (beats 0 to 8) holds four notes of velocity 100
-/// at beats 0, 1, 2 and 4, and `events`; sent to the fake port "Synth" on
-/// channel 4 when `port`.
 fn project(events: Vec<ClipEvent>, port: bool) -> Project {
     let notes = vec![
         Note::new(q(0), q(1), 60, 100),
@@ -44,7 +35,6 @@ fn project(events: Vec<ClipEvent>, port: bool) -> Project {
     project_with(notes, events, port)
 }
 
-/// [`project`] with the clip's `notes` in place of the four.
 fn project_with(notes: Vec<Note>, events: Vec<ClipEvent>, port: bool) -> Project {
     let mut track = midi_track(1, "Keys", "poly", (0, 8), None, notes, events);
     if port {
@@ -62,7 +52,6 @@ fn launch(name: &str, events: Vec<ClipEvent>) -> Lumen {
     launch_project(name, project(events, false))
 }
 
-/// [`launch`] with a clip of `notes`.
 fn launch_notes(name: &str, notes: Vec<Note>) -> Lumen {
     launch_project(name, project_with(notes, vec![], false))
 }
@@ -113,7 +102,6 @@ fn velocities(lumen: &Lumen) -> Vec<u8> {
     content(lumen).0.iter().map(|n| n.velocity()).collect()
 }
 
-/// The values of controller `number`'s events, with their times.
 fn controller(lumen: &Lumen, number: u8) -> Vec<(Ticks, u8)> {
     content(lumen)
         .1
@@ -136,7 +124,6 @@ fn bends(lumen: &Lumen) -> Vec<(Ticks, i16)> {
         .collect()
 }
 
-/// Where the lane shows `value` at `beats` into the clip.
 fn at(lumen: &Lumen, beats: f32, value: i32) -> Pos2 {
     lumen
         .app()
@@ -305,7 +292,6 @@ fn a_curve_bends_when_its_dot_is_dragged() {
     lumen.drag(at(&lumen, 1.0, 0), at(&lumen, 3.0, 120), Modifiers::NONE);
     let straight = controller(&lumen, 1);
     let dot = lumen.app().lane_bend_dot().expect("the curve has a dot");
-    // Pull the dot down: the curve sags below the straight line.
     lumen.drag(dot, dot + vec2(0.0, 30.0), Modifiers::NONE);
     let bent = controller(&lumen, 1);
     let mid = |v: &[(Ticks, u8)]| {
@@ -357,7 +343,6 @@ fn a_box_picks_points_and_delete_removes_them_in_one_step() {
     tab(&mut lumen, "Mod wheel");
     lumen.drag(at(&lumen, 0.5, 120), at(&lumen, 2.5, 5), Modifiers::SHIFT);
     assert_eq!(lumen.app().lane_picked().len(), 2, "two points in the box");
-    // The keys are the editor's while the pointer is over it.
     let over = at(&lumen, 6.0, 60);
     lumen.harness.hover_at(over);
     lumen.frames(2);
@@ -394,7 +379,6 @@ fn what_the_lane_draws_is_sent_to_the_port() {
     lumen.drag(at(&lumen, 0.5, 40), at(&lumen, 3.0, 110), Modifiers::NONE);
     let drawn = controller(&lumen, 1);
     assert!(!drawn.is_empty());
-    // Opening the clip left the playhead in its middle: play from the start.
     lumen.key(Modifiers::NONE, Key::Home);
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.wait_for("playback", |app| app.is_playing());
@@ -402,7 +386,6 @@ fn what_the_lane_draws_is_sent_to_the_port() {
     loop {
         lumen.frames(1);
         let sent = fake.sent();
-        // Channel 4 (index 3), controller 1.
         if sent
             .iter()
             .filter(|(_, m)| m.starts_with(&[0xB3, 1]))
@@ -420,7 +403,6 @@ fn what_the_lane_draws_is_sent_to_the_port() {
     }
 }
 
-/// Runs the palette command that `query` finds first.
 fn palette(lumen: &mut Lumen, query: &str) {
     lumen.key(Modifiers::COMMAND, Key::K);
     lumen.key(Modifiers::COMMAND, Key::A);
@@ -464,7 +446,6 @@ fn raise_and_lower_velocity_each_change_the_picked_notes_in_one_step() {
 #[test]
 fn a_box_in_the_velocity_lane_picks_the_notes_of_the_stems_it_holds() {
     let mut lumen = launch("lane-stem-box", vec![]);
-    // Stems at beats 0, 1, 2 and 4, heads at velocity 100.
     lumen.drag(at(&lumen, 0.5, 120), at(&lumen, -0.2, 90), Modifiers::SHIFT);
     let picked = lumen.app().editor_picked();
     assert_eq!(
@@ -472,7 +453,6 @@ fn a_box_in_the_velocity_lane_picks_the_notes_of_the_stems_it_holds() {
         [0],
         "only the stem at beat 0 is inside the box: {picked:?}"
     );
-    // Shift adds: a second box over the stems at beats 0 and 1.
     lumen.drag(at(&lumen, 1.5, 120), at(&lumen, -0.2, 90), Modifiers::SHIFT);
     assert_eq!(lumen.app().editor_picked(), [0, 1]);
 }
@@ -489,8 +469,6 @@ fn the_number_keys_choose_the_lane_tool() {
     assert!(lumen.is_on("Lane pencil tool"));
 }
 
-/// Picks notes 0 and 1 of the four, after giving note 1 velocity 70 (a
-/// drag of its own head): velocities are then `[100, 70, 100, 100]`.
 fn pick_first_two(lumen: &mut Lumen) {
     lumen.drag(at(lumen, 1.0, 100), at(lumen, 1.0, 70), Modifiers::NONE);
     assert_eq!(velocities(lumen), [100, 70, 100, 100]);
@@ -520,7 +498,6 @@ fn dragging_picked_heads_stops_each_note_at_the_ends_of_the_range() {
     lumen.drag(at(&lumen, 1.0, 70), at(&lumen, 1.0, 127), Modifiers::NONE);
     assert_eq!(velocities(&lumen), [127, 127, 100, 100], "+57 stops at 127");
     undo(&mut lumen);
-    // Undo lets the picks go: pick the two again.
     lumen.drag(at(&lumen, 1.5, 120), at(&lumen, -0.2, 60), Modifiers::SHIFT);
     assert_eq!(lumen.app().editor_picked(), [0, 1]);
     lumen.drag(at(&lumen, 0.0, 100), at(&lumen, 0.0, 1), Modifiers::NONE);
@@ -532,7 +509,6 @@ fn dragging_picked_heads_stops_each_note_at_the_ends_of_the_range() {
 fn dragging_an_unpicked_head_picks_it_and_changes_only_it_relatively() {
     let mut lumen = launch("lane-heads-alone", vec![]);
     pick_first_two(&mut lumen);
-    // Grabbed a little below the head of note 2 and dragged 10 values down.
     let head = at(&lumen, 2.0, 100);
     let travel = at(&lumen, 2.0, 90).y - head.y;
     let from = Pos2::new(head.x, head.y + 6.0);
@@ -546,9 +522,6 @@ fn dragging_an_unpicked_head_picks_it_and_changes_only_it_relatively() {
 #[test]
 fn a_head_drag_is_relative_to_where_it_was_grabbed() {
     let mut lumen = launch("lane-heads-relative", vec![]);
-    // Grabbed 6 points below the head (inside the hit distance), then dragged
-    // down 10 values' worth: the velocity falls by the travel, it does not
-    // jump to the pointer.
     let head = at(&lumen, 1.0, 100);
     let travel = at(&lumen, 1.0, 90).y - at(&lumen, 1.0, 100).y;
     let from = Pos2::new(head.x, head.y + 6.0);
@@ -558,8 +531,6 @@ fn a_head_drag_is_relative_to_where_it_was_grabbed() {
     assert!((89..=91).contains(&v[1]), "moved by the travel: {v:?}");
 }
 
-/// A clip whose notes overlap in the lane: a chord at beat 0 (100 and 60),
-/// two at beat 1 with equal velocity, and two a few points apart at beat 2.
 fn overlapping() -> Vec<Note> {
     vec![
         Note::new(q(0), q(1), 60, 100),

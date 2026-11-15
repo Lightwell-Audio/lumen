@@ -1,22 +1,10 @@
 #!/usr/bin/env bash
-# The undocumented list's rule (docs/USER_DOCS.md §5.3 and §10.1, ADR-0133):
-# the backlog only shrinks, and a slice may add an action only with its
-# milestone's tag (`id @m9.5`), to be written at that milestone's docs pass.
-#
-#   undocumented-check.sh <the list on the base branch> <the list on this branch>
-#
-# Fails when this branch adds an id with no tag, or tags an id the base
-# branch lists without one (that would turn the backlog into a deferral).
-# An id can hold spaces (`menu:Open recent`), so the tag is what follows the
-# last " @".
 set -euo pipefail
 
 base="$1"
 head="$2"
 
-# One line per entry, without comments and blank lines.
 entries() { grep -v -e '^[[:space:]]*#' -e '^[[:space:]]*$' "$1" || true; }
-# The id of a line, and its tag (empty when it has none).
 id_of() { sed -E 's/ @[^ ]*$//' <<<"$1"; }
 tag_of() { if [[ "$1" == *" @"* ]]; then echo "${1##* @}"; fi; }
 

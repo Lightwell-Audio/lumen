@@ -1,6 +1,5 @@
 use super::*;
 
-/// A file in memory.
 struct Memory(Vec<Vec<f32>>);
 
 impl Source for Memory {
@@ -58,7 +57,6 @@ fn a_new_speed_moves_the_pitch_by_the_ratio() {
     for speed in [0.5, 0.8, 1.0 + 1.0e-3, 1.37, 2.0, 3.0] {
         let mut source = Memory(vec![data.clone()]);
         let (l, _) = run(&mut source, &|k| 2_000.0 + k as f64 * speed, 0, 8_000);
-        // The file's sine seen at the new speed: the tone times the speed.
         let worst = (0..8_000)
             .map(|k| {
                 let want = (std::f64::consts::TAU * tone * (2_000.0 + k as f64 * speed)).sin();
@@ -71,7 +69,6 @@ fn a_new_speed_moves_the_pitch_by_the_ratio() {
 
 #[test]
 fn a_run_holds_the_same_bits_whatever_its_pieces() {
-    // A position that bends: a ramp and a kink, like a marker.
     let position = |k: i64| {
         let k = k as f64;
         if k < 20_000.0 {
@@ -83,7 +80,6 @@ fn a_run_holds_the_same_bits_whatever_its_pieces() {
     let data = sine(120_000, 0.031);
     let mut whole = Memory(vec![data.clone(), data.clone()]);
     let (wl, wr) = run(&mut whole, &position, 0, 40_000);
-    // Pieces of odd lengths, starting off the grid, across the kink.
     let mut renderer = Renderer::new();
     let mut at = 0_usize;
     for len in [
@@ -105,8 +101,6 @@ fn a_run_holds_the_same_bits_whatever_its_pieces() {
 
 #[test]
 fn a_file_that_runs_fast_is_filtered_before_it_folds_back() {
-    // 0.4 of the file's rate is far above where twice the speed can keep it:
-    // played at 2x it would fold to 0.2 if it were not filtered out.
     let data = sine(40_000, 0.4);
     let mut source = Memory(vec![data]);
     let (l, _) = run(&mut source, &|k| 1_000.0 + k as f64 * 2.0, 0, 8_000);
@@ -117,12 +111,10 @@ fn a_file_that_runs_fast_is_filtered_before_it_folds_back() {
 #[test]
 fn outside_the_file_is_silent_and_the_edges_do_not_ring() {
     let mut source = Memory(vec![vec![0.5; 1_000]]);
-    // Before the start, across it, across the end and past it.
     let (l, _) = run(&mut source, &|k| k as f64 - 3_000.0 + 0.25, 0, 6_000);
     assert!(l[..2_000].iter().all(|v| *v == 0.0));
     assert!(l[5_000..].iter().all(|v| *v == 0.0));
     assert!(l[3_100..3_900].iter().all(|v| (v - 0.5).abs() < 1.0e-3));
-    // A step of 0.5 is bounded: the kernel overshoots by well under a tenth.
     assert!(l.iter().all(|v| v.abs() < 0.6), "ringing past the edge");
 }
 

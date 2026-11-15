@@ -1,11 +1,3 @@
-//! Audio files in the app (M2 slice 6): each one is loaded on its own
-//! background thread (decode, convert to the device rate, then build its
-//! waveform peaks, slice 4c) with progress and cancel, and held in memory
-//! for the clip player. When the device rate
-//! changes, ready files are converted again in the background; their clips
-//! stay silent until then. With "Play audio from disk" on (M9 slice R6),
-//! files of half a minute or more play from disk instead ([`streaming`]).
-
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -21,34 +13,23 @@ mod twins;
 pub mod warped;
 pub use twins::{media_of, mirror, reversed_key};
 
-/// What the user sees about a file: from its name and size at once, the
-/// rest when it has been decoded.
 #[derive(Debug, Clone, Default)]
 pub struct FileInfo {
-    /// "WAV", "FLAC", ...
     pub format: String,
     pub size_bytes: u64,
-    /// The file's own rate, before conversion.
     pub sample_rate: Option<u32>,
     pub channels: Option<usize>,
     pub seconds: Option<f64>,
-    /// Length in the file's own frames.
     pub frames: Option<u64>,
-    /// The tempo the file says it was made at: its loop tag or BPM tag, or a
-    /// BPM in its name (M9.5 S4d). Read with the file, so `None` until then.
     pub tempo: Option<lumen_media::tempo::FileTempo>,
 }
 
-/// The tempo `path` states (M9.5 S4d): its own tag first, then a BPM in its
-/// name. Reads the file's header, so for a worker.
 fn stated_tempo(path: &Path) -> Option<lumen_media::tempo::FileTempo> {
     lumen_media::tempo::stated(path)
 }
 
-/// Every file extension Lumen imports, for file dialogs' filters.
 pub const EXTENSIONS: &[&str] = &["wav", "wave", "aif", "aiff", "flac", "mp3", "ogg"];
 
-/// The format name shown for `path`, or `None` if Lumen cannot import it.
 pub fn format_name(path: &Path) -> Option<&'static str> {
     let extension = path.extension()?.to_str()?.to_ascii_lowercase();
     Some(match extension.as_str() {
@@ -78,14 +59,9 @@ pub struct Item {
     pub name: String,
     pub state: State,
     pub info: FileInfo,
-    /// Waveform peaks of the audio at the device rate, once ready.
     pub peaks: Option<Arc<Peaks>>,
     job: Option<Job>,
-    /// Whether streaming was on when the file loaded: it loads again when
-    /// that changes. `None` for audio given ready, which never loads.
     streamed: Option<bool>,
-    /// Made by the library's generator (`--stress`), not read from a file:
-    /// at another device rate it is generated again, never loaded.
     generated: bool,
 }
 
@@ -97,10 +73,8 @@ impl Drop for Item {
 
 struct Job {
     cancel: Arc<AtomicBool>,
-    /// Progress 0.0–1.0, as `f32` bits.
     progress: Arc<AtomicU32>,
     rate: u32,
-    /// Streaming was on when it started.
     stream: bool,
 }
 
@@ -108,12 +82,8 @@ struct Done {
     id: u64,
     rate: u32,
     stream: bool,
-    /// The file's own rate, channels and length (frames, seconds).
     source: Option<Source>,
-    /// The file's size on disk, read here rather than on the UI thread
-    /// (M4 review L8: a stat on a network path can stall a frame).
     size_bytes: u64,
-    /// The tempo the file states (M9.5 S4d).
     tempo: Option<lumen_media::tempo::FileTempo>,
     result: Result<streaming::Loaded, MediaError>,
     peaks: Option<Peaks>,
@@ -121,19 +91,15 @@ struct Done {
 
 pub struct Library {
     items: Vec<Item>,
-    /// The page pool, disk thread and cache while streaming is on.
     streaming: Option<streaming::Streaming>,
-    /// Reversed copies of files, by `twins::reversed_key` (M7b slice E1).
     twins: Vec<twins::Twin>,
     twin_tx: Sender<twins::Mirrored>,
     twin_rx: Receiver<twins::Mirrored>,
     done_tx: Sender<Done>,
     done_rx: Receiver<Done>,
-    /// Makes the audio of generated items at a rate (`--stress`).
     generator: Option<Generator>,
 }
 
-/// Audio made at a device rate rather than read from a file.
 pub type Generator = fn(u32) -> Vec<Vec<f32>>;
 
 impl Default for Library {
@@ -153,7 +119,6 @@ impl Default for Library {
     }
 }
 
-/// The generator's audio at `rate`, with its peaks.
 fn generate(generator: Generator, rate: u32) -> Option<(Arc<ClipAudio>, Arc<Peaks>)> {
     let channels = generator(rate);
     let peaks = Peaks::build(&channels, &AtomicBool::new(false))?;
@@ -169,7 +134,6 @@ impl Library {
         &self.items
     }
 
-    /// A file by media id, or its reversed twin by `reversed_key`.
     pub fn get(&self, id: u64) -> Option<&Item> {
         self.items
             .iter()
@@ -177,12 +141,10 @@ impl Library {
             .or_else(|| self.twins.iter().map(|t| &t.item).find(|i| i.id == id))
     }
 
-    /// Every file and every reversed twin, for the waveforms' atlas.
     pub fn with_twins(&self) -> impl Iterator<Item = &Item> {
         self.items.iter().chain(self.twins.iter().map(|t| &t.item))
     }
 
-    /// Starts loading `path` at `rate` as `id` (the project's media id).
     pub fn import_as(&mut self, id: u64, path: PathBuf, rate: u32, ctx: &egui::Context) {
         if self.get(id).is_some() {
             return;
@@ -209,16 +171,11 @@ impl Library {
         self.start_job(id, rate, ctx);
     }
 
-    /// Adds audio that is already in memory as `id`, ready at once (tests).
     #[cfg(test)]
     pub fn insert_ready(&mut self, id: u64, name: &str, audio: Arc<ClipAudio>, peaks: Arc<Peaks>) {
         self.insert_audio(id, name, audio, peaks, false);
     }
 
-    /// Gives every one of `files` (id and name) the same audio from
-    /// `generator` at `rate` (one copy in memory, one set of peaks). When
-    /// the device rate changes, [`Self::update`] generates it again at the
-    /// new rate rather than looking for a file (`--stress`).
     pub fn insert_generated(&mut self, files: &[(u64, &str)], rate: u32, generator: Generator) {
         self.generator = Some(generator);
         let Some((audio, peaks)) = generate(generator, rate) else {
@@ -258,8 +215,6 @@ impl Library {
         });
     }
 
-    /// Adds `id` as a file still loading, until `insert_ready` replaces it
-    /// (tests: loads that finish in a chosen order).
     #[cfg(test)]
     pub fn insert_loading(&mut self, id: u64, name: &str, rate: u32) {
         self.items.retain(|i| i.id != id);
@@ -281,22 +236,13 @@ impl Library {
         });
     }
 
-    /// Turns playing from disk on (with the pool, disk thread and cache it
-    /// uses) or off. Files whose way of playing changes load again at the
-    /// next [`Self::update`]. Until then, clips of files in memory play as
-    /// before; turned off, clips of streamed files are silent (their disk
-    /// thread has stopped).
     pub fn set_streaming(&mut self, streaming: Option<streaming::Streaming>) {
         let Some(old) = std::mem::replace(&mut self.streaming, streaming) else {
             return;
         };
-        // The old disk thread stops where it is, up to one page read, and
-        // its join does not belong in a frame (sweep M4d): it is dropped on
-        // a thread of its own.
         crate::spawn::drop_later(old);
     }
 
-    /// The pool, disk thread and cache while streaming is on.
     pub fn streaming(&self) -> Option<&streaming::Streaming> {
         self.streaming.as_ref()
     }
@@ -324,8 +270,6 @@ impl Library {
             let mut shown = 0.0;
             let mut report = |p: f32| {
                 progress.store(p.to_bits(), Ordering::Relaxed);
-                // Repaint for every 2% so the bar moves without
-                // flooding the UI.
                 if p - shown >= 0.02 {
                     shown = p;
                     ctx.request_repaint();
@@ -334,7 +278,6 @@ impl Library {
             let size_bytes = std::fs::metadata(&path).map_or(0, |m| m.len());
             let tempo = stated_tempo(&path);
             let started = std::time::Instant::now();
-            // A long file plays from disk when streaming is on (M B).
             let header = cache
                 .as_ref()
                 .and_then(|_| lumen_media::probe(&path).ok())
@@ -377,8 +320,6 @@ impl Library {
             ctx.request_repaint();
         });
         if let Err(error) = spawned {
-            // The item says why it will not play, rather than loading for
-            // ever with no worker behind it.
             let why = crate::spawn::start_failed("loading the audio", &error);
             crate::trace::log(|| format!("media: {why}"));
             item.job = None;
@@ -386,18 +327,12 @@ impl Library {
         }
     }
 
-    /// Applies finished loads, and loads ready files again when the device
-    /// rate is no longer theirs or streaming was turned on or off. Returns
-    /// true if any file became ready, failed or was removed, so the engine's
-    /// clips need rebuilding.
     pub fn update(&mut self, rate: u32, ctx: &egui::Context) -> bool {
         let mut changed = false;
         while let Ok(done) = self.done_rx.try_recv() {
             let Some(item) = self.items.iter_mut().find(|i| i.id == done.id) else {
                 continue;
             };
-            // A load superseded by a newer one (another rate, streaming
-            // turned on or off) is ignored.
             if item
                 .job
                 .as_ref()
@@ -459,7 +394,6 @@ impl Library {
             changed = true;
         }
         changed |= self.take_twins();
-        // Cancelled loads leave nothing behind.
         let before = self.items.len();
         self.items
             .retain(|i| !(matches!(i.state, State::Loading) && i.job.is_none()));
@@ -488,10 +422,6 @@ impl Library {
         changed
     }
 
-    /// Generates the generated items' audio again when the device rate is
-    /// no longer theirs. True if it did. It runs on the UI thread, which only
-    /// the generated `--stress` project may do: real media is decoded on a
-    /// worker.
     fn regenerate(&mut self, rate: u32) -> bool {
         let Some(generator) = self.generator else {
             return false;
@@ -514,18 +444,15 @@ impl Library {
         true
     }
 
-    /// Loading progress, 0.0–1.0, while a file loads or converts.
     pub fn progress(&self, id: u64) -> Option<f32> {
         let job = self.get(id)?.job.as_ref()?;
         Some(f32::from_bits(job.progress.load(Ordering::Relaxed)))
     }
 
-    /// Any file is loading or converting.
     pub fn is_loading(&self) -> bool {
         self.items.iter().any(|i| i.job.is_some())
     }
 
-    /// Stops every load in progress; files that were never ready disappear.
     pub fn cancel_all(&mut self) {
         for item in &mut self.items {
             if let Some(job) = &item.job {
@@ -534,14 +461,11 @@ impl Library {
         }
     }
 
-    /// Forgets a failed file.
     pub fn dismiss(&mut self, id: u64) {
         self.items
             .retain(|i| !(i.id == id && matches!(i.state, State::Failed(_))));
     }
 
-    /// Bytes of audio held in memory: files in memory, and the page pool
-    /// while streaming is on.
     pub fn memory(&self) -> usize {
         let files: usize = self
             .with_twins()
@@ -554,11 +478,8 @@ impl Library {
     }
 }
 
-/// The file's own rate, channels and length (frames, seconds).
 type Source = (u32, usize, u64, f64);
 
-/// Decodes `path` and converts it to `rate`, keeping the file's own details.
-/// Blocks.
 fn decode(
     path: &Path,
     rate: u32,
@@ -653,7 +574,6 @@ mod tests {
         assert!((info.seconds.unwrap() - 1.0).abs() < 1e-6);
         assert_eq!(info.size_bytes, 44 + 44_100 * 4);
 
-        // The device switches to 44.1 kHz: the file is converted again.
         library.update(44_100, &ctx);
         assert!(library.is_loading());
         settle(&mut library, 44_100, &ctx);
@@ -666,9 +586,6 @@ mod tests {
 
     #[test]
     fn generated_audio_is_made_again_at_a_new_rate_and_never_read_from_disk() {
-        // `--stress` at a device rate other than the one it started at: its
-        // made-up paths are never loaded (they used to fail, one warning per
-        // file); the audio is generated again, shared by every file.
         fn tone(rate: u32) -> Vec<Vec<f32>> {
             vec![vec![0.25; rate as usize / 10]; 2]
         }

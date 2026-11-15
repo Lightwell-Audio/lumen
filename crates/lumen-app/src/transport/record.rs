@@ -1,7 +1,3 @@
-//! The recording controls' pure parts (M5 slice 6d): what the Record button
-//! shows, the count-in's beat pulse, the position and time while counting in,
-//! and the command each count-in choice runs.
-
 use lumen_core::time::{PPQ, Ticks};
 use lumen_engine::{Timeline, TransportSnapshot};
 
@@ -11,28 +7,17 @@ use crate::timefmt::{self, TimeFormat};
 
 const SIXTEENTH: i64 = PPQ / 4;
 
-/// The record glyph's share of full record red at rest (the owner's look:
-/// red, a little softened).
 pub const REST_INK: f32 = 0.9;
-/// The lowest level of a count-in beat's pulse, as a share of full light:
-/// the light falls back to here before the next beat.
 const PULSE_FLOOR: f32 = 0.3;
-/// The steady tint of the count-in with Reduce motion: no pulse.
 const STEADY_TINT: f32 = 0.6;
 
-/// What the Record button shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Phase {
-    /// Stopped or playing, not recording: the record glyph in red.
     Rest,
-    /// Counting in: a hollow ring, tinted red and pulsing on each beat.
     CountingIn,
-    /// Recording: filled, lit in record red with the Flare.
     Recording,
 }
 
-/// The phase the transport is in. The engine counts in as recording, so a
-/// count-in is checked first.
 pub fn phase(state: &TransportSnapshot) -> Phase {
     if state.count_in_total > 0 {
         Phase::CountingIn
@@ -43,10 +28,6 @@ pub fn phase(state: &TransportSnapshot) -> Phase {
     }
 }
 
-/// How far into the current count-in beat the count is: 0 on a beat's
-/// start, rising towards 1 just before the next. `beats` beats fill `total`
-/// frames and `left` of them are still to count. None when there is no
-/// count-in to measure.
 pub fn beat_phase(left: i64, total: i64, beats: u32) -> Option<f32> {
     if total <= 0 || beats == 0 {
         return None;
@@ -56,9 +37,6 @@ pub fn beat_phase(left: i64, total: i64, beats: u32) -> Option<f32> {
     Some(beats_done.fract() as f32)
 }
 
-/// The Record button's light while counting in: full on each beat, falling
-/// to [`PULSE_FLOOR`] before the next. With Reduce motion it holds
-/// [`STEADY_TINT`]. Keeps the tint steady when the beat is not known.
 pub fn count_in_lit(left: i64, total: i64, beats: u32, reduced: bool) -> f32 {
     if reduced {
         return STEADY_TINT;
@@ -69,9 +47,6 @@ pub fn count_in_lit(left: i64, total: i64, beats: u32, reduced: bool) -> f32 {
     }
 }
 
-/// The position while counting in. The song waits at the play marker while
-/// the clicks sound, so the position is the marker moved back by the frames
-/// still to count: zero-based ticks that go negative before 1.1.1.
 pub fn count_in_ticks(timeline: &Timeline, marker: Ticks, left: i64, rate: u32) -> Ticks {
     if rate == 0 {
         return marker;
@@ -79,17 +54,12 @@ pub fn count_in_ticks(timeline: &Timeline, marker: Ticks, left: i64, rate: u32) 
     timeline.ticks_at(timeline.sample_at(marker, rate) - left, rate)
 }
 
-/// The position as bars, beats and sixteenths while counting in. Bars before
-/// 1 count up through negative numbers with no bar 0: "-2.1.1", "-1.4.4",
-/// then "1.1.1". Beats and sixteenths are one-based, as the normal field.
 pub fn count_in_text(timeline: &Timeline, t: Ticks) -> String {
     let bbt = timeline.meter.bbt_at(t);
     let bar = if bbt.bar < 0 { bbt.bar } else { bbt.bar + 1 };
     format!("{bar}.{}.{}", bbt.beat + 1, bbt.ticks.0 / SIXTEENTH + 1)
 }
 
-/// A time for the position's second half, with a minus sign before any time
-/// before zero (the count-in), where [`timefmt::format`] would clamp it.
 pub fn time_text(format: TimeFormat, seconds: f64, rate: u32) -> String {
     if seconds < 0.0 {
         format!("-{}", timefmt::format(format, -seconds, rate))
@@ -98,7 +68,6 @@ pub fn time_text(format: TimeFormat, seconds: f64, rate: u32) -> String {
     }
 }
 
-/// The name of a count-in choice, as the palette has it ("Count-in: 1 bar").
 pub fn count_in_name(count_in: CountIn) -> &'static str {
     match count_in {
         CountIn::Off => "Count-in: Off",
@@ -108,7 +77,6 @@ pub fn count_in_name(count_in: CountIn) -> &'static str {
     }
 }
 
-/// The command a count-in choice runs.
 pub fn count_in_command(count_in: CountIn) -> Run {
     match count_in {
         CountIn::Off => Run::CountInOff,
@@ -141,7 +109,6 @@ mod tests {
     #[test]
     fn the_count_in_text_counts_up_through_negative_bars_with_no_bar_zero() {
         let tl = t44();
-        // A two-bar count-in: from -2.1.1 through -2.4.4 to -1.1.1.
         assert_eq!(count_in_text(&tl, Ticks::quarters(-8)), "-2.1.1");
         assert_eq!(count_in_text(&tl, Ticks::quarters(-5)), "-2.4.1");
         assert_eq!(count_in_text(&tl, Ticks::quarters(-4)), "-1.1.1");
@@ -157,7 +124,6 @@ mod tests {
     fn the_count_in_position_moves_back_by_the_frames_left() {
         let tl = t44();
         let rate = 48_000;
-        // At 120 BPM a beat is half a second: 24_000 frames.
         let beat_frames = 24_000;
         let at_start = count_in_ticks(&tl, Ticks::ZERO, 4 * beat_frames, rate);
         assert_eq!(count_in_text(&tl, at_start), "-1.1.1");
@@ -180,7 +146,6 @@ mod tests {
 
     #[test]
     fn the_beat_phase_rises_through_each_beat() {
-        // Four beats in 96 frames: one beat every 24 frames.
         let total = 96;
         assert_eq!(beat_phase(96, total, 4), Some(0.0));
         assert_eq!(beat_phase(72, total, 4), Some(0.0), "the next beat");

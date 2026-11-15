@@ -1,13 +1,3 @@
-//! Command coverage (M9 R7, the 2026-10-24 audit's M4): every control on
-//! the transport bar and every row of the app menu either runs a command,
-//! so it can be found in the palette and given keys, or is listed with the
-//! reason it has none (the lists are in `tests/shared/controls.rs`, which
-//! the user docs publish). The controls are read from what is drawn: their
-//! names from the accessibility tree, and the command each was drawn for
-//! from the app's own note of it (`App::drawn_commands`). A new control in
-//! neither list fails, and so does one wired to another command than its
-//! entry says.
-
 use eframe::egui::Rect;
 use eframe::egui::accesskit::{Action, Role};
 use egui_kittest::kittest::{NodeT, Queryable, by};
@@ -17,10 +7,8 @@ use super::Lumen;
 
 use crate::controls::{BAR, Command, Each, Has, MENU, Without};
 
-/// How tall the transport bar is: the controls above this line are its.
 const BAR_HEIGHT: f32 = 44.0;
 
-/// The submenus whose rows the menu list holds.
 const SUBMENUS: [&str; 4] = [
     "New from template",
     "Open recent",
@@ -28,17 +16,11 @@ const SUBMENUS: [&str; 4] = [
     "Appearance",
 ];
 
-/// A control a user can act on, greyed or not: its node's id, so a control is
-/// told apart from another of the same name, and its accessible name.
 struct Control {
     id: String,
     name: String,
 }
 
-/// The controls drawn now where `keep` says, by their rectangle. A control with no
-/// name is named by its role and place, so it fails the check rather than
-/// being skipped. Other nodes that take a click (a menu's own area, a
-/// switch's caption) count only when named.
 fn controls(lumen: &Lumen, keep: impl Fn(Rect) -> bool) -> Vec<Control> {
     lumen
         .harness
@@ -76,9 +58,6 @@ fn controls(lumen: &Lumen, keep: impl Fn(Rect) -> bool) -> Vec<Control> {
         .collect()
 }
 
-/// The name a control is drawn with: its accessible name without the
-/// keycaps a menu row adds ("Save Ctrl+S" is "Save"). `chords` are every
-/// command's shortcuts, as shown.
 fn drawn_name<'a>(name: &'a str, chords: &[String]) -> &'a str {
     chords
         .iter()
@@ -86,8 +65,6 @@ fn drawn_name<'a>(name: &'a str, chords: &[String]) -> &'a str {
         .unwrap_or(name)
 }
 
-/// The entry of `list` that a control drawn as `name` is: the entry's name
-/// itself, or one that ends in a colon or " …" followed by a value.
 fn entry<'a>(list: &'a [(&'a str, Has)], name: &str) -> Option<&'a (&'a str, Has)> {
     list.iter().find(|(entry, _)| {
         if let Some(stem) = entry.strip_suffix(" …") {
@@ -101,10 +78,6 @@ fn entry<'a>(list: &'a [(&'a str, Has)], name: &str) -> Option<&'a (&'a str, Has
     })
 }
 
-/// Checks the drawn `controls` against `list`: each is listed and drawn
-/// for its entry's command (`drawn`, the app's note of the command each
-/// control name was drawn for) or, without one, for none; and every entry
-/// was drawn.
 fn check(
     list: &[(&str, Has)],
     controls: &[Control],
@@ -167,7 +140,6 @@ fn a_name_matches_its_entry_whole_or_with_a_value() {
 #[test]
 fn every_bar_control_and_app_menu_row_runs_a_command_or_says_why_not() {
     let mut lumen = Lumen::start("coverage");
-    // A recent project and a template, so their submenus list a row each.
     let song = lumen.dir().join("Song.lumen");
     lumen.app_mut().save_to(song.clone());
     lumen.wait_for("the project saved", |app| {
@@ -188,10 +160,6 @@ fn every_bar_control_and_app_menu_row_runs_a_command_or_says_why_not() {
     let drawn = App::drawn_commands(&ctx);
     check(BAR, &bar, &drawn, &chords, "bar", &mut problems);
 
-    // The menu's controls are the nodes below the bar that were not there
-    // before it opened, by node rather than by name: a menu row can share a
-    // name with another control. The bar is left out: its audio chip is
-    // drawn anew as its status changes ("Audio: Dropouts ×3").
     let before: Vec<String> = controls(&lumen, |_| true)
         .into_iter()
         .map(|c| c.id)
@@ -211,8 +179,6 @@ fn every_bar_control_and_app_menu_row_runs_a_command_or_says_why_not() {
         lumen.harness.hover_at(at);
         lumen.frames(30);
         if submenu == "New from template" {
-            // The folder is read in the background, again once the first
-            // listing (at start, before the template was made) is stale.
             lumen.run_until("the template listed", |l| l.shows("Beat"));
         }
         take(&lumen);

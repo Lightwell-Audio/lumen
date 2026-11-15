@@ -1,14 +1,6 @@
-//! Keeping the hosts in step with the project and the engine, once a frame
-//! (ADR-0071): devices that came or went, a new rate or block size, what the
-//! hosts said, what the engine learned about the running ones, checkpoints,
-//! and the latencies the routing is built with.
-
 use super::*;
 
 impl Hosting {
-    /// Keeps the hosts in step with the project and the engine. Call every
-    /// frame with the device's rate and block size (0 for unknown).
-    /// `latencies` receives each plugin's latency for the routing.
     pub fn update(
         &mut self,
         project: &Project,
@@ -36,10 +28,6 @@ impl Hosting {
         changed
     }
 
-    /// Devices that left the project, or changed which plugin they hold, or an
-    /// instrument that moved to another track: the engine keeps an instrument by
-    /// its track, so it starts again where it now plays (an effect is attached by
-    /// its own id and goes with its device).
     fn forget_gone(&mut self, list: &[Wanted<'_>], mixer: &mut MixerHandle, changed: &mut Changed) {
         let gone: Vec<u64> = self
             .tracked
@@ -70,7 +58,6 @@ impl Hosting {
         }
     }
 
-    /// New devices, and missing ones whose plugin has turned up.
     fn track_new(&mut self, list: &[Wanted<'_>], catalog: &Catalog, rate: u32, frames: u32) {
         for w in list {
             let id = w.device.id.0;
@@ -116,8 +103,6 @@ impl Hosting {
         }
     }
 
-    /// A new rate or block size: every host configures again for it, so a
-    /// plugin is always promised the device's block (ADR-0075).
     fn reconfigure(&mut self, rate: u32, frames: u32) {
         if rate != 0 && (rate != self.rate || frames != self.frames) {
             if self.rate != 0
@@ -133,7 +118,6 @@ impl Hosting {
         }
     }
 
-    /// Effects the mixer's queue had no room for last time.
     fn attach_waiting(&mut self, mixer: &mut MixerHandle) {
         let mut still = Vec::new();
         for (id, guard) in std::mem::take(&mut self.waiting) {
@@ -144,8 +128,6 @@ impl Hosting {
         self.waiting = still;
     }
 
-    /// What the engine learned about a running device, and what the project now
-    /// asks of it.
     fn follow(&mut self, w: &Wanted<'_>, changed: &mut Changed) {
         let id = w.device.id.0;
         let Some(t) = self.tracked.get_mut(&id) else {
@@ -154,9 +136,6 @@ impl Hosting {
         let Some(status) = t.status.clone() else {
             return;
         };
-        // A sidechain turns the plugin's sidechain input on, and taking
-        // it away turns it off: the plugin is set up again with the buses
-        // it should have.
         if t.state == State::Ready && !t.relinking {
             let aux = Aux {
                 inputs: if t.instrument {
@@ -200,26 +179,16 @@ impl Hosting {
         self.follow_values(w, id, changed);
     }
 
-    /// The sound the project holds is the plugin's: after a preset was loaded, or
-    /// an undo or redo went across one, the plugin is given the project's state.
-    /// Its own values come back with the answer. True when the plugin was started
-    /// again from nothing, so there is nothing more to do for it this frame.
     fn follow_state(&mut self, w: &Wanted<'_>, id: u64) -> bool {
         let Some(t) = self.tracked.get_mut(&id) else {
             return false;
         };
-        // The sound the project holds is the plugin's: after a preset was
-        // loaded, or an undo or redo went across one, the plugin is given
-        // the project's state. Its own values come back with the answer.
         if t.state == State::Ready
             && t.params.state_rev != w.device.state_rev
             && w.device.state.is_empty()
             && !t.params.loads.iter().any(|l| l.preset.is_some())
             && let Some(manager) = self.manager.as_mut()
         {
-            // The project holds no state (a plugin as it was added): a
-            // plugin cannot be told to forget, so it is started again from
-            // nothing, with the values the project holds over it.
             let values: Vec<(u32, f64)> = w.device.params.iter().map(|(&k, &v)| (k, v)).collect();
             let nothing = Captured {
                 component: Vec::new(),
@@ -290,32 +259,15 @@ impl Hosting {
         false
     }
 
-    /// The values the project holds are the plugin's, and a plugin that changed
-    /// is read once it rests.
     fn follow_values(&mut self, w: &Wanted<'_>, id: u64, changed: &mut Changed) {
         let Some(t) = self.tracked.get_mut(&id) else {
             return;
         };
-        // The values the project holds are the plugin's: what an edit,
-        // an undo or a redo changed is sent to the host (not while a state
-        // is on its way: its values are not known yet).
-        // Edits the plugin made itself and the document has not recorded
-        // yet make the project the older of the two: nothing is sent
-        // until it has caught up, or the old value would go back into the
-        // plugin for a moment before the new one.
         if t.state == State::Ready
             && t.params.loads.is_empty()
             && t.params.edits.is_empty()
             && let Some(manager) = self.manager.as_ref()
         {
-            // A parameter a lane drives is the lane's: the engine gives the
-            // plugin its value with every block, so the value the project
-            // holds at rest is not also sent over the control channel
-            // (M7 slice A3, ADR-0084). The plugin's value moves with the lane
-            // and Lumen is not told, so when the lane lets go (it is switched
-            // off or removed) what Lumen knew is stale: the value at rest is
-            // sent again, even when it is the one Lumen last knew.
-            // A lane the user has taken over drives nothing (M7 slice A4a).
             let driven: std::collections::BTreeSet<u32> = w
                 .track
                 .driven_params(w.device.id)
@@ -334,8 +286,6 @@ impl Hosting {
                 t.params.values.insert(*id, f64::NAN);
                 t.params.released.push((*id, now + RELEASE_AGAIN));
             }
-            // Once more, a moment later, for what the plan in the engine
-            // still had a block or two to say.
             let mut waiting = None;
             let mut again = Vec::new();
             t.params.released.retain(|&(id, at)| {
@@ -359,9 +309,6 @@ impl Hosting {
             t.params.driven = driven;
             let mut send = t.params.differences(&w.device.params);
             send.retain(|&(id, _)| !t.params.driven.contains(&id));
-            // A program parameter first: choosing a program sets other
-            // parameters as it goes, and the values the project holds
-            // for those must be set after, not overwritten by it.
             let programs: Vec<u32> = t
                 .params
                 .list
@@ -370,9 +317,6 @@ impl Hosting {
                 .map(|i| i.id)
                 .collect();
             send.sort_by_key(|(id, _)| !programs.contains(id));
-            // What the plugin answers a value of ours with (the values a
-            // program holds, a linked parameter) is not the user's edit:
-            // unless the user chose a program, whose answer is wanted.
             let choosing = t.params.program_fresh;
             if !send.is_empty() {
                 t.params.program_fresh = false;
@@ -390,8 +334,6 @@ impl Hosting {
         if t.params.held != w.device.params {
             t.params.held = w.device.params.clone();
         }
-        // A plugin that has changed is read once it rests, so the next
-        // save holds what it is now.
         if t.state == State::Ready
             && t.params.dirty
             && t.params.loads.is_empty()
@@ -403,7 +345,6 @@ impl Hosting {
             let waited = since.elapsed();
             if waited >= REST {
                 manager.capture(id);
-                // And every value, for what moved without a word.
                 manager.refresh(id);
                 t.params.asked();
                 t.params.last_checkpoint = Some(std::time::Instant::now());
@@ -414,10 +355,6 @@ impl Hosting {
         }
     }
 
-    /// Checkpoints: every running plugin is read now and then, whether or not it
-    /// said it changed (a plugin keeps most of what the user sets without a
-    /// word), so a plugin that fails, or a crash of Lumen's own, costs the time
-    /// since the last one and not the session.
     fn checkpoint(&mut self, changed: &mut Changed) {
         if let Some(manager) = self.manager.as_ref() {
             let every = self.checkpoint_every;
@@ -429,7 +366,6 @@ impl Hosting {
                 let Some(last) = t.params.last_checkpoint else {
                     continue;
                 };
-                // Staggered by device, so plugins are not all read at once.
                 let due = last + every + every / 8 * (id % 4) as u32;
                 let now = std::time::Instant::now();
                 if now < due {
@@ -444,8 +380,6 @@ impl Hosting {
         }
     }
 
-    /// The routing's picture of each plugin's latency: an effect adds it to its
-    /// track's path and an instrument plays that late.
     fn publish_latencies(
         &self,
         list: &[Wanted<'_>],

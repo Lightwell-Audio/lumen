@@ -1,9 +1,3 @@
-//! A device change never stops the window (ADR-0113): the lookup and a
-//! switch of driver model run on a worker, and the device controls are
-//! disabled until the device answers. Test devices stand in for drivers
-//! that refuse to start, are slow to start, hold on to the audio when left,
-//! or do not answer at all.
-
 use std::time::{Duration, Instant};
 
 use eframe::App as _;
@@ -14,17 +8,10 @@ use lumen_project::testing::TempDir;
 use super::hosting::timing_sensitive;
 use super::{Lumen, patience};
 
-/// The longest a frame (or a click's few frames) may take while a change
-/// runs. A blocked window took the whole handover, ten seconds; a loaded
-/// machine draws a debug frame in well under this. The scenarios that bound
-/// it take the `timing_sensitive` turn, so no plugin host starves them.
 const LONGEST_FRAME: Duration = Duration::from_secs(2);
 
-/// How long a driver gets before the row says it is not answering (and a
-/// switch gives up on its handover), less a little for the clock's grain.
 const NOT_ANSWERING: Duration = Duration::from_millis(9_500);
 
-/// Clicks `label`, failing if the window stopped drawing meanwhile.
 #[track_caller]
 fn click_drawing(lumen: &mut Lumen, label: &str) {
     let started = Instant::now();
@@ -33,8 +20,6 @@ fn click_drawing(lumen: &mut Lumen, label: &str) {
     assert!(took < LONGEST_FRAME, "clicking {label:?} took {took:?}");
 }
 
-/// Picks `option` from the dropdown named `button`, opening its list until
-/// the option shows (a click while the window lays out can miss).
 #[track_caller]
 fn pick(lumen: &mut Lumen, button: &str, option: &str) {
     lumen.run_until(&format!("the {button:?} menu"), |l| l.shows(button));
@@ -50,17 +35,12 @@ fn pick(lumen: &mut Lumen, button: &str, option: &str) {
     click_drawing(lumen, option);
 }
 
-/// Chooses the test device on the driver labelled `driver` in the Audio
-/// page, as a user does: the driver, then the device.
 #[track_caller]
 fn choose(lumen: &mut Lumen, shown: &str, driver: &str) {
     pick(lumen, &format!("Driver: {shown}"), driver);
     pick(lumen, "Device: Choose a device", "Fake device");
 }
 
-/// Runs frames until `done`, failing if any frame took longer than
-/// [`LONGEST_FRAME`]: the window kept drawing throughout. Returns how long
-/// it took.
 #[track_caller]
 fn drawing_until(lumen: &mut Lumen, what: &str, done: impl Fn(&Lumen) -> bool) -> Duration {
     let started = Instant::now();
@@ -80,7 +60,6 @@ fn drawing_until(lumen: &mut Lumen, what: &str, done: impl Fn(&Lumen) -> bool) -
     }
 }
 
-/// Whether the control whose name starts with `prefix` is disabled.
 #[track_caller]
 fn disabled(lumen: &Lumen, prefix: &str) -> bool {
     lumen
@@ -90,8 +69,6 @@ fn disabled(lumen: &Lumen, prefix: &str) -> bool {
         .is_disabled()
 }
 
-/// Quits as the window's close does (eframe calls `on_exit`, then drops the
-/// app), and says how long it took.
 fn quit(mut lumen: Lumen) -> Duration {
     let started = Instant::now();
     lumen.app_mut().on_exit();
@@ -125,8 +102,6 @@ fn a_slow_driver_keeps_the_window_drawing_and_refuses_a_second_choice() {
     let mut lumen = Lumen::start("change-slow");
     lumen.open_audio_settings();
     choose(&mut lumen, "Test device", "Slow test device");
-    // The device takes three seconds to start. Meanwhile the controls are
-    // disabled, and a second choice below them is refused.
     drawing_until(&mut lumen, "the device controls to be disabled", |l| {
         disabled(l, "Device: ") && disabled(l, "Driver: ")
     });
@@ -166,7 +141,6 @@ fn a_driver_that_holds_on_to_the_audio_says_so_after_ten_seconds() {
     });
     assert!(took >= NOT_ANSWERING, "it gave up after {took:?}");
     lumen.run_until("the message on the page", |l| l.shows(message));
-    // Audio cannot come back in this run: nothing offers to change it.
     assert!(!lumen.app().audio_can_change());
     assert!(!lumen.app_mut().choose_audio_driver(TEST_DRIVER));
     assert!(disabled(&lumen, "Driver: "));
@@ -185,12 +159,9 @@ fn a_driver_that_does_not_answer_says_so_after_ten_seconds_and_quitting_does_not
     });
     assert!(took >= NOT_ANSWERING, "it said so after {took:?}");
     assert!(!lumen.app().audio_running());
-    // Audio On/Off waits for the device too: a stop sent now would queue
-    // behind the open and free the lock while the driver still works.
     assert!(!lumen.app().audio_can_switch());
     lumen.frames(1);
     assert!(lumen.shows(message) && !lumen.app().audio_can_change());
-    // The device still has not answered: quitting leaves it behind.
     let took = quit(lumen);
     assert!(took < LONGEST_FRAME, "quitting took {took:?}");
 }
@@ -215,8 +186,6 @@ fn quitting_with_a_finished_switch_unread_does_not_wait_for_the_new_device() {
     let _turn = timing_sensitive();
     let mut lumen = Lumen::start("change-unread");
     lumen.wait_for("audio to run", |app| app.audio_running());
-    // Below the page, so no frame reads the worker's answer: the switch is
-    // done and the new device is still opening (for twenty seconds).
     assert!(lumen.app_mut().choose_audio_driver(TEST_LATE_DRIVER));
     let started = Instant::now();
     while !lumen.app_mut().audio_switched_unread() {
@@ -246,15 +215,11 @@ fn every_test_driver_with_a_fault_is_offered_beside_the_test_device() {
     ] {
         assert!(lumen.shows(label), "{label} is offered");
     }
-    // None of the machine's own drivers is, so no scenario reaches hardware.
     assert!(!lumen.shows("ASIO") && !lumen.shows("System audio"));
 }
 
 #[test]
 fn an_input_that_would_not_open_is_named_in_the_audio_settings() {
-    // A microphone blocked by the system's privacy settings: the device runs,
-    // its channels stay in place and are silent, and the Input row says why
-    // rather than leaving the input dead without a word.
     let mut lumen = Lumen::start_with(TempDir::new("e2e-blocked-input"), |l| {
         l.on_audio_driver(lumen_app::testing::TEST_BLOCKED_INPUT_DRIVER)
     });

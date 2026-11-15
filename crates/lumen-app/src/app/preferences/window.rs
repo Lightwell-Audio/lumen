@@ -1,9 +1,3 @@
-//! The Preferences window (M9 R7, the owner's PW A): a search field and the
-//! list of pages at the left, the page at the right. Below
-//! `PREFERENCES_FOLD` points the list folds into a page menu above the
-//! page. While the search has words, its results stand in for the page; a
-//! result opens its page with its row outlined.
-
 use std::time::Instant;
 
 use eframe::egui::{self, Align, Layout, Ui, vec2};
@@ -11,15 +5,10 @@ use eframe::egui::{self, Align, Layout, Ui, vec2};
 use crate::preferences::{self, Fit, Marks, Page};
 use crate::{App, midi, theme, widgets};
 
-/// How much of a short window's height the window's top sits below the
-/// app's (at most `size::PREFERENCES_TOP`).
 const TOP_SHARE: f32 = 0.12;
-/// The search field's words when empty, and its accessible name.
 const SEARCH: &str = "Search preferences";
 
 impl App {
-    /// Each frame: opens the window when the transport asked, draws it while
-    /// open, and carries out what the MIDI chip and the MIDI page asked.
     pub(crate) fn preferences_window(&mut self, ctx: &egui::Context) {
         if let Some(page) = self.transport.open_preferences.take() {
             self.preferences.show_page(page);
@@ -33,7 +22,6 @@ impl App {
         }
     }
 
-    /// Applies a MIDI port change and remembers it in the settings.
     fn midi_asked(&mut self, action: &midi::Action) {
         self.midi.apply(action);
         match action {
@@ -54,9 +42,6 @@ impl App {
         let margins = ctx.global_style().spacing.window_margin.sum().x + 2.0 * theme::space::M;
         let fit = preferences::fit(content.width() - margins);
         let top = content.top() + theme::size::PREFERENCES_TOP.min(content.height() * TOP_SHARE);
-        // Esc with words in the search clears them; the next Esc closes.
-        // (egui lets go of the field on Esc before this runs, so the words,
-        // not the focus, decide.)
         if !self.preferences.query.is_empty()
             && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
         {
@@ -84,7 +69,6 @@ impl App {
         }
     }
 
-    /// Wide: the search and the page list at the left, the page beside them.
     fn preferences_beside(
         &mut self,
         ui: &mut Ui,
@@ -103,8 +87,6 @@ impl App {
                 for page in Page::ALL {
                     let on = self.preferences.query.is_empty() && self.preferences.page == page;
                     let response = widgets::choice_row(ui, page.name(), on);
-                    // Named as a page, so a screen reader (and a test) tells
-                    // it from other controls that say "Audio".
                     let name = format!("{} page", page.name());
                     response.widget_info(|| {
                         egui::WidgetInfo::selected(egui::WidgetType::RadioButton, true, on, &name)
@@ -127,7 +109,6 @@ impl App {
         });
     }
 
-    /// Narrow: the search, then the page menu, then the page.
     fn preferences_folded(
         &mut self,
         ui: &mut Ui,
@@ -159,11 +140,8 @@ impl App {
         self.preferences_body(ui, room, marks, midi_asked);
     }
 
-    /// The search field; Enter in it takes the first result (a result with
-    /// the keyboard takes Enter itself).
     fn preferences_search(&mut self, ui: &mut Ui) {
         let window = &mut self.preferences;
-        // Read before the field draws: it lets go of the keyboard on Enter.
         let field = egui::Id::new(("browser search", SEARCH));
         let typing = ui.memory(|m| m.has_focus(field));
         crate::browser::controls::search(ui, &mut window.query, &mut window.focus_search, SEARCH);
@@ -173,7 +151,6 @@ impl App {
         }
     }
 
-    /// The link to the Keyboard shortcuts window, which keeps its own.
     fn shortcuts_link(&mut self, ui: &mut Ui) {
         if widgets::raised::button(ui, "Keyboard shortcuts\u{2026}")
             .on_hover_text("Shortcuts have a window of their own")
@@ -184,7 +161,6 @@ impl App {
         }
     }
 
-    /// The results of the search, or the page.
     fn preferences_body(
         &mut self,
         ui: &mut Ui,
@@ -211,7 +187,6 @@ impl App {
             });
     }
 
-    /// What search found: each row's name and its page; a click goes there.
     fn preferences_results(&mut self, ui: &mut Ui, query: &str) {
         let found = preferences::search(query);
         if found.is_empty() {

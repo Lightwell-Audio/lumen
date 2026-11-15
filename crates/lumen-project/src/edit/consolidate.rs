@@ -1,14 +1,3 @@
-//! Consolidate (M7b slice E3), the pure parts. Selected audio clips on a track
-//! are rendered into one new file and replaced by one clip that plays it. The
-//! rendering is the app's (it runs on a worker); this module says which clips
-//! go into which file, and swaps them for the clip that plays it.
-//!
-//! What the file holds is the clips as they play, clip by clip: gain,
-//! polarity, reverse, fades, crossfades and envelopes. The span is from the
-//! first clip's start to the last clip's end, gaps as silence. A track's
-//! fader, pan, sends and devices are not in it. The original media stays in
-//! the project, so the media pool still lists it.
-
 use std::sync::Arc;
 
 use lumen_core::time::Ticks;
@@ -17,31 +6,18 @@ use crate::model::{Clip, ClipContent, Color, Id, Media, Project};
 
 use super::overwrite;
 
-/// One new file's worth of clips: the selected audio clips of one track.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Part {
     pub track: Id,
-    /// The clips as they were when the part was planned, in time order. A
-    /// part is applied only if the track still holds exactly these.
     pub clips: Vec<Arc<Clip>>,
-    /// Every clip of the track that touches the span when it was planned,
-    /// selected or not, in time order. The new clip cuts away whatever lies
-    /// under it, so a part is applied only if the span still holds exactly
-    /// these: a clip moved or drawn into it while the file rendered would
-    /// otherwise be lost to a result that never heard it.
     pub span_clips: Vec<Arc<Clip>>,
-    /// From the first clip's start to the last clip's end.
     pub start: Ticks,
     pub end: Ticks,
-    /// The new clip's name.
     pub name: String,
     pub color: Option<Color>,
-    /// Every clip is mono, so the file is too.
     pub mono: bool,
 }
 
-/// The parts for the selected clips: one per track that has an unlocked audio
-/// clip selected. Other kinds of clip are left out, and so is a frozen track.
 pub fn plan(project: &Project, ids: &[Id]) -> Vec<Part> {
     let mut parts = Vec::new();
     for track in project.tracks.iter().filter(|t| t.frozen.is_none()) {
@@ -83,7 +59,6 @@ pub fn plan(project: &Project, ids: &[Id]) -> Vec<Part> {
     parts
 }
 
-/// The name of a clip made from one called `name`.
 fn named(name: &str) -> String {
     const SUFFIX: &str = " (joined)";
     if name.ends_with(SUFFIX) {
@@ -93,14 +68,12 @@ fn named(name: &str) -> String {
     }
 }
 
-/// A part and the file rendered for it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Baked {
     pub part: Part,
     pub media: Media,
 }
 
-/// The clips of `track` that touch `start..end`, in the track's order.
 fn touching(track: &crate::model::Track, start: Ticks, end: Ticks) -> Vec<Arc<Clip>> {
     track
         .clips
@@ -110,9 +83,6 @@ fn touching(track: &crate::model::Track, start: Ticks, end: Ticks) -> Vec<Arc<Cl
         .collect()
 }
 
-/// Whether the span of `part` still holds exactly the clips it was planned
-/// from, and nothing else: the planned clips unchanged, and no other clip
-/// moved, drawn or pasted into the span.
 pub fn is_current(project: &Project, part: &Part) -> bool {
     let Some(track) = project.tracks.iter().find(|t| t.id == part.track) else {
         return false;
@@ -129,11 +99,6 @@ pub fn is_current(project: &Project, part: &Part) -> bool {
             .all(|planned| now.iter().any(|c| c.id == planned.id))
 }
 
-/// Replaces each part's clips with one clip that plays its file, and
-/// registers the files as media. A clip of another track or one that covered
-/// part of the span without being selected is cut away where the new clip
-/// lies, as any clip put down on others does. Returns the new clips' ids, in
-/// the order of `baked`; parts that are no longer current are skipped.
 pub fn apply(project: &mut Project, baked: &[Baked], fresh: &mut impl FnMut() -> Id) -> Vec<Id> {
     let mut made = Vec::new();
     for Baked { part, media } in baked {
@@ -183,7 +148,6 @@ pub fn apply(project: &mut Project, baked: &[Baked], fresh: &mut impl FnMut() ->
     made
 }
 
-/// The unlocked MIDI clips among `ids`, not on a frozen track.
 pub fn midi_clips(project: &Project, ids: &[Id]) -> Vec<Id> {
     project
         .tracks
@@ -196,11 +160,6 @@ pub fn midi_clips(project: &Project, ids: &[Id]) -> Vec<Id> {
         .collect()
 }
 
-/// Consolidates the selected unlocked MIDI clips: each repeat of a looping
-/// clip becomes a real clip, then the clips of each track merge into one
-/// holding every note they show (a gap between them is just empty time).
-/// No file is made. Audio clips in `ids` are not touched. Returns the ids
-/// now standing for the MIDI selection.
 pub fn midi(project: &mut Project, ids: &[Id], fresh: &mut impl FnMut() -> Id) -> Vec<Id> {
     let picked = midi_clips(project, ids);
     if picked.is_empty() {
@@ -228,7 +187,6 @@ mod tests {
         }
     }
 
-    /// Track 0 with clips at 0..2, 3..5 and 8..10 (quarters), all unlocked.
     fn three_clips() -> Project {
         let mut project = song();
         let track = Arc::make_mut(&mut project.tracks[0]);
@@ -310,7 +268,6 @@ mod tests {
             &mut ids(),
         );
         assert_eq!(made.len(), 1);
-        // The unselected clip stays; the two selected ones became one.
         assert_eq!(
             clips(&project, 0),
             vec![(made[0].0, 0, 5, 0), (3, 8, 2, 1_000)]
@@ -344,7 +301,6 @@ mod tests {
             }],
             &mut ids(),
         );
-        // The clip between them was covered, so only the new clip is left.
         assert_eq!(project.tracks[0].clips.len(), 1);
         assert_eq!(project.tracks[0].clips[0].length, q(10));
     }
@@ -357,7 +313,6 @@ mod tests {
             part: part.clone(),
             media: media(777),
         }];
-        // A clip moved.
         let mut moved = project.clone();
         let track = Arc::make_mut(&mut moved.tracks[0]);
         let mut clip = (*track.clips[1]).clone();
@@ -366,7 +321,6 @@ mod tests {
         assert!(!is_current(&moved, &part));
         assert!(apply(&mut moved, &baked, &mut ids()).is_empty());
         assert!(!moved.media.iter().any(|m| m.id == Id(777)));
-        // A clip deleted.
         Arc::make_mut(&mut project.tracks[0]).clips.remove(0);
         assert!(apply(&mut project, &baked, &mut ids()).is_empty());
     }
@@ -374,14 +328,12 @@ mod tests {
     #[test]
     fn a_clip_put_into_the_span_while_it_rendered_makes_the_part_stale() {
         let project = three_clips();
-        // Clips 1 and 3 are selected; the gap holds clip 2, which is planned.
         let part = plan(&project, &[Id(1), Id(3)]).remove(0);
         assert_eq!(part.span_clips.len(), 3);
         let baked = [Baked {
             part: part.clone(),
             media: media(777),
         }];
-        // An unselected clip drawn into the span: the old result would cut it.
         let mut drawn = project.clone();
         let track = Arc::make_mut(&mut drawn.tracks[0]);
         let mut clip = (*track.clips[0]).clone();
@@ -392,11 +344,9 @@ mod tests {
         assert!(!is_current(&drawn, &part));
         assert!(apply(&mut drawn, &baked, &mut ids()).is_empty());
         assert_eq!(drawn.tracks[0].clips.len(), 4, "the new clip is kept");
-        // The unselected clip in the span that was planned going away is stale too.
         let mut gone = project.clone();
         Arc::make_mut(&mut gone.tracks[0]).clips.remove(1);
         assert!(!is_current(&gone, &part));
-        // An edit outside the span does not matter.
         let mut outside = project.clone();
         let track = Arc::make_mut(&mut outside.tracks[0]);
         let mut clip = (*track.clips[0]).clone();
@@ -407,7 +357,6 @@ mod tests {
         assert!(is_current(&project, &part));
     }
 
-    /// Track 0's clip made a MIDI clip of `notes` (starting at 4 quarters, 8 long).
     fn midi_song(notes: Vec<Note>) -> Project {
         let mut project = song();
         let track = Arc::make_mut(&mut project.tracks[0]);

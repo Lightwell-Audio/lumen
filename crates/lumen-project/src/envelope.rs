@@ -1,20 +1,3 @@
-//! Envelopes an audio clip carries (format v25, M7 slice A7; pitch added in
-//! v34, M9.5 S6): a gain, a pan and a pitch that follow the clip, looping with
-//! it.
-//!
-//! An envelope is a [`Lane`] whose points are measured from the clip's start,
-//! as a MIDI clip's notes are (ADR-0056): a move carries them, a trim moves
-//! them with the clip's start so they stay where they were on the timeline,
-//! and a point outside the clip's window is kept, hidden. Slipping the audio
-//! leaves them where they are. A looping clip repeats its envelope every
-//! `loop_length`, from the first repeat.
-//!
-//! Gain is in dB and adds to the clip's own gain; pan is −1 to 1 and pans
-//! the clip before its track does; pitch is in semitones and adds to the
-//! warp's own transpose. It is heard only while the clip is warped in a mode
-//! that transposes (`WarpMode::transposes`): on any other clip it is kept and
-//! plays nothing.
-
 use lumen_core::automation::{FLOOR_DB, Lane, Point, Shape};
 use lumen_core::time::Ticks;
 use serde::{Deserialize, Serialize};
@@ -22,25 +5,18 @@ use serde::{Deserialize, Serialize};
 use crate::automation::LEVEL_MAX_DB;
 use crate::model::{Clip, MAX_TRANSPOSE_CENTS};
 
-/// How far a pitch envelope reaches either way, in semitones: as far as the
-/// warp's transpose does.
 pub const PITCH_RANGE_SEMITONES: f32 = (MAX_TRANSPOSE_CENTS / 100) as f32;
 
-/// What an envelope drives.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Kind {
-    /// The clip's level, in dB, added to its gain.
     Gain,
-    /// Pan, −1 (left) to +1 (right).
     Pan,
-    /// Pitch, in semitones, added to the clip's transpose (format v34).
     Pitch,
 }
 
 impl Kind {
     pub const ALL: [Kind; 3] = [Kind::Gain, Kind::Pan, Kind::Pitch];
 
-    /// The lowest and highest value an envelope of this kind may hold.
     pub fn range(self) -> (f32, f32) {
         match self {
             Kind::Gain => (FLOOR_DB, LEVEL_MAX_DB),
@@ -49,7 +25,6 @@ impl Kind {
         }
     }
 
-    /// The value that changes nothing.
     pub fn rest(self) -> f32 {
         0.0
     }
@@ -63,14 +38,12 @@ impl Kind {
     }
 }
 
-/// The envelopes of one clip. A kind with no points is `None`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClipEnvelopes {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gain: Option<Lane>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pan: Option<Lane>,
-    /// In semitones (format v34).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pitch: Option<Lane>,
 }
@@ -88,8 +61,6 @@ impl ClipEnvelopes {
         }
     }
 
-    /// Puts `lane` as the envelope of `kind`; a lane with no points takes the
-    /// envelope away.
     pub fn set(&mut self, kind: Kind, lane: Lane) {
         let slot = match kind {
             Kind::Gain => &mut self.gain,
@@ -99,15 +70,12 @@ impl ClipEnvelopes {
         *slot = (!lane.is_empty()).then_some(lane);
     }
 
-    /// The envelopes that are there, with their kind.
     pub fn iter(&self) -> impl Iterator<Item = (Kind, &Lane)> {
         Kind::ALL
             .into_iter()
             .filter_map(|kind| self.get(kind).map(|lane| (kind, lane)))
     }
 
-    /// Moves every point by `by` (earlier when negative), as a trim of the
-    /// clip's start does.
     pub fn shift(&mut self, by: Ticks) {
         for lane in [&mut self.gain, &mut self.pan, &mut self.pitch]
             .into_iter()
@@ -121,7 +89,6 @@ impl ClipEnvelopes {
                     ..*p
                 })
                 .collect();
-            // Every point moves by the same amount, so the order holds.
             if let Ok(moved) = Lane::new(points) {
                 *lane = moved;
             }
@@ -129,8 +96,6 @@ impl ClipEnvelopes {
     }
 }
 
-/// How long an envelope plays before it repeats or the clip ends: the clip's
-/// loop, or its length.
 pub fn window(clip: &Clip) -> Ticks {
     clip.loop_length
         .filter(|l| l.0 > 0)
@@ -138,15 +103,8 @@ pub fn window(clip: &Clip) -> Ticks {
         .min(clip.length)
 }
 
-/// How many straight pieces a curved segment is cut into where a window
-/// cuts it (a curve cannot start or end partway along itself).
 const CURVE_PIECES: i64 = 16;
 
-/// The part of `lane` from clip time 0 to `end`, for what plays: the points
-/// inside the window, and where the window cuts a segment, a point at the cut
-/// with the value the lane has there. A curved segment that is cut becomes a
-/// run of straight ones. A lane that lies wholly outside holds one value.
-/// `None` when the lane has no points.
 pub fn windowed(lane: &Lane, end: Ticks) -> Option<Lane> {
     let points = lane.points();
     if points.is_empty() {
@@ -160,9 +118,7 @@ pub fn windowed(lane: &Lane, end: Ticks) -> Option<Lane> {
         }
     }
     let value_at = |t: Ticks| lane.value_at(t).unwrap_or(0.0);
-    // Holds the first value before the first point and the last after it.
     if points[0].at >= Ticks::ZERO {
-        // Nothing is cut at the start.
     } else {
         let next = points.iter().find(|p| p.at >= Ticks::ZERO);
         let before = points.iter().rev().find(|p| p.at < Ticks::ZERO);
@@ -203,13 +159,11 @@ pub fn windowed(lane: &Lane, end: Ticks) -> Option<Lane> {
         }
     }
     if out.is_empty() {
-        // Every point is past the window: the first value is held.
         put(&mut out, Ticks::ZERO, value_at(Ticks::ZERO), Shape::Linear);
     }
     Lane::new(out).ok()
 }
 
-/// Why a clip's envelopes cannot be kept.
 pub(crate) fn check(clip: &Clip) -> Result<(), String> {
     if clip.envelopes.is_empty() {
         return Ok(());
@@ -259,8 +213,6 @@ mod tests {
 
     #[test]
     fn the_window_keeps_the_points_inside_and_the_value_at_each_cut() {
-        // Points at −2 (−10) and 2 (0) and 6 (10): the window 0 to 4 cuts the
-        // first segment at 0 (value −5) and the second at 4 (value 5).
         let l = lane(&[(-2, -10.0), (2, 0.0), (6, 10.0)]);
         let w = windowed(&l, Ticks::quarters(4)).unwrap();
         assert_eq!(values(&w), vec![(0, -5.0), (2, 0.0), (4, 5.0)]);
@@ -288,7 +240,6 @@ mod tests {
         let w = windowed(&l, Ticks::quarters(2)).unwrap();
         assert!(w.len() >= 16, "cut into pieces");
         assert!(w.points().iter().all(|p| p.shape == Shape::Linear));
-        // Each piece's value is the lane's own value there.
         for p in w.points() {
             assert!((p.value - l.value_at(p.at).unwrap()).abs() < 1e-5);
         }

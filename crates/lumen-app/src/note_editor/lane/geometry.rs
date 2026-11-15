@@ -1,11 +1,3 @@
-//! Where lane values and points are on the screen (M5 slice 4b): the
-//! velocity and controller lane's geometry as pure arithmetic, with no
-//! drawing. The lane shares the piano roll's time axis ([`TimeView`]), so a
-//! point sits at the same x as the notes above it. Values run vertically:
-//! the top of the plotting area is the range's maximum, and the area is
-//! inset by [`INSET`] at both ends so a value at either limit stays clear
-//! of the edge.
-
 use std::ops::Range;
 
 use eframe::egui::{Pos2, Rect, pos2};
@@ -15,32 +7,22 @@ use lumen_project::model::{ClipEvent, Note};
 
 use crate::timeview::TimeView;
 
-/// How near (points) a stem or a point must be to be hit.
 pub(crate) const HIT: f32 = 8.0;
-/// The radius (points) of a velocity head; a pointer this close covers it.
 pub(crate) const HEAD_RADIUS: f32 = 4.0;
-/// Points kept clear of the plotting area's top and bottom edges.
 pub(crate) const INSET: f32 = 8.0;
-/// Points beyond the body's sides that still count as visible.
 const VISIBLE_MARGIN: f32 = 8.0;
-/// The velocity lane's values: a note is never silent here (0 is a
-/// note-off in MIDI), so the lane starts at 1.
 const VELOCITY: (i32, i32) = (1, 127);
 
-/// What the lane shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum LaneKind {
-    /// The notes' velocities, one stem per start time.
     #[default]
     Velocity,
-    /// A controller by number (0 to 127).
     Controller(u8),
     PitchBend,
     Pressure,
 }
 
 impl LaneKind {
-    /// The lane's name as its header shows it.
     pub fn name(self) -> String {
         match self {
             LaneKind::Velocity => "Velocity".to_owned(),
@@ -55,8 +37,6 @@ impl LaneKind {
         }
     }
 
-    /// The lane an event belongs to, `None` for the velocity lane (whose
-    /// values are the notes', not events').
     pub fn lane(self) -> Option<Lane> {
         match self {
             LaneKind::Velocity => None,
@@ -66,7 +46,6 @@ impl LaneKind {
         }
     }
 
-    /// The values the lane takes, both ends included.
     pub fn range(self) -> (i32, i32) {
         match self.lane() {
             Some(lane) => lane.range(),
@@ -74,8 +53,6 @@ impl LaneKind {
         }
     }
 
-    /// The baseline stems and fills start from: 0 for pitch bend (its
-    /// centre), the bottom of the range for everything else.
     pub fn rest(self) -> i32 {
         match self {
             LaneKind::PitchBend => 0,
@@ -84,64 +61,43 @@ impl LaneKind {
     }
 }
 
-/// The lane's place on the screen: its plotting area, the shared time axis
-/// and what the lane shows. `clip_start` is where the open clip starts on the
-/// arrangement, as in the editor.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct LaneView {
-    /// The area the lane is drawn in (right of the key column, below the
-    /// notes' ruler).
     pub body: Rect,
-    /// The editor's zoom and scroll (the same view the notes use).
     pub time: TimeView,
-    /// Where the open clip starts on the arrangement.
     pub clip_start: Ticks,
-    /// What the lane shows.
     pub kind: LaneKind,
 }
 
 impl LaneView {
-    /// The x of clip time `local`.
     pub fn x_of(&self, local: Ticks) -> f32 {
         self.time
             .x(self.body.left(), (self.clip_start + local).as_quarters())
     }
 
-    /// The clip time at `x`, unsnapped (it may be before the clip: negative).
     pub fn local_at(&self, x: f32) -> Ticks {
         let beat = self.time.beat_at(self.body.left(), x);
         Ticks((beat * PPQ as f64).round() as i64) - self.clip_start
     }
 
-    /// The y of `value` (not clamped: a value outside the range lies outside
-    /// the plotting area).
     pub fn y_of(&self, value: i32) -> f32 {
         let (low, high) = self.kind.range();
         let frac = f64::from(high - value) / f64::from((high - low).max(1));
         (f64::from(self.top()) + frac * self.span()) as f32
     }
 
-    /// The value at `y`, rounded and clamped into the range.
     pub fn value_at(&self, y: f32) -> i32 {
         let (low, high) = self.kind.range();
         let value = self.value_exact(y).round() as i64;
         value.clamp(i64::from(low), i64::from(high)) as i32
     }
 
-    /// The value at `y` before rounding and clamping: the lane's own units,
-    /// as a fraction is taken from (a curve's handle needs the exact value).
     pub fn value_exact(&self, y: f32) -> f64 {
         let (low, high) = self.kind.range();
         let frac = (f64::from(y) - f64::from(self.top())) / self.span();
         f64::from(high) - frac * f64::from(high - low)
     }
 
-    /// The note whose velocity head a press at `p` grabs in the velocity
-    /// lane: among the notes of the stems within [`HIT`] points of `p` in x,
-    /// those whose own head lies within [`HIT`] points of `p`. A picked note
-    /// whose head covers the pointer (within [`HEAD_RADIUS`]) comes first,
-    /// then the nearest head; a tie goes to the higher note index, which is
-    /// the head drawn on top.
     pub fn head_at(
         &self,
         notes: &[Note],
@@ -172,10 +128,6 @@ impl LaneView {
             .map(|(i, _)| i)
     }
 
-    /// The index into `events` of the lane's event nearest `p`, if one lies
-    /// within [`HIT`] points (in screen distance). Only events of this
-    /// lane count; the velocity lane has none, so it answers `None`. A tie
-    /// goes to the earlier event.
     pub fn point_at(&self, events: &[ClipEvent], p: Pos2) -> Option<usize> {
         let lane = self.kind.lane()?;
         events
@@ -190,8 +142,6 @@ impl LaneView {
             .map(|(i, _)| i)
     }
 
-    /// The indices of the lane's events whose screen position lies inside
-    /// `rect`, ascending.
     pub fn points_in(&self, events: &[ClipEvent], rect: Rect) -> Vec<usize> {
         let Some(lane) = self.kind.lane() else {
             return Vec::new();
@@ -207,15 +157,11 @@ impl LaneView {
             .collect()
     }
 
-    /// Whether clip time `local` could show: inside the body's x range with
-    /// a small margin either side.
     pub fn visible(&self, local: Ticks) -> bool {
         let x = self.x_of(local);
         (self.body.left() - VISIBLE_MARGIN..=self.body.right() + VISIBLE_MARGIN).contains(&x)
     }
 
-    /// The indices of the stems whose x lies in `lo..=hi` (`stems` in time
-    /// order, as `velocity::stems` gives them). An empty range when `lo > hi`.
     pub(crate) fn stems_between(
         &self,
         stems: &[(Ticks, Vec<usize>)],
@@ -227,18 +173,14 @@ impl LaneView {
         start..end.max(start)
     }
 
-    /// The top of the plotting area.
     fn top(&self) -> f32 {
         self.body.top() + INSET
     }
 
-    /// The height of the plotting area (at least one point, so a tiny body
-    /// still maps values consistently).
     fn span(&self) -> f64 {
         (f64::from(self.body.height()) - 2.0 * f64::from(INSET)).max(1.0)
     }
 
-    /// The screen position of an event at `at` with `value`.
     fn position(&self, at: Ticks, value: i32) -> Pos2 {
         pos2(self.x_of(at), self.y_of(value))
     }
@@ -263,7 +205,6 @@ mod tests {
         }
     }
 
-    /// `beats` quarter notes as clip time.
     fn beats(beats: f64) -> Ticks {
         Ticks((beats * PPQ as f64) as i64)
     }
@@ -282,7 +223,6 @@ mod tests {
         }
     }
 
-    /// Stems at beats 0, 1, 2 and 3 (x 100, 140, 180, 220 in [view]).
     fn four_stems() -> Vec<(Ticks, Vec<usize>)> {
         let notes: Vec<Note> = (0..4)
             .map(|b| Note::new(beats(f64::from(b)), beats(1.0), 60, 64))
@@ -300,8 +240,6 @@ mod tests {
                         clip_start,
                         ..fixture(LaneKind::Velocity)
                     };
-                    // One point is PPQ / zoom ticks; allow a couple of points
-                    // of rounding, plus a tick.
                     let tolerance = 2.0 * PPQ as f64 / zoom + 1.0;
                     for t in [0.0, 0.5, 3.25, 7.75] {
                         let at = beats(t);
@@ -323,7 +261,6 @@ mod tests {
             clip_start: Ticks::quarters(4),
             ..fixture(LaneKind::Velocity)
         };
-        // Clip time 0 is beat 4 on the timeline: x = 100 + 4 * 40.
         assert_eq!(view.x_of(Ticks::ZERO), 260.0);
         assert_eq!(view.local_at(260.0), Ticks::ZERO);
     }
@@ -371,10 +308,8 @@ mod tests {
     #[test]
     fn value_at_rounds_to_the_nearest_value() {
         let view = fixture(LaneKind::Controller(7));
-        // The plotting area is 184 points for 127 steps.
         let per_value = 184.0_f32 / 127.0;
         let y = view.y_of(60);
-        // 0.4 of a value above 60 rounds back to 60; 0.6 rounds to 61.
         assert_eq!(view.value_at(y - 0.4 * per_value), 60);
         assert_eq!(view.value_at(y - 0.6 * per_value), 61);
         assert_eq!(view.value_at(y + 0.6 * per_value), 59);
@@ -411,7 +346,6 @@ mod tests {
         assert_eq!(LaneKind::Pressure.lane(), Some(Lane::Pressure));
     }
 
-    /// Where the lane draws `notes[i]`'s head.
     fn head(view: &LaneView, notes: &[Note], i: usize) -> Pos2 {
         pos2(
             view.x_of(notes[i].start()),
@@ -452,7 +386,6 @@ mod tests {
     #[test]
     fn a_picked_note_whose_head_covers_the_pointer_beats_a_nearer_one() {
         let view = fixture(LaneKind::Velocity);
-        // Heads 6 points apart (127 steps over 184 points: about 4 values).
         let notes = [
             Note::new(beats(1.0), beats(1.0), 60, 90),
             Note::new(beats(1.0), beats(1.0), 64, 86),
@@ -461,7 +394,6 @@ mod tests {
         let (upper, lower) = (head(&view, &notes, 0), head(&view, &notes, 1));
         let apart = lower.y - upper.y;
         assert!(apart > HEAD_RADIUS && apart < 2.0 * HEAD_RADIUS);
-        // 3.5 points below the upper head: inside its radius, nearer the lower.
         let p = pos2(upper.x, upper.y + 3.5);
         assert!(p.distance(lower) < p.distance(upper));
         assert_eq!(view.head_at(&notes, &stems, &[0], p), Some(0));
@@ -490,15 +422,12 @@ mod tests {
             view.head_at(&notes, &stems, &[], pos2(bottom.x - 3.0, bottom.y)),
             Some(1)
         );
-        // Between the heads, far from both.
         let middle = pos2(top.x, (top.y + bottom.y) / 2.0);
         assert_eq!(view.head_at(&notes, &stems, &[], middle), None);
-        // On the stem, in x, but beyond HIT of the head in y.
         assert_eq!(
             view.head_at(&notes, &stems, &[], pos2(top.x, top.y + HIT + 0.5)),
             None
         );
-        // Beside the stem beyond HIT in x.
         assert_eq!(
             view.head_at(&notes, &stems, &[], pos2(top.x + HIT + 0.5, top.y)),
             None
@@ -509,7 +438,6 @@ mod tests {
     #[test]
     fn heads_of_nearby_stems_are_told_apart_by_their_own_position() {
         let view = fixture(LaneKind::Velocity);
-        // 0.1 beat is 4 points apart: both stems are within HIT of the press.
         let notes = [
             Note::new(beats(1.0), beats(1.0), 60, 100),
             Note::new(beats(1.1), beats(1.0), 64, 50),
@@ -538,8 +466,6 @@ mod tests {
         ];
         assert_eq!(view.point_at(&events, pos2(148.0, y)), Some(1), "at HIT");
         assert_eq!(view.point_at(&events, pos2(148.5, y)), None, "beyond HIT");
-        // Controller 1 and the pressure point share the spot but are not
-        // this lane's, so they never answer. Index 3 is this lane but far off.
         assert_eq!(view.point_at(&events, pos2(140.0, y)), Some(1));
         assert_eq!(view.point_at(&events, pos2(140.0, view.y_of(100))), Some(3));
     }
@@ -548,7 +474,6 @@ mod tests {
     fn a_point_hit_measures_screen_distance() {
         let view = fixture(LaneKind::Controller(7));
         let events = [cc(beats(1.0), 7, 64)];
-        // Eight points away in x and in y together is more than HIT.
         let y = view.y_of(64);
         assert_eq!(view.point_at(&events, pos2(148.0, y + 8.0)), None);
         assert_eq!(view.point_at(&events, pos2(144.0, y + 6.0)), Some(0));

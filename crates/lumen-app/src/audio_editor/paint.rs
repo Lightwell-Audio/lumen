@@ -1,10 +1,3 @@
-//! Drawing the audio editor (M9.5 S1): the file's wave, one column per
-//! physical pixel from the peaks, bright where the clip plays it (at the
-//! clip's gain and through its fades, as it plays) and dimmed outside it (as
-//! the file is); sample by sample at the deepest zoom; and the ruler of bars
-//! and file time. Only the columns in view are drawn, so a one-hour file
-//! costs what a one-second one does.
-
 use std::sync::Arc;
 
 use eframe::egui::{self, Color32, FontId, Painter, Pos2, Rect, Stroke, pos2, vec2};
@@ -17,50 +10,32 @@ use super::source::WholeFile;
 use crate::theme;
 use crate::timeview::TimeView;
 
-/// Below this many frames per physical pixel the wave is drawn sample by
-/// sample (when the samples are there). The finest peaks are 16 frames a
-/// bucket, so between this and 16 they show as small steps; 4 keeps a
-/// 4,096-pixel view within the samples read for one frame.
 pub(crate) const SAMPLES_BELOW: f64 = 4.0;
-/// From this many physical pixels per frame, each sample is a dot too.
 const DOTS_FROM: f64 = 6.0;
-/// The wave splits into left over right from this height (points).
 pub(crate) const SPLIT_FROM: f32 = theme::size::WAVE_SPLIT;
 
-/// How the wave looks.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct WaveLook {
-    /// What the clip plays.
     pub bright: Color32,
-    /// The rest of the file.
     pub dim: Color32,
 }
 
-/// Samples for drawing sample by sample: the device-rate frame of the
-/// first, and left and right as 16-bit fractions of full scale.
 pub(crate) struct Samples<'a> {
     pub first: i64,
     pub frames: &'a [[i16; 2]],
 }
 
-/// What the wave is drawn from.
 pub(crate) struct WaveInput<'a> {
     pub file: &'a WholeFile,
     pub peaks: &'a Peaks,
     pub clip: &'a Clip,
     pub time: TimeView,
     pub look: WaveLook,
-    /// Left over right (a stereo file with room for two).
     pub split: bool,
     pub samples: Option<Samples<'a>>,
-    /// The grid's lines as x and level, drawn over the clip's body under the
-    /// wave (the body would otherwise cover the grid).
     pub grid: &'a [(f32, lumen_core::grid::Level)],
 }
 
-/// The frames under the view in `lane`: first and last (device rate),
-/// widened by one so a line can reach the edge. `None` when no part of the
-/// file is in view.
 pub(crate) fn visible_frames(file: &WholeFile, time: TimeView, lane: Rect) -> Option<(i64, i64)> {
     let from = time.beat_at(lane.left(), lane.left()).max(file.from);
     let to = time.beat_at(lane.left(), lane.right()).min(file.to);
@@ -76,15 +51,11 @@ pub(crate) fn visible_frames(file: &WholeFile, time: TimeView, lane: Rect) -> Op
     Some(((a.floor() as i64 - 1).max(0), b.ceil() as i64 + 1))
 }
 
-/// Frames per physical pixel at the view's zoom, at beat `q`.
 pub(crate) fn frames_per_pixel(file: &WholeFile, time: TimeView, q: f64, ppp: f32) -> Option<f64> {
     let span = file.span_at(q)?;
     Some(span.frames_per_beat / (time.zoom * f64::from(ppp)))
 }
 
-/// The level a frame the clip plays is heard at: the clip's gain (negative
-/// when inverted) through its fades; 1 outside it, where the file is drawn
-/// as it is.
 fn level_at(input: &WaveInput<'_>, q: f64, gain: f32) -> f32 {
     if !input.file.played.contains(q) {
         return 1.0;
@@ -104,11 +75,9 @@ fn level_at(input: &WaveInput<'_>, q: f64, gain: f32) -> f32 {
     level
 }
 
-/// The wave in `lane`.
 pub(crate) fn wave(painter: &Painter, lane: Rect, input: &WaveInput<'_>) {
     let painter = painter.with_clip_rect(lane.intersect(painter.clip_rect()));
     let palette = theme::p();
-    // The file outside what the clip plays sits on a sunk wash.
     let x = |q: f64| input.time.x(lane.left(), q);
     let file_rect = Rect::from_x_y_ranges(
         x(input.file.from).max(lane.left())..=x(input.file.to).min(lane.right()),
@@ -141,9 +110,6 @@ pub(crate) fn wave(painter: &Painter, lane: Rect, input: &WaveInput<'_>) {
                 }
             }
         }
-        // The file's two ends, so where it stops reads in both themes (in
-        // the light one the window and the ground past the file are both
-        // near white).
         for end in [input.file.from, input.file.to] {
             let ex = x(end);
             if lane.x_range().contains(ex) {
@@ -195,12 +161,6 @@ pub(crate) fn wave(painter: &Painter, lane: Rect, input: &WaveInput<'_>) {
     }
 }
 
-/// A detected hit: the small grey triangle both places draw for one, in the
-/// warp strip once the clip is warped (M9.5 S5b, ADR-0136) and at the top of
-/// the wave while its Warp popover is open on a clip that is not
-/// (`App::paint_transient_ticks`, `App::paint_transients`). It sits with its
-/// base on `top` and its point on `x`, and `strength` (0 to 1) decides how
-/// strongly it shows.
 pub(crate) fn hit_triangle(painter: &Painter, x: f32, top: f32, strength: f32) {
     painter.add(egui::Shape::convex_polygon(
         hit_triangle_points(x, top),
@@ -209,8 +169,6 @@ pub(crate) fn hit_triangle(painter: &Painter, x: f32, top: f32, strength: f32) {
     ));
 }
 
-/// The triangle a detected hit is drawn as: a base centred on `x` at `top`
-/// and a point at `x` a [`theme::size::WARP_TICK_H`] below it.
 fn hit_triangle_points(x: f32, top: f32) -> Vec<Pos2> {
     let (w, h) = (theme::size::WARP_TICK_W, theme::size::WARP_TICK_H);
     vec![
@@ -220,24 +178,16 @@ fn hit_triangle_points(x: f32, top: f32) -> Vec<Pos2> {
     ]
 }
 
-/// The triangle's ink: `text_secondary` at the strength-scaled alpha a hit
-/// shows at, from [`theme::WARP_TICK_BASE`] for a soft one to that plus
-/// [`theme::WARP_TICK_GAIN`] for the loudest.
 fn hit_ink(strength: f32) -> Color32 {
     theme::p()
         .text_secondary
         .gamma_multiply(theme::WARP_TICK_BASE + theme::WARP_TICK_GAIN * strength.clamp(0.0, 1.0))
 }
 
-/// The top of a detected hit's triangle on the wave of a clip that is not
-/// warped: just inside the wave body's top edge, by the gap
-/// [`theme::size::WARP_TICK_FLOOR`] the warp strip keeps under its own
-/// triangles, so the same triangle reads the same way in either place.
 pub(crate) fn wave_hit_top(body: Rect) -> f32 {
     body.top() + theme::size::WARP_TICK_FLOOR
 }
 
-/// One column a physical pixel wide: the extent of the frames under it.
 fn peak_columns(
     painter: &Painter,
     lane: Rect,
@@ -291,8 +241,6 @@ fn peak_columns(
     painter.add(egui::Shape::mesh(mesh));
 }
 
-/// The samples as a line through each sample's value, with a dot on each
-/// when they are far apart.
 fn sample_lines(
     painter: &Painter,
     lane: Rect,
@@ -309,7 +257,6 @@ fn sample_lines(
         Some(_) => f32::from(s[1]),
         None => (f32::from(s[0]) + f32::from(s[1])) / 2.0,
     } / 32_767.0;
-    // Each sample's beat: the span it is in maps its frame back to time.
     let mut points = Vec::with_capacity(samples.frames.len());
     let mut colours = Vec::with_capacity(samples.frames.len());
     for (i, s) in samples.frames.iter().enumerate() {
@@ -326,8 +273,6 @@ fn sample_lines(
             input.look.dim
         });
     }
-    // One line per run of one colour (the played parts' edges are the only
-    // changes), not one shape per pair of samples.
     let mut start = 0;
     while start + 1 < points.len() {
         let colour = colours[start];
@@ -352,8 +297,6 @@ fn sample_lines(
     }
 }
 
-/// The ruler in `strip`: bar numbers on top with the grid's bar and beat
-/// ticks, the file's time under them. The loop brace's band is under it.
 pub(crate) fn ruler(
     painter: &Painter,
     strip: Rect,
@@ -368,12 +311,8 @@ pub(crate) fn ruler(
     painter.rect_filled(strip, 0.0, palette.raised);
     let x = |q: f64| time.x(strip.left(), q);
     let mid = strip.top() + strip.height() / 2.0;
-    // Bar numbers every 1, 2, 4… bars, by bar number, so the same bars keep
-    // their labels while the view scrolls.
     let label_font = FontId::monospace(theme::size::SCALE);
     let every = bar_label_step(lines, meter, time);
-    // The numbers first, so no tick is drawn through one: a bar or beat tick
-    // that falls inside a number's span is left out.
     let mut numbers = Vec::new();
     let mut covered: Vec<(f32, f32)> = Vec::new();
     for line in lines.iter().filter(|l| l.level == Level::Bar) {
@@ -391,7 +330,6 @@ pub(crate) fn ruler(
             lx + theme::space::XXS + 1.0,
             strip.top() + theme::space::XXS,
         );
-        // A label that would be cut at the right edge is left out.
         if at.x + galley.size().x <= strip.right() {
             covered.push((at.x, at.x + galley.size().x + theme::space::XXS));
             numbers.push((at, galley));
@@ -423,13 +361,7 @@ pub(crate) fn ruler(
     for (at, galley) in numbers {
         painter.galley(at, galley, palette.text_secondary);
     }
-    // The file's own time, from its first frame, at a step that keeps the
-    // labels apart: device-rate frames over the rate. The step comes from
-    // the span at the strip's centre, so after a big warp drag the spans
-    // beside it can run much faster and their labels would overprint: each
-    // label is drawn only if it clears the last one drawn ([`thinned_labels`]).
     let candidates = time_label_candidates(file, time, strip, rate);
-    // Every label keeps its tick, drawn or not.
     for (lx, _) in &candidates {
         painter.vline(
             *lx,
@@ -437,9 +369,6 @@ pub(crate) fn ruler(
             Stroke::new(theme::stroke::HAIRLINE, palette.border_strong),
         );
     }
-    // A label's width is asked for only once it clears the last one drawn, so
-    // a compressed span lays out only the few labels it draws, and the galley
-    // made for the width is the one drawn.
     let mut galleys: Vec<Option<Arc<egui::Galley>>> = vec![None; candidates.len()];
     let drawn = thinned_labels(
         candidates
@@ -475,16 +404,10 @@ pub(crate) fn ruler(
     );
 }
 
-/// Whether `x` falls inside one of the `(left, right)` spans.
 fn inside_any(x: f32, spans: &[(f32, f32)]) -> bool {
     spans.iter().any(|&(left, right)| x >= left && x <= right)
 }
 
-/// How many bars a bar number stands for at this zoom: 1, 2, 4… so labels
-/// keep `BAR_NUMBER_ROOM` apart. The width of one bar is the gap between the
-/// first two bar lines over the bars between them: at a coarse zoom the grid
-/// draws a line only every second or fourth bar, and measuring that gap as a
-/// single bar made the labels too close for a three-digit number.
 fn bar_label_step(lines: &[Line], meter: &MeterMap, time: TimeView) -> i64 {
     let mut bars = lines.iter().filter(|l| l.level == Level::Bar);
     let (Some(a), Some(b)) = (bars.next(), bars.next()) else {
@@ -495,8 +418,6 @@ fn bar_label_step(lines: &[Line], meter: &MeterMap, time: TimeView) -> i64 {
     bars_per_label(per_line / between as f32)
 }
 
-/// The power of two of bars a label stands for when a bar is `px_per_bar`
-/// points wide: the first that leaves `BAR_NUMBER_ROOM` between labels.
 fn bars_per_label(px_per_bar: f32) -> i64 {
     let mut every = 1;
     while px_per_bar * (every as f32) < theme::size::BAR_NUMBER_ROOM && every < 1 << 20 {
@@ -505,9 +426,6 @@ fn bars_per_label(px_per_bar: f32) -> i64 {
     every
 }
 
-/// The beat where device-rate `frame` of the file plays, and the gain of the
-/// span it is in. The spans follow each other in frames as in time (the
-/// file is mapped without a loop), so this is a binary search.
 fn beat_and_gain(file: &WholeFile, frame: f64) -> Option<(f64, f32)> {
     let end =
         |s: &crate::arrangement::waves::Span| s.first_frame + (s.end - s.start) * s.frames_per_beat;
@@ -519,16 +437,13 @@ fn beat_and_gain(file: &WholeFile, frame: f64) -> Option<(f64, f32)> {
     ))
 }
 
-/// The beat where device-rate `frame` of the file plays.
 pub(crate) fn beat_of_frame(file: &WholeFile, frame: f64) -> Option<f64> {
     beat_and_gain(file, frame).map(|(q, _)| q)
 }
 
-/// A step in seconds that keeps time labels `TIME_LABEL_ROOM` apart.
 fn time_step(file: &WholeFile, time: TimeView, strip: Rect, rate: f64) -> Option<f64> {
     let q = time.beat_at(strip.left(), strip.center().x);
     let span = file.span_at(q).or_else(|| file.spans.first())?;
-    // Points per second here.
     let per_second = time.zoom * rate / span.frames_per_beat;
     const STEPS: [f64; 19] = [
         0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 15.0, 30.0,
@@ -540,10 +455,6 @@ fn time_step(file: &WholeFile, time: TimeView, strip: Rect, rate: f64) -> Option
         .find(|s| s * per_second >= f64::from(theme::size::TIME_LABEL_ROOM))
 }
 
-/// The file's time in `strip` before thinning: the left x of every label's
-/// tick and its text, in time order. The step is the one for the span at the
-/// strip's centre ([`time_step`]); a faster span elsewhere puts these
-/// labels closer together, so [`label_fits`] decides which are drawn.
 fn time_label_candidates(
     file: &WholeFile,
     time: TimeView,
@@ -572,19 +483,10 @@ fn time_label_candidates(
     labels
 }
 
-/// Whether a label whose left edge is `left` clears the right edge of the
-/// last one drawn by `gap`. Labels never overprint, however much faster the
-/// file runs at this part of the ruler.
 fn label_fits(prev_right: Option<f32>, left: f32, gap: f32) -> bool {
     prev_right.is_none_or(|right| left >= right + gap)
 }
 
-/// The indices of the labels [`ruler`] draws, from their left edges in order:
-/// a label is drawn when it clears the right edge of the last one drawn by
-/// `gap` ([`label_fits`]) and its own right edge does not pass `strip_right`.
-/// A label cut at the right edge is not drawn and does not move that edge.
-/// `width` is asked for a label's width only once it clears the gap, so a
-/// compressed span costs no layouts for the labels it drops.
 fn thinned_labels(
     lefts: impl IntoIterator<Item = f32>,
     mut width: impl FnMut(usize) -> f32,
@@ -606,8 +508,6 @@ fn thinned_labels(
     drawn
 }
 
-/// "0:01.250" style: minutes and seconds, with as many decimals as `step`
-/// needs.
 pub(crate) fn seconds_text(seconds: f64, step: f64) -> String {
     let decimals = if step >= 1.0 {
         0
@@ -643,9 +543,6 @@ mod tests {
         assert_eq!(seconds_text(0.0015, 0.001), "0:00.002");
     }
 
-    /// A detected hit is one triangle wherever it is drawn: its base centred
-    /// on the hit, its point on the hit and below the base, so it points down
-    /// at the place it marks.
     #[test]
     fn a_detected_hit_points_down_at_its_place() {
         let (x, top) = (100.0, 20.0);
@@ -663,8 +560,6 @@ mod tests {
         assert_eq!(triangle[1].x, x + theme::size::WARP_TICK_W / 2.0);
     }
 
-    /// On the wave the triangle hangs from inside the body's top edge and
-    /// stays in the top band, clear of the wave's middle.
     #[test]
     fn a_hit_on_the_wave_sits_in_the_waves_top_band() {
         let body = Rect::from_min_size(pos2(0.0, 200.0), vec2(600.0, 300.0));
@@ -680,8 +575,6 @@ mod tests {
         );
     }
 
-    /// The strength-to-opacity rule both places draw with: a harder hit shows
-    /// more strongly, and a strength past full adds nothing more.
     #[test]
     fn a_harder_hit_shows_more_strongly() {
         let alpha = |strength: f32| hit_ink(strength).a();
@@ -691,9 +584,6 @@ mod tests {
         assert_eq!(alpha(1.0), alpha(2.0), "the strength is clamped");
     }
 
-    /// The owner's report: a 133-bar clip at about 9 points a bar printed
-    /// three-digit bar numbers every second bar, over each other. A bar that
-    /// narrow gets a number every fourth bar, and a wide one every bar.
     #[test]
     fn bar_numbers_keep_their_room_however_narrow_a_bar_is() {
         assert_eq!(bars_per_label(9.0), 4);
@@ -707,9 +597,6 @@ mod tests {
         }
     }
 
-    /// The same report through the ruler's own step: the grid draws a bar line
-    /// only every second bar, so the gap between the first two lines is two
-    /// bars, and the step still comes from the width of one.
     #[test]
     fn the_step_counts_the_bars_between_two_grid_lines() {
         use lumen_core::meter::Meter;
@@ -720,7 +607,6 @@ mod tests {
             at: Ticks::quarters(bar * 4),
             level: Level::Bar,
         };
-        // 2.25 points a quarter: a bar is 9 points.
         let time = TimeView {
             left: 0.0,
             zoom: 2.25,
@@ -736,9 +622,6 @@ mod tests {
         assert_eq!(bar_label_step(&[line(0)], &meter, time), 1, "one line");
     }
 
-    /// The owner's report: the grid's bar and beat ticks ran through the digits
-    /// of a bar number. A tick inside a number's span is left out; the number's
-    /// own tick, just left of the span, and the ones past it stay.
     #[test]
     fn a_tick_inside_a_bar_number_is_left_out() {
         let spans = [(13.0, 27.0), (61.0, 75.0)];
@@ -760,10 +643,6 @@ mod tests {
         assert!(!label_fits(Some(100.0), 90.0, 2.0), "over the last one");
     }
 
-    /// F4: after a warp marker is dragged far, the spans beside the one at
-    /// the strip's centre run much faster, so the labels the centre's step
-    /// chooses overprint there. Through [`thinned_labels`], the function the
-    /// ruler itself uses, the drawn labels never overlap.
     #[test]
     fn file_time_labels_never_overprint_when_a_warp_speeds_a_span_up() {
         use crate::arrangement::waves::Span;
@@ -777,10 +656,6 @@ mod tests {
             frames_per_beat,
             gain: 1.0,
         };
-        // Four beats of file at 48,000 frames a beat (a second each), then
-        // four at 4,800 (a tenth of a second each): the stretch a warp drag
-        // of ten times the speed leaves. The step is chosen from the second
-        // span, which the strip's centre is in.
         let file = WholeFile {
             spans: vec![
                 span(0.0, 4.0, 0.0, 48_000.0),
@@ -803,7 +678,6 @@ mod tests {
         let candidates = time_label_candidates(&file, time, strip, 48_000);
         assert!(candidates.len() > 8, "the fixture's labels: {candidates:?}");
 
-        // The widths the ruler lays the labels out at.
         let ctx = egui::Context::default();
         ctx.run_ui(egui::RawInput::default(), |_| {})
             .textures_delta
@@ -822,7 +696,6 @@ mod tests {
         };
         let gap = theme::space::XXS;
         let left = |lx: f32| lx + theme::space::XXS + 1.0;
-        // The bug: taken as they come, some labels overlap.
         let unthinned: Vec<(f32, f32)> = candidates
             .iter()
             .map(|(lx, text)| (left(*lx), left(*lx) + width(text)))
@@ -832,8 +705,6 @@ mod tests {
             "the fixture does not compress any labels: {unthinned:?}"
         );
 
-        // The fix, as the ruler runs it: each drawn label clears the last one
-        // drawn, and one cut at the right edge is left out.
         let widths: Vec<f32> = candidates.iter().map(|(_, text)| width(text)).collect();
         let drawn = thinned_labels(
             candidates.iter().map(|(lx, _)| left(*lx)),

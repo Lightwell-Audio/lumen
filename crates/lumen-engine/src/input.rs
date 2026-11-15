@@ -1,24 +1,3 @@
-//! Audio input in the engine (M9 slice R1, ADR-0100).
-//!
-//! The device callback hands the engine each block's inputs
-//! ([`Source::input`](crate::Source::input)). Two things use them:
-//!
-//! - **Meters** of every input channel the stream opened (peak since the UI
-//!   last looked, RMS, and a clip light), kept in a lock-free bank like the
-//!   mixer's. They run whenever the stream has inputs, whatever the transport
-//!   does, so a level can be set before anything is armed.
-//! - **Monitoring**: a track with an input route plays its input into its own
-//!   bus, so the track's devices, fader and sends hear it as they hear a clip.
-//!   A route says when it does (see [`Monitoring`]); the level glides
-//!   over 5 ms when that changes.
-//!
-//! The block is copied into a buffer made at start-up, so rendering needs
-//! nothing from the callback but the frame the block began on. A block larger
-//! than the buffer is metered but not monitored, and counted.
-//!
-//! The UI replaces the routes whole through a queue, as clip lists are, and
-//! gets the old list back to free. Levels glide on from list to list by track.
-
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
@@ -26,79 +5,50 @@ use crate::capture::{CaptureReader, CaptureSink, capture};
 use crate::mixer::{Buses, TrackSource};
 use crate::source::{Inputs, Mode, RenderContext};
 
-/// Device input channels metered and monitored; the rest are ignored.
 pub const MAX_INPUTS: usize = 32;
-/// Routes played at once; a longer list is cut.
 pub const MAX_ROUTES: usize = 64;
-/// Frames of input held for monitoring: more than any driver's buffer.
 const MAX_BLOCK: usize = 8_192;
-/// Route lists in flight.
 const QUEUE: usize = 4;
-/// A monitor level that changes glides over 1/200 s.
 const GLIDE_PER_SECOND: u32 = 200;
-/// How long the RMS reading averages over, as the mixer's meters.
 pub const RMS_SECONDS: f32 = 0.3;
-/// A sample at or above this has used the converter's whole range.
 pub const CLIP_LEVEL: f32 = 0.9999;
 
-/// When a route's input is heard on its track.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Monitoring {
-    /// Never (the track records it, or the track's monitor is off).
     Never,
-    /// While the transport is stopped, counting in or recording, and not
-    /// while playing back without recording (the monitor mode Auto, with the
-    /// track armed).
     Armed,
-    /// Always (the monitor mode In).
     Always,
 }
 
-/// An audio track's input and when it is heard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InputRoute {
-    /// The track's node in the routing.
     pub track: u64,
-    /// The first input channel, counted in the stream's open inputs.
     pub channel: usize,
-    /// The channel after it feeds the right side; otherwise the one channel
-    /// plays on both sides.
     pub stereo: bool,
     pub monitoring: Monitoring,
-    /// The track records this input while the transport records: the engine
-    /// keeps what arrives (see [`crate::capture`]).
     pub record: bool,
 }
 
-/// What an input channel read since it was last taken.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct InputLevel {
-    /// The highest absolute sample (linear).
     pub peak: f32,
-    /// RMS over [`RMS_SECONDS`].
     pub rms: f32,
-    /// A sample reached [`CLIP_LEVEL`].
     pub clipped: bool,
 }
 
 #[derive(Debug, Default)]
 struct Slot {
-    /// Highest absolute sample since the last read, as `f32` bits.
     peak: AtomicU32,
-    /// Smoothed mean square, as `f32` bits.
     power: AtomicU32,
     clipped: AtomicBool,
 }
 
-/// Readings of every input channel, written by the audio thread.
 #[derive(Debug)]
 struct Meters {
     slots: [Slot; MAX_INPUTS],
-    /// Blocks too large to monitor.
     oversized: AtomicU64,
 }
 
-/// UI side: replaces the routes and reads the meters. May allocate.
 #[derive(Debug)]
 pub struct InputHandle {
     incoming: rtrb::Producer<Box<[InputRoute]>>,
@@ -108,16 +58,11 @@ pub struct InputHandle {
 }
 
 impl InputHandle {
-    /// Sends a new list of routes (the first [`MAX_ROUTES`]). Returns false
-    /// when the queue is full: send it again next frame.
     pub fn set_routes(&mut self, routes: &[InputRoute]) -> bool {
         let routes = &routes[..routes.len().min(MAX_ROUTES)];
         self.incoming.push(routes.into()).is_ok()
     }
 
-    /// What input channel `channel` read since it was last taken: the peak and
-    /// the clip since then, the RMS now. Channels the stream did not open read
-    /// silence.
     pub fn take_level(&self, channel: usize) -> InputLevel {
         let Some(slot) = self.meters.slots.get(channel) else {
             return InputLevel::default();
@@ -129,18 +74,14 @@ impl InputHandle {
         }
     }
 
-    /// The reading end of what recording tracks keep, to hand to the worker
-    /// that writes it. Once: later calls return `None`.
     pub fn take_capture(&mut self) -> Option<CaptureReader> {
         self.capture.take()
     }
 
-    /// Blocks so far that were larger than the monitoring buffer.
     pub fn oversized_blocks(&self) -> u64 {
         self.meters.oversized.load(Ordering::Relaxed)
     }
 
-    /// Frees route lists the audio side has replaced. Call regularly.
     pub fn collect_garbage(&mut self) -> usize {
         let mut freed = 0;
         while self.retired.pop().is_ok() {
@@ -150,34 +91,26 @@ impl InputHandle {
     }
 }
 
-/// A route being played, with its level.
 #[derive(Debug, Clone, Copy)]
 struct Playing {
     route: InputRoute,
     level: f32,
 }
 
-/// Audio side: the input meters, and monitoring into the tracks' buses.
 pub struct InputPlayer {
     incoming: rtrb::Consumer<Box<[InputRoute]>>,
     retired: rtrb::Producer<Box<[InputRoute]>>,
-    /// A replaced list that did not fit in the retired queue yet.
     stash: Option<Box<[InputRoute]>>,
-    /// The routes in play and the list they are rebuilt into; both made at
-    /// full size, so a new list never allocates.
     playing: Vec<Playing>,
     next: Vec<Playing>,
     meters: Arc<Meters>,
-    /// The last block's inputs, channel after channel at `held_frames` apart.
     held: Box<[f32]>,
     held_channels: usize,
     held_frames: usize,
-    /// The device frame the held block began on.
     held_at: u64,
     capture: CaptureSink,
 }
 
-/// Makes the pair. Allocates: call it off the audio thread.
 pub fn input_player() -> (InputHandle, InputPlayer) {
     let (incoming_tx, incoming_rx) = rtrb::RingBuffer::new(QUEUE);
     let (retired_tx, retired_rx) = rtrb::RingBuffer::new(QUEUE + 1);
@@ -210,7 +143,6 @@ pub fn input_player() -> (InputHandle, InputPlayer) {
 }
 
 impl InputPlayer {
-    /// Takes the newest route list, carrying each track's level over.
     fn take_routes(&mut self) {
         if let Some(old) = self.stash.take()
             && let Err(rtrb::PushError::Full(old)) = self.retired.push(old)
@@ -231,17 +163,12 @@ impl InputPlayer {
                 self.next.push(Playing { route, level });
             }
             std::mem::swap(&mut self.playing, &mut self.next);
-            // Handed back to be freed off this thread; if the queue is full
-            // it waits here and the next list waits in the queue.
             if let Err(rtrb::PushError::Full(routes)) = self.retired.push(routes) {
                 self.stash = Some(routes);
             }
         }
     }
 
-    /// Keeps the part's frames of every route that records, stamped with the
-    /// timeline sample heard at the part's first frame: the render position
-    /// leads what is heard by the read ahead.
     fn keep(&mut self, cx: &RenderContext<'_>, from: usize, frames: usize) {
         let ahead = cx.stream.saturating_sub(cx.device) as i64;
         let at = cx.start - ahead;
@@ -258,7 +185,6 @@ impl InputPlayer {
         }
     }
 
-    /// Whether the held block has the channels `route` reads.
     fn has(&self, route: &InputRoute) -> bool {
         route.channel + usize::from(route.stereo) < self.held_channels
     }
@@ -278,7 +204,6 @@ impl TrackSource for InputPlayer {
         if !fits {
             self.meters.oversized.fetch_add(1, Ordering::Relaxed);
         }
-        // How much of the mean square carries over a block.
         let keep = (-(frames as f32) / (RMS_SECONDS * inputs.sample_rate.max(1) as f32)).exp();
         for channel in 0..channels {
             let samples = &inputs.data[channel * frames..(channel + 1) * frames];
@@ -290,12 +215,10 @@ impl TrackSource for InputPlayer {
             if peak >= CLIP_LEVEL {
                 slot.clipped.store(true, Ordering::Relaxed);
             }
-            // A non-finite sample must not poison the average for good.
             let mean = sum / frames as f32;
             let mean = if mean.is_finite() { mean } else { 0.0 };
             let was = f32::from_bits(slot.power.load(Ordering::Relaxed));
             let now = was * keep + mean * (1.0 - keep);
-            // Below about −150 dB, silence: no denormals left to decay.
             let now = if now < 1e-15 { 0.0 } else { now };
             slot.power.store(now.to_bits(), Ordering::Relaxed);
             if fits {
@@ -315,7 +238,6 @@ impl TrackSource for InputPlayer {
         }
         let frames = buses.frames();
         let held = self.held_frames;
-        // Where this part lies in the held block.
         let Some(from) = cx.device.checked_sub(self.held_at).map(|d| d as usize) else {
             return;
         };
@@ -367,7 +289,6 @@ impl TrackSource for InputPlayer {
     }
 }
 
-/// `level` moved `step` toward `target`.
 #[inline]
 fn glide(level: f32, target: f32, step: f32) -> f32 {
     if level < target {
@@ -377,7 +298,6 @@ fn glide(level: f32, target: f32, step: f32) -> f32 {
     }
 }
 
-/// The highest absolute sample and the sum of squares.
 #[inline]
 fn peak_and_sum(samples: &[f32]) -> (f32, f32) {
     let (mut peak, mut sum) = (0.0f32, 0.0f32);
@@ -406,8 +326,6 @@ mod tests {
         }
     }
 
-    /// A player that was handed `routes` and one block of `channels` ramps
-    /// (channel `c` holds `c + 1` times 0.01) of `frames`, at device frame 0.
     fn fed(routes: &[InputRoute], channels: usize, frames: usize) -> (InputHandle, InputPlayer) {
         let (mut handle, mut player) = input_player();
         assert!(handle.set_routes(routes));
@@ -424,8 +342,6 @@ mod tests {
         (handle, player)
     }
 
-    /// Renders `frames` from device frame `device` and returns the track's
-    /// two sides.
     fn render(
         player: &mut InputPlayer,
         mode: Mode,
@@ -456,7 +372,6 @@ mod tests {
         ]
     }
 
-    /// Long enough for a monitor level to finish gliding in.
     fn settled(player: &mut InputPlayer, mode: Mode, recording: bool) -> [Vec<f32>; 2] {
         for _ in 0..2 {
             let _ = render(player, mode, recording, 0, 128);
@@ -512,11 +427,9 @@ mod tests {
             frames: 256,
             data: &data,
         });
-        // Let the level settle, then read the second half of the block.
         let _ = render(&mut player, Mode::Play, false, 1_000, 256.min(CHUNK));
         let [l, _] = render(&mut player, Mode::Play, false, 1_128, 64);
         assert!((l[0] - 0.128).abs() < 1e-6 && (l[63] - 0.191).abs() < 1e-6);
-        // A part outside the held block, or before it, adds nothing.
         assert!(
             render(&mut player, Mode::Play, false, 1_256, 8)[0]
                 .iter()
@@ -529,7 +442,6 @@ mod tests {
         );
     }
 
-    /// A route that records.
     fn recording(channel: usize, stereo: bool, monitoring: Monitoring) -> InputRoute {
         InputRoute {
             record: true,
@@ -537,8 +449,6 @@ mod tests {
         }
     }
 
-    /// Renders one part of `frames` at device frame `device`, where the
-    /// timeline is at `start` and the stream leads the device by `lead`.
     fn part(
         player: &mut InputPlayer,
         cx: (Mode, bool, bool),
@@ -580,9 +490,7 @@ mod tests {
 
     #[test]
     fn recording_keeps_a_routes_frames_with_the_sample_heard_at_the_first() {
-        // Monitoring Never: the take is kept all the same.
         let (mut handle, mut player) = fed(&[recording(1, false, Monitoring::Never)], 2, 128);
-        // The render position is 1000 and leads what is heard by 300.
         part(&mut player, (Mode::Play, true, false), 1_000, 300, 0, 128);
         let (chunks, samples) = kept(&mut handle);
         assert_eq!(chunks.len(), 1);

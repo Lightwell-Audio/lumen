@@ -1,48 +1,25 @@
-//! P-ENGINE prototype: the smallest real-time core that tests ADR-0003.
-//!
-//! What it demonstrates:
-//! - The audio side ([`Engine`]) never allocates or frees. Graphs are built on
-//!   a non-real-time thread, handed over through a lock-free queue, and
-//!   handed back through another queue to be freed off the audio thread.
-//! - Live commands travel through a preallocated single-producer ring.
-//! - Timeline events (gain automation) are applied at exact sample positions,
-//!   and all DSP runs sample by sample, so output is bit-identical whatever
-//!   the block size. Offline rendering is therefore the same code path.
-//! - Swapping in a new graph carries DSP state across by track id, so an
-//!   unchanged graph swaps in inaudibly.
-//!
-//! Prototype quality: no parallelism, plugins, transport or real devices.
-
 use std::sync::Arc;
 
-/// Largest block processed in one pass; bigger requests are chunked.
 pub const MAX_BLOCK: usize = 4096;
 
 const QUEUE_CAPACITY: usize = 256;
 const GRAPH_QUEUE_CAPACITY: usize = 4;
 
-/// Live control messages from the UI side. They take effect at the start of
-/// the next block, so they are not part of deterministic rendering.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Command {
     SetTrackGain { track_id: u32, gain: f32 },
     Seek { position: u64 },
 }
 
-/// Description of one track, used to build a [`Graph`] off the audio thread.
 #[derive(Debug, Clone)]
 pub struct TrackDesc {
     pub id: u32,
-    /// Offset into the shared source signal, emulating different clips.
     pub source_offset: usize,
     pub cutoff_hz: f32,
-    /// -1 (left) ..= 1 (right), constant-power law.
     pub pan: f32,
-    /// Timeline gain changes: (absolute sample position, target gain).
     pub gain_automation: Vec<(u64, f32)>,
 }
 
-/// An immutable-shape processing graph. Built and freed off the audio thread.
 #[derive(Debug)]
 pub struct Graph {
     source: Arc<[f32]>,
@@ -62,10 +39,6 @@ struct TrackNode {
 }
 
 impl Graph {
-    /// Builds a graph. Allocates, so call it off the audio thread.
-    ///
-    /// # Panics
-    /// If `source` is empty.
     pub fn new(sample_rate: f32, source: Arc<[f32]>, tracks: &[TrackDesc]) -> Self {
         assert!(!source.is_empty(), "source signal must not be empty");
         let mut nodes: Vec<TrackNode> = tracks
@@ -97,7 +70,6 @@ impl Graph {
         self.tracks.len()
     }
 
-    /// Copies DSP state from `old` for tracks with the same id. Real-time safe.
     fn adopt_state_from(&mut self, old: &Graph, position: u64) {
         for node in &mut self.tracks {
             if let Ok(index) = old.tracks.binary_search_by_key(&node.id, |old| old.id) {
@@ -116,7 +88,6 @@ impl Graph {
     }
 }
 
-/// UI-side handle: sends commands and graphs, frees retired graphs.
 #[derive(Debug)]
 pub struct EngineHandle {
     commands: rtrb::Producer<Command>,
@@ -125,21 +96,18 @@ pub struct EngineHandle {
 }
 
 impl EngineHandle {
-    /// Queues a live command. Returns it back if the queue is full.
     pub fn send(&mut self, command: Command) -> Result<(), Command> {
         self.commands
             .push(command)
             .map_err(|rtrb::PushError::Full(c)| c)
     }
 
-    /// Queues a graph to replace the current one. Returns it back if full.
     pub fn replace_graph(&mut self, graph: Graph) -> Result<(), Box<Graph>> {
         self.graphs
             .push(Box::new(graph))
             .map_err(|rtrb::PushError::Full(g)| g)
     }
 
-    /// Frees graphs the audio side has retired. Call regularly off the audio thread.
     pub fn collect_garbage(&mut self) -> usize {
         let mut freed = 0;
         while let Ok(graph) = self.retired.pop() {
@@ -150,23 +118,19 @@ impl EngineHandle {
     }
 }
 
-/// Audio-side engine. Every method is real-time safe.
 #[derive(Debug)]
 pub struct Engine {
     commands: rtrb::Consumer<Command>,
     graphs: rtrb::Consumer<Box<Graph>>,
     retired: rtrb::Producer<Box<Graph>>,
     graph: Box<Graph>,
-    /// A retired graph that did not fit in the queue; retried next block.
     stash: Option<Box<Graph>>,
     position: u64,
 }
 
-/// Creates the engine pair. Allocates, so call it off the audio thread.
 pub fn engine(initial: Graph) -> (EngineHandle, Engine) {
     let (command_tx, command_rx) = rtrb::RingBuffer::new(QUEUE_CAPACITY);
     let (graph_tx, graph_rx) = rtrb::RingBuffer::new(GRAPH_QUEUE_CAPACITY);
-    // One more slot than graphs in flight, so retiring never has to wait.
     let (retired_tx, retired_rx) = rtrb::RingBuffer::new(GRAPH_QUEUE_CAPACITY + 1);
     let handle = EngineHandle {
         commands: command_tx,
@@ -189,8 +153,6 @@ impl Engine {
         self.position
     }
 
-    /// Renders one block of stereo audio. `left` and `right` must have equal
-    /// lengths; any length is accepted.
     pub fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
         assert_eq!(left.len(), right.len(), "channel lengths differ");
         self.retry_stash();
@@ -210,7 +172,6 @@ impl Engine {
     }
 
     fn swap_in_new_graph(&mut self) {
-        // Only one swap per block, and only when the retired graph has a home.
         if self.stash.is_some() {
             return;
         }
@@ -224,7 +185,6 @@ impl Engine {
     }
 
     fn apply_commands(&mut self) {
-        // Bounded so a flood of commands cannot blow the block's time budget.
         for _ in 0..QUEUE_CAPACITY {
             let Ok(command) = self.commands.pop() else {
                 break;
@@ -253,7 +213,6 @@ impl Engine {
             let mut offset = 0;
             while offset < frames {
                 let now = start + offset as u64;
-                // Apply every automation point that is due at this sample.
                 while let Some(&(at, gain)) = track.automation.get(track.automation_cursor) {
                     if at > now {
                         break;
@@ -294,7 +253,6 @@ impl TrackNode {
     }
 }
 
-/// One-pole parameter smoother, advanced per sample.
 #[derive(Debug, Clone, Copy)]
 struct Smoothed {
     value: f32,
@@ -304,7 +262,6 @@ struct Smoothed {
 
 impl Smoothed {
     fn new(value: f32, sample_rate: f32) -> Self {
-        // About 5 ms time constant.
         let coefficient = 1.0 - (-1.0 / (0.005 * sample_rate)).exp();
         Self {
             value,
@@ -320,7 +277,6 @@ impl Smoothed {
     }
 }
 
-/// RBJ low-pass biquad, transposed direct form II.
 #[derive(Debug, Clone, Copy)]
 struct Biquad {
     b0: f32,
@@ -357,7 +313,6 @@ impl Biquad {
     }
 }
 
-/// Deterministic pseudo-random test signal, the same on every machine.
 pub fn test_source(len: usize) -> Arc<[f32]> {
     let mut state = 0x9E37_79B9_7F4A_7C15_u64;
     (0..len)
@@ -370,8 +325,6 @@ pub fn test_source(len: usize) -> Arc<[f32]> {
         .collect()
 }
 
-/// A synthetic session: `count` tracks with varied filters, pans and a
-/// gain automation point every `automation_every` samples.
 pub fn test_tracks(count: u32, automation_every: u64, automation_points: u64) -> Vec<TrackDesc> {
     (0..count)
         .map(|id| TrackDesc {
@@ -380,7 +333,6 @@ pub fn test_tracks(count: u32, automation_every: u64, automation_points: u64) ->
             cutoff_hz: 200.0 + id as f32 * 97.0,
             pan: (id as f32 / count.max(1) as f32) * 2.0 - 1.0,
             gain_automation: (1..=automation_points)
-                // Irregular positions so events fall mid-block for every block size.
                 .map(|k| {
                     (
                         k * automation_every + u64::from(id) * 13,

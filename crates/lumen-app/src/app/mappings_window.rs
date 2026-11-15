@@ -1,7 +1,3 @@
-//! The Mappings window (M7 slice A5): every controller mapping in the project,
-//! which knob moves which control, with a way to clear each, and what the
-//! controllers last said.
-
 use eframe::egui::{self, Align, Align2, Layout, RichText, pos2};
 
 use crate::widgets::{Dialog, raised};

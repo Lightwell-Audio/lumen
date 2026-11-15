@@ -1,23 +1,14 @@
-//! The detail panel's tabs follow what was chosen last (DP1): the subject is
-//! the track of the header or clip clicked last, the Clip tab is there only
-//! for the opened clip (Enter or a double-click opens one, audio or MIDI), a
-//! header click while on Clip goes to Devices, deleting the opened clip goes
-//! back to Devices, and Show devices, Show clip and Show mixer are commands.
-
 use eframe::egui::{Event, Key, Modifiers, PointerButton, Pos2};
 use egui_kittest::kittest::Queryable;
 use lumen_project::model::Id;
 
 use super::{Lumen, midi_play, wav};
 
-/// Runs the command the palette finds for `query`, and lets it act.
 fn palette(lumen: &mut Lumen, query: &str) {
     midi_play::palette(lumen, query);
     lumen.frames(5);
 }
 
-/// Lumen with two one-second files dropped in: two tracks, a clip each.
-/// Returns the tracks and clips in that order.
 fn with_two_clips(name: &str) -> (Lumen, [Id; 2], [Id; 2]) {
     let mut lumen = Lumen::start(name);
     let kick = wav(&lumen.dir().join("kick.wav"), 1.0);
@@ -46,7 +37,6 @@ fn click_at(lumen: &mut Lumen, at: Pos2) {
     lumen.frames(2);
 }
 
-/// Clicks `clip`'s title strip, which selects it.
 fn click_clip(lumen: &mut Lumen, clip: Id) {
     let ctx = lumen.harness.ctx.clone();
     let r = lumen
@@ -56,7 +46,6 @@ fn click_clip(lumen: &mut Lumen, clip: Id) {
     click_at(lumen, Pos2::new(r.left() + 12.0, r.top() + 6.0));
 }
 
-/// Clicks `name`'s header on its name, which selects the track.
 fn click_header(lumen: &mut Lumen, name: &str) {
     let at = lumen
         .harness
@@ -64,7 +53,6 @@ fn click_header(lumen: &mut Lumen, name: &str) {
         .rect()
         .center();
     click_at(lumen, at);
-    // Clear of a double-click with whatever is clicked next.
     lumen.frames(30);
 }
 
@@ -83,7 +71,6 @@ fn the_subject_is_the_track_of_the_clip_or_header_clicked_last() {
     assert_eq!(lumen.app().detail_subject(), Some(kick));
     click_clip(&mut lumen, snare_clip);
     assert_eq!(lumen.app().detail_subject(), Some(snare));
-    // Nothing chosen: the panel is about no track and says so.
     lumen.key(Modifiers::NONE, Key::Escape);
     lumen.frames(3);
     assert_eq!(lumen.app().detail_subject(), None);
@@ -105,7 +92,6 @@ fn enter_opens_an_audio_clip_in_the_clip_tab_and_a_header_click_goes_to_devices(
     click_header(&mut lumen, "snare");
     assert!(lumen.app().devices_tab_shown());
     assert_eq!(lumen.app().detail_subject(), Some(snare));
-    // The clip stays open, a tab away.
     assert_eq!(lumen.app().opened_clip_in_detail(), Some((kick_clip, true)));
 }
 
@@ -114,13 +100,11 @@ fn a_midi_clip_opens_in_the_note_editor_in_the_same_tab() {
     let mut lumen = Lumen::start("detail-midi");
     palette(&mut lumen, "Add MIDI track");
     lumen.frames(30);
-    // Making a MIDI clip opens it.
     palette(&mut lumen, "Create MIDI clip");
     lumen.frames(10);
     let clip = lumen.app().project().tracks[0].clips[0].id;
     assert_eq!(lumen.app().opened_clip_in_detail(), Some((clip, false)));
     assert!(on_clip_tab(&lumen));
-    // Away and back with Enter.
     palette(&mut lumen, "Show devices");
     assert!(lumen.app().devices_tab_shown());
     lumen.app_mut().select_clip(clip);
@@ -154,7 +138,6 @@ fn show_devices_clip_and_mixer_are_commands() {
     palette(&mut lumen, "Show devices");
     assert!(lumen.app().devices_tab_shown());
 
-    // Show clip has nothing to show until a clip is open.
     let before = lumen.app().devices_tab_shown();
     palette(&mut lumen, "Show clip");
     assert_eq!(lumen.app().devices_tab_shown(), before);
@@ -175,11 +158,9 @@ fn clicking_the_already_selected_header_leaves_the_clip_tab() {
     lumen.frames(30);
     let name = lumen.track_names()[0].clone();
     click_header(&mut lumen, &name);
-    // Making a MIDI clip opens it and keeps the track selected.
     palette(&mut lumen, "Create MIDI clip");
     lumen.frames(10);
     assert!(on_clip_tab(&lumen));
-    // The selection does not change, but the click still means Devices.
     click_header(&mut lumen, &name);
     assert!(lumen.app().devices_tab_shown());
 }

@@ -1,13 +1,9 @@
-//! The tab itself: the tray, its cables and chips, the cards as they are
-//! painted, and what the frame asks for after them.
-
 use super::menu::CardMenu;
 use super::paint::{Chip, output_name, paint_cables, paint_chip, paint_drop_mark, paint_port};
 use super::rows::{OwnedFace, Row};
 use super::*;
 use crate::chain::{Pictures, geometry, sidechain};
 
-/// What the tab saw this frame, applied after the painting.
 #[derive(Default)]
 struct Events {
     select: Option<Id>,
@@ -19,21 +15,16 @@ struct Events {
     rescan: bool,
     load_one: Option<Id>,
     strip: Vec<(Id, strip::Output)>,
-    /// A drawing picked one of its parts (M8 slice B1).
     picked: Option<(Id, usize)>,
 }
 
-/// What a drag over the tray carries.
 #[derive(Clone)]
 enum Carried {
-    /// A device from the browser, to be added.
     New(PluginRef),
-    /// A card of this chain, to be moved.
     Card(CardDrag),
 }
 
 impl App {
-    /// The Devices tab in `area`.
     pub(crate) fn devices_panel(&mut self, ui: &mut Ui, area: Rect) {
         let palette = *theme::p();
         ui.painter().rect_filled(area, 0.0, palette.canvas);
@@ -49,14 +40,10 @@ impl App {
             return;
         };
         let rate = self.transport.state().sample_rate;
-        // What each built-in's meter published since the last frame, once a
-        // frame, before any card is drawn (M8 slice B2).
         self.builtin.read_meters();
-        // The tempo under the playhead, for a card that keeps time with the song.
         let bpm =
             lumen_core::time::bpm_at(&self.document.project().tempo, self.transport.position())
                 as f32;
-        // What arrives for the track's sidechain, for the cards' lights.
         let keyed = all_tracks(self.document.project())
             .find(|t| t.id == track_id)
             .is_some_and(|t| {
@@ -72,8 +59,6 @@ impl App {
             let playing = self.transport.state().playing;
             self.read_sidechain(ui.ctx(), track_id, playing);
         }
-        // The analysers of the cards this frame draws are read before the cards
-        // are built; every other one is silenced (M8 slice B1).
         self.pump_spectra(ui.ctx(), track_id, rate);
         let project = self.document.project();
         let Some(track) = all_tracks(project).find(|t| t.id == track_id) else {
@@ -95,7 +80,6 @@ impl App {
             self.hosting.ask_choices(id, &shown);
         }
         if stopped {
-            // The age of the sound Reload would use keeps counting.
             ctx.request_repaint_after(crate::motion::AGE_FRAME);
         }
         let project = self.document.project();
@@ -138,9 +122,6 @@ impl App {
         let pictures: Vec<Option<egui::TextureHandle>> =
             rows.iter().map(|r| self.picture_of(ui.ctx(), r)).collect();
         let selected = self.chain.selected;
-        // A built-in with a drawing steps its card down with the tray's height
-        // (whole, short, compact), with a little give either way (M8), and its
-        // screen reads what the track hears.
         let steps: Vec<Option<geometry::Step>> = rows
             .iter()
             .map(|row| {
@@ -160,8 +141,6 @@ impl App {
         } else {
             card::level_of(self.arrangement.meters.reading(track_id.0).peak)
         };
-        // A short tray turns the whole chain compact (D2), with a little
-        // give either side of the switch so a drag across it does not flicker.
         let compact = geometry::compact(self.chain.compact, tray.height(), extra);
         self.chain.compact = compact;
         let mut looks: Vec<Look<'_>> = rows
@@ -197,13 +176,10 @@ impl App {
                 message: Default::default(),
             })
             .collect();
-        // The tallest compact card sets how short the panel can get, so a
-        // card's whole message always fits.
         let heights: Vec<f32> = looks.iter().map(|l| card::compact::height(ui, l)).collect();
         self.chain.least = heights.iter().copied().fold(0.0, f32::max);
         let plain_h = geometry::card_height_with(tray.height() - 2.0 * geometry::PAD, extra);
         let layout = if steps.iter().any(Option::is_some) {
-            // Cards of their own sizes: a faced card's is its step's.
             let sizes: Vec<egui::Vec2> = rows
                 .iter()
                 .enumerate()
@@ -231,8 +207,6 @@ impl App {
         let playing = self.transport.state().playing;
         let beam = motion::hover(ui.ctx(), egui::Id::new("chain beam"), playing);
         let mut events = Events::default();
-        // A device dragged from the browser, or a card of this chain picked
-        // up: where it would land.
         let from_browser = egui::DragAndDrop::payload::<Dragged>(ui.ctx()).and_then(|d| {
             self.plugins
                 .catalog()
@@ -277,10 +251,6 @@ impl App {
                 paint_chip(&painter, at(layout.output()), &output);
                 paint_port(&painter, at(layout.input()).right_center(), beam);
                 paint_port(&painter, at(layout.output()).left_center(), beam);
-                // The tray's own menu, in its empty state and past the last
-                // card: a device can be added from here, without the browser
-                // (M8 slice B0, review M4). It is drawn before the cards and
-                // the empty state so their own controls take the pointer.
                 let tail = Rect::from_min_max(
                     pos2(at(layout.output()).right() + theme::space::S, whole.top()),
                     whole.max,
@@ -298,7 +268,6 @@ impl App {
                     )
                 });
                 widgets::Menu::context(&tail).show(|ui| {
-                    // The row lands on the track whose chain this is.
                     self.arrangement.selected = vec![track_id];
                     for (command, label) in [
                         (Command::AddUtility, "Add Prism (utility)"),
@@ -312,8 +281,6 @@ impl App {
                     }
                 });
                 if rows.is_empty() {
-                    // The shared empty state (the interface audit's D1, the
-                    // owner's A), above the in and out chips and their cable.
                     let above = Rect::from_min_max(
                         whole.min,
                         pos2(
@@ -360,7 +327,6 @@ impl App {
                     if let Some(forward) = out.step {
                         events.step = Some((row.id, forward));
                     }
-                    // A second device of the same name says which it is.
                     let nth = rows[..i].iter().filter(|r| r.name == row.name).count();
                     let spoken = if nth == 0 {
                         format!("{} on {}", row.name, track_name)
@@ -428,7 +394,6 @@ impl App {
                     widgets::Menu::context(&out.body).show(|ui| {
                         self.card_menu(ui, track_id, &menu);
                     });
-                    // The compact card's name opens the same menu under it.
                     if let Some(name) = &out.name {
                         widgets::Menu::below(name).show(|ui| {
                             if self.card_menu(ui, track_id, &menu) {
@@ -445,8 +410,6 @@ impl App {
                     if instrument && !midi {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::NotAllowed);
                     } else {
-                        // An effect lands in a gap, never before the
-                        // instrument; an instrument takes the first place.
                         let floor = rows.iter().position(|r| r.instrument).map_or(0, |i| i + 1);
                         let gap = if instrument {
                             0
@@ -523,7 +486,6 @@ impl App {
         }
     }
 
-    /// The plugin's own picture for `row`, once its bundle has been read.
     fn picture_of(&mut self, ctx: &egui::Context, row: &Row) -> Option<egui::TextureHandle> {
         if !row.vst3 {
             return None;

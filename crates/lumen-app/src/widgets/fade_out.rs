@@ -1,9 +1,3 @@
-//! Windows fade out when they close (DESIGN §6: exits ease in over `BASE`;
-//! the interface audit's M5). A window's last frame is kept as a picture;
-//! the frame it is no longer shown, the picture fades and drifts up, with
-//! nothing in it to click, focus or read out. `Dialog` remembers itself;
-//! the app paints what has gone once a frame.
-
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -11,16 +5,13 @@ use eframe::egui::{self, Id as EguiId, LayerId, epaint::ClippedShape, vec2};
 
 use crate::motion;
 
-/// How far a closing window drifts up as it fades.
 const LIFT: f32 = 4.0;
 
 #[derive(Clone)]
 struct Picture {
     layer: LayerId,
     shapes: Arc<Vec<ClippedShape>>,
-    /// The pass it was last shown in.
     pass: u64,
-    /// When it started to fade, once gone.
     gone_at: Option<f64>,
 }
 
@@ -28,8 +19,6 @@ fn store_id() -> EguiId {
     EguiId::new("lumen fading windows")
 }
 
-/// Keeps window `key`'s look as drawn on `layer` this frame, to fade from
-/// when it closes.
 pub(crate) fn remember(ctx: &egui::Context, key: EguiId, layer: LayerId) {
     if motion::time(motion::BASE) <= 0.0 {
         return;
@@ -54,8 +43,6 @@ pub(crate) fn remember(ctx: &egui::Context, key: EguiId, layer: LayerId) {
     });
 }
 
-/// Paints the windows that closed, fading; call once a frame, after every
-/// window was drawn.
 pub fn paint_gone(ctx: &egui::Context) {
     let pass = ctx.cumulative_pass_nr();
     let now = ctx.input(|i| i.time);

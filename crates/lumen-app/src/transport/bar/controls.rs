@@ -1,6 +1,3 @@
-//! The bar's buttons: Follow, the computer keyboard, Record, Overdub and the
-//! solo piece.
-
 use super::*;
 
 impl Transport {
@@ -45,10 +42,6 @@ impl Transport {
         });
     }
 
-    /// The computer keyboard's switch, after Follow (M5 slice 2, the owner's
-    /// K A): a keycap that lights while the mode is on, and beside it the
-    /// octaves under A to K and the velocity, in a well. A click is for the
-    /// app to take (`keyboard_clicked`).
     pub(super) fn keyboard_button(&mut self, ui: &mut Ui, keymap: &Keymap) {
         let on = self.keyboard_readout.is_some();
         let keys = keymap.keys(Run::ComputerKeyboard);
@@ -75,7 +68,6 @@ impl Transport {
             let galley = ui
                 .painter()
                 .layout_no_wrap(readout.clone(), keyboard_font(), c.text);
-            // A piece of the modes' well, as text.
             let size = egui::vec2(
                 galley.size().x + 2.0 * theme::space::S,
                 theme::size::WELL_CELL,
@@ -98,10 +90,6 @@ impl Transport {
         }
     }
 
-    /// The Record button (M5 slice 6d, the owner's 1-A): the record glyph in
-    /// red at rest; a hollow ring that pulses on each count-in beat; filled
-    /// and lit with the Flare while recording. A click, or F9, asks the app
-    /// for Record (which counts in, cancels a count-in, or ends a take).
     pub(super) fn record_button(
         &mut self,
         ui: &mut Ui,
@@ -164,9 +152,6 @@ impl Transport {
         }
     }
 
-    /// The Overdub switch (M5 slice 6d, the owner's 2-B): on, a take adds to
-    /// the clip under it; off, Replace overwrites it. A click asks the app
-    /// for Overdub.
     pub(super) fn overdub_button(&mut self, ui: &mut Ui, keymap: &Keymap, record: RecordSettings) {
         let keys = keymap.keys(Run::Overdub);
         let overdub = icons::button(
@@ -188,10 +173,6 @@ impl Transport {
     }
 }
 
-/// The solo piece, last in the modes' well (the owner's D3, M4 slice 4;
-/// the interface audit's TB1): an "S" filled accent while anything is
-/// soloed, like the S buttons it clears, with the count in its hint; a
-/// click clears every solo. Greyed while nothing is.
 pub(super) fn solo_piece(ui: &mut Ui, doc: &mut crate::document::Document, keymap: &Keymap) {
     let soloed = doc.project().tracks.iter().filter(|t| t.solo).count();
     let (rect, _) = ui.allocate_exact_size(

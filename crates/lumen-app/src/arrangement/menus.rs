@@ -1,6 +1,3 @@
-//! The track header menus (M3 slice 4a): a track's right-click menu and
-//! the "Add … track" entries. Grouping joins them in M4 slice 3.
-
 use eframe::egui::{self, Sense, Stroke, Ui, vec2};
 use lumen_devices::Preset;
 use lumen_project::model::{Id, TrackKind};
@@ -11,10 +8,6 @@ use crate::document::Document;
 use crate::{theme, widgets};
 
 impl Arrangement {
-    /// Right-click menu on a track, in the owner's order (the interface
-    /// audit's M4, A): what it is called and looks like; how it sits among
-    /// the others; what it plays and shows; what is made from it; adding
-    /// tracks; and Delete last, apart. Rows that cannot act are left out.
     pub(super) fn track_menu(&mut self, ui: &mut Ui, doc: &mut Document, id: Id, keymap: &Keymap) {
         let targets = self.targets(id);
         let many = targets.len() > 1;
@@ -23,7 +16,6 @@ impl Arrangement {
         };
         let plural = |one: &'static str, several: &'static str| if many { several } else { one };
 
-        // Name and colour.
         if item(ui, "Rename", Command::Rename)
             && let Some(track) = doc.project().tracks.iter().find(|t| t.id == id)
         {
@@ -58,7 +50,6 @@ impl Arrangement {
         });
         ui.separator();
 
-        // Among the other tracks.
         if item(
             ui,
             plural("Duplicate", "Duplicate tracks"),
@@ -97,10 +88,8 @@ impl Arrangement {
         }
         ui.separator();
 
-        // What it plays and what it shows.
         self.midi_menus(ui, doc, id, &targets, keymap);
         self.audio_menus(ui, doc, id);
-        // The lane over the clips (the header's A button until ADR-0101).
         let lane = if self.auto.shown.contains_key(&id) {
             "Hide automation lane"
         } else {
@@ -130,8 +119,6 @@ impl Arrangement {
                 ui.close();
             }
         }
-        // What is on it (M8 slices B0 and B3): a built-in device can be added
-        // without leaving the arrangement, as a track can.
         for (label, command) in [
             ("Add Prism (utility)", Command::AddUtility),
             ("Add Parallax (delay)", Command::AddDelay),
@@ -156,7 +143,6 @@ impl Arrangement {
         }
         ui.separator();
 
-        // What is made from it.
         if item(ui, "Import audio or MIDI\u{2026}", Command::Import) {
             self.selected = vec![id];
             self.import_requested = true;
@@ -171,7 +157,6 @@ impl Arrangement {
             self.selected = targets.clone();
             self.bounce_requested = true;
         }
-        // Freezing (M7b slice E5): offered where it can run.
         let on = |frozen: bool| {
             targets.iter().any(|t| {
                 doc.project().tracks.iter().any(|x| {
@@ -217,9 +202,6 @@ impl Arrangement {
         }
     }
 
-    /// What plays a MIDI track (M5 slice 1): its instrument, or a MIDI
-    /// output port and channel. Only on MIDI tracks; applies to every
-    /// selected MIDI track.
     fn midi_menus(
         &mut self,
         ui: &mut Ui,
@@ -271,9 +253,6 @@ impl Arrangement {
             midi_io::to_menu(ui, doc, &midi, &to);
         });
         midi_io::monitor_row(ui, doc, &midi, monitor);
-        // The map the notes are read through (M8 D0, D1): the editor, its
-        // own copy for this track, its files, and taking it off. Rows that
-        // cannot act are left out.
         widgets::submenu(ui, "Drum map", |ui| {
             if widgets::menu_item(
                 ui,
@@ -361,8 +340,6 @@ impl Arrangement {
         });
     }
 
-    /// What an audio track records (M9 slice R1): its input and when it is
-    /// heard. Only on audio tracks; applies to every selected audio track.
     fn audio_menus(&mut self, ui: &mut Ui, doc: &mut Document, id: Id) {
         let Some(track) = doc
             .project()
@@ -382,7 +359,6 @@ impl Arrangement {
         midi_io::monitor_row(ui, doc, &audio, monitor);
     }
 
-    /// "Add … track" entries, adding after `after`, in the place `menu`.
     pub(super) fn add_menu(
         &mut self,
         ui: &mut Ui,
@@ -424,7 +400,6 @@ impl Arrangement {
             };
             let keys = command.and_then(|c| keymap.keys(c));
             let full = kind == TrackKind::Return && doc.returns_full();
-            // A context menu lists only what can apply (the audit's M3).
             if full && menu != AddMenu::Button {
                 continue;
             }
@@ -441,14 +416,9 @@ impl Arrangement {
     }
 }
 
-/// Where the "Add … track" entries are listed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum AddMenu {
-    /// Under the "+ Add track ▾" button: a full project's return row stays,
-    /// greyed, saying why.
     Button,
-    /// The right-click menu of the empty area under the tracks.
     Context,
-    /// The track menu's "Add track" submenu, named by kind alone.
     Submenu,
 }

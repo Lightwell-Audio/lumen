@@ -1,52 +1,27 @@
-//! Controller messages for MIDI learn and mapped controls (M7 slice A5, D8).
-//!
-//! The live feed copies each controller message it takes from an input into
-//! a bounded queue the interface drains every frame, and leaves out of the
-//! engine's input those controllers a mapping moves: they are not notes for a
-//! track to record. The audio thread knows no mappings, only which controller
-//! numbers the interface says are taken (one bit each, set by the interface).
-//! A message the queue has no room for is counted, never waited for.
-
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// Controller messages waiting for the interface.
 pub(crate) const TAP_QUEUE: usize = 1024;
 
-/// One note the inputs played, for the map editor's Learn (M8 D1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Played {
-    /// The input's slot.
     pub source: u8,
-    /// The MIDI channel, 0 to 15.
     pub channel: u8,
-    /// The note, 0 to 127.
     pub key: u8,
-    /// Its velocity, 0 to 127.
     pub velocity: u8,
 }
 
-/// Notes waiting for the interface: the editor's Learn needs only the next
-/// one, so the queue is short.
 pub(crate) const NOTE_QUEUE: usize = 64;
 
-/// One controller message an input played.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Heard {
-    /// The input's slot.
     pub source: u8,
-    /// The MIDI channel, 0 to 15.
     pub channel: u8,
-    /// The controller number, 0 to 127.
     pub number: u8,
-    /// The value, 0 to 127.
     pub value: u8,
-    /// The device frame it was played at (the clock's, before the feed's
-    /// block of delay).
     pub played: u64,
 }
 
-/// Which controller numbers on which channels a mapping moves: 2,048 bits.
 #[derive(Debug)]
 pub(crate) struct Taken {
     words: [AtomicU64; 32],
@@ -66,7 +41,6 @@ impl Taken {
         })
     }
 
-    /// Whether controller `number` on `channel` is taken.
     pub(crate) fn contains(&self, channel: u8, number: u8) -> bool {
         Self::slot(channel, number)
             .is_some_and(|(word, bit)| self.words[word].load(Ordering::Relaxed) & bit != 0)
@@ -85,7 +59,6 @@ impl Taken {
     }
 }
 
-/// What the feed and the interface share.
 #[derive(Debug)]
 pub(crate) struct Shared {
     pub(crate) taken: Taken,
@@ -101,8 +74,6 @@ impl Shared {
     }
 }
 
-/// The interface's side: the controller messages heard, which numbers the
-/// mappings take, and the notes heard (for the drum map's Learn).
 pub struct Tap {
     pub(crate) rx: rtrb::Consumer<Heard>,
     pub(crate) notes: rtrb::Consumer<Played>,
@@ -110,27 +81,22 @@ pub struct Tap {
 }
 
 impl Tap {
-    /// Gives each message heard since the last call, oldest first.
     pub fn drain(&mut self, mut each: impl FnMut(Heard)) {
         while let Ok(heard) = self.rx.pop() {
             each(heard);
         }
     }
 
-    /// Gives each note-on heard since the last call, oldest first.
     pub fn drain_notes(&mut self, mut each: impl FnMut(Played)) {
         while let Ok(played) = self.notes.pop() {
             each(played);
         }
     }
 
-    /// Says which controllers (channel, number) mappings move: the engine is
-    /// not given those.
     pub fn take(&self, controllers: impl IntoIterator<Item = (u8, u8)>) {
         self.shared.taken.set(controllers);
     }
 
-    /// How many messages there was no room for, since the start.
     pub fn dropped(&self) -> u64 {
         self.shared.dropped.load(Ordering::Relaxed)
     }
@@ -149,10 +115,8 @@ mod tests {
         assert!(shared.taken.contains(9, 74));
         assert!(!shared.taken.contains(1, 7));
         assert!(!shared.taken.contains(0, 8));
-        // Out of MIDI's range is never taken, and does not panic.
         assert!(!shared.taken.contains(16, 0));
         assert!(!shared.taken.contains(0, 200));
-        // A new list replaces the old.
         shared.taken.set([(1, 1)]);
         assert!(!shared.taken.contains(0, 7));
         assert!(shared.taken.contains(1, 1));

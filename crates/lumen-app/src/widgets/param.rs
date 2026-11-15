@@ -1,10 +1,3 @@
-//! Controls for a plugin's parameters (M6 slice 4): the comet knob of the
-//! card's strip, in the style of the return tracks' send knobs, and the bar
-//! of the parameter panel's rows. A parameter's value is 0 to 1; its text is
-//! the plugin's own ("2.4 kHz"). Both act as every value control does
-//! (DESIGN.md §7): drag (Shift for fine), double-click for the default, the
-//! wheel, the arrow keys. A parameter with steps moves from step to step.
-
 use eframe::egui::{
     self, Align2, Color32, FontId, Id as EguiId, Key, Pos2, Rect, Response, Sense, Shape, Stroke,
     Ui, Vec2, pos2, vec2,
@@ -14,42 +7,26 @@ use super::knob::{SendKnob, draw};
 use super::raised;
 use crate::{motion, theme};
 
-/// What a parameter control shows.
 #[derive(Debug, Clone, Copy)]
 pub struct ParamLook<'a> {
-    /// "Cutoff": the accessible name, and the tooltip's.
     pub name: &'a str,
-    /// The plugin's own text for the value now.
     pub text: &'a str,
     pub value: f64,
     pub default: f64,
-    /// 0 for a continuous parameter, else the number of steps (a parameter
-    /// with `steps` of 2 has three positions).
     pub steps: i32,
-    /// Shown, and cannot be moved.
     pub read_only: bool,
-    /// On a selected row the ring steps up, as every control's colours do.
     pub selected: bool,
 }
 
-/// What happened to a control this frame.
 #[derive(Debug, Clone, Default)]
 pub struct ParamOut {
-    /// The new value, when the user changed it.
     pub value: Option<f64>,
     pub hovered: bool,
-    /// Being set right now: dragged, or focused and moved.
     pub active: bool,
-    /// Text the user typed and confirmed (Enter, or leaving the field): the
-    /// plugin reads it ("2.4 kHz", "-6"), so the caller asks it for the
-    /// value rather than parsing it.
     pub typed: Option<String>,
-    /// The typing field is up in the control's place: draw nothing else.
     pub typing: bool,
 }
 
-/// Opens the typing field of the control with `id`, with `text` selected
-/// (empty for a field that starts blank). For a menu's "Type a value…".
 pub fn start_typing(ui: &Ui, id: EguiId, text: &str) {
     let text = text.to_owned();
     ui.data_mut(|d| {
@@ -59,14 +36,10 @@ pub fn start_typing(ui: &Ui, id: EguiId, text: &str) {
     ui.ctx().request_repaint();
 }
 
-/// Characters that start typing when the control has the keyboard, as the
-/// send knob's do; other keys stay shortcuts.
 fn starts_typing(c: char) -> bool {
     c.is_ascii_digit() || "-+.,".contains(c)
 }
 
-/// The typing field, when it is up: the plugin's text is edited in place and
-/// leaving the field or Enter confirms, Esc cancels.
 fn typing_field(
     ui: &mut Ui,
     field: Rect,
@@ -92,9 +65,6 @@ fn typing_field(
             format!("{name}: type a value"),
         )
     });
-    // A field opened on the plugin's own text starts with it selected: set
-    // once the field has the keyboard (it places the cursor as it gains it),
-    // shown from the next frame.
     if edit.has_focus()
         && ui
             .data_mut(|d| d.remove_temp::<bool>(id.with("select")))
@@ -128,8 +98,6 @@ fn typing_field(
     Some(edit)
 }
 
-/// The value rounded to the nearest step, or the value itself when the
-/// parameter is continuous. Always 0 to 1.
 pub fn snap(value: f64, steps: i32) -> f64 {
     let v = if value.is_finite() {
         value.clamp(0.0, 1.0)
@@ -143,9 +111,6 @@ pub fn snap(value: f64, steps: i32) -> f64 {
     }
 }
 
-/// The value after `notches` of the wheel or the arrow keys (positive is
-/// up): a continuous parameter moves 2%, a fine move a tenth of that; a
-/// stepped one moves a step either way.
 pub fn step_by(value: f64, notches: f64, fine: bool, steps: i32) -> f64 {
     if steps > 0 {
         let at = (snap(value, steps) * f64::from(steps)).round() + notches.signum();
@@ -156,16 +121,10 @@ pub fn step_by(value: f64, notches: f64, fine: bool, steps: i32) -> f64 {
     }
 }
 
-/// A drag's travel after the pointer moved by `delta` over a control whose
-/// full travel is `span` points. The caller keeps the travel between frames
-/// and shows `snap(travel)`: a slow drag on a stepped parameter adds up
-/// instead of being rounded back every frame.
 pub fn travel_after(travel: f64, delta: f64, span: f64, fine: bool) -> f64 {
     (travel + delta / span.max(1.0) * if fine { 0.1 } else { 1.0 }).clamp(0.0, 1.0)
 }
 
-/// How a control is worked: where its typing field goes, how far a full
-/// drag travels, along which way, and what its tooltip says.
 struct Feel<'a> {
     field: Rect,
     span: f64,
@@ -173,8 +132,6 @@ struct Feel<'a> {
     hint: &'a str,
 }
 
-/// What a control does with the pointer and keys, for the knob's `span` of
-/// points of travel along `along` (up and right are up).
 fn behave(
     ui: &mut Ui,
     rect: Rect,
@@ -193,8 +150,6 @@ fn behave(
         && let Some(edit) = typing_field(ui, field, id, look.name, &mut out)
         && out.typing
     {
-        // Confirmed or cancelled on the frame it stops: the control comes
-        // back below.
         return (edit, out);
     }
     let sense = if look.read_only {
@@ -281,19 +236,12 @@ fn behave(
     (response, out)
 }
 
-/// How a card's dial is drawn (M8, the round-2 specimen): its colour and the
-/// ring's radius.
 #[derive(Debug, Clone, Copy)]
 pub struct DialLook {
     pub hue: Color32,
     pub radius: f32,
 }
 
-/// A lit dial centred on `centre`: the same control as [`param_knob`] (drag,
-/// Shift for fine, the wheel, double-click for the default, click and type, the
-/// arrow keys), drawn large in the device's colour: a dim track, a lit arc to
-/// the value with a soft glow, a white head and a pointer. The name and value
-/// under it are the caller's.
 pub fn param_dial(
     ui: &mut Ui,
     centre: Pos2,
@@ -333,8 +281,6 @@ pub fn param_dial(
     (response, out)
 }
 
-/// The dial's drawing: the disc, the dim track, the lit arc with its glow, the
-/// head and the pointer. `hot` (0 to 1) rings it while pointed at.
 fn paint_dial(
     painter: &egui::Painter,
     centre: Pos2,
@@ -357,7 +303,6 @@ fn paint_dial(
             .collect()
     };
     let strength = if off { 0.4 } else { 1.0 };
-    // The disc: lighter at its upper left, as a lit knob is.
     let (inner, rim) = if theme::is_light() {
         c::DIAL_DISC_LIGHT
     } else {
@@ -436,8 +381,6 @@ fn paint_dial(
     }
 }
 
-/// A comet knob in `rect` (square), the plugin's own text beneath it is the
-/// caller's. Returns what the user changed and the response, for a menu.
 pub fn param_knob(
     ui: &mut Ui,
     rect: Rect,
@@ -483,8 +426,6 @@ pub fn param_knob(
     (response, out)
 }
 
-/// A bar in `rect`: a sunk trough filled to the value, the plugin's text in
-/// it. Dragging moves along the bar.
 pub fn param_bar(ui: &mut Ui, rect: Rect, id: EguiId, look: ParamLook<'_>) -> (Response, ParamOut) {
     let (response, out) = behave(
         ui,
@@ -553,7 +494,6 @@ mod tests {
         assert_eq!(snap(0.6, 1), 1.0);
         assert_eq!(snap(0.5, 4), 0.5);
         assert_eq!(snap(0.3, 4), 0.25);
-        // Never outside 0 to 1, never not a number.
         assert_eq!(snap(7.0, 2), 1.0);
         assert_eq!(snap(-1.0, 0), 0.0);
         assert_eq!(snap(f64::NAN, 3), 0.0);
@@ -565,7 +505,6 @@ mod tests {
         assert!((step_by(0.5, -1.0, true, 0) - 0.498).abs() < 1e-12);
         assert_eq!(step_by(0.99, 5.0, false, 0), 1.0);
         assert_eq!(step_by(0.0, -1.0, false, 0), 0.0);
-        // Three positions: 0, 0.5, 1.
         assert_eq!(step_by(0.0, 1.0, false, 2), 0.5);
         assert_eq!(
             step_by(0.5, 3.0, false, 2),
@@ -582,8 +521,6 @@ mod tests {
 
     #[test]
     fn a_slow_drag_on_a_stepped_parameter_adds_up() {
-        // Two steps over 160 points: a drag of 0.4 points a frame must still
-        // get there, because the travel is kept apart from the snapped value.
         let mut travel = 0.0;
         let mut shown = 0.0;
         for _ in 0..200 {

@@ -1,12 +1,3 @@
-//! Drum maps on the document (M8 slice D0): attaching one to a MIDI track
-//! (a preset's copy, or one the project already holds), detaching it, editing
-//! its sounds, and converting a clip's notes to another map.
-//!
-//! Every method is one undo step. None of them touches a note but
-//! [`Document::convert_drum_map`], the one destructive drum command (§6.4):
-//! attaching, swapping and detaching leave every note exactly as it was,
-//! because a clip stores the map's **input** notes.
-
 use std::sync::Arc;
 
 use lumen_core::time::Ticks;
@@ -20,28 +11,20 @@ use lumen_project::model::{
 use super::Document;
 
 impl Document {
-    /// The drum map called `id`, if the project holds it.
     pub fn drum_map(&self, id: Id) -> Option<&DrumMap> {
         self.project().drum_map(id)
     }
 
-    /// The drum map `track` plays through, if it names one.
     pub fn drum_map_of(&self, track: Id) -> Option<&DrumMap> {
         let track = self.project().tracks.iter().find(|t| t.id == track)?;
         self.project().drum_map_of(track)
     }
 
-    /// Gives `track` a copy of `preset` as a new map of the project (the
-    /// owner's DM A: a preset is copied in, so the project never depends on a
-    /// file elsewhere). One undo step. `None` when the track is not a MIDI
-    /// track.
-    #[allow(dead_code)] // the one-track form: D2's lanes and this crate's tests
+    #[allow(dead_code)]
     pub fn attach_drum_map_preset(&mut self, track: Id, preset: Preset) -> Option<Id> {
         self.attach_drum_map_preset_to(&[track], preset)
     }
 
-    /// Gives every MIDI track in `tracks` one new copy of `preset`, which
-    /// they share. One undo step; `None` when none of them is a MIDI track.
     pub fn attach_drum_map_preset_to(&mut self, tracks: &[Id], preset: Preset) -> Option<Id> {
         let targets: Vec<Id> = tracks
             .iter()
@@ -63,17 +46,11 @@ impl Document {
         Some(id)
     }
 
-    /// Gives `track` a map the project already holds, so two kit tracks can
-    /// share one. One undo step; false when the map or the track is not
-    /// there, or the track is not a MIDI track.
-    #[allow(dead_code)] // the one-track form: D2's lanes and this crate's tests
+    #[allow(dead_code)]
     pub fn attach_drum_map(&mut self, track: Id, map: Id) -> bool {
         self.attach_drum_map_to(&[track], map)
     }
 
-    /// Gives every MIDI track in `tracks` the map `map`, which they then
-    /// share. One undo step; false when it would change nothing or the map
-    /// is not there.
     pub fn attach_drum_map_to(&mut self, tracks: &[Id], map: Id) -> bool {
         if self.drum_map(map).is_none() {
             return false;
@@ -100,15 +77,11 @@ impl Document {
         })
     }
 
-    /// Takes the map off `track`: its notes are untouched and play as they
-    /// are. One undo step.
-    #[allow(dead_code)] // the one-track form: D2's lanes and this crate's tests
+    #[allow(dead_code)]
     pub fn detach_drum_map(&mut self, track: Id) {
         self.detach_drum_maps(&[track]);
     }
 
-    /// Takes the map off every track in `tracks` that has one, in one undo
-    /// step: their notes are untouched and play as they are.
     pub fn detach_drum_maps(&mut self, tracks: &[Id]) {
         let targets: Vec<Id> = tracks
             .iter()
@@ -132,8 +105,6 @@ impl Document {
         });
     }
 
-    /// Mutes or unmutes a sound of `map`. One undo step; false when the map
-    /// or the sound is not there.
     pub fn set_sound_mute(&mut self, map: Id, input: u8, mute: bool) -> bool {
         let label = if mute {
             "Mute drum sound"
@@ -144,10 +115,7 @@ impl Document {
     }
 }
 
-/// The rest of the map's edits, one undo step each, called by D1's map
-/// editor (the window) and this crate's tests.
 impl Document {
-    /// Solos or unsolos a sound of `map`. One undo step.
     pub fn set_sound_solo(&mut self, map: Id, input: u8, solo: bool) -> bool {
         let label = if solo {
             "Solo drum sound"
@@ -157,39 +125,30 @@ impl Document {
         self.edit_sound(map, input, label, |sound| sound.solo = solo)
     }
 
-    /// Sets how long a sound plays, or lets its notes' lengths through again
-    /// (`None`). One undo step.
     pub fn set_sound_length(&mut self, map: Id, input: u8, length: Option<Ticks>) -> bool {
         self.edit_sound(map, input, "Change the drum sound's length", |sound| {
             sound.length = length.filter(|l| *l > Ticks::ZERO)
         })
     }
 
-    /// Sets the channel a sound plays on, or the track's (`None`). One undo
-    /// step.
     pub fn set_sound_channel(&mut self, map: Id, input: u8, channel: Option<u8>) -> bool {
         self.edit_sound(map, input, "Change the drum sound's channel", |sound| {
             sound.channel = channel.filter(|c| *c <= 15)
         })
     }
 
-    /// Sets the note a sound plays, leaving the note its clips store as it
-    /// is. One undo step.
     pub fn set_sound_output(&mut self, map: Id, input: u8, output: u8) -> bool {
         self.edit_sound(map, input, "Change the drum sound's note", |sound| {
             sound.output = output.min(127)
         })
     }
 
-    /// Puts a sound in a choke group, or in none (`None`). One undo step.
     pub fn set_sound_choke(&mut self, map: Id, input: u8, choke: Option<u8>) -> bool {
         self.edit_sound(map, input, "Change the drum sound's choke group", |sound| {
             sound.choke = choke.filter(|g| *g > 0)
         })
     }
 
-    /// Renames a sound; its drawing follows the name as a new sound's does.
-    /// One undo step.
     pub fn set_sound_name(&mut self, map: Id, input: u8, name: &str) -> bool {
         let name = name.trim();
         if name.is_empty() || name.chars().count() > MOST_SOUND_NAME {
@@ -202,27 +161,18 @@ impl Document {
         })
     }
 
-    /// Sets a sound's drawing without touching its name. One undo step.
     pub fn set_sound_icon(&mut self, map: Id, input: u8, icon: DrumIcon) -> bool {
         self.edit_sound(map, input, "Change the drum sound's icon", |sound| {
             sound.icon = icon
         })
     }
 
-    /// Sets a sound's own quantize grid, or takes it away. One undo step.
     pub fn set_sound_quantize(&mut self, map: Id, input: u8, quantize: Option<Quantize>) -> bool {
         self.edit_sound(map, input, "Change the drum sound's quantize", |sound| {
             sound.quantize = quantize
         })
     }
 
-    /// Sets where a sound plays: the instrument, one of its outputs, or
-    /// another instrument track. One undo step.
-    ///
-    /// The model edit on its own, for a test that works on a map rather than
-    /// on a track: the map editor's Output column calls
-    /// [`Document::route_drum_sound`](Self::route_drum_sound), which also
-    /// checks the route and makes the track that plays an output pair.
     #[cfg(test)]
     pub fn set_sound_route(&mut self, map: Id, input: u8, route: Route) -> bool {
         self.edit_sound(map, input, "Change where the drum sound plays", |sound| {
@@ -230,8 +180,6 @@ impl Document {
         })
     }
 
-    /// Renames a map. One undo step; false when it is not there or the name
-    /// is empty.
     pub fn rename_drum_map(&mut self, map: Id, name: &str) -> bool {
         let name = name.trim();
         if name.is_empty() || name.chars().count() > MOST_SOUND_NAME || self.drum_map(map).is_none()
@@ -247,18 +195,10 @@ impl Document {
 }
 
 impl Document {
-    /// The one real drum edit: rewrites the selected clips' notes from the
-    /// maps their tracks play through to `target`, by sound name and then by
-    /// the note the sound plays, and switches those tracks to `target` (one
-    /// undo step). A note whose sound `target` lacks is kept when
-    /// `keep_missing`, else left out. Notes with no sound, and clips on a
-    /// track with no map, are untouched.
     pub fn convert_drum_map(&mut self, clips: &[Id], target: Id, keep_missing: bool) -> Converted {
         let Some(target_map) = self.drum_map(target).cloned() else {
             return Converted::default();
         };
-        // Each track converts from the map it plays through now, before
-        // anything changes.
         let mut sources: Vec<(Id, DrumMap)> = Vec::new();
         let mut found: Vec<(Id, Id)> = Vec::new();
         for track in &self.project().tracks {
@@ -314,7 +254,6 @@ impl Document {
         done
     }
 
-    /// Whether `track` is a MIDI track of the project.
     pub(super) fn is_midi_track(&self, track: Id) -> bool {
         self.project()
             .tracks
@@ -322,7 +261,6 @@ impl Document {
             .any(|t| t.id == track && t.kind == TrackKind::Midi)
     }
 
-    /// One undo step that changes sound `input` of `map` through `change`.
     pub(super) fn edit_sound(
         &mut self,
         map: Id,
@@ -378,8 +316,6 @@ mod tests {
         }
     }
 
-    /// A project with one MIDI track holding `notes` and `events`, on no map
-    /// yet.
     fn kit_track(
         notes: Vec<Note>,
         events: Vec<lumen_project::model::ClipEvent>,
@@ -423,7 +359,6 @@ mod tests {
             .expect("a MIDI clip")
     }
 
-    /// A clip's notes and events as `project` holds them.
     fn clip_content(
         project: &lumen_project::model::Project,
         clip: Id,
@@ -439,7 +374,6 @@ mod tests {
             })
     }
 
-    /// A repeatable stream of numbers.
     fn rng(mut seed: u64) -> impl FnMut() -> u64 {
         move || {
             seed ^= seed << 13;
@@ -449,7 +383,6 @@ mod tests {
         }
     }
 
-    /// One edit the property test makes, in the order the seeded numbers say.
     #[derive(Clone, Copy, Debug)]
     enum Step {
         AttachPreset(Preset),
@@ -469,8 +402,6 @@ mod tests {
         Route(Id, u8),
     }
 
-    /// Does `step`, which may legitimately change nothing (detaching a track
-    /// with no map, renaming to the name it has).
     fn do_step(doc: &mut Document, track: Id, step: Step) {
         match step {
             Step::AttachPreset(preset) => {
@@ -530,8 +461,6 @@ mod tests {
     fn attach_swap_edit_and_detach_in_any_order_leave_every_note_as_it_was() {
         let mut next = rng(0x5eed_1234);
         for round in 0..6 {
-            // Notes of the clip, some muted, with controller events beside
-            // them: a map changes what plays, never what a clip holds.
             let notes: Vec<Note> = (0..24)
                 .map(|_| {
                     Note(
@@ -569,7 +498,6 @@ mod tests {
                 !doc.attach_drum_map(track, first),
                 "it names that map already: nothing changes"
             );
-            // One map is in the project, named after the preset.
             assert_eq!(doc.project().drum_maps.len(), 1);
             assert_eq!(
                 doc.drum_map(first).map(|m| m.name.as_str()),
@@ -582,9 +510,6 @@ mod tests {
                 .attach_drum_map_preset(track, Preset::GENERAL_MIDI_2)
                 .unwrap();
             assert_eq!(doc.project().drum_maps.len(), 3);
-            // Every edit of every map, and the attach, swap and detach that
-            // reach them, in an order the seeded numbers choose: a fixed
-            // order hides what an edit after another one does.
             let maps = [first, second, third];
             let mut steps = vec![
                 Step::Detach,
@@ -631,7 +556,6 @@ mod tests {
                     });
                 }
             }
-            // Shuffle with the seeded numbers (Fisher–Yates).
             for i in (1..steps.len()).rev() {
                 steps.swap(i, (next() % (i as u64 + 1)) as usize);
             }
@@ -644,15 +568,12 @@ mod tests {
                     "round {round}, after {step:?}"
                 );
             }
-            // Back to the first map, then off entirely: still bit-identical.
             if doc.drum_map_of(track).map(|m| m.id) != Some(first) {
                 assert!(doc.attach_drum_map(track, first));
             }
             doc.detach_drum_map(track);
             assert!(doc.drum_map_of(track).is_none());
             assert_eq!(notes_of(&doc, clip), notes);
-            // The project it would save is one a later build reads, and what
-            // it reads holds the same notes and events.
             assert_eq!(lumen_project::validate(doc.project()), Ok(()));
             let bytes = lumen_project::to_bytes(doc.project()).expect("a valid project");
             let read = lumen_project::from_bytes(&bytes).expect("it reads again");
@@ -692,7 +613,6 @@ mod tests {
         assert_eq!(notes_of(&doc, clip), notes);
         doc.undo();
         assert_eq!(doc.drum_map_of(track).map(|m| m.id), Some(map));
-        // Detaching a track with no map changes nothing.
         doc.detach_drum_map(track);
         doc.detach_drum_map(track);
         assert_eq!(doc.history().steps().0.last(), Some(&"Detach drum map"));
@@ -729,7 +649,6 @@ mod tests {
                 .mute
         );
         assert_eq!(doc.project().drum_maps.len(), 1);
-        // An audio track takes no map.
         let audio = doc.add_track(TrackKind::Audio, None);
         assert!(
             doc.attach_drum_map_preset(audio, Preset::GENERAL_MIDI)
@@ -749,7 +668,6 @@ mod tests {
         let single = doc
             .attach_drum_map_preset(track, Preset::EIGHT_OH_EIGHT)
             .unwrap();
-        // A target map whose sounds sit on other notes, under the same names.
         let target = doc
             .attach_drum_map_preset(track, Preset::EIGHT_OH_EIGHT)
             .unwrap();
@@ -783,7 +701,6 @@ mod tests {
         doc.undo();
         assert_eq!(notes_of(&doc, clip), notes, "one step gives the notes back");
         assert_eq!(doc.drum_map_of(track).map(|m| m.id), Some(single));
-        // Committing to a map the notes already play through changes nothing.
         doc.redo();
         assert_eq!(doc.convert_drum_map(&[clip], target, false).moved, 0);
         assert_eq!(
@@ -861,10 +778,8 @@ mod tests {
             .attach_drum_map_preset(track, Preset::GENERAL_MIDI)
             .unwrap();
         doc.detach_drum_map(track);
-        // A clip on a track with no map: converting is not offered.
         assert_eq!(doc.convert_drum_map(&[clip], map, false).moved, 0);
         assert_eq!(notes_of(&doc, clip), notes);
-        // An unknown target changes nothing either.
         assert!(doc.attach_drum_map(track, map));
         assert_eq!(doc.convert_drum_map(&[clip], Id(77_777), false).moved, 0);
         let _ = Track::new(Id(1), "x", TrackKind::Midi, lumen_project::model::Color(0));

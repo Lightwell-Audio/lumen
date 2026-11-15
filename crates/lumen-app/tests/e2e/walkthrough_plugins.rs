@@ -1,12 +1,3 @@
-//! The M6 exit flow (`docs/milestones/M6.md`, slice 7): plugin instruments
-//! and effects on tracks, two of the instruments' sounds grouped, one
-//! instrument's other output on a track of its own, an effect keyed from
-//! another track, a plugin effect on a return that a send feeds; then undo,
-//! save and reopen, and a plugin that crashes and is reloaded while the rest
-//! play on. The plugins and the host program are the real ones, built by
-//! the test (the Lumen-owned test plugin); real third-party plugins are the
-//! owner's MT-VST-7.
-
 use std::time::Duration;
 
 use eframe::egui::{Key, Modifiers};
@@ -34,25 +25,11 @@ const PERC_PLUGIN: Id = Id(11);
 const BASS_PLUGIN: Id = Id(12);
 const KEYED: Id = Id(13);
 const VERB_PLUGIN: Id = Id(14);
-// Playback stays live through several routing, save/reopen, and crash checks.
-// Keep these notes alive past the walkthrough's slowest wait path.
 const NOTE_LENGTH: i64 = 600;
 const CLIP_LENGTH: i64 = 640;
-/// Frames in a block of the test device. The hosts get three quarters of a
-/// block to answer; at the other scenarios' 1024 (21 ms) a stall of the
-/// machine's scheduler a little over 16 ms makes the keyed effect late, and
-/// a late effect passes its input dry. A sidechain that is meant to hold the
-/// bass at silence then shows a burst, and the meter needs seconds of quiet to
-/// fall back. 2048 (43 ms, a 32 ms wait, the test device's largest) rides such stalls out.
 const BUFFER: u32 = 2048;
 const PLUGINS: [Id; 5] = [KICK_PLUGIN, PERC_PLUGIN, BASS_PLUGIN, KEYED, VERB_PLUGIN];
 
-/// A kick and a percussion instrument, the percussion's second output on a
-/// track of its own, a bass whose effect is keyed from the kick and which
-/// sends to a return holding an effect. Every instrument holds one long
-/// note; the test instrument with three outputs plays a note on the output
-/// its pitch picks (pitch mod 3): the kick's 69 and the percussion's 61 are
-/// outputs 0 and 1.
 fn song() -> Project {
     let end = Ticks::quarters(NOTE_LENGTH);
     let held = |pitch| vec![Note::new(Ticks::ZERO, end, pitch, 100)];
@@ -88,10 +65,6 @@ fn song() -> Project {
     project_of("Walk", vec![kick, perc, perc_out, bass, verb])
 }
 
-/// The loudest a track's meter reads over a few windows, stopping early once
-/// it is above `db`. A plugin that is set up again after an edit is silent
-/// until it has run, which takes longer on a slow runner: the limit is
-/// generous, and a run that is not slow leaves early.
 fn loudest(lumen: &mut Lumen, track: Id, db: f32) -> f32 {
     let mut best = f32::MIN;
     for _ in 0..150 {
@@ -108,11 +81,6 @@ fn loudest(lumen: &mut Lumen, track: Id, db: f32) -> f32 {
     best
 }
 
-/// A track's meter once it has fallen below `db` (it has not heard the key
-/// at first, or the plugin has to be set up for its sidechain), or the
-/// lowest reading in the end. The meter falls 20 dB a second, so a stall that
-/// lets a block through sends it back up and it needs a few quiet seconds
-/// again: the limit is generous, and a run that is not stalled leaves early.
 fn quietest(lumen: &mut Lumen, track: Id, db: f32) -> f32 {
     let late_before = PLUGINS.map(|device| lumen.app().device_late_blocks(device));
     let mut least = f32::MAX;
@@ -176,8 +144,6 @@ fn plugins_in_a_group_with_a_return_a_sidechain_and_outputs_save_reopen_and_surv
     let _turn = timing_sensitive();
     let mut lumen = start(&song());
 
-    // Group the kick and the percussion: one step, and the plugins keep
-    // running through the new routing.
     lumen
         .harness
         .get_by_label("Kick: double-click to rename")
@@ -192,12 +158,9 @@ fn plugins_in_a_group_with_a_return_a_sidechain_and_outputs_save_reopen_and_surv
     );
     play(&mut lumen);
     sounds_as_it_should(&mut lumen, "grouped");
-    // The bass is keyed down, so the return it feeds hears nothing either.
     let verb = quietest(&mut lumen, VERB, -60.0);
     assert!(verb < -60.0, "nothing reaches the return: {verb} dB");
 
-    // Take the sidechain away on the bass's card: the bass plays, and its
-    // send reaches the return, until Undo gives the key back.
     lumen.app_mut().select_tracks(&[BASS]);
     lumen.show_whole_cards();
     lumen.click("Sidechain source, Kick, Post FX");
@@ -214,7 +177,6 @@ fn plugins_in_a_group_with_a_return_a_sidechain_and_outputs_save_reopen_and_surv
     assert!(bass < -60.0, "undone, the kick keys it again: {bass} dB");
     lumen.key(Modifiers::NONE, Key::Space);
 
-    // Save, close, reopen: the same project, the same sound.
     let path = project_file(lumen.dir(), "Walk");
     lumen.app_mut().save_to(path.clone());
     lumen.wait_for("the save", |app| !app.is_busy() && !app.is_dirty());
@@ -239,8 +201,6 @@ fn plugins_in_a_group_with_a_return_a_sidechain_and_outputs_save_reopen_and_surv
     play(&mut again);
     sounds_as_it_should(&mut again, "reopened");
 
-    // The percussion plugin crashes: its output goes quiet; the others play
-    // on; Reload brings it back.
     again.app_mut().end_device_host(PERC_PLUGIN);
     wait_for_state(&mut again, PERC_PLUGIN, "failed");
     let kick = loudest(&mut again, KICK, -20.0);
@@ -252,8 +212,6 @@ fn plugins_in_a_group_with_a_return_a_sidechain_and_outputs_save_reopen_and_surv
     );
     again.app_mut().reload_device(PERC_PLUGIN);
     wait_for_state(&mut again, PERC_PLUGIN, "ready");
-    // A plugin that finishes loading while a note is held does not sound it
-    // until the next note (KNOWN_ISSUES): play again from the start.
     again.key(Modifiers::NONE, Key::Space);
     again.wait_for("the stop", |app| !app.is_playing());
     again.key(Modifiers::NONE, Key::Home);

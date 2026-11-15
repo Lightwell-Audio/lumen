@@ -1,25 +1,14 @@
-//! The palette's window, when open: the search field, the rows, the strip
-//! that explains the chosen one, and the keys.
-
 use eframe::egui::{self, Align2, FontId, Key, Modifiers, Sense, Stroke, Vec2, vec2};
 
 use super::{Entry, TOP, WIDTH};
 use crate::{App, icons, theme, widgets};
 
 impl App {
-    /// The palette, when open: the search field, the rows, the strip that
-    /// explains the chosen one, and the keys. Esc, Ctrl+K or a click
-    /// elsewhere closes it.
     pub(crate) fn palette_window(&mut self, ctx: &egui::Context) {
         if !self.palette.open {
             return;
         }
-        // Templates are rows too: a template added in the file manager shows
-        // up within a moment of the palette opening.
         self.templates.listing.ask(ctx, self.templates_dir(), false);
-        // The list's keys, before the field sees them.
-        // Ctrl+Enter records new keys for the chosen command (the owner's
-        // E3); while recording, `capture_chord` has taken the keys.
         let (rekey, up, down, enter, close) = ctx.input_mut(|i| {
             (
                 i.consume_key(Modifiers::COMMAND, Key::Enter),
@@ -62,17 +51,12 @@ impl App {
         }
 
         let palette = *theme::p();
-        // The click that opened it (the transport button) is not a click
-        // elsewhere.
         let fresh = self.palette.focus;
         let mut picked = None;
         let shown = egui::Area::new(egui::Id::new("command palette"))
             .order(egui::Order::Foreground)
             .anchor(Align2::CENTER_TOP, vec2(0.0, TOP))
             .show(ctx, |ui| {
-                // A window-sized floating surface (the Palette card):
-                // `radius::XL`, `overlay`, `border_strong` and the edge
-                // light along its top inside edge.
                 let frame = egui::Frame::popup(ui.style())
                     .fill(palette.overlay)
                     .stroke(Stroke::new(theme::stroke::HAIRLINE, palette.border_strong))

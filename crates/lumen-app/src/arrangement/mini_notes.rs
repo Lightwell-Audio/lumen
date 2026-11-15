@@ -1,8 +1,3 @@
-//! The notes inside MIDI clips on the arrangement (M5 slice 3b): the
-//! project's MIDI clips as mini-note boxes, rebuilt with the clip boxes
-//! (`clips::refresh_boxes`), and where each track's bands sit this frame.
-//! Tracks without notes get no bands, so the row table stays small.
-
 use lumen_project::model::{ClipContent, Project, Track};
 use lumen_render::{BoxInstance, RowSlot};
 
@@ -13,17 +8,12 @@ use crate::piano_roll::mini::{self, BANDS, Body};
 use crate::piano_roll::notes::ClipNotes;
 use crate::theme;
 
-/// The mini-note boxes, and the tracks (by index) whose bands they use:
-/// box row `n * BANDS + band` belongs to `tracks[n]`.
 #[derive(Debug, Default, PartialEq)]
 pub(super) struct MiniNotes {
     pub boxes: Vec<BoxInstance>,
     pub tracks: Vec<usize>,
 }
 
-/// The mini notes of every MIDI clip in `project` on the tracks `keep`
-/// takes, each track's clips on one fit. A clip being recorded shows its
-/// notes in the lighter record red (3-A).
 pub(super) fn build(
     project: &Project,
     recording: Option<&RecordingLook>,
@@ -35,8 +25,6 @@ pub(super) fn build(
         if !keep(track) {
             continue;
         }
-        // A track with a drum map draws its clips as drum rows instead (M8
-        // D2): the mini piano roll is not drawn over them.
         if project.drum_map_of(track).is_some() {
             continue;
         }
@@ -45,8 +33,6 @@ pub(super) fn build(
             continue;
         };
         let fit = mini::Fit::new(lo, hi);
-        // Notes held across a seam are drawn on into the next clip, as
-        // they sound (ADR-0058).
         let carried = lumen_project::edit::seams::carried(track);
         for (clip, carried) in track.clips.iter().zip(&carried) {
             let ClipContent::Midi { notes, .. } = &clip.content else {
@@ -81,8 +67,6 @@ pub(super) fn build(
     out
 }
 
-/// The row slots of the bands, from the tracks' row slots (physical
-/// pixels): under each clip's title bar, above its bottom inset.
 pub(super) fn rows(tracks: &[usize], slots: &[RowSlot], pixels_per_point: f32) -> Vec<RowSlot> {
     let mut out = Vec::with_capacity(tracks.len() * BANDS as usize);
     for &index in tracks {
@@ -160,8 +144,6 @@ mod tests {
 
     #[test]
     fn a_note_held_across_a_seam_is_drawn_on_into_the_next_clip() {
-        // A note from beat 6 to 10, split at 8: both pieces keep it, so the
-        // second draws its tail from its start (the owner's boundary case).
         let q = Ticks::quarters;
         let mut project = lumen_project::testing::synthetic(1, 1, 0, 0, 0);
         let mut track = (*project.tracks[0]).clone();
@@ -183,7 +165,6 @@ mod tests {
             })
             .collect();
         assert_eq!(spans, vec![(6.0, 8.0), (8.0, 10.0)]);
-        // Moved away from the first clip, the second keeps its note hidden.
         track.clips[1] = Arc::new(Clip {
             start: q(9),
             ..right
@@ -217,7 +198,6 @@ mod tests {
         let plain = build(&project, None, |_| true);
         assert_eq!(red.boxes.len(), 1);
         assert_ne!(red.boxes[0].body, plain.boxes[0].body);
-        // Not recording: the same boxes as with no recording at all.
         let other = RecordingLook {
             take_clips: vec![Id(9)],
             ..look

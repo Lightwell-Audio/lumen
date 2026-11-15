@@ -1,9 +1,3 @@
-//! The worker behind Consolidate (M7b slice E3). Each part (one track's
-//! selected clips) is rendered through the clip player, as it plays, into a
-//! 32-bit float WAV, with progress and a way to stop. Which clips go in which
-//! part, and what replaces them, is `lumen_project::edit::consolidate`; this
-//! module only turns clips into files, off the UI thread.
-
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -18,33 +12,24 @@ use lumen_project::model::{Id, Media};
 use crate::export::render_audio::Again;
 use crate::media::streams::Unread;
 
-/// One file to render.
 pub struct Job {
     pub part: Part,
-    /// The part's clips as the engine plays them.
     pub clips: Vec<lumen_engine::Clip>,
-    /// Timeline sample of the file's first frame, and its length.
     pub from: i64,
     pub frames: u64,
-    /// Where the file goes, and the media id it will have.
     pub file: PathBuf,
     pub media: Id,
-    /// What the clips could not read from disk; a job with a hole fails.
     pub unread: Unread,
 }
 
-/// Where a render stands.
 #[derive(Debug)]
 pub enum Poll {
-    /// Still rendering, this far (0.0 to 1.0).
     Running(f32),
     Done(Vec<Baked>),
-    /// Stopped before it finished; the files are removed.
     Stopped,
     Failed(String),
 }
 
-/// A render on its worker. Dropping it stops the worker.
 pub struct Render {
     results: Receiver<Result<Vec<Baked>, String>>,
     cancel: Arc<AtomicBool>,
@@ -57,8 +42,6 @@ impl Drop for Render {
     }
 }
 
-/// Renders one job to its file. `done` is told how many frames were written
-/// after each block. `None` means `cancel` stopped it and no file is left.
 pub fn render_job(
     job: Job,
     timeline: &Timeline,
@@ -144,8 +127,6 @@ pub fn render_job(
     }))
 }
 
-/// Gives `job` the clips of its part as they play at the project's rate, made
-/// from the files. `Ok(false)` if `cancel` stopped it.
 fn played_again(again: &Again, job: &mut Job, cancel: &AtomicBool) -> Result<bool, String> {
     let Some(all) = again.clips(cancel)? else {
         return Ok(false);
@@ -161,9 +142,6 @@ fn played_again(again: &Again, job: &mut Job, cancel: &AtomicBool) -> Result<boo
 }
 
 impl Render {
-    /// Starts rendering `jobs` one after another on a worker; `ctx` is woken
-    /// as it goes. `again` makes the jobs' clips on the worker, at `rate`,
-    /// when the loaded audio is at another one (`render_audio`).
     pub fn start(
         jobs: Vec<Job>,
         timeline: Timeline,
@@ -204,7 +182,6 @@ impl Render {
                 });
                 match result {
                     Ok(Some(done)) => baked.push(done),
-                    // Stopped: drop the files already made and say nothing.
                     Ok(None) => {
                         remove_files(&baked);
                         return;
@@ -231,7 +208,6 @@ impl Render {
         }
     }
 
-    /// Where the render stands; a finished render answers `Done` once.
     pub fn poll(&self) -> Poll {
         match self.results.try_recv() {
             Ok(Ok(baked)) => Poll::Done(baked),
@@ -243,14 +219,11 @@ impl Render {
         }
     }
 
-    /// Asks the worker to stop.
     pub fn stop(&self) {
         self.cancel.store(true, Ordering::Relaxed);
     }
 }
 
-/// Removes the files of renders that will not be used: queued on a thread of
-/// its own, so a big file on a slow drive never holds a frame (sweep M3).
 pub fn remove_files(baked: &[Baked]) {
     crate::recording::take_notes::delete_later(
         baked
@@ -268,7 +241,6 @@ mod tests {
 
     const RATE: u32 = 48_000;
 
-    /// A part for one audio clip with the id `1`.
     fn part(mono: bool) -> Part {
         use lumen_core::time::Ticks;
         use lumen_project::model::{Clip, ClipContent};
@@ -309,7 +281,6 @@ mod tests {
         }
     }
 
-    /// A job for one clip over a ramp.
     fn job(dir: &std::path::Path, mono: bool) -> (Job, Arc<ClipAudio>) {
         let part = part(mono);
         let left: Vec<f32> = (0..20_000)
@@ -367,8 +338,6 @@ mod tests {
         assert_eq!(baked.media.path, file.to_string_lossy());
         assert!(baked.media.size_bytes > 40_000);
         let back = lumen_media::decode(&file, &AtomicBool::new(false), &mut |_| {}).unwrap();
-        // Bare outer ends: the first frame is the source exactly (32-bit
-        // float), and so is the last.
         assert_eq!(back.channel(0)[0], audio.memory().unwrap()[0][0]);
         assert_eq!(back.channel(1)[0], audio.memory().unwrap()[1][0]);
         assert_eq!(back.channel(0)[9_999], audio.memory().unwrap()[0][9_999]);

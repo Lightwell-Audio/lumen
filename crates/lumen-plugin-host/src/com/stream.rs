@@ -1,9 +1,5 @@
-//! The in-memory stream a plugin writes its state to and reads it from.
-
 use super::*;
 
-/// An in-memory `IBStream` for plugin state. The size is capped, so a plugin
-/// that writes without end cannot take the host's memory.
 pub struct MemoryStream {
     inner: Mutex<(Vec<u8>, usize)>,
     cap: usize,
@@ -19,7 +15,6 @@ impl MemoryStream {
         (wrapper, ptr)
     }
 
-    /// Everything written so far.
     pub fn bytes(&self) -> Vec<u8> {
         self.inner.lock().map(|g| g.0.clone()).unwrap_or_default()
     }
@@ -41,11 +36,9 @@ impl IBStreamTrait for MemoryStream {
         };
         let (data, pos) = &mut *guard;
         let n = (num_bytes.max(0) as usize).min(data.len().saturating_sub(*pos));
-        // SAFETY: the plugin's buffer holds `num_bytes` bytes and n <= num_bytes.
         unsafe { std::ptr::copy_nonoverlapping(data.as_ptr().add(*pos), buffer.cast::<u8>(), n) };
         *pos += n;
         if !num_bytes_read.is_null() {
-            // SAFETY: a valid out pointer.
             unsafe { *num_bytes_read = n as int32 };
         }
         kResultOk
@@ -68,13 +61,11 @@ impl IBStreamTrait for MemoryStream {
         if data.len() < *pos + n {
             data.resize(*pos + n, 0);
         }
-        // SAFETY: the plugin's buffer holds `num_bytes` bytes.
         unsafe {
             std::ptr::copy_nonoverlapping(buffer.cast::<u8>(), data.as_mut_ptr().add(*pos), n)
         };
         *pos += n;
         if !num_bytes_written.is_null() {
-            // SAFETY: a valid out pointer.
             unsafe { *num_bytes_written = n as int32 };
         }
         kResultOk
@@ -97,7 +88,6 @@ impl IBStreamTrait for MemoryStream {
         }
         *pos = target as usize;
         if !result.is_null() {
-            // SAFETY: a valid out pointer.
             unsafe { *result = target };
         }
         kResultOk
@@ -108,7 +98,6 @@ impl IBStreamTrait for MemoryStream {
             return kInvalidArgument;
         };
         if !pos.is_null() {
-            // SAFETY: a valid out pointer.
             unsafe { *pos = guard.1 as int64 };
         }
         kResultOk
