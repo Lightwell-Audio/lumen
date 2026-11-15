@@ -1,18 +1,3 @@
-//! Per-sound routing on the document (M8 slice D4, §6.4's "the instrument or
-//! a specific instrument output"): where each of a drum map's sounds is
-//! heard — the kit track itself, one of its instrument's output pairs, or
-//! another instrument track.
-//!
-//! Picking an **output pair** makes (or reuses) the audio track that plays
-//! that pair of the instrument, named after the sound and placed right under
-//! the kit track: the same output tracks M6 makes from a plugin card
-//! (`document::outputs`), made here for a sound. Picking **another track**
-//! changes only the route: that track's instrument then plays the sound's
-//! notes (`midi::sends`).
-//!
-//! Every edit is one undo step, whatever it makes: routing a whole kit, its
-//! group included, is one step. Nothing here touches a note.
-
 use std::sync::Arc;
 
 use lumen_project::groups;
@@ -21,31 +6,15 @@ use lumen_project::model::{Id, PluginOutput, Route, Track, TrackKind};
 use super::outputs::is_unused;
 use super::{Document, track_color};
 
-/// What a routing edit leaves: the track each sound of the map plays on, in
-/// the map's order, the group the tracks were put in, and how many sounds
-/// were left on the kit track because the instrument had no output pair left
-/// for them.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Routed {
-    /// One entry for each sound of the map, in its order: the track the
-    /// sound is heard on. The kit track for a sound on Main, the pair's
-    /// track for one on an output, and the track it is sent to.
     pub tracks: Vec<Id>,
-    /// The output tracks this edit made, in pair order.
     pub made: Vec<Id>,
-    /// The new group holding the kit track and the tracks made for its
-    /// sounds, when the edit was asked to group them.
     pub group: Option<Id>,
-    /// Sounds with no output pair left for them: they stay on the kit track.
     pub on_main: usize,
 }
 
 impl Document {
-    /// Sets where one sound plays: the kit track, one of `track`'s
-    /// instrument's output pairs (making or reusing the track that plays it),
-    /// or another instrument track. One undo step; `None` when nothing would
-    /// change, or when the route cannot work — another track that is not an
-    /// instrument track, the track itself, or an output pair out of range.
     pub fn route_drum_sound(
         &mut self,
         track: Id,
@@ -60,15 +29,6 @@ impl Document {
         Some(self.apply_routes(track, map, &[(input, route)], false, "Route the drum sound"))
     }
 
-    /// "Route all sounds to tracks" (RT A): gives the map's sounds a pair of
-    /// `track`'s instrument each, in the map's order — the first sound pair
-    /// 1, the next pair 2, and so on for the `pairs` the instrument has — and
-    /// makes (or reuses) the track that plays each pair. A sound past the
-    /// pairs stays on the kit track, and `Routed::on_main` counts them; a
-    /// sound already sent to another track is left where it is. With
-    /// `group`, the kit track and the tracks made for it go into a new group
-    /// in the same undo step. `None` when `pairs` is 0, when the track reads
-    /// no map, or when nothing changes.
     pub fn route_all_drum_sounds(
         &mut self,
         track: Id,
@@ -103,9 +63,6 @@ impl Document {
         Some(self.apply_routes(track, map, &routes, group, "Route the sounds to tracks"))
     }
 
-    /// Sends every sound of `map` back to the kit track, in one undo step,
-    /// taking away the output tracks that are left with nothing in them.
-    /// `None` when every sound is on the kit track already.
     pub fn clear_drum_routes(&mut self, track: Id, map: Id) -> Option<Routed> {
         let routes: Vec<(u8, Route)> = self
             .drum_map(map)?
@@ -126,8 +83,6 @@ impl Document {
         ))
     }
 
-    /// The track that plays output pair `bus` of `track`'s instrument, when
-    /// one was made.
     pub fn sound_output_track(&self, track: Id, bus: u32) -> Option<Id> {
         let device = self.output_device(track)?;
         self.output_tracks(device)
@@ -136,8 +91,6 @@ impl Document {
             .map(|(_, id)| id)
     }
 
-    /// The track a sound of `map` is heard on now: the kit track, the pair's
-    /// track, or the track it is sent to. For a track header's icon (M8 D4).
     pub fn sound_playing_track(&self, track: Id, map: Id, input: u8) -> Option<Id> {
         let route = self.drum_map(map)?.sound(input)?.route;
         Some(match route {
@@ -147,15 +100,6 @@ impl Document {
         })
     }
 
-    /// Whether `route` can be given to a sound of `map` on `track`.
-    ///
-    /// An output pair needs an instrument that can take one now: the hosted
-    /// plugin on the track, whose buses are the pairs (review M1 — a built-in
-    /// instrument would otherwise get a silent track nothing removes). Which
-    /// buses the plugin offers is the interface's to know
-    /// (`App::sound_output_pairs`); this checks the kind and the range
-    /// `validate` allows. B5's sampler adds the built-in half here, through
-    /// `pad_outputs`.
     fn route_fits(&self, track: Id, map: Id, route: Route) -> bool {
         match route {
             Route::Main => self.drum_map(map).is_some(),
@@ -168,10 +112,6 @@ impl Document {
         }
     }
 
-    /// The device whose output pair a sound of `track` can name: the hosted
-    /// plugin instrument on it. A built-in instrument (the synth, and the
-    /// sampler of B5) has no output tracks made by this module: the sampler
-    /// is told its pads' pairs instead (`midi::play::pad_outputs`).
     fn output_device(&self, track: Id) -> Option<Id> {
         self.project()
             .tracks
@@ -182,8 +122,6 @@ impl Document {
             .map(|device| device.id)
     }
 
-    /// One undo step that sets `routes` on `map`'s sounds and makes, drops
-    /// and groups the tracks that follow from them.
     fn apply_routes(
         &mut self,
         track: Id,
@@ -196,7 +134,6 @@ impl Document {
             return Routed::default();
         };
         let device = self.output_device(track);
-        // The route each sound has after this edit.
         let route_of = |input: u8| -> Route {
             routes.iter().find(|(i, _)| *i == input).map_or_else(
                 || {
@@ -209,8 +146,6 @@ impl Document {
                 |&(_, route)| route,
             )
         };
-        // The output pairs still needed, with the first sound that plays on
-        // each: the track is named after it.
         let mut needed: Vec<(u32, String)> = Vec::new();
         for sound in &before.sounds {
             if let Route::Output(bus) = route_of(sound.input)
@@ -226,10 +161,6 @@ impl Document {
             .filter(|(bus, _)| !existing.iter().any(|(b, _)| b == bus))
             .map(|(bus, name)| (self.fresh_id(), *bus, name.clone()))
             .collect();
-        // Only a pair this map's sounds played on before and no longer do
-        // loses its track (review H1): an output the Outputs card turned on,
-        // or one a renamed track plays, is the card's and the person's, not
-        // this edit's to take away.
         let was_needed: Vec<u32> = before
             .sounds
             .iter()
@@ -250,9 +181,6 @@ impl Document {
             })
             .map(|(_, id)| *id)
             .collect();
-        // The track pair `bus` plays on after the edit: the one made for it,
-        // or the one already there (a pair whose sound left loses its track,
-        // so it never counts).
         let track_of_bus = |bus: u32| {
             make.iter()
                 .find(|(_, b, _)| *b == bus)
@@ -264,7 +192,6 @@ impl Document {
                         .map(|(_, id)| *id)
                 })
         };
-        // Where each sound is heard after the edit, in the map's order.
         let mut heard: Vec<Id> = Vec::new();
         let mut on_main = 0;
         for sound in &before.sounds {
@@ -277,8 +204,6 @@ impl Document {
                 Route::Track(to) => heard.push(to),
             }
         }
-        // The tracks the pairs end up on, made now or already there: what a
-        // group of them holds.
         let pair_tracks: Vec<Id> = needed
             .iter()
             .filter_map(|(bus, _)| track_of_bus(*bus))
@@ -301,10 +226,6 @@ impl Document {
                     sound.route = *route;
                 }
             }
-            // A pair no sound plays on any more loses its track when nothing
-            // is in it; one holding work stays, as the outputs menu's Keep
-            // does. A group that held only the tracks this edit takes away
-            // goes with them, so sending a kit back leaves no empty group.
             let held: Vec<Id> = drop
                 .iter()
                 .filter_map(|id| {
@@ -335,8 +256,6 @@ impl Document {
             let parent = project.tracks[at].parent;
             let kit_color = project.tracks[at].color;
             for (id, bus, name) in &made {
-                // Right under the kit track, among the tracks made before it
-                // in pair order, as an output track is.
                 let mut index = project
                     .tracks
                     .iter()
@@ -359,9 +278,6 @@ impl Document {
                 );
             }
             if make_group {
-                // The tracks the sounds were given, not the kit track: they
-                // are what a group of a multi-output instrument holds, and
-                // the kit's own output stays where it was.
                 let members = pair_tracks.clone();
                 for slot in &mut project.tracks {
                     if members.contains(&slot.id) {
@@ -389,8 +305,6 @@ impl Document {
         }
     }
 
-    /// Whether the kit track can take a new group around it: groups nest three
-    /// deep at most.
     fn can_group(&self, track: Id) -> bool {
         let tracks = &self.project().tracks;
         let inside = tracks
@@ -430,9 +344,6 @@ mod tests {
         }
     }
 
-    /// A kit track with a plugin instrument and the 808-style map, and a
-    /// second MIDI track. Returns the document, the kit, the other track, the
-    /// map and the instrument's device.
     fn kit() -> (Document, Id, Id, Id, Id) {
         let mut doc = Document::new(crate::empty_project());
         let kit = doc.add_track(TrackKind::Midi, None);
@@ -476,7 +387,6 @@ mod tests {
         assert_eq!(done.made.len(), 1, "one track made");
         assert_eq!(done.tracks.len(), doc.drum_map(map).unwrap().sounds.len());
         assert_eq!(route_of(&doc, map, input), Route::Output(2));
-        // Named after the sound, right under the kit, playing pair 2.
         let made = done.made[0];
         assert_eq!(
             names(&doc),
@@ -507,7 +417,6 @@ mod tests {
             Some(&"Route the drum sound")
         );
         assert_eq!(lumen_project::validate(doc.project()), Ok(()));
-        // One step takes the route and the track back together.
         doc.undo();
         assert_eq!(route_of(&doc, map, input), Route::Main);
         assert_eq!(names(&doc), before);
@@ -574,7 +483,6 @@ mod tests {
             Some(&"Route the sounds to tracks"),
             "one step"
         );
-        // The first sounds are on pairs 1..3, the rest stay on the kit.
         for index in 0..sounds {
             let expect = if index < pairs as usize {
                 Route::Output(index as u32 + 1)
@@ -584,7 +492,6 @@ mod tests {
             assert_eq!(route_of(&doc, map, sound(&doc, map, index).0), expect);
         }
         assert_eq!(doc.output_tracks(device).len(), pairs as usize);
-        // The three tracks the pairs made are in a group named after the map.
         let group = done.group.expect("grouped");
         let inside: Vec<String> = doc
             .project()
@@ -604,7 +511,6 @@ mod tests {
             Some("808 style")
         );
         assert_eq!(lumen_project::validate(doc.project()), Ok(()));
-        // One undo takes every track and every route away.
         doc.undo();
         assert_eq!(
             doc.project()
@@ -689,10 +595,6 @@ mod tests {
 
     #[test]
     fn an_outputs_card_track_and_a_renamed_one_stay_through_a_route_edit() {
-        // Review H1: a per-sound route used to drop every empty output track
-        // of the instrument, taking the Outputs card's own tracks with it. It
-        // drops only a pair this map's sounds played on before and no longer
-        // do.
         let (mut doc, kit, _other, map, device) = kit();
         doc.set_outputs(
             device,
@@ -705,7 +607,6 @@ mod tests {
         .unwrap();
         let card_tracks = doc.output_tracks(device);
         assert_eq!(card_tracks.len(), 2);
-        // One sound to pair 1: no card track is touched, and bus 1's is made.
         let (input, _, _) = sound(&doc, map, 0);
         doc.route_drum_sound(kit, map, input, Route::Output(1))
             .expect("a pair");
@@ -715,13 +616,9 @@ mod tests {
                 "the Outputs card's track is the card's, not this edit's"
             );
         }
-        // The sound leaves pair 1 for Main: pair 1's track goes (this map
-        // made it), the card's stay.
         doc.clear_drum_routes(kit, map)
             .expect("a route to send home");
         assert_eq!(doc.output_tracks(device).len(), 2, "the card's two");
-        // Route all again: the card's two stay, and the pairs it makes join
-        // them.
         let done = doc
             .route_all_drum_sounds(kit, map, 4, false)
             .expect("pairs to give");
@@ -746,8 +643,6 @@ mod tests {
 
     #[test]
     fn a_built_in_instrument_is_given_no_pair_and_no_track() {
-        // Review M1: a built-in instrument has no buses for Lumen to route a
-        // sound to, so no silent track is made for it.
         let mut doc = Document::new(crate::empty_project());
         let kit = doc.add_track(TrackKind::Midi, None);
         let map = doc
@@ -762,8 +657,6 @@ mod tests {
         );
         assert_eq!(doc.project().tracks.len(), before);
         assert_eq!(route_of(&doc, map, input), Route::Main);
-        // A route a file already holds is still read (B5's seam): the pads
-        // are told, and nothing is made.
         assert!(doc.set_sound_route(map, input, Route::Output(2)));
         assert_eq!(doc.project().tracks.len(), before);
         assert_eq!(lumen_project::validate(doc.project()), Ok(()));
@@ -775,12 +668,10 @@ mod tests {
         doc.seal();
         let (input, _, _) = sound(&doc, map, 0);
         let steps = doc.history().steps().0.len();
-        // Itself.
         assert!(
             doc.route_drum_sound(kit, map, input, Route::Track(kit))
                 .is_none()
         );
-        // An audio track cannot take notes.
         let audio = doc.add_track(TrackKind::Audio, None);
         doc.seal();
         let steps = steps.max(doc.history().steps().0.len());
@@ -788,7 +679,6 @@ mod tests {
             doc.route_drum_sound(kit, map, input, Route::Track(audio))
                 .is_none()
         );
-        // A track sent to hardware plays no instrument.
         let mut project = doc.project().clone();
         let slot = project.tracks.iter_mut().find(|t| t.id == other).unwrap();
         Arc::make_mut(slot).midi_to = Some(lumen_project::model::MidiTo {
@@ -796,7 +686,6 @@ mod tests {
             channel: 0,
         });
         assert!(!crate::midi::sends::can_send_to(&project, kit, other));
-        // Out of range pairs.
         assert!(
             doc.route_drum_sound(kit, map, input, Route::Output(0))
                 .is_none()
@@ -806,16 +695,13 @@ mod tests {
             doc.route_drum_sound(kit, map, input, Route::Output(over))
                 .is_none()
         );
-        // The route it already has.
         assert!(doc.route_drum_sound(kit, map, input, Route::Main).is_none());
-        // No map, no track.
         assert!(
             doc.route_drum_sound(kit, Id(9_999), input, Route::Output(1))
                 .is_none()
         );
         assert_eq!(doc.history().steps().0.len(), steps, "no step was taken");
         assert_eq!(route_of(&doc, map, input), Route::Main);
-        // No pairs to give.
         assert!(doc.route_all_drum_sounds(kit, map, 0, true).is_none());
     }
 
@@ -846,7 +732,6 @@ mod tests {
     #[test]
     fn a_group_at_the_deepest_level_is_not_made_but_the_tracks_are() {
         let (mut doc, kit, _, map, _) = kit();
-        // Three groups around the kit track already.
         for _ in 0..groups::MAX_NESTING {
             let group = doc.group_tracks(&[kit]).unwrap();
             assert_eq!(

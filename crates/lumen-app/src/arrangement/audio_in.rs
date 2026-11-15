@@ -1,10 +1,3 @@
-//! Where an audio track gets its input (M9 slice R1, the owner's R1 A, ADR-0100):
-//! the In chip on the track header and the same choice as a row on the mixer
-//! strip, and the menu both open. The chip names the input by its device
-//! channels ("1", "1+2"), carries the input's level along its bottom and a
-//! clip light that stays until clicked. Arming an unrouted track picks the
-//! first free input (`Document::set_armed`), so most tracks never need the menu.
-
 use eframe::egui::{
     self, Align2, CursorIcon, FontId, Id as EguiId, Rangef, Rect, Sense, Ui, pos2, vec2,
 };
@@ -20,32 +13,21 @@ use crate::theme::Tone;
 use crate::widgets::raised;
 use crate::{light, motion, theme, widgets};
 
-/// The level bar along the chip's bottom, thin and low like the volume
-/// field's, so the text sits exactly centred.
 const BAR: f32 = 1.5;
 const BAR_INSET: f32 = 1.5;
-/// The chip's text inset, the gap after "In", and its caret's size.
 const TEXT_PAD: f32 = theme::space::XS;
 const VALUE_GAP: f32 = theme::space::XS;
 const CARET: egui::Vec2 = vec2(5.0, 3.0);
 
-/// The device's inputs, as the menus offer them, lent by the app each frame.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct InputChoices {
-    /// The device channels open as inputs, in the order the engine sees them;
-    /// empty when the device is not running or has none.
     pub open: Vec<usize>,
-    /// The device's input channel names (by device channel); empty until they
-    /// are looked up, and for a device that does not name them.
     pub names: Vec<String>,
-    /// Why the names are not known (a lookup that failed).
     pub status: Option<String>,
-    /// A menu asked for the names: the app looks them up.
     pub wanted: bool,
 }
 
 impl InputChoices {
-    /// Channel `channel`'s name: the device's, or "Input N".
     pub fn name(&self, channel: u16) -> String {
         match self.names.get(usize::from(channel)) {
             Some(name) if !name.trim().is_empty() => name.clone(),
@@ -53,20 +35,15 @@ impl InputChoices {
         }
     }
 
-    /// The first channels of the pairs the device offers: two open channels
-    /// side by side, the first even (1+2, 3+4, ...).
     pub fn pairs(&self) -> Vec<u16> {
         audio_input::pairs(&self.open)
     }
 
-    /// Whether the device has `input` open.
     pub fn has(&self, input: AudioInput) -> bool {
         audio_input::place(input, &self.open).is_some()
     }
 }
 
-/// An input as the chip shows it after "In": "None", or "3" and "1+2" by
-/// device channel number.
 pub(super) fn chip_text(input: Option<AudioInput>) -> String {
     match input {
         None => "None".to_owned(),
@@ -75,7 +52,6 @@ pub(super) fn chip_text(input: Option<AudioInput>) -> String {
     }
 }
 
-/// An input in words, for a strip, a tooltip and an accessible name.
 pub(super) fn long_text(input: Option<AudioInput>, choices: &InputChoices) -> String {
     match input {
         None => "None".to_owned(),
@@ -88,14 +64,10 @@ pub(super) fn long_text(input: Option<AudioInput>, choices: &InputChoices) -> St
     }
 }
 
-/// Why `track`'s input cannot be heard now, if it cannot.
 fn problem(track: &Track, choices: &InputChoices) -> Option<&'static str> {
     audio_input::unavailable(track, &choices.open)
 }
 
-/// The choices of what `audio` tracks listen to: none, each stereo pair and
-/// each mono input of the device by name, and the input the tracks name when
-/// the device does not have it.
 pub(super) fn menu(
     ui: &mut Ui,
     doc: &mut Document,
@@ -159,13 +131,10 @@ pub(super) fn menu(
     }
 }
 
-/// The Monitor row of an audio track's menu: a caption and In, Auto, Off.
 fn monitor_row(ui: &mut Ui, doc: &mut Document, ids: &[Id], current: Monitor) {
     super::midi_io::monitor_row(ui, doc, ids, current);
 }
 
-/// The level and clip light of what `input` reads: one side per channel for a
-/// pair, both alike for a mono input.
 fn reading(arrangement: &Arrangement, input: AudioInput) -> Reading {
     let first = arrangement.meters.input_reading(usize::from(input.channel));
     if !input.stereo {
@@ -182,13 +151,10 @@ fn reading(arrangement: &Arrangement, input: AudioInput) -> Reading {
     }
 }
 
-/// Where `db` falls along `span` (the floor to full scale).
 fn x_at(span: Rangef, db: f32) -> f32 {
     span.min + (db.clamp(FLOOR_DB, 0.0) - FLOOR_DB) / -FLOOR_DB * span.span()
 }
 
-/// The level bar along `body`'s bottom: the louder side's peak, with its RMS
-/// solid over it.
 fn draw_level(ui: &Ui, body: Rect, reading: &Reading, base: egui::Color32) {
     if reading.at_rest() {
         return;
@@ -207,8 +173,6 @@ fn draw_level(ui: &Ui, body: Rect, reading: &Reading, base: egui::Color32) {
 }
 
 impl Arrangement {
-    /// The In chip of an audio track's header in `rect`: a click opens the
-    /// choices; the clip light, lit until clicked, clears itself.
     pub(super) fn input_chip(
         &mut self,
         ui: &mut Ui,
@@ -254,8 +218,6 @@ impl Arrangement {
         } else {
             palette.text_hint
         };
-        // A fixed layout (ADR-0101): "In", the input from a fixed place and
-        // the caret at the right, so the chip never changes as inputs do.
         let font = FontId::proportional(theme::size::CAPTION);
         let painter = ui.painter();
         let label = painter.text(
@@ -315,8 +277,6 @@ impl Arrangement {
         self.inputs = choices;
     }
 
-    /// The red mark on a lit chip: a click clears the input's clip light,
-    /// Alt+click every one.
     fn clip_pip(&mut self, ui: &mut Ui, body: Rect, track: &Track, id: EguiId) {
         let palette = theme::p();
         let mark =
@@ -340,8 +300,6 @@ impl Arrangement {
         }
     }
 
-    /// An audio strip's input row (the same control as the header's chip);
-    /// a click opens the choices.
     pub(super) fn audio_input_row(
         &mut self,
         ui: &mut Ui,
@@ -370,7 +328,6 @@ impl Arrangement {
         self.inputs = choices;
     }
 
-    /// An audio strip's Monitor row; a click opens In, Auto and Off.
     pub(super) fn audio_monitor_row(
         &mut self,
         ui: &mut Ui,
@@ -402,8 +359,6 @@ impl Arrangement {
         });
     }
 
-    /// The audio tracks a change on `id` applies to: the selection when `id`
-    /// is in it, otherwise `id`.
     pub(super) fn audio_targets(&self, doc: &Document, id: Id) -> Vec<Id> {
         let targets = self.targets(id);
         doc.project()

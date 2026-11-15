@@ -1,13 +1,7 @@
-//! The tray's drawings: the chips at either end, the ports, the cables between
-//! them, where a dragged device would land, the device that follows the
-//! pointer, and where a track's sound goes in words.
-
 use super::*;
 
-/// A chip at either end of the chain.
 pub(super) struct Chip {
     pub(super) name: String,
-    /// "MIDI", "in" or "out": said in mono beside the name.
     pub(super) kind: &'static str,
     pub(super) colour: Color32,
 }
@@ -43,8 +37,6 @@ pub(super) fn paint_chip(painter: &egui::Painter, rect: Rect, chip: &Chip) {
     );
 }
 
-/// Where a dragged device would land: an accent line across the tray and a
-/// plus on the cable. Neighbours stay put.
 pub(super) fn paint_drop_mark(painter: &egui::Painter, at: Pos2, y: Rangef) {
     let palette = theme::p();
     light::vline(
@@ -61,7 +53,6 @@ pub(super) fn paint_drop_mark(painter: &egui::Painter, at: Pos2, y: Rangef) {
     painter.vline(at.x, Rangef::new(at.y - 4.0, at.y + 4.0), stroke);
 }
 
-/// The device being dragged, as a small pill that follows the pointer.
 pub(crate) fn paint_drag_ghost(ctx: &egui::Context, name: &str) {
     let Some(pointer) = ctx.pointer_latest_pos() else {
         return;
@@ -92,7 +83,6 @@ pub(crate) fn paint_drag_ghost(ctx: &egui::Context, name: &str) {
     );
 }
 
-/// A port: a ring on the card's edge, lit with the cable.
 pub(super) fn paint_port(painter: &egui::Painter, at: Pos2, beam: f32) {
     let palette = theme::p();
     painter.circle(
@@ -104,8 +94,6 @@ pub(super) fn paint_port(painter: &egui::Painter, at: Pos2, beam: f32) {
     light::dot(painter, light::BEAM, at, PORT - 1.0, palette.accent, beam);
 }
 
-/// The cables between the chips and the cards, solid for audio and dotted
-/// for the notes into an instrument.
 pub(super) fn paint_cables(
     painter: &egui::Painter,
     layout: &Layout,
@@ -143,7 +131,6 @@ pub(super) fn paint_cables(
     }
 }
 
-/// Where a track's sound goes, in words for the output chip.
 pub(super) fn output_name(project: &Project, track: &Track) -> String {
     let named = |id: Id| {
         all_tracks(project)
@@ -151,7 +138,6 @@ pub(super) fn output_name(project: &Project, track: &Track) -> String {
             .map(|t| t.name.clone())
     };
     if track.kind == TrackKind::Master {
-        // The master plays to a pair of the device (the main one by default).
         return match track.output {
             Output::Device(pair) => format!("Out {}/{}", 2 * pair + 1, 2 * pair + 2),
             _ => "Out 1/2".to_owned(),

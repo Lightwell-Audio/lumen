@@ -1,14 +1,3 @@
-//! The pointer, keys and typing on the tempo and meter lanes (M7 slice A6).
-//! What the lanes are and look like is `song_lanes/`; every edit here is a
-//! `Document` method, one undo step, and a drag is one step in all.
-//!
-//! On the tempo lane a click adds a change at the pointer (snapped in time,
-//! whole BPM in value; Alt for off the grid and tenths), a drag moves a
-//! change, a double-click types its tempo, Delete takes a change away (the
-//! first stays). On the meter lane a click on empty lane asks for a time
-//! signature on the nearest bar line, a drag moves a chip to another bar
-//! line, a double-click types its signature.
-
 use eframe::egui::{self, CursorIcon, Id, Pos2, Rect, Sense, pos2, vec2};
 use lumen_core::time::{TempoPoint, Ticks};
 use lumen_project::edit::maps::tempo_in;
@@ -23,12 +12,10 @@ use crate::song_lanes::scale::{
 use crate::song_lanes::{Band, Gesture, Look, MenuSpot, Picked, SongLanes, Typing, Which};
 use crate::{motion, theme, widgets};
 
-/// The merge keys of a drag on each lane.
 const TEMPO_DRAG: &str = "tempo lane";
 const METER_DRAG: &str = "meter lane";
 
 impl App {
-    /// How tall the band is this frame: it glides open and shut.
     pub(crate) fn song_band_height(&self, ctx: &egui::Context) -> f32 {
         let target = if self.song.shown {
             SongLanes::full_height()
@@ -38,7 +25,6 @@ impl App {
         motion::glide(ctx, Id::new("song band"), target, true)
     }
 
-    /// Shows or hides the lanes.
     pub(crate) fn song_lanes_toggle(&mut self) {
         self.song.shown = !self.song.shown;
         if !self.song.shown {
@@ -49,9 +35,6 @@ impl App {
         }
     }
 
-    /// The piece of the ruler corner's well that shows and hides the lanes
-    /// (the interface audit's H1): an icon, lit while they are shown, whose
-    /// tooltip names them and their key.
     pub(crate) fn song_lanes_button(&mut self, ui: &mut egui::Ui, rect: Rect) {
         let shown = self.song.shown;
         let id = ui.id().with("song lanes button");
@@ -88,8 +71,6 @@ impl App {
         ));
     }
 
-    /// The lanes, below the bar ruler: their pointer, then their look.
-    /// `height` is how much of the band shows (it glides).
     pub(crate) fn song_band(&mut self, ui: &mut egui::Ui, at: &Layout, height: f32) {
         if height < 0.5 {
             return;
@@ -152,8 +133,6 @@ impl App {
         self.song_typing(ui.ctx());
     }
 
-    /// The chip beside the pointer while a change is dragged: where, and
-    /// what it will be.
     fn song_hint(&self, band: &Band, scale: Scale) -> Option<(Pos2, String)> {
         let project = self.document.project();
         let map = &self.transport.timeline.meter;
@@ -204,7 +183,6 @@ impl App {
         });
         let alt = ui.input(|i| i.modifiers.alt);
         let pointer = response.interact_pointer_pos().or(response.hover_pos());
-        // A drag that began on a change goes on wherever the pointer is.
         if let Some(Gesture::Tempo { index, scale }) = self.song.gesture {
             let down = ui.input(|i| i.pointer.any_down());
             if down
@@ -311,7 +289,6 @@ impl App {
         widgets::Menu::context(&response).show(|ui| self.song_menu(ui, plane));
     }
 
-    /// Adds a tempo change at `p`; returns its index.
     fn add_tempo_at(
         &mut self,
         plane: &Plane,
@@ -389,7 +366,6 @@ impl App {
                 index,
             });
             self.song.focus = true;
-            // The first change stays at zero: a drag on it only picks it.
             if index > 0 {
                 let grab = origin.x - scale::chip(plane, &points[index]).left();
                 self.song.gesture = Some(Gesture::Meter { index, grab });
@@ -463,7 +439,6 @@ impl App {
         widgets::Menu::context(&response).show(|ui| self.song_menu(ui, plane));
     }
 
-    /// Opens the box that types change `index` of the tempo lane's tempo.
     fn type_tempo(&mut self, plane: &Plane, index: usize) {
         let Some(point) = self.document.project().tempo.get(index).copied() else {
             return;
@@ -479,8 +454,6 @@ impl App {
         });
     }
 
-    /// Opens the box that types a time signature: change `index`'s, or one
-    /// to add at the bar line `at`.
     fn type_meter(&mut self, plane: &Plane, index: Option<usize>, at: Ticks) {
         let project = self.document.project();
         let current = project.meter_map().meter_at(at);
@@ -498,8 +471,6 @@ impl App {
         });
     }
 
-    /// The box a tempo or a time signature is typed in: Enter applies, Esc
-    /// cancels, leaving it applies too.
     fn song_typing(&mut self, ctx: &egui::Context) {
         let Some(mut typing) = self.song.typing.take() else {
             return;
@@ -551,7 +522,6 @@ impl App {
         }
     }
 
-    /// Applies what was typed, when it is a tempo or signature Lumen has.
     fn song_commit(&mut self, typing: &Typing) {
         match typing.which {
             Which::Tempo => {
@@ -590,7 +560,6 @@ impl App {
         }
     }
 
-    /// The menu of a right-click on a lane.
     fn song_menu(&mut self, ui: &mut egui::Ui, plane: &Plane) {
         let Some(spot) = self.song.menu else {
             return;
@@ -654,8 +623,6 @@ impl App {
         }
     }
 
-    /// Whether Delete means a picked change: the lanes have the keyboard and
-    /// a change other than the first of its lane is picked.
     pub(crate) fn song_keys_picked(&self) -> bool {
         self.song.shown
             && self.song.focus
@@ -671,7 +638,6 @@ impl App {
                 .is_some()
     }
 
-    /// The picked tempo change, when it has a next change to ramp to.
     pub(crate) fn song_ramp_target(&self) -> Option<usize> {
         let tempos = &self.document.project().tempo;
         self.song
@@ -680,7 +646,6 @@ impl App {
             .map(|p| p.index)
     }
 
-    /// Makes the picked tempo change ramp to the next one, or hold again.
     pub(crate) fn song_toggle_ramp(&mut self) {
         if let Some(index) = self.song_ramp_target() {
             let ramp = !self.document.project().tempo[index].ramp;
@@ -688,7 +653,6 @@ impl App {
         }
     }
 
-    /// Deletes the picked change.
     pub(crate) fn song_delete(&mut self) {
         let Some(picked) = self.song.picked.take() else {
             return;
@@ -699,8 +663,6 @@ impl App {
         }
     }
 
-    /// Adds a tempo change at the playhead, at the tempo playing there, and
-    /// asks for the new tempo (a command, so it works from the keyboard).
     pub(crate) fn song_add_tempo_at_playhead(&mut self) {
         if !self.song.shown {
             self.song.shown = true;
@@ -728,7 +690,6 @@ impl App {
         }
     }
 
-    /// Asks for a time signature on the bar line nearest the playhead.
     pub(crate) fn song_add_meter_at_playhead(&mut self) {
         self.song.shown = true;
         let at = self
@@ -739,8 +700,6 @@ impl App {
         self.song.ask = Some((Which::Meter, None, at));
     }
 
-    /// Opens a box a command asked for, once the lanes have a place on
-    /// screen to put it.
     pub(crate) fn song_open_asked(&mut self, band: &Band) {
         let Some((which, index, at)) = self.song.ask.take() else {
             return;

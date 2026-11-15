@@ -1,7 +1,3 @@
-//! Step 2: the plugin runs in a separate host process. Lumen's side paces
-//! blocks in real time, never waits past a deadline, survives a crash, and
-//! restores the plugin in a fresh process from its last known state.
-
 use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc;
@@ -20,10 +16,7 @@ use crate::vst::{Note, Plugin};
 const RATE: f64 = 48_000.0;
 const BLOCK: usize = 128;
 
-/// The plugin-host process: load, activate, then serve commands forever.
 pub fn child_main(base: &str, module: &str) -> ! {
-    // A crashing plugin must end this process at once, not park it behind a dialog.
-    // SAFETY: process-wide error-mode flags.
     unsafe { SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX) };
     let mapping = Mapping::open(&format!("{base}-shm")).expect("mapping");
     let go = Event::open(&format!("{base}-go")).expect("go event");
@@ -53,10 +46,7 @@ pub fn child_main(base: &str, module: &str) -> ! {
         seen = seq;
         let status = match shared.command.0.load(Ordering::Relaxed) {
             CMD_QUIT => std::process::exit(0),
-            // SAFETY: deliberately not safe: simulates a plugin crashing with
-            // an access violation inside the host process.
             CMD_CRASH => {
-                // SAFETY: deliberately not safe (see above).
                 unsafe { std::ptr::null_mut::<u32>().write_volatile(1) };
                 std::process::abort()
             }
@@ -81,7 +71,6 @@ pub fn child_main(base: &str, module: &str) -> ! {
                     .is_ok();
                 let out = mapping.output(seq);
                 for i in 0..frames {
-                    // SAFETY: the slot holds MAX_BLOCK * 2 floats; i < frames <= MAX_BLOCK.
                     unsafe {
                         out.add(2 * i).write(left[i]);
                         out.add(2 * i + 1).write(right[i]);
@@ -91,7 +80,6 @@ pub fn child_main(base: &str, module: &str) -> ! {
             }
             CMD_GET_STATE => match plugin.state() {
                 Ok(bytes) if bytes.len() <= STATE_CAPACITY => {
-                    // SAFETY: the state area holds STATE_CAPACITY bytes.
                     unsafe {
                         std::ptr::copy_nonoverlapping(bytes.as_ptr(), mapping.state(), bytes.len())
                     };
@@ -105,7 +93,6 @@ pub fn child_main(base: &str, module: &str) -> ! {
             },
             CMD_SET_STATE => {
                 let len = (shared.state_len.0.load(Ordering::Relaxed) as usize).min(STATE_CAPACITY);
-                // SAFETY: `len` bytes of the state area were written by the parent.
                 let bytes = unsafe { std::slice::from_raw_parts(mapping.state_const(), len) };
                 if plugin.set_state(bytes).is_ok() {
                     0
@@ -123,7 +110,6 @@ pub fn child_main(base: &str, module: &str) -> ! {
 
 fn read_state(host: &HostProcess) -> Vec<u8> {
     let len = host.mapping.shared().state_len.0.load(Ordering::Acquire) as usize;
-    // SAFETY: the host wrote `len` (<= capacity) bytes before signalling done.
     unsafe { std::slice::from_raw_parts(host.mapping.state_const(), len.min(STATE_CAPACITY)) }
         .to_vec()
 }
@@ -134,7 +120,6 @@ struct Restored {
     state_identical: bool,
 }
 
-/// Lumen's side: real-time-paced blocks, crash injection, recovery.
 pub fn run(module: &str) -> Result<(), String> {
     let job = std::sync::Arc::new(Job::new().map_err(|e| e.to_string())?);
     let started = Instant::now();
@@ -144,7 +129,6 @@ pub fn run(module: &str) -> Result<(), String> {
         started.elapsed().as_secs_f64() * 1e3
     );
 
-    // Supervisor: kills dead hosts and brings up replacements with state, off the audio loop.
     let (to_supervisor, requests) = mpsc::channel::<(HostProcess, u32, Vec<u8>)>();
     let (to_audio, replacements) = mpsc::channel::<Result<Restored, String>>();
     let module_owned = module.to_string();
@@ -157,7 +141,6 @@ pub fn run(module: &str) -> Result<(), String> {
             let result = HostProcess::spawn(&module_owned, generation, &job_for_supervisor)
                 .map_err(|e| e.to_string())
                 .and_then(|mut fresh| {
-                    // SAFETY: the state area holds STATE_CAPACITY bytes; snapshot fits.
                     unsafe {
                         std::ptr::copy_nonoverlapping(
                             snapshot.as_ptr(),
@@ -223,7 +206,7 @@ pub fn run(module: &str) -> Result<(), String> {
                     );
                     host = Some(restored.host);
                     recovered_at = Some(block);
-                    send_note_on = true; // held notes are lost with the crashed process
+                    send_note_on = true;
                 }
                 Ok(Err(e)) => return Err(e),
                 Err(_) => {}
@@ -236,8 +219,6 @@ pub fn run(module: &str) -> Result<(), String> {
         };
 
         if block == snapshot_block {
-            // Production does this on a separate non-real-time channel; here
-            // it takes one block slot, which is filled with silence.
             let t = Instant::now();
             current
                 .call(CMD_GET_STATE, Duration::from_secs(1))
@@ -276,7 +257,6 @@ pub fn run(module: &str) -> Result<(), String> {
             round_trips.push(block_started.elapsed().as_secs_f32() * 1e6);
             let out = current.mapping.output(seq);
             for i in 0..BLOCK * 2 {
-                // SAFETY: the host finished writing this slot before signalling done.
                 audio.push(unsafe { out.add(i).read() });
             }
         } else {

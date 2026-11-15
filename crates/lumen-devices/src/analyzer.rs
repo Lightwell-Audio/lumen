@@ -1,79 +1,34 @@
-//! A spectrum analyser's shared window (M8 slice B1, ADR-0146).
-//!
-//! The audio thread writes the last [`SIZE`] frames it hears into a ring of
-//! atomics and publishes how many it has written; the interface copies the
-//! newest window out and transforms it. Nothing here allocates, locks or
-//! blocks after its constructor, so a device writes from the audio thread with
-//! the same rules as the rest of its DSP, and the interface reads when it
-//! draws.
-//!
-//! Nothing here knows about a device: Iris writes its input or its output,
-//! and the analysis devices of X2 reuse the same ring (M8 §3 X2). The window
-//! is mono — the sum of the two sides — because a spectrum read off a stereo
-//! pair is one picture, not two.
-//!
-//! A reader can be lapped by the writer, and a window copied across a lap is
-//! torn; the copy is then thrown away and tried again, up to [`TRIES`] times.
-//! An analyser may show an older window, never a wrong one that a person could
-//! read as a peak that is not there, so when every try is lapped the reader
-//! keeps the whole window it held and says [`Read::Stale`].
-
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
-/// The frames in one window: 2048 at 48 kHz is 42.7 ms, 23 Hz a bin.
 pub const SIZE: usize = 2048;
-/// The bins a window's transform has, at or under the Nyquist frequency.
 pub const BINS: usize = SIZE / 2;
-/// How often a copy across a lap is tried before the reader keeps what it has
-/// and says the window is old.
 pub const TRIES: usize = 4;
 
 const MASK: u64 = SIZE as u64 - 1;
 
-/// What a [`Reader::read`] found.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Read {
-    /// A whole new window was copied: what the reader holds is the newest
-    /// sound.
     Window,
-    /// The writer came round during every try, so nothing was copied: what
-    /// the reader holds is the window before, which is whole but old, and the
-    /// face may show it rather than a copy that is two windows joined.
     Stale,
-    /// The writer has not filled a window yet, or has not moved since the
-    /// last read.
     Nothing,
 }
 
-/// What the audio thread writes and the interface reads.
 struct Shared {
-    /// The last [`SIZE`] mono frames, by position modulo [`SIZE`], as `f32`
-    /// bits.
     ring: Box<[AtomicU32]>,
-    /// Frames written since the ring was made, which is where the newest
-    /// window ends.
     written: AtomicU64,
-    /// Whether anything is listening: false while the face is not drawn, so a
-    /// device pays one load a block and writes nothing.
     on: AtomicBool,
 }
 
-/// The audio thread's end of the window: cheap to hold, and it writes nothing
-/// while nothing reads.
 pub struct Tap {
     shared: Arc<Shared>,
 }
 
 impl Tap {
-    /// Whether the interface is reading now.
     pub fn is_on(&self) -> bool {
         self.shared.on.load(Ordering::Relaxed)
     }
 
-    /// Adds `left` and `right` (the same length) to the window as one mono
-    /// frame each. Real-time safe: an atomic store a frame, and no branch
-    /// that allocates.
     pub fn write(&mut self, left: &[f32], right: &[f32]) {
         if !self.is_on() {
             return;
@@ -91,34 +46,20 @@ impl Tap {
     }
 }
 
-/// The interface's end: it copies the newest window out and transforms it.
-/// Allocates in [`Reader::new`]: make it on the interface side.
 pub struct Reader {
     shared: Arc<Shared>,
-    /// The newest whole window of mono frames.
     window: Vec<f32>,
-    /// Where a copy is made before it is known to be whole: a copy the writer
-    /// lapped is thrown away rather than shown.
     scratch: Vec<f32>,
-    /// The window's Hann taper, worked out once.
     taper: Vec<f32>,
-    /// The window's transform, in dB a bin: a full-scale sine at a bin's
-    /// centre reads 0 dB.
     spectrum: Vec<f32>,
-    /// The work buffers of the transform.
     re: Vec<f32>,
     im: Vec<f32>,
-    /// How many frames had been written when the window was last copied.
     seen: u64,
-    /// The newest window has not been transformed yet.
     stale: bool,
-    /// A lap the test asks for: the next copies look as if the writer came
-    /// round during each of them (M8 slice B1, review L1).
     #[cfg(test)]
     pretend_laps: usize,
 }
 
-/// A tap and its reader: the device holds the one, the interface the other.
 pub fn pair() -> (Tap, Reader) {
     let shared = Arc::new(Shared {
         ring: (0..SIZE).map(|_| AtomicU32::new(0)).collect(),
@@ -150,12 +91,9 @@ pub fn pair() -> (Tap, Reader) {
     )
 }
 
-/// What a bin reads when there is nothing in it.
 pub const MIN_DB: f32 = -90.0;
 
 impl Reader {
-    /// Whether the analyser is listened to: set by the interface while its
-    /// face is drawn, so a device that is not looked at writes nothing.
     pub fn set_on(&self, on: bool) {
         self.shared.on.store(on, Ordering::Relaxed);
     }
@@ -164,10 +102,6 @@ impl Reader {
         self.shared.on.load(Ordering::Relaxed)
     }
 
-    /// Copies the newest whole window out of the ring. A copy the writer came
-    /// round during is thrown away and tried again; when every try was lapped
-    /// the reader keeps the window before it held and says it is stale, rather
-    /// than showing a copy that is two windows joined.
     pub fn read(&mut self) -> Read {
         let mut end = self.shared.written.load(Ordering::Acquire);
         if end < SIZE as u64 || end == self.seen {
@@ -186,22 +120,16 @@ impl Reader {
                 self.stale = true;
                 return Read::Window;
             }
-            // The writer came round while the copy was made: the frames
-            // copied are two windows joined. Try again at the newer end.
             end = after;
         }
-        // Every try was lapped. What the reader holds is the whole window
-        // before this call, and it says so.
         Read::Stale
     }
 
-    /// How many frames the writer had written after a copy made at `end`.
     #[cfg(not(test))]
     fn written_after(&self, _end: u64) -> u64 {
         self.shared.written.load(Ordering::Acquire)
     }
 
-    /// [`Reader::written_after`], with the lap a test asks for.
     #[cfg(test)]
     fn written_after(&mut self, end: u64) -> u64 {
         if self.pretend_laps > 0 {
@@ -211,22 +139,15 @@ impl Reader {
         self.shared.written.load(Ordering::Acquire)
     }
 
-    /// Makes the next `laps` copies look as if the writer came round during
-    /// each of them, so what a reader does when it never sees a whole window
-    /// is a test and not a race (M8 slice B1, review L1).
     #[cfg(test)]
     fn pretend_laps(&mut self, laps: usize) {
         self.pretend_laps = laps;
     }
 
-    /// The copied window, oldest first.
     pub fn window(&self) -> &[f32] {
         &self.window
     }
 
-    /// The window's spectrum in dB a bin, `BINS` of them from 0 Hz up to the
-    /// Nyquist frequency less one bin. Worked out only when the window is new
-    /// since the last call.
     pub fn spectrum(&mut self) -> &[f32] {
         if !self.stale {
             return &self.spectrum;
@@ -237,7 +158,6 @@ impl Reader {
             self.im[i] = 0.0;
         }
         transform(&mut self.re, &mut self.im);
-        // A Hann-windowed sine of amplitude 1 reads `SIZE / 4` in its bin.
         let scale = 4.0 / SIZE as f32;
         for (bin, out) in self.spectrum.iter_mut().enumerate() {
             let (re, im) = (self.re[bin], self.im[bin]);
@@ -251,9 +171,6 @@ impl Reader {
         &self.spectrum
     }
 
-    /// The spectrum gathered into `out` points spread evenly on a log
-    /// frequency axis from `low` to `high` Hz at `rate`: each point is the
-    /// loudest bin under it, so a narrow peak is never lost between points.
     pub fn points(&mut self, rate: u32, (low, high): (f32, f32), out: &mut [f32]) {
         let bins = self.spectrum();
         let nyquist = rate as f32 / 2.0;
@@ -277,10 +194,6 @@ impl Reader {
     }
 }
 
-/// The transform of `re`/`im` in place: an iterative radix-2 Cooley-Tukey,
-/// the length a power of two. Written here rather than pulled in (ADR-0146):
-/// it is forty lines, it allocates nothing, and the crates that would do it
-/// bring a planner this never asks for.
 fn transform(re: &mut [f32], im: &mut [f32]) {
     let n = re.len().min(im.len());
     if n < 2 || !n.is_power_of_two() {
@@ -336,12 +249,9 @@ mod tests {
             .collect()
     }
 
-    /// A sine on a bin's own frequency reads its amplitude there, and
-    /// nothing anywhere else (the transform and its scale are right).
     #[test]
     fn a_sine_on_a_bin_reads_its_amplitude_in_that_bin() {
         let rate = 48_000.0;
-        // Bin 40 of 1024 over 24 kHz is 937.5 Hz.
         let bin = 40;
         let hz = bin as f32 * rate / 2.0 / BINS as f32;
         let samples = sine(hz, rate, SIZE, 0.5);
@@ -350,14 +260,11 @@ mod tests {
         tap.write(&samples, &samples);
         assert_eq!(reader.read(), Read::Window);
         let spectrum = reader.spectrum();
-        // 0.5 of full scale is −6 dB.
         assert!(
             (spectrum[bin] - (-6.02)).abs() < 0.2,
             "{} dB at its bin",
             spectrum[bin]
         );
-        // A Hann window's main lobe is three bins wide, so its neighbours sit
-        // 6 dB down and 31 dB down; nothing further away is anything at all.
         assert!(
             (spectrum[bin - 1] - (-12.0)).abs() < 1.0,
             "{}",
@@ -370,7 +277,6 @@ mod tests {
         }
     }
 
-    /// The transform is the one a direct sum gives: every bin to 1e-3.
     #[test]
     fn the_transform_is_the_one_a_direct_sum_gives() {
         let n = 64;
@@ -392,7 +298,6 @@ mod tests {
         }
     }
 
-    /// A tap that nothing listens to writes nothing at all.
     #[test]
     fn a_tap_nothing_reads_writes_nothing() {
         let (mut tap, mut reader) = pair();
@@ -404,11 +309,9 @@ mod tests {
         tap.write(&[1.0; SIZE], &[1.0; SIZE]);
         assert_eq!(reader.read(), Read::Window);
         assert!(reader.window().iter().all(|x| *x == 1.0));
-        // A second read of a still writer finds nothing new.
         assert_eq!(reader.read(), Read::Nothing, "the window has not moved");
     }
 
-    /// The reader gets the newest window, not the first one.
     #[test]
     fn the_reader_gets_the_newest_window() {
         let (mut tap, mut reader) = pair();
@@ -419,9 +322,6 @@ mod tests {
         assert!(reader.window().iter().all(|x| *x == 2.0));
     }
 
-    /// L1: a reader lapped on every try keeps the whole window it held and
-    /// says it is stale, never a copy that is two windows joined — the promise
-    /// the module makes is the one the code keeps.
     #[test]
     fn a_reader_lapped_on_every_try_keeps_the_window_before() {
         let (mut tap, mut reader) = pair();
@@ -431,7 +331,6 @@ mod tests {
         assert!(reader.window().iter().all(|x| *x == 1.0));
         let spectrum_before = reader.spectrum().to_vec();
 
-        // The writer moves on, and every try of the next read is lapped.
         tap.write(&vec![2.0; SIZE], &vec![2.0; SIZE]);
         reader.pretend_laps(TRIES);
         assert_eq!(reader.read(), Read::Stale);
@@ -445,12 +344,10 @@ mod tests {
             "and its spectrum is not worked out again"
         );
 
-        // The next read, with no lap, takes the new window.
         assert_eq!(reader.read(), Read::Window);
         assert!(reader.window().iter().all(|x| *x == 2.0));
     }
 
-    /// The spectrum of silence is the floor, and its points are its floor.
     #[test]
     fn silence_reads_the_floor_and_the_points_follow_a_peak() {
         let rate = 48_000;
@@ -471,7 +368,6 @@ mod tests {
             .max_by(|a, b| a.1.total_cmp(b.1))
             .map(|(at, _)| at)
             .unwrap();
-        // 1 kHz of 20 Hz to 20 kHz over 40 points is the 22nd or 23rd.
         assert!((22..=23).contains(&loudest), "{loudest}: {points:?}");
         assert!(points[loudest] > -8.0, "{}", points[loudest]);
     }

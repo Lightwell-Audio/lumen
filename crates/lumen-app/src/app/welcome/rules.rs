@@ -1,12 +1,6 @@
-//! The first-run window between frames, and the rules it shows (M9 slice
-//! R7b, ADR-0115): which step is open, which steps were seen, what each
-//! step's pill says, whether an ASIO driver is offered, and how many
-//! plugins are ready. Drawn by the rest of `app/welcome/`.
-
 use eframe::egui;
 use lumen_plugin_catalog::catalog::{Catalog, Source};
 
-/// The window's steps, in order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Step {
     Sound,
@@ -38,9 +32,6 @@ impl Step {
     }
 }
 
-/// What a step's pill shows besides its name: ✓ only when the step's state
-/// is good, a warning mark when it needs something, and nothing for a step
-/// not yet seen or still under way.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mark {
     None,
@@ -48,16 +39,13 @@ pub enum Mark {
     Needs,
 }
 
-/// How a step stands, before whether it was seen is taken into account.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Health {
     Good,
-    /// Still under way: a device starting, a scan running.
     Busy,
     Needs,
 }
 
-/// The mark for a step in `health`, `seen` or not.
 pub fn mark(health: Health, seen: bool) -> Mark {
     match (seen, health) {
         (false, _) | (true, Health::Busy) => Mark::None,
@@ -66,17 +54,12 @@ pub fn mark(health: Health, seen: bool) -> Mark {
     }
 }
 
-/// What the Sound step offers when an ASIO driver is installed and another
-/// driver model is in use.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AsioOffer {
-    /// One driver: "Use ASIO" uses it.
     One(String),
-    /// Several: "Use ASIO" is a menu of their names.
     Several(Vec<String>),
 }
 
-/// The offer for the ASIO `drivers` installed, while `driver` is in use.
 pub fn asio_offer(drivers: &[String], driver: &str) -> Option<AsioOffer> {
     if driver == "asio" {
         return None;
@@ -88,16 +71,10 @@ pub fn asio_offer(drivers: &[String], driver: &str) -> Option<AsioOffer> {
     }
 }
 
-/// Whether the window opens at start: when `asked` (`--first-run`), or on a
-/// first start (setup not yet `done`) that is not `automated` (tests,
-/// screenshots, benchmarks, the smoke test).
 pub fn opens_at_start(asked: bool, done: bool, automated: bool) -> bool {
     asked || (!done && !automated)
 }
 
-/// The plugins ready to use: every plugin class the catalog lists, without
-/// the built-in devices (a module with several classes counts each; a
-/// blocked module counts none).
 pub fn plugins_ready(catalog: &Catalog) -> usize {
     catalog
         .devices()
@@ -106,7 +83,6 @@ pub fn plugins_ready(catalog: &Catalog) -> usize {
         .count()
 }
 
-/// "1 plugin", "23 plugins".
 pub fn count(n: usize, one: &str, many: &str) -> String {
     if n == 1 {
         format!("1 {one}")
@@ -115,7 +91,6 @@ pub fn count(n: usize, one: &str, many: &str) -> String {
     }
 }
 
-/// Lumi's poses, as textures, made the first time the window draws.
 pub struct Lumi {
     pub waving: egui::TextureHandle,
     pub celebrating: egui::TextureHandle,
@@ -127,8 +102,6 @@ const CELEBRATING: &[u8] = include_bytes!("../../../assets/brand/lumi-celebratin
 const CURIOUS: &[u8] = include_bytes!("../../../assets/brand/lumi-curious.png");
 
 impl Lumi {
-    /// Decodes the poses. `None` if one would not decode (it is built in,
-    /// so a test fails first).
     fn load(ctx: &egui::Context) -> Option<Self> {
         let texture = |name: &str, bytes: &[u8]| {
             let image = crate::chain::pictures::decode(bytes)?;
@@ -142,18 +115,11 @@ impl Lumi {
     }
 }
 
-/// The window between frames (not saved: closing it in any way sets
-/// `Settings::setup_done`).
 pub struct Welcome {
     pub open: bool,
     pub step: Step,
-    /// The steps opened since the window opened.
     seen: [bool; 3],
-    /// Next takes the keyboard when a step opens.
     pub focus_next: bool,
-    /// At the end of the last frame something in or over the window would
-    /// take Esc first (an open menu, a field being typed in, another
-    /// window): then Esc does not skip setup.
     pub esc_for_child: bool,
     lumi: Option<Option<Lumi>>,
 }
@@ -172,14 +138,12 @@ impl Default for Welcome {
 }
 
 impl Welcome {
-    /// Opens on Sound, as on a first start.
     pub fn show(&mut self) {
         self.open = true;
         self.seen = [false; 3];
         self.go(Step::Sound);
     }
 
-    /// Opens `step`.
     pub fn go(&mut self, step: Step) {
         self.step = step;
         self.seen[step.index()] = true;
@@ -190,7 +154,6 @@ impl Welcome {
         self.seen[step.index()]
     }
 
-    /// Lumi's poses, decoded the first time they are asked for.
     pub fn lumi(&mut self, ctx: &egui::Context) -> Option<&Lumi> {
         self.lumi.get_or_insert_with(|| Lumi::load(ctx)).as_ref()
     }

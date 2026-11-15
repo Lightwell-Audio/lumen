@@ -1,14 +1,3 @@
-//! The browser's disk workers (M9 R7c, ADR-0116): two threads, apart from
-//! R6's read-ahead, taking the open folder first, then walks (Samples,
-//! Projects, search), then project details, then row pictures (the newest
-//! asked first). Answers come back in batches of at most
-//! [`walk::BATCH`] rows through a bounded channel, each with the ticket of
-//! its request, so the browser drops a stale one. The UI never waits on a
-//! worker: a cancelled request is abandoned and its late answers ignored,
-//! and the threads are never joined (one blocked on a network drive that
-//! hangs costs that thread until it returns; the next request waits behind
-//! it on the other).
-
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -21,41 +10,27 @@ use lumen_media::stream::cache::{self, Cache, Small};
 use super::thumbs::{self, Thumb};
 use super::walk::{self, Entry, Index, Outcome, Wanted};
 
-/// Worker threads.
 const THREADS: usize = 2;
-/// Answers waiting for the UI, at most: a worker waits when it is full.
 const ANSWERS: usize = 64;
-/// How long a worker waits for room in a full answer channel: a worker's
-/// poll, not a design timing (no `motion` token applies).
 const FULL_WAIT: std::time::Duration = std::time::Duration::from_micros(5_000);
-/// Row pictures waiting, at most: the oldest asked give way.
 const PICTURES: usize = 128;
 
-/// What a worker is asked to do.
 #[derive(Debug, Clone)]
 pub(crate) enum Job {
-    /// One folder's rows (Places).
     Folder { dir: PathBuf, wanted: Wanted },
-    /// Every file under some folders (Samples, Projects, search).
     Walk { roots: Vec<PathBuf>, wanted: Wanted },
-    /// A project's tempo, metre and tracks.
     Project(PathBuf),
-    /// A row's picture.
     Picture(PathBuf),
-    /// Which of these folders are there (Places' top level).
     Present(Vec<PathBuf>),
-    /// What Computer lists.
     Computer,
 }
 
-/// What came back.
 #[derive(Debug)]
 pub(crate) enum Answer {
     Rows {
         ticket: u64,
         rows: Vec<Entry>,
     },
-    /// A folder or walk ended; `error` when the folder could not be read.
     Done {
         ticket: u64,
         outcome: Outcome,
@@ -77,7 +52,6 @@ pub(crate) enum Answer {
     },
 }
 
-/// What the Projects strip says of a project.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ProjectAbout {
     pub bpm: f64,
@@ -93,20 +67,15 @@ struct Request {
 
 #[derive(Default)]
 struct Queues {
-    /// Folders, walks and projects, in that order of priority.
     urgent: VecDeque<Request>,
     walks: VecDeque<Request>,
     projects: VecDeque<Request>,
-    /// Newest at the back, taken from the back.
     pictures: VecDeque<Request>,
-    /// Pictures that gave way to newer ones before a worker took them: the
-    /// browser forgets it asked, so a row back in view asks again.
     dropped: Vec<PathBuf>,
     closed: bool,
 }
 
 impl Queues {
-    /// Queues a picture; the oldest asked give way past [`PICTURES`].
     fn push_picture(&mut self, request: Request) {
         self.pictures.push_back(request);
         while self.pictures.len() > PICTURES {
@@ -131,7 +100,6 @@ impl Queues {
 
 type Shared = Arc<(Mutex<Queues>, Condvar)>;
 
-/// The pool, as the UI holds it.
 pub(crate) struct Disk {
     shared: Shared,
     answers: Receiver<Answer>,
@@ -139,8 +107,6 @@ pub(crate) struct Disk {
 }
 
 impl Disk {
-    /// Starts the workers. `cache` is the cache folder, for indexes and
-    /// row pictures (`None`: nothing is kept).
     pub(crate) fn start(cache: Option<PathBuf>, ctx: &egui::Context) -> Self {
         let shared: Shared = Arc::default();
         let (tx, answers) = sync_channel(ANSWERS);
@@ -162,7 +128,6 @@ impl Disk {
         }
     }
 
-    /// Asks for `job`; returns its ticket and the flag that cancels it.
     pub(crate) fn ask(&mut self, job: Job) -> (u64, Arc<AtomicBool>) {
         self.next += 1;
         let cancel = Arc::new(AtomicBool::new(false));
@@ -186,12 +151,10 @@ impl Disk {
         (self.next, cancel)
     }
 
-    /// The ticket of the last request asked.
     pub(crate) fn last_ticket(&self) -> u64 {
         self.next
     }
 
-    /// Forgets the row pictures not started yet (a tab was left).
     pub(crate) fn forget_pictures(&self) {
         let (lock, _) = &*self.shared;
         let mut queues = lock.lock().unwrap_or_else(|e| e.into_inner());
@@ -199,15 +162,11 @@ impl Disk {
         queues.dropped.clear();
     }
 
-    /// The pictures that gave way before they were made (see
-    /// [`Queues::dropped`]).
     pub(crate) fn dropped_pictures(&self) -> Vec<PathBuf> {
         let (lock, _) = &*self.shared;
         std::mem::take(&mut lock.lock().unwrap_or_else(|e| e.into_inner()).dropped)
     }
 
-    /// The answers that came since the last call (at most a channel's
-    /// worth, so a flood is spread over frames).
     pub(crate) fn answers(&self) -> Vec<Answer> {
         self.answers.try_iter().take(ANSWERS).collect()
     }
@@ -245,14 +204,11 @@ fn work(shared: &Shared, tx: &SyncSender<Answer>, ctx: &egui::Context, cache: Op
             ok
         };
         if !run(&request, cache, &sent) {
-            // The browser is gone.
             return;
         }
     }
 }
 
-/// Sends `answer`, waiting while the channel is full; false once the UI
-/// has gone.
 fn send(tx: &SyncSender<Answer>, answer: Answer) -> bool {
     let mut answer = answer;
     loop {
@@ -267,7 +223,6 @@ fn send(tx: &SyncSender<Answer>, answer: Answer) -> bool {
     }
 }
 
-/// Does one request. False once the UI has gone.
 fn run(request: &Request, cache: Option<&Cache>, sent: &dyn Fn(Answer) -> bool) -> bool {
     let ticket = request.ticket;
     let cancel = &*request.cancel;
@@ -361,7 +316,6 @@ fn run(request: &Request, cache: Option<&Cache>, sent: &dyn Fn(Answer) -> bool) 
     }
 }
 
-/// What the browser says of folders a walk could not read.
 fn unreadable(count: usize, first: &str) -> String {
     if count == 1 {
         format!("A folder could not be read, so its files are not listed: {first}.")
@@ -372,7 +326,6 @@ fn unreadable(count: usize, first: &str) -> String {
     }
 }
 
-/// The index's name in the cache: the folder and what was looked for.
 fn index_key(root: &Path, wanted: Wanted) -> String {
     cache::hash(&format!(
         "lumen browse index\n{}\n{wanted:?}\n",
@@ -380,7 +333,6 @@ fn index_key(root: &Path, wanted: Wanted) -> String {
     ))
 }
 
-/// What a project file says of itself.
 fn about(path: &Path) -> Result<ProjectAbout, String> {
     let project = lumen_project::load(path).map_err(|e| e.to_string())?;
     let meter = project.meter.first().map_or_else(

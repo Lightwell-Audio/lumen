@@ -1,9 +1,3 @@
-//! Cost of playing audio clips: 64 stereo clips all sounding at once, the
-//! M2 slice 6 target ("well inside the CPU budget" at 128 frames); and the
-//! same through a production-sized routing (M4 slice 1): a track each, in
-//! groups, with sends to two returns. The quality bar: under half of the
-//! 2.67 ms a 128-frame block lasts at 48 kHz.
-
 use std::sync::Arc;
 
 use lumen_core::time::Ticks;
@@ -17,8 +11,6 @@ fn main() {
     divan::main();
 }
 
-/// `clips` clips playing; through the routed mix, each on its own track,
-/// or else all on one track straight to the device.
 fn playing(clips: usize, routed_mix: bool) -> Engine<Mixer<ClipPlayer>> {
     let audio = Arc::new(ClipAudio::Memory {
         sample_rate: 48_000,
@@ -56,7 +48,6 @@ fn playing(clips: usize, routed_mix: bool) -> Engine<Mixer<ClipPlayer>> {
     let (mut transport, mut engine) = engine(Timeline::default(), source, 48_000);
     transport.send(Command::Play).unwrap();
     let mut data = vec![0.0; 256];
-    // Past the fade-in, into steady playback.
     for _ in 0..10 {
         engine.process(48_000, &mut data, 2, 128);
     }
@@ -77,9 +68,6 @@ fn routed_tracks_at_128_frames(bencher: divan::Bencher<'_, '_>, tracks: usize) {
     bencher.bench_local(|| engine.process(48_000, divan::black_box(&mut data), 2, 128));
 }
 
-/// 64 tracks, each with Prism, the utility device, on it (M8 slice B0): what a
-/// built-in effect costs the audio thread, beside `routed_tracks_at_128_frames`
-/// without one.
 #[divan::bench]
 fn engine_builtin_64(bencher: divan::Bencher<'_, '_>) {
     use lumen_devices::utility::{self, Utility};
@@ -100,8 +88,6 @@ fn engine_builtin_64(bencher: divan::Bencher<'_, '_>) {
     builtin_64(bencher, values, 0, || Box::new(Utility::new()));
 }
 
-/// 64 tracks, each with Parallax, the stereo delay, on it (M8 slice B3): what
-/// a tempo-synced delay with its loop filters costs the audio thread.
 #[divan::bench]
 fn engine_builtin_delay_64(bencher: divan::Bencher<'_, '_>) {
     use lumen_devices::delay::{self, Delay};
@@ -122,8 +108,6 @@ fn engine_builtin_delay_64(bencher: divan::Bencher<'_, '_>) {
     builtin_64(bencher, values, 0, || Box::new(Delay::new()));
 }
 
-/// 64 tracks, each with Afterglow, the reverb, on it (M8 slice B3): eight
-/// feedback lines, their damping and the early reflections, a block at a time.
 #[divan::bench]
 fn engine_builtin_reverb_64(bencher: divan::Bencher<'_, '_>) {
     use lumen_devices::reverb::{self, Reverb};
@@ -134,9 +118,6 @@ fn engine_builtin_reverb_64(bencher: divan::Bencher<'_, '_>) {
     builtin_64(bencher, values, 0, || Box::new(Reverb::new()));
 }
 
-/// 64 tracks of steady sound, each with one built-in effect holding `values`
-/// and holding back `latency` frames: the body the `engine_builtin_*` and
-/// dynamics benches share (M8 slices B0, B2 and B3).
 fn builtin_64(
     bencher: divan::Bencher<'_, '_>,
     values: Vec<(u32, f32)>,
@@ -188,16 +169,12 @@ fn builtin_64(
     let (mut transport, mut engine) = engine(Timeline::default(), source, 48_000);
     transport.send(Command::Play).unwrap();
     let mut data = vec![0.0; 256];
-    // Past the fade-in and the 20 ms glide to the values.
     for _ in 0..400 {
         engine.process(48_000, &mut data, 2, 128);
     }
     bencher.bench_local(|| engine.process(48_000, divan::black_box(&mut data), 2, 128));
 }
 
-/// 64 MIDI tracks, each with Flare playing a four-note chord (M8 slice B4):
-/// what the built-in synth costs the audio thread when every one of them
-/// sounds, beside `routed_tracks_at_128_frames` without an instrument.
 #[divan::bench]
 fn engine_flare_64(bencher: divan::Bencher<'_, '_>) {
     use lumen_devices::{Preset, Synth, synth};
@@ -209,7 +186,6 @@ fn engine_flare_64(bencher: divan::Bencher<'_, '_>) {
     let (mut midi, player) = midi_player();
     let tracks: Vec<MidiTrack> = (0..TRACKS)
         .map(|track| {
-            // A four-note chord held for the whole second.
             let notes: Vec<MidiNote> = [48u8, 55, 60, 64]
                 .into_iter()
                 .enumerate()
@@ -248,17 +224,12 @@ fn engine_flare_64(bencher: divan::Bencher<'_, '_>) {
     let (mut transport, mut engine) = engine(Timeline::default(), source, 48_000);
     transport.send(Command::Play).unwrap();
     let mut data = vec![0.0; 256];
-    // Past the start of the notes and their attacks.
     for _ in 0..100 {
         engine.process(48_000, &mut data, 2, 128);
     }
     bencher.bench_local(|| engine.process(48_000, divan::black_box(&mut data), 2, 128));
 }
 
-/// The same 64 tracks, each with Iris on it and every band on, as the worst
-/// case a person meets: eight bands of a parametric EQ an instance (M8 slice
-/// B1). The cuts are at their gentlest slope, which is one section each; a 48
-/// dB/octave slope would be six sections more an instance.
 #[divan::bench]
 fn engine_eq_64(bencher: divan::Bencher<'_, '_>) {
     use lumen_devices::eq::{self, Eq};
@@ -288,7 +259,6 @@ fn engine_eq_64(bencher: divan::Bencher<'_, '_>) {
         .unwrap();
     let (mut routing, source) = mixer(player);
     let mut plan = routed(TRACKS, 0);
-    // Every band on, with a gain or a cut that makes each one work.
     let band = |number: u32| {
         let mut values = Vec::new();
         let mut set = |id: u32, units: f32| {
@@ -333,9 +303,6 @@ fn engine_eq_64(bencher: divan::Bencher<'_, '_>) {
     bencher.bench_local(|| engine.process(48_000, divan::black_box(&mut data), 2, 128));
 }
 
-/// 64 tracks, each with Gravity, the compressor, on it (M8 slice B2), keyed
-/// from nothing: what a compressor costs the audio bus per block, beside
-/// `engine_builtin_64` for the utility.
 #[divan::bench]
 fn engine_gravity_64(bencher: divan::Bencher<'_, '_>) {
     use lumen_devices::dynamics::compressor::{self, Compressor};
@@ -349,8 +316,6 @@ fn engine_gravity_64(bencher: divan::Bencher<'_, '_>) {
     builtin_64(bencher, values, 0, || Box::new(Compressor::new()));
 }
 
-/// 64 tracks, each with Horizon, the limiter, in true-peak mode (M8 slice B2):
-/// its 1.5 ms lookahead, which the plan compensates.
 #[divan::bench]
 fn engine_horizon_64(bencher: divan::Bencher<'_, '_>) {
     use lumen_devices::dynamics::limiter::{self, Limiter};

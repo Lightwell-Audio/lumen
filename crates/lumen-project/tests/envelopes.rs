@@ -1,7 +1,3 @@
-//! Format v25 (M7 slice A7): an audio clip may carry gain and pan envelopes,
-//! measured from the clip's start. Older files hold none; a damaged one is
-//! refused with a reason.
-
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -30,7 +26,6 @@ fn lane(points: &[(i64, f32)]) -> Lane {
     .unwrap()
 }
 
-/// The model the v25 golden file must always load as. Never change it.
 fn golden_v25_expected() -> Project {
     let mut track = Track::new(Id(1000), "Vocal", TrackKind::Audio, Color(0x4F81BD));
     let mut clip = Clip {
@@ -58,7 +53,6 @@ fn golden_v25_expected() -> Project {
             gain_db: -2.0,
         },
     };
-    // A point before the clip's start is kept, hidden.
     clip.envelopes.set(
         Kind::Gain,
         Lane::new(vec![
@@ -208,7 +202,6 @@ fn an_envelope_that_cannot_work_is_refused_with_a_reason() {
 #[test]
 fn a_damaged_envelope_file_is_not_opened() {
     let text = String::from_utf8(to_bytes(&golden_v25_expected()).unwrap()).unwrap();
-    // The clip's pan reaches 1.0: make it 100.
     let damaged = text.replacen("\"value\": 1.0", "\"value\": 100.0", 1);
     assert_ne!(text, damaged);
     assert!(from_bytes(damaged.as_bytes()).is_err());

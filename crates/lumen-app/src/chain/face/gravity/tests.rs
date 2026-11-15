@@ -1,6 +1,3 @@
-//! Gravity's card: what the ring, the ball and the well read, and what a drag on
-//! them writes.
-
 use eframe::egui::{Rect, pos2, vec2};
 use lumen_devices::MeterReading;
 
@@ -70,9 +67,6 @@ fn the_card_has_five_dials_and_two_handles() {
 
 #[test]
 fn the_dials_clear_the_all_link_and_each_other() {
-    // The link takes the card's lower right (60 x 16 pt, 14 pt in from the right
-    // and 12 pt up): no dial's box, with the name and value it carries under it,
-    // reaches it, and the dials are a name's width apart.
     let card = Rect::from_min_size(pos2(0.0, 0.0), WHOLE);
     let link = Rect::from_min_size(
         pos2(WHOLE.x - 14.0 - 60.0, WHOLE.y - 12.0 - 8.0),
@@ -106,7 +100,6 @@ fn the_rings_edge_maps_back_to_the_threshold() {
         let back = ring_value(at + vec2(radii.x, 0.0), rect);
         assert!((back - f64::from(norm)).abs() < 0.01, "{norm}: {back}");
     }
-    // Not held to 0 to 1: a drag is the change in it.
     assert!(ring_value(pos2(-900.0, -900.0), rect) < 0.0);
 }
 
@@ -150,7 +143,6 @@ fn the_well_is_shallow_at_rest_the_specimens_at_its_reduction_and_deeper_beyond(
     assert!(depth(40.0, 20.0) <= WELL_MOST * WELL_RATIO.1 + 1e-4);
 }
 
-/// A scene over `slots`, with the meter's `reading`.
 fn scene<'a>(
     painter: &'a eframe::egui::Painter,
     slots: &'a [Slot],
@@ -187,16 +179,11 @@ fn the_pull_follows_the_meter_falls_back_and_is_nothing_when_reduced() {
         reduction_db: db,
         input_db: -8.0,
     };
-    // Reduced motion: no reading, so nothing is pulled and nothing is kept.
     assert_eq!(meter::pulled(&scene(&painter, &slots, None)), 0.0);
-    // Pulling: it follows the meter up at once.
     let pulled = meter::pulled(&scene(&painter, &slots, Some(reading(4.1))));
     assert!((pulled - 4.1).abs() < 1e-6, "{pulled}");
-    // The device lets go: it is kept for the next frame and has not jumped to
-    // nothing (the frame clock has not moved in a test, so it holds).
     let after = meter::pulled(&scene(&painter, &slots, Some(reading(0.0))));
     assert!(after > 0.0 && after <= 4.1, "{after}");
-    // And nothing is kept once motion is reduced again.
     assert_eq!(meter::pulled(&scene(&painter, &slots, None)), 0.0);
     assert_eq!(
         meter::pulled(&scene(&painter, &slots, Some(reading(0.0)))),

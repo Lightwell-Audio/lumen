@@ -1,90 +1,41 @@
-//! A stretched stream rendered in chunks (M9.5 S4c, ADR-0132).
-//!
-//! A stretcher has state: what it plays now depends on what it heard before.
-//! A stream must not: the same frames come out whether they are asked for in
-//! pages of 4,096 from the start, from a jump into the middle, by playback or
-//! by an export. So the stream is cut at a fixed grid of [`CHUNK`] frames, and
-//! each chunk is rendered from nothing: a stretcher reset to its start, fed the
-//! file from a *pre-roll* ahead of the chunk (long enough that the part of the
-//! chunk kept no longer depends on where the pre-roll started), the pre-roll's
-//! output thrown away. A chunk's frames depend on the chunk, so any way of
-//! asking for them gives the same bits.
-//!
-//! **The seams.** Two stretchers started apart do not agree on the phase of a
-//! steady tone, so chunks laid end to end would click at every seam. The end
-//! of each chunk is therefore crossfaded, over [`FADE`] frames, into the next
-//! chunk's render of the same frames (which the next chunk has anyway: it
-//! keeps its run from [`FADE`] before its own start). A span at the file's own
-//! speed is a plain copy of the file, not stretched (D3), wherever it is: a
-//! chunk wholly at the file's speed is never stretched, and in a chunk that
-//! also holds a change of speed, the frames well inside the unchanged span are
-//! the file bit for bit, [`FADE`] frames of each edge of the span blending
-//! into the stretch. A copy and a stretch are crossfaded at a seam in the same
-//! way.
-
 use super::Stretcher;
 use crate::MediaError;
 use crate::repitch::{GRID, OfFrame, Source};
 
-/// Frames in a chunk: 24 pages of 4,096, a little over two seconds at 48 kHz.
 pub const CHUNK: i64 = 98_304;
 
-/// Frames over which the end of a chunk fades into the start of the next.
 pub const FADE: i64 = 2_048;
 
-/// The slowest and fastest a span of a clip plays against the file: a quarter
-/// of the speed to four times it (the limits of a warp span).
 const SLOWEST: f64 = 0.25;
 const FASTEST: f64 = 4.0;
 
-/// Within this of a whole frame, at unity speed, is a copy of the file.
 const SNAP: f64 = 1.0e-7;
 
-/// Frames of the file read at a time.
 const WINDOW: i64 = 32_768;
 
-/// Renders the frames of a stretched stream. Holds the stretchers and the
-/// chunk it last rendered, so make one per worker and read it forwards.
 pub struct Chunks {
     main: Stretcher,
-    /// The stretcher the end of a chunk is faded into, made when first needed.
     aux: Option<Stretcher>,
     window: Window,
     aux_window: Window,
-    /// The file as read for the copied spans (apart from the stretcher's).
     copy_window: Window,
     session: Option<Session>,
-    /// The hop being rendered.
     hop_out: [Vec<f32>; 2],
 }
 
-/// The chunk being rendered, as far as it has got.
 struct Session {
     chunk: i64,
-    /// A plain copy of the file at this whole-frame offset, when the chunk
-    /// plays at the file's own speed throughout.
     copy: Option<i64>,
-    /// The spans of the stream (around the chunk) that play the file as it
-    /// was made.
     unity: Unity,
-    /// The stretched render of the chunk, when it is not a copy.
     run: Option<Run>,
-    /// What the next chunk plays over the last [`FADE`] frames of this one.
     tail: Option<[Vec<f32>; 2]>,
 }
 
-/// A stretcher run from a reset over a span of the stream.
 struct Run {
-    /// The stream frame `kept` starts at.
     first: i64,
-    /// The stream frame the first hop starts at: `first` less the pre-roll.
     start: i64,
-    /// The hop to render next.
     hop: i64,
-    /// The file frame the next hop starts reading at: where the hop before it
-    /// stopped.
     read_at: i64,
-    /// The most frames kept.
     limit: usize,
     kept: [Vec<f32>; 2],
 }
@@ -103,14 +54,6 @@ impl Chunks {
         }
     }
 
-    /// Renders stream frames `first..first + left.len()` into `left` and, for
-    /// a file of two channels, `right` (both one length; a mono file leaves
-    /// `right` alone). `position(k)` is the frame of the file, fractional,
-    /// that plays at stream frame `k`; it must not depend on anything but `k`.
-    /// `pitch`, when there is one, gives the shift of the pitch in cents at
-    /// stream frame `k` (also a function of `k` alone): a stream with one is
-    /// shifted at every hop, and copies no part of the file but the frames
-    /// where the shift is nothing.
     pub fn render(
         &mut self,
         source: &mut dyn Source,
@@ -125,7 +68,6 @@ impl Chunks {
         if stereo {
             right[..n].fill(0.0);
         }
-        // The stream starts at frame 0: nothing before it is asked for.
         let mut k = first.max(0);
         let end = first + n as i64;
         while k < end {
@@ -139,7 +81,6 @@ impl Chunks {
         Ok(())
     }
 
-    /// Frames `from..from + left.len()`, all in `chunk`.
     fn fill(
         &mut self,
         source: &mut dyn Source,
@@ -156,7 +97,6 @@ impl Chunks {
         }
         let len = left.len();
         let session = self.session.as_mut().expect("a chunk is begun");
-        // The chunk's own version of the frames.
         if let Some(offset) = session.copy {
             let planes = self
                 .window
@@ -180,7 +120,6 @@ impl Chunks {
             if let Some(right) = right.as_deref_mut() {
                 right.copy_from_slice(&run.kept[1][a..a + len]);
             }
-            // The spans at the file's own speed are the file.
             unity_over(
                 &session.unity,
                 &mut self.copy_window,
@@ -190,7 +129,6 @@ impl Chunks {
                 right.as_deref_mut(),
             )?;
         }
-        // The end of the chunk fades into the next one's.
         let zone = (chunk + 1) * CHUNK - FADE;
         if from + len as i64 > zone {
             if session.tail.is_none() {
@@ -223,8 +161,6 @@ impl Chunks {
         Ok(())
     }
 
-    /// Starts `chunk`: a plain copy when the whole of it plays at the file's
-    /// own speed, otherwise a fresh run.
     fn begin(&mut self, at: &Positions<'_>, chunk: i64) -> Result<(), MediaError> {
         let first = chunk * CHUNK;
         let unity = Unity::scan(at, first - FADE, first + CHUNK);
@@ -251,8 +187,6 @@ impl Chunks {
     }
 }
 
-/// What `chunk` plays over its first [`FADE`] frames: the other end of the
-/// seam before it.
 fn tail(
     aux: &mut Option<Stretcher>,
     window: &mut Window,
@@ -264,11 +198,8 @@ fn tail(
 ) -> Result<[Vec<f32>; 2], MediaError> {
     let first = chunk * CHUNK;
     let stereo = like.channels() >= 2;
-    // The same spans the chunk will find for itself when it is begun.
     let unity = Unity::scan(at, first - FADE, first + CHUNK);
     if let Some(offset) = unity.whole(first - FADE, first + CHUNK) {
-        // The chunk is a plain copy: so are the frames before it that it
-        // would have played, the ones this seam is crossfaded into.
         let from = first - FADE + offset;
         let planes = window.get(source, from, from + FADE)?;
         return Ok([
@@ -300,8 +231,6 @@ fn tail(
 }
 
 impl Run {
-    /// A run over `first..first + limit` of the stream, `stretcher` reset to
-    /// start it a pre-roll ahead.
     fn new(
         stretcher: &mut Stretcher,
         at: &Positions<'_>,
@@ -309,10 +238,6 @@ impl Run {
         limit: usize,
     ) -> Result<Self, MediaError> {
         let hop = stretcher.interval() as i64;
-        // How far back the pre-roll goes: the block, the hops the stretcher
-        // needs to settle, its latency, and the file's history a slow span
-        // needs for the same output (a block of output reads more of the file
-        // when the file runs fast, less when slow, so use the speed here).
         let speed = ((at.get(first + hop) - at.get(first)) / hop as f64).clamp(SLOWEST, FASTEST);
         let before = stretcher.block() as f64 * (1.0 + 0.5 / speed) + (2 * hop) as f64;
         let before = before as i64 + stretcher.output_latency() as i64;
@@ -331,7 +256,6 @@ impl Run {
         })
     }
 
-    /// Renders hops until `wanted` frames (at most the limit) are kept.
     fn extend(
         &mut self,
         stretcher: &mut Stretcher,
@@ -348,15 +272,8 @@ impl Run {
         let wanted = wanted.min(self.limit);
         while self.kept[0].len() < wanted {
             let a = self.start + self.hop * hop;
-            // The file frames this hop is fed: from where the last one
-            // stopped to where the file is one hop on, ahead by the
-            // stretcher's input latency (and its output latency's worth of
-            // the stream).
             let next = round(at.get(a + hop + latency)) + lead;
             let n = (next - self.read_at).max(0);
-            // A pitched stream tells the stretcher its shift for every hop,
-            // the pre-roll's too, so what it plays never depends on what it
-            // was told before (a chunk starts from a reset, not a new one).
             if let Some(cents) = at.cents(a + hop / 2) {
                 stretcher.set_transpose(cents)?;
             }
@@ -367,7 +284,6 @@ impl Run {
             stretcher.process(&input[..channels], &mut output[..channels])?;
             self.read_at = self.read_at.max(next);
             self.hop += 1;
-            // Keep the part of the hop that is in the span.
             for (heard, kept) in out.iter().zip(&mut self.kept).take(channels) {
                 for (i, &v) in heard.iter().enumerate() {
                     let frame = a + i as i64;
@@ -389,19 +305,14 @@ fn round(position: f64) -> i64 {
     }
 }
 
-/// The position function, extended below frame 0 along the line the stream
-/// starts on, so the pre-roll of the first chunk reads the file as if the
-/// stream ran on backwards.
 struct Positions<'p> {
     position: &'p dyn Fn(i64) -> f64,
     pitch: Option<&'p dyn Fn(i64) -> f64>,
     hop: i64,
 }
 
-/// The most the pitch is shifted either way, in cents: four octaves.
 const MOST_CENTS: f64 = 4_800.0;
 
-/// A shift this small, in cents, is none: the frame is the file's own pitch.
 const NO_SHIFT: f64 = 0.005;
 
 impl<'p> Positions<'p> {
@@ -417,8 +328,6 @@ impl<'p> Positions<'p> {
         }
     }
 
-    /// The shift in cents at stream frame `k`, held from frame 0 below it, and
-    /// `None` for a stream with no pitch at all.
     fn cents(&self, k: i64) -> Option<f64> {
         let cents = (self.pitch?)(k.max(0));
         Some(if cents.is_finite() {
@@ -428,7 +337,6 @@ impl<'p> Positions<'p> {
         })
     }
 
-    /// Whether the file plays at its own pitch at frame `k`.
     fn unshifted(&self, k: i64) -> bool {
         self.cents(k).is_none_or(|c| c.abs() < NO_SHIFT)
     }
@@ -442,32 +350,19 @@ impl<'p> Positions<'p> {
     }
 }
 
-/// A stretch of the stream that plays the file as it was made.
 #[derive(Clone, Copy)]
 struct Span {
-    /// The whole number of frames from a stream frame to its file frame.
     offset: i64,
-    /// The stream frames `from..to`, the whole of the unchanged run this
-    /// frame is in.
     from: i64,
     to: i64,
 }
 
-/// Which frames around a chunk play the file as it was made: a whole number
-/// of frames ahead, at unity speed, at every grid frame between. A function of
-/// the position function alone, so every chunk that looks at a frame decides
-/// the same for it (D3).
 struct Unity {
-    /// The first frame described, on the grid.
     lo: i64,
-    /// One entry per [`GRID`] frames from `lo`.
     spans: Vec<Option<Span>>,
 }
 
 impl Unity {
-    /// The spans over `first..last` and a margin beyond them, wide enough
-    /// that a frame of the range is never within [`FADE`] of a cut made by the
-    /// scan's own ends.
     fn scan(at: &Positions<'_>, first: i64, last: i64) -> Self {
         let margin = 2 * FADE + GRID;
         let lo = (first - margin).div_euclid(GRID) * GRID;
@@ -479,7 +374,6 @@ impl Unity {
             let k = lo + i as i64 * GRID;
             let q = at.get(k + GRID);
             let offset = (p - k as f64).round();
-            // (Within a range frame arithmetic cannot overflow.)
             let unity = offset.is_finite()
                 && offset.abs() < 1.0e15
                 && (p - k as f64 - offset).abs() < SNAP
@@ -493,7 +387,6 @@ impl Unity {
             }));
             p = q;
         }
-        // Join the neighbours that share an offset into one run.
         let mut i = 0;
         while i < count {
             let Some(here) = spans[i] else {
@@ -520,8 +413,6 @@ impl Unity {
         self.spans.get(i).copied().flatten()
     }
 
-    /// How much of the file frame `k` plays: all of it well inside a run, less
-    /// toward either end of it.
     fn weight(span: Span, k: i64) -> f32 {
         let edge = (k - span.from).min(span.to - 1 - k);
         if edge >= FADE {
@@ -531,8 +422,6 @@ impl Unity {
         }
     }
 
-    /// The offset when every frame of `a..b` is the file, with nothing of the
-    /// stretch in it.
     fn whole(&self, a: i64, b: i64) -> Option<i64> {
         let (first, last) = (self.span(a)?, self.span(b - 1)?);
         let same = first.from == last.from && first.to == last.to && first.offset == last.offset;
@@ -540,10 +429,6 @@ impl Unity {
     }
 }
 
-/// Puts the file over the frames of `left` (and `right`, for a stereo file)
-/// that are in a run at the file's own speed: all of the file well inside the
-/// run, blended into what is there toward its ends. `first` is the stream
-/// frame of `left[0]`.
 fn unity_over(
     unity: &Unity,
     window: &mut Window,
@@ -555,7 +440,6 @@ fn unity_over(
     let end = first + left.len() as i64;
     let mut k = first;
     while k < end {
-        // One grid step at a time: a run is whole grid steps.
         let stop = (unity.lo + ((k - unity.lo).div_euclid(GRID) + 1) * GRID).min(end);
         if let Some(span) = unity.span(k) {
             let from = k + span.offset;
@@ -575,7 +459,6 @@ fn unity_over(
     Ok(())
 }
 
-/// `v` moved toward `file` by `weight`; the file itself when it is 1.
 fn blend(v: &mut f32, file: f32, weight: f32) {
     *v = if weight >= 1.0 {
         file
@@ -584,7 +467,6 @@ fn blend(v: &mut f32, file: f32, weight: f32) {
     };
 }
 
-/// A run of the file, with silence outside it.
 #[derive(Default)]
 struct Window {
     from: i64,
@@ -592,8 +474,6 @@ struct Window {
 }
 
 impl Window {
-    /// The file's frames `a..b` (silence where the file is not), one slice
-    /// per channel; a mono file's second slice is empty.
     fn get(&mut self, source: &mut dyn Source, a: i64, b: i64) -> Result<[&[f32]; 2], MediaError> {
         let len = (b - a).max(0) as usize;
         let have = self.data[0].len() as i64;

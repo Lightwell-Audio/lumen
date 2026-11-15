@@ -1,55 +1,22 @@
-//! Measuring the round trip through a cable (M9 slice R2b, ADR-0110).
-//!
-//! A cable joins one of the device's outputs to one of its inputs. The audio
-//! side plays [`CLICKS`] short clicks on the output, with everything else
-//! Lumen plays silenced, and keeps what the input hears meanwhile. Off the
-//! audio thread, [`find_round_trip`] finds each click in what came back.
-//!
-//! Output and input are counted in the same callback frames, so the delay
-//! found is what recording must shift a take by: the frames between a sample
-//! leaving the callback and the same sound arriving in it. That is what
-//! recording's placement takes from the driver's reported latencies
-//! (ADR-0102), so the difference between the two is the recording offset.
-//!
-//! The click is a burst of [`CLICK_FRAMES`] pseudo-random steps at −12 dBFS:
-//! it correlates to one sharp peak, also after the converters' filters, and
-//! sounds like a tick.
-
-/// How many clicks are played. Every one must be found at the same delay.
 pub const CLICKS: usize = 5;
-/// Frames in one click.
 pub const CLICK_FRAMES: usize = 256;
-/// −12 dBFS.
 const LEVEL: f32 = 0.25;
-/// Seconds between the clicks' starts.
 pub const SPACING_SECONDS: f64 = 0.3;
-/// Silence before the first click.
 const LEAD_SECONDS: f64 = 0.1;
-/// The longest round trip looked for. Shorter than the spacing, so a click
-/// is never taken for the one before or after it.
 pub const MAX_ROUND_TRIP_SECONDS: f64 = 0.25;
-/// How far apart, in frames, the clicks' delays may be and still agree.
 pub const AGREE_FRAMES: u32 = 2;
-/// Below this (−60 dBFS), nothing came back.
 const SILENT: f32 = 0.001;
-/// What counts as clipped.
 const CLIPPED: f32 = 0.99;
-/// How far a correlation peak must stand above the rest of its window.
 const CLEAR: f32 = 8.0;
-/// Lags this close to the peak are its own ringing, not the rest.
 const NEAR_PEAK: usize = 2 * CLICK_FRAMES;
-/// What [`Measured::returns`] keeps of each click: lags before the one
-/// found, and in all.
 pub const RETURN_BEFORE: usize = 32;
 pub const RETURN_FRAMES: usize = 288;
 
-/// Where the clicks go in a measurement at one rate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Plan {
     lead: usize,
     spacing: usize,
     max_lag: usize,
-    /// Frames kept from the input.
     pub frames: usize,
 }
 
@@ -69,47 +36,33 @@ impl Plan {
         }
     }
 
-    /// The frame click `k` starts on.
     pub fn click_at(&self, k: usize) -> usize {
         self.lead + k * self.spacing
     }
 }
 
-/// The click: steps of ±[`LEVEL`] from an 8-bit maximal-length sequence,
-/// the same every time.
 pub fn click() -> [f32; CLICK_FRAMES] {
     let mut state: u8 = 0x5A;
     std::array::from_fn(|_| {
-        // x^8 + x^6 + x^5 + x^4 + 1.
         let bit = (state ^ (state >> 2) ^ (state >> 3) ^ (state >> 4)) & 1;
         state = (state >> 1) | (bit << 7);
         if bit == 1 { LEVEL } else { -LEVEL }
     })
 }
 
-/// How a measurement ended on the audio side.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Ended {
     Running,
-    /// Every frame was kept.
     Done,
-    /// The device changed rate part way.
     RateChanged,
-    /// The device has no such output or input (any more).
     NoChannel,
 }
 
-/// One measurement: what to play where, and what came back. Made off the
-/// audio thread, with its buffer, and handed back when it ends.
 #[derive(Debug)]
 pub struct Job {
-    /// Tells this measurement from an older one still on its way back.
     id: u64,
-    /// The first output channel, in the callback's order.
     output: usize,
-    /// Both channels of a pair, or one.
     pair: bool,
-    /// The input channel, in the callback's order.
     input: usize,
     rate: u32,
     plan: Plan,
@@ -120,7 +73,6 @@ pub struct Job {
 }
 
 impl Job {
-    /// Allocates: call it off the audio thread.
     pub fn new(id: u64, rate: u32, output: usize, pair: bool, input: usize) -> Box<Self> {
         let plan = Plan::new(rate);
         Box::new(Self {
@@ -149,12 +101,10 @@ impl Job {
         self.rate
     }
 
-    /// What the input heard, from the measurement's first frame.
     pub fn captured(&self) -> &[f32] {
         &self.captured
     }
 
-    /// Plays and keeps one block. Real-time safe.
     fn process(&mut self, block: Block<'_, '_>) {
         let Block {
             rate,
@@ -177,7 +127,6 @@ impl Job {
             self.ended = Ended::NoChannel;
             return;
         }
-        // Only the clicks are heard while measuring.
         outputs[..output_channels * frames].fill(0.0);
         let n = frames.min(self.captured.len() - self.kept);
         let from = self.kept;
@@ -198,8 +147,6 @@ impl Job {
     }
 }
 
-/// One callback's buffers, as the device hands them over: channel after
-/// channel.
 #[derive(Debug)]
 pub struct Block<'i, 'o> {
     pub rate: u32,
@@ -210,7 +157,6 @@ pub struct Block<'i, 'o> {
     pub frames: usize,
 }
 
-/// UI side: starts measurements and takes them back. May allocate.
 #[derive(Debug)]
 pub struct LoopbackHandle {
     jobs: rtrb::Producer<Box<Job>>,
@@ -218,19 +164,15 @@ pub struct LoopbackHandle {
 }
 
 impl LoopbackHandle {
-    /// Queues a measurement; it starts at the next block. Returns it if one
-    /// is already waiting.
     pub fn start(&mut self, job: Box<Job>) -> Result<(), Box<Job>> {
         self.jobs.push(job).map_err(|rtrb::PushError::Full(j)| j)
     }
 
-    /// A measurement that ended, if one did.
     pub fn ended(&mut self) -> Option<Box<Job>> {
         self.ended.pop().ok()
     }
 }
 
-/// Audio side. Runs after the engine in the device callback.
 #[derive(Debug)]
 pub struct LoopbackPlayer {
     jobs: rtrb::Consumer<Box<Job>>,
@@ -239,9 +181,6 @@ pub struct LoopbackPlayer {
 }
 
 impl LoopbackPlayer {
-    /// Plays the clicks over what the engine rendered, and keeps the input.
-    /// Real-time safe: the job's buffer was made with it, and a job that
-    /// ends goes back to the UI to be freed there.
     pub fn process(&mut self, block: Block<'_, '_>) {
         if self.job.is_none() {
             self.job = self.jobs.pop().ok();
@@ -256,13 +195,11 @@ impl LoopbackPlayer {
             && let Some(job) = self.job.take()
             && let Err(rtrb::PushError::Full(job)) = self.ended.push(job)
         {
-            // Tried again next block.
             self.job = Some(job);
         }
     }
 }
 
-/// Makes the pair. Allocates: call it off the audio thread.
 pub fn loopback() -> (LoopbackHandle, LoopbackPlayer) {
     let (jobs_tx, jobs_rx) = rtrb::RingBuffer::new(1);
     let (ended_tx, ended_rx) = rtrb::RingBuffer::new(2);
@@ -279,39 +216,23 @@ pub fn loopback() -> (LoopbackHandle, LoopbackPlayer) {
     )
 }
 
-/// A round trip that every click agreed on.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Measured {
-    /// Frames from leaving the callback to arriving back in it.
     pub frames: u32,
-    /// The input reached full scale somewhere.
     pub clipped: bool,
-    /// The clicks came back upside down (a polarity flip on the way).
     pub inverted: bool,
-    /// Each click's correlation with what came back, from [`RETURN_BEFORE`]
-    /// lags before the delay found, [`RETURN_FRAMES`] long, scaled so a
-    /// return at full level peaks at 1: for drawing. A clean return is one
-    /// sharp line at the delay; the converters' filters ring around it.
     pub returns: Vec<Vec<f32>>,
 }
 
-/// Why a measurement gave no number.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Failure {
-    /// The input stayed silent: no cable, the wrong input, or its gain is
-    /// down.
     Silent,
-    /// Something came back, but no click stood out of the noise.
     Unclear,
-    /// The clicks came back at different delays, this many frames apart.
     Disagree { spread: u32 },
-    /// The device changed rate part way.
     RateChanged,
-    /// The output or the input went away.
     NoChannel,
 }
 
-/// Finds the round trip in a measurement that ended.
 pub fn analyse(job: &Job) -> Result<Measured, Failure> {
     match job.ended {
         Ended::Done => find_round_trip(job.captured(), job.rate),
@@ -320,8 +241,6 @@ pub fn analyse(job: &Job) -> Result<Measured, Failure> {
     }
 }
 
-/// Finds the clicks of a measurement at `rate` in what the input heard
-/// (from the measurement's first frame).
 pub fn find_round_trip(captured: &[f32], rate: u32) -> Result<Measured, Failure> {
     let plan = Plan::new(rate);
     let loudest = captured.iter().fold(0.0_f32, |m, s| m.max(s.abs()));
@@ -402,8 +321,6 @@ mod tests {
 
     const RATE: u32 = 48_000;
 
-    /// What the input hears through a cable `delay` frames long with `gain`,
-    /// plus noise at `noise` (a fixed pseudo-random sequence).
     fn through_cable(delay: usize, gain: f32, noise: f32) -> Vec<f32> {
         let plan = Plan::new(RATE);
         let click = click();
@@ -448,7 +365,6 @@ mod tests {
             assert!(!found.clipped && !found.inverted);
             assert_eq!(found.returns.len(), CLICKS);
             assert!(found.returns.iter().all(|r| r.len() == RETURN_FRAMES));
-            // One sharp line at the delay, at the cable's gain.
             let at = (delay).min(RETURN_BEFORE);
             for back in &found.returns {
                 assert!((back[at] - 0.5).abs() < 1e-3, "{delay}: {}", back[at]);
@@ -501,7 +417,6 @@ mod tests {
         let click = click();
         let mut captured = vec![0.0; plan.frames];
         for k in 0..CLICKS {
-            // Each click later than the one before: a drifting clock.
             let delay = 400 + k * 3;
             for (i, c) in click.iter().enumerate() {
                 captured[plan.click_at(k) + delay + i] += c * 0.5;
@@ -513,9 +428,6 @@ mod tests {
         );
     }
 
-    /// Runs `job` through the player as a device would, the cable joining
-    /// output `out` to input `inp` `delay` frames later; returns what the
-    /// first block played.
     fn run(job: Box<Job>, delay: usize, block: usize) -> (Box<Job>, Vec<f32>) {
         let (mut handle, mut player) = loopback();
         handle.start(job).unwrap();
@@ -528,7 +440,6 @@ mod tests {
             for i in 0..block {
                 inputs[block + i] = (at + i).checked_sub(delay).map_or(0.0, |p| line[p]);
             }
-            // The engine played something; the measurement silences it.
             let mut outputs = vec![0.3_f32; outs * block];
             player.process(Block {
                 rate: RATE,

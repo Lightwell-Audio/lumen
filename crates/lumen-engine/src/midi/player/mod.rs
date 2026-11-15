@@ -1,7 +1,3 @@
-//! The pair that plays MIDI: [`MidiHandle`] on the UI side replaces the
-//! track list, [`MidiPlayer`] on the audio thread reads it (a
-//! [`TrackSource`](crate::mixer::TrackSource), played beside the audio clips).
-
 mod carry;
 mod handle;
 mod out;
@@ -26,55 +22,32 @@ use set::MidiSet;
 
 const QUEUE: usize = 4;
 
-/// A live input on its way to the audio thread, or back to be freed.
 pub(super) type Feed = Box<dyn LiveInput>;
 
-/// Audio side: plays the MIDI clips. A
-/// [`TrackSource`](crate::mixer::TrackSource).
 pub struct MidiPlayer {
     pub(super) incoming: rtrb::Consumer<Box<MidiSet>>,
     pub(super) retired: rtrb::Producer<Box<MidiSet>>,
-    /// A replaced list that did not fit in the retired queue yet.
     pub(super) stash: Option<Box<MidiSet>>,
     pub(super) current: Box<MidiSet>,
     pub(super) out: Out,
-    /// The device frame at the end of the last part rendered: when to
-    /// stamp messages sent outside a part.
     pub(super) clock: u64,
     pub(super) feeds: rtrb::Consumer<Feed>,
     pub(super) old_feeds: rtrb::Producer<Feed>,
-    /// The live input, if the app gave one.
     pub(super) live: Option<Feed>,
-    /// A replaced live input that did not fit in its queue back yet.
     pub(super) old_feed: Option<Feed>,
-    /// Where recorded messages go.
     pub(super) capture: rtrb::Producer<Captured>,
-    /// Messages lost because the app was not reading (a count, for tests).
     pub(super) lost: u32,
-    /// How many times the loop has wrapped: the pass messages are kept in.
     pub(super) pass: u32,
-    /// A loop has wrapped since the last play, locate, or reposition.
-    /// Delayed live input before the loop start belongs to the previous pass
-    /// only while this is true.
     pub(super) wrapped_since_locate: bool,
-    /// The last part rendered had the transport recording.
     pub(super) recording: bool,
-    /// The ports that get MIDI clock, as [`MidiHandle::set_sync`] set them.
     pub(super) sync: Arc<AtomicU64>,
-    /// The ports the clock was last sent to.
     pub(super) synced: u64,
     pub(super) clock_out: ClockOut,
-    /// Some track's instrument runs in a plugin host.
     pub(super) hosted: bool,
-    /// A list with a hosted instrument is waiting (the handle sets it).
     pub(super) hosted_pending: Arc<AtomicBool>,
-    /// [`TrackSource::begin`] has done the part's first half: the next
-    /// `render` plays the tracks it gathered.
     pub(super) prepared: bool,
 }
 
-/// Creates the MIDI pair, starting with no tracks. Allocates, so call it
-/// off the audio thread.
 pub fn midi_player() -> (MidiHandle, MidiPlayer) {
     let (incoming_tx, incoming_rx) = rtrb::RingBuffer::new(QUEUE);
     let (retired_tx, retired_rx) = rtrb::RingBuffer::new(QUEUE + 1);
@@ -125,8 +98,6 @@ pub fn midi_player() -> (MidiHandle, MidiPlayer) {
 }
 
 impl MidiPlayer {
-    /// Events and notes dropped for lack of room so far (a full track
-    /// queue, a full output queue). Zero in any sane project.
     pub fn dropped(&self) -> u32 {
         let tracks: u32 = self
             .current
@@ -139,7 +110,6 @@ impl MidiPlayer {
             .saturating_add(self.lost)
     }
 
-    /// Notes held on a track now (tests).
     pub fn held(&self, track: u64) -> usize {
         self.current
             .tracks
@@ -148,7 +118,6 @@ impl MidiPlayer {
             .map_or(0, |t| t.state.held.len())
     }
 
-    /// Live notes held on a track now (tests).
     pub fn held_live(&self, track: u64) -> usize {
         self.current
             .tracks
@@ -159,7 +128,6 @@ impl MidiPlayer {
 }
 
 impl MidiTrack {
-    /// Whether anything is listening: an instrument, or hardware.
     pub(super) fn sounds(&self) -> bool {
         matches!(self.target, Target::Port { .. }) || self.instrument.is_some()
     }

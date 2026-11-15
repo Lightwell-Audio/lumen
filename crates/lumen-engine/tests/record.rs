@@ -1,8 +1,3 @@
-//! Recording MIDI in the engine (M5 slice 6, ADR-0055): tracks that record
-//! keep the live messages they take, with the timeline sample heard when
-//! they were played; the count-in holds the song at the play marker while
-//! the metronome clicks; Stop, a locate and Panic end both.
-
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
@@ -22,18 +17,12 @@ const MASTER: u64 = 100;
 const A: u64 = 1;
 const B: u64 = 2;
 const KEYS: u8 = 3;
-/// One beat at 120 BPM and 48 kHz.
 const BEAT: u64 = 24_000;
 
 #[derive(Clone)]
 struct Script(Arc<Mutex<VecDeque<LiveIn>>>);
 
 impl Default for Script {
-    /// On macOS std's mutex allocates its lock on the first `lock`, which the
-    /// allocation guard in [`Rig::run`] would count if the first lock were
-    /// `pull`'s inside `process`. Locking it here, outside the guard, keeps
-    /// that allocation out of the render. (The engine's own live input is a
-    /// queue with no lock; this is the test's double.)
     fn default() -> Self {
         let queue = Arc::new(Mutex::new(VecDeque::new()));
         drop(queue.lock().unwrap());
@@ -42,7 +31,6 @@ impl Default for Script {
 }
 
 impl Script {
-    /// A message played at device frame `played`, heard at `frame`.
     fn send(&self, played: u64, frame: u64, msg: Msg) {
         self.0.lock().unwrap().push_back(LiveIn {
             frame,
@@ -72,8 +60,6 @@ struct Rig {
     engine: Engine<Mixer<Layered<lumen_engine::ClipPlayer, MidiPlayer>>>,
     live: Script,
     captured: rtrb::Consumer<Captured>,
-    /// What the take did not keep: played while not recording, for Capture
-    /// MIDI (M9 slice R3).
     idle: Vec<Captured>,
     output: rtrb::Consumer<MidiOut>,
     #[allow(dead_code)]
@@ -130,15 +116,12 @@ fn recorder(id: u64) -> MidiTrack {
 }
 
 impl Rig {
-    /// Renders `frames` in blocks of `block`; returns the left channel.
     fn run(&mut self, frames: usize, block: usize) -> Vec<f32> {
         let mut out = Vec::with_capacity(frames);
         let mut data = vec![0.0; 2 * block];
         let mut done = 0;
         while done < frames {
             let n = block.min(frames - done);
-            // The render is the audio thread's work: nothing here may reach
-            // the heap (the allocation guard, `realtime.rs`).
             let ((), heap) =
                 count_rt_violations(|| self.engine.process(48_000, &mut data[..2 * n], 2, n));
             assert_eq!(heap, 0, "heap operation in process() at sample {done}");
@@ -148,8 +131,6 @@ impl Rig {
         out
     }
 
-    /// What the take keeps; what was played while not recording is put
-    /// aside for [`Rig::played`].
     fn taken(&mut self) -> Vec<Captured> {
         let mut out = Vec::new();
         while let Ok(c) = self.captured.pop() {
@@ -162,7 +143,6 @@ impl Rig {
         out
     }
 
-    /// What was played while not recording, once.
     fn played(&mut self) -> Vec<Captured> {
         let _ = self.taken();
         std::mem::take(&mut self.idle)
@@ -176,7 +156,6 @@ fn notes_are_kept_at_the_sample_they_were_played_whatever_the_block() {
         let mut rig = rig(vec![recorder(A)]);
         rig.transport.send(Command::Record { count_in: 0 }).unwrap();
         rig.run(block, block);
-        // Played at 1,000 and heard one block later, as the feed does.
         let heard = 1_000 + block as u64;
         rig.live.send(1_000, heard, Msg::note_on(0, 60, 100));
         rig.live
@@ -202,7 +181,6 @@ fn only_recording_tracks_keep_input_and_only_while_recording() {
         recorder(A),
         MidiTrack::new(B, Target::Instrument, None, Vec::new()).listening(keys()),
     ]);
-    // Not recording yet: nothing is kept.
     rig.live.send(100, 100, Msg::note_on(0, 60, 100));
     rig.live.send(200, 200, Msg::note_off(0, 60));
     rig.run(1_000, 128);
@@ -231,7 +209,6 @@ fn the_count_in_holds_the_song_and_recording_starts_mid_block() {
     assert!(guard_is_active(), "guarded allocator not installed");
     let mut rig = rig(vec![recorder(A)]);
     rig.transport.send(Command::Record { count_in: 4 }).unwrap();
-    // The first clicks sound with the metronome off.
     let first = rig.run(2_000, 77);
     assert!(
         first.iter().any(|v| v.abs() > 0.05),
@@ -243,7 +220,6 @@ fn the_count_in_holds_the_song_and_recording_starts_mid_block() {
     assert_eq!(snap.count_in_total, 4 * BEAT as i64);
     assert_eq!(snap.count_in_left, 4 * BEAT as i64 - 2_000);
 
-    // A note played and let go in the count-in is not kept.
     rig.live.send(5_000, 5_000, Msg::note_on(0, 60, 100));
     rig.live.send(5_100, 5_100, Msg::note_off(0, 60));
     rig.run(4 * BEAT as usize - 2_000 + 1_000, 77);
@@ -251,7 +227,6 @@ fn the_count_in_holds_the_song_and_recording_starts_mid_block() {
     assert!(snap.playing && snap.recording && snap.count_in_left == 0);
     assert!(rig.taken().is_empty(), "nothing is kept before the take");
 
-    // The take begins on the frame after the count: device frame 96,000.
     rig.live
         .send(4 * BEAT + 1_500, 4 * BEAT + 1_500, Msg::note_on(0, 64, 100));
     rig.run(3_000, 77);
@@ -270,7 +245,6 @@ fn the_count_in_accents_the_first_beat_of_a_bar() {
             .iter()
             .fold(0.0_f32, |m, v| m.max(v.abs()))
     };
-    // Downbeats (0 and 4) are louder than the beats between.
     assert!(peak(0) > peak(1) * 1.2, "{} vs {}", peak(0), peak(1));
     assert!(peak(4) > peak(5) * 1.2);
     assert!(peak(7) > 0.05, "the last beat of the count sounds");
@@ -324,8 +298,6 @@ fn a_note_played_just_before_the_loop_wraps_is_kept_at_the_loop_end() {
         )))
         .unwrap();
     rig.transport.send(Command::Record { count_in: 0 }).unwrap();
-    // The loop is 48,000 frames; the note was played 50 frames before the
-    // wrap and is heard 70 frames after it.
     rig.live.send(47_950, 48_070, Msg::note_on(0, 60, 100));
     rig.live.send(48_500, 48_500, Msg::note_off(0, 60));
     rig.run(50_000, 100);
@@ -338,7 +310,6 @@ fn a_note_played_just_before_the_loop_wraps_is_kept_at_the_loop_end() {
         kept.iter().map(|c| c.at).collect::<Vec<_>>(),
         vec![47_950, 500]
     );
-    // The note began in the pass before the wrap, and ended after it.
     assert_eq!(kept[1].pass, kept[0].pass + 1);
 }
 
@@ -355,9 +326,6 @@ fn delayed_input_before_the_first_loop_entry_keeps_its_preloop_position() {
     rig.transport.send(Command::Record { count_in: 0 }).unwrap();
     rig.run(BEAT as usize + 128, 128);
 
-    // The key went down 50 frames before loop start. Its input stamp reaches
-    // the recorder 70 frames later, after the playhead entered the loop but
-    // before the first loop wrap.
     rig.live
         .send(BEAT - 50, BEAT + 20, Msg::note_on(0, 60, 100));
     rig.run(512, 128);
@@ -388,7 +356,6 @@ fn a_previous_playback_wrap_does_not_shift_the_next_sessions_first_loop_entry() 
     rig.transport.send(Command::Record { count_in: 0 }).unwrap();
     rig.run(BEAT as usize + 128, 128);
 
-    // Input frames are device-relative across transport stops and starts.
     let session_start = 4 * BEAT + 128;
     rig.live.send(
         session_start + BEAT - 50,
@@ -416,7 +383,6 @@ fn each_loop_wrap_marks_a_new_pass_for_every_recording_track() {
         )))
         .unwrap();
     rig.transport.send(Command::Record { count_in: 0 }).unwrap();
-    // Two and a half passes of the 48,000 frame loop.
     rig.run(120_000, 128);
     let marks: Vec<(u64, u32)> = rig
         .taken()
@@ -435,7 +401,6 @@ fn each_loop_wrap_marks_a_new_pass_for_every_recording_track() {
 #[test]
 fn a_key_held_when_recording_begins_is_taken_at_the_start() {
     let mut rig = rig(vec![recorder(A)]);
-    // Held before Record, and one let go before it.
     rig.live.send(100, 100, Msg::note_on(0, 60, 90));
     rig.live.send(150, 150, Msg::note_on(0, 62, 80));
     rig.live.send(300, 300, Msg::note_off(0, 62));
@@ -447,7 +412,6 @@ fn a_key_held_when_recording_begins_is_taken_at_the_start() {
     assert_eq!(kept.len(), 1, "{kept:?}");
     assert_eq!(kept[0].msg, Msg::note_on(0, 60, 90));
     assert!(kept[0].at < 200, "at the start: {}", kept[0].at);
-    // Letting go is kept like any other message.
     rig.live.send(2_500, 2_500, Msg::note_off(0, 60));
     rig.run(1_024, 128);
     let kept = rig.taken();
@@ -497,8 +461,6 @@ fn a_held_key_uses_the_latency_compensated_record_start_for_playback() {
     rig.transport.send(Command::Locate(q(1.0))).unwrap();
     rig.transport.send(Command::Play).unwrap();
     rig.run(128, 128);
-    // This key is already held when Record begins. Its compensated position
-    // falls before the boundary and must be floored back to Record start.
     rig.live.send(128, 128, Msg::note_on(0, 60, 90));
     rig.run(128, 128);
     rig.transport.send(Command::Record { count_in: 0 }).unwrap();
@@ -525,11 +487,6 @@ fn recording_while_playing_starts_at_once() {
     assert!(snap.recording && snap.playing && snap.count_in_total == 0);
 }
 
-/// Overdubbing a key a clip already plays there (owner, after MT-MIDI-7 run
-/// 3): the key played wins its pitch, as the take will once committed. The
-/// clip's note sounding on it ends as the key goes down, its own note-off
-/// later does not cut the played note, and a clip note on that key that
-/// would start while it is held does not.
 #[test]
 fn a_key_played_while_recording_ends_the_clips_note_on_that_key() {
     let q = |beats: f64| Ticks((beats * lumen_core::time::PPQ as f64) as i64);
@@ -578,11 +535,9 @@ fn a_key_played_while_recording_ends_the_clips_note_on_that_key() {
         sent,
         vec![
             (0, Msg::note_on(0, 60, 100)),
-            // The key goes down: the clip's note ends, the played one starts.
             (BEAT, Msg::note_off(0, 60)),
             (BEAT, Msg::note_on(0, 60, 90)),
             (BEAT * 3 / 2, Msg::note_off(0, 60)),
-            // After the key is let go, the clip plays on as before.
             (BEAT * 5, Msg::note_on(0, 60, 100)),
             (BEAT * 6, Msg::note_off(0, 60)),
         ],
@@ -590,11 +545,6 @@ fn a_key_played_while_recording_ends_the_clips_note_on_that_key() {
     );
 }
 
-/// After punch-out, recording goes on and keeps what is played, hidden in
-/// the take: a key played there does not win its pitch. With the monitor
-/// Off the key sounds nothing, and the clip's notes on it play as before:
-/// the one sounding is not cut, and one that starts while it is held is not
-/// held back.
 #[test]
 fn a_key_played_after_punch_out_leaves_the_clips_notes_alone() {
     let q = |beats: f64| Ticks((beats * lumen_core::time::PPQ as f64) as i64);
@@ -614,7 +564,6 @@ fn a_key_played_after_punch_out_leaves_the_clips_notes_alone() {
         notes: vec![note(0.0, 4.0), note(5.0, 1.0)].into(),
         controls: Vec::new().into(),
     };
-    // Monitor Off: the track records but does not listen.
     let track = MidiTrack::new(
         A,
         Target::Port {
@@ -629,7 +578,6 @@ fn a_key_played_after_punch_out_leaves_the_clips_notes_alone() {
     let mut rig = rig(vec![track]);
     rig.transport.send(Command::Record { count_in: 0 }).unwrap();
     rig.run(128, 128);
-    // Played after punch-out (beat 2), held across the next clip note.
     rig.live.send(BEAT * 3, BEAT * 3, Msg::note_on(0, 60, 90));
     rig.live
         .send(BEAT * 11 / 2, BEAT * 11 / 2, Msg::note_off(0, 60));
@@ -654,7 +602,6 @@ fn a_key_played_after_punch_out_leaves_the_clips_notes_alone() {
     );
 }
 
-/// Inside the window the key still wins its pitch, as before.
 #[test]
 fn a_key_played_inside_the_recording_window_still_wins_its_pitch() {
     let q = |beats: f64| Ticks((beats * lumen_core::time::PPQ as f64) as i64);
@@ -735,8 +682,6 @@ fn compensated_live_keys_follow_both_punch_edges() {
         None,
         vec![clip],
     )
-    // Monitor Off: the inputs affect playback eligibility without sounding
-    // through the live monitor.
     .recording(keys())
     .recording_within(Some((q(1.0), q(2.0))))
     .recording_timing(Some(RecordTiming {
@@ -768,8 +713,6 @@ fn compensated_live_keys_follow_both_punch_edges() {
     );
 }
 
-/// Before the app publishes its post-wrap window, a live key at the loop head
-/// still uses the saved loop window and cuts the note playing there.
 #[test]
 fn a_key_after_the_first_wrap_uses_the_saved_loop_window_before_ui_refresh() {
     let q = |beats: f64| Ticks((beats * lumen_core::time::PPQ as f64) as i64);
@@ -800,7 +743,6 @@ fn a_key_after_the_first_wrap_uses_the_saved_loop_window_before_ui_refresh() {
     )
     .listening(keys())
     .recording(keys())
-    // The UI still holds the initial pass's lower bound after the wrap.
     .recording_within(Some((q(1.0), Ticks(i64::MAX))))
     .recording_timing(Some(RecordTiming {
         start: q(1.0),
@@ -815,8 +757,6 @@ fn a_key_after_the_first_wrap_uses_the_saved_loop_window_before_ui_refresh() {
     rig.transport.send(Command::Locate(q(1.0))).unwrap();
     rig.transport.send(Command::Record { count_in: 0 }).unwrap();
     rig.run(24_128, 128);
-    // The device frame keeps increasing; the heard timeline is 200 samples
-    // into the new pass, before the old UI window's q(1) lower edge.
     rig.live.send(24_200, 24_200, Msg::note_on(0, 60, 90));
     rig.run(1_000, 128);
     let mut sent = Vec::new();
@@ -832,7 +772,6 @@ fn a_key_after_the_first_wrap_uses_the_saved_loop_window_before_ui_refresh() {
 
 #[test]
 fn notes_played_while_stopped_are_kept_for_capture_with_their_device_frames() {
-    // A track that only listens (not armed) keeps what it hears too.
     let mut rig = rig(vec![
         MidiTrack::new(A, Target::Instrument, None, Vec::new()).listening(keys()),
     ]);
@@ -883,7 +822,6 @@ fn a_track_that_neither_listens_nor_is_armed_keeps_nothing_for_capture() {
 
 #[test]
 fn an_armed_track_keeps_what_it_is_sent_for_capture_whatever_its_monitor() {
-    // Recording route only: it does not listen (its monitor is Off).
     let mut rig = rig(vec![recorder(A)]);
     rig.live.send(1_000, 1_000, Msg::note_on(0, 60, 100));
     rig.run(4_000, 128);
@@ -901,7 +839,6 @@ fn what_a_take_keeps_is_not_also_offered_to_capture() {
     assert!(rig.played().is_empty());
 }
 
-/// The notes the port was sent: `(device frame, on, key)`.
 fn sent_notes(rig: &mut Rig) -> Vec<(u64, bool, u8)> {
     let mut out = Vec::new();
     while let Ok(message) = rig.output.pop() {
@@ -918,10 +855,6 @@ fn sent_notes(rig: &mut Rig) -> Vec<(u64, bool, u8)> {
 
 #[test]
 fn a_pad_that_plays_another_note_wins_the_clip_note_its_sound_plays() {
-    // Kick: input 36, played 40. The clip's note reaches the engine as the
-    // sound's note (40); a pad played as 36 sounds 40 too, so while recording
-    // it must take the clip's note of that pitch over at its own frame, or
-    // the part plays doubled until the take is committed (M8 D0 review M1).
     let q = Ticks::quarters;
     let mut kit = DrumKit::new();
     kit.set(
@@ -962,8 +895,6 @@ fn a_pad_that_plays_another_note_wins_the_clip_note_its_sound_plays() {
     let mut rig = rig(vec![track]);
     rig.transport.send(Command::Record { count_in: 0 }).unwrap();
     rig.run(BEAT as usize, 128);
-    // The pad strikes at beat 1, where the clip's long note still sounds. It
-    // is heard one block later, as the feed delivers it.
     let heard = BEAT + 128;
     rig.live.send(BEAT, heard, Msg::note_on(0, 36, 100));
     rig.run(BEAT as usize, 128);

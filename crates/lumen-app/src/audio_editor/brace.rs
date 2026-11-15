@@ -1,11 +1,3 @@
-//! The clip's loop brace (M9.5 S2b, the owner's LB A and LS A): a band along
-//! the bottom of the editor's ruler. Until the clip loops it shows a thin mark
-//! of the clip's window; a click turns the loop on or off, and the brace's
-//! ends set where the loop starts and ends in the file. A flag marks where the
-//! clip starts inside its loop. Pure: where it is and what the pointer is on.
-//! The edit is `edit::clip_loop`; the gestures are the editor's
-//! (`app::audio_editor::brace`).
-
 use eframe::egui::{Pos2, Rect, pos2};
 use lumen_project::model::Clip;
 
@@ -13,36 +5,24 @@ use super::source::WholeFile;
 use crate::theme;
 use crate::timeview::TimeView;
 
-/// The editor's ruler with its band.
 pub(crate) const RULER: f32 = theme::size::EDITOR_RULER;
 
-/// A part of the brace.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BracePart {
-    /// The loop's start, in the file.
     Start,
-    /// The loop's end.
     End,
-    /// The band anywhere else: a click turns the loop on or off.
     Band,
 }
 
-/// Where the brace is drawn this frame.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Brace {
-    /// The band under the ruler.
     pub band: Rect,
-    /// The loop's two ends on screen, while the clip loops.
     pub ends: Option<(f32, f32)>,
-    /// What the clip plays when it does not loop: the thin mark's ends.
     pub window: (f32, f32),
-    /// The clip's start, when it is inside its loop rather than at its
-    /// start.
     pub flag: Option<f32>,
 }
 
 impl Brace {
-    /// The brace of `clip`, whose file is laid as `file`, in `band`.
     pub(crate) fn of(clip: &Clip, file: &WholeFile, time: TimeView, band: Rect) -> Self {
         let x = |q: f64| time.x(band.left(), q);
         let looping = clip.loop_length.is_some_and(|p| p.0 > 0);
@@ -56,8 +36,6 @@ impl Brace {
         }
     }
 
-    /// What `p` is on, if it is on the band. An end wins within reach; the
-    /// nearer one when both are.
     pub(crate) fn hit(&self, p: Pos2) -> Option<BracePart> {
         if !self.band.contains(p) {
             return None;
@@ -75,7 +53,6 @@ impl Brace {
         Some(BracePart::Band)
     }
 
-    /// Where an end's focus ring goes.
     pub(crate) fn end_rect(&self, part: BracePart) -> Option<Rect> {
         let (a, b) = self.ends?;
         let x = match part {
@@ -148,7 +125,6 @@ mod tests {
         Rect::from_min_max(pos2(0.0, 27.0), pos2(1_000.0, 37.0))
     }
 
-    /// 10 points a beat from beat 0.
     fn time() -> TimeView {
         TimeView {
             left: 0.0,

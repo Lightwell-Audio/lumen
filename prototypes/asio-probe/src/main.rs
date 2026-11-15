@@ -1,12 +1,3 @@
-//! P-ASIO prototype: can Lumen host ASIO drivers natively from Rust?
-//!
-//! ```text
-//! asio-probe list                       registered drivers (registry only)
-//! asio-probe query [--timeout SECS]     capabilities of every driver, each in a sandboxed child
-//! asio-probe stream <name|index> [--seconds S] [--buffer N] [--engine-tracks N] [--tone]
-//! ```
-//! `stream` outputs silence unless `--tone` is given.
-
 #[cfg(windows)]
 mod driver;
 #[cfg(windows)]
@@ -83,7 +74,6 @@ fn main() {
     }
 }
 
-/// NUL-terminated UTF-16 for Win32 calls.
 #[cfg(windows)]
 fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(std::iter::once(0)).collect()

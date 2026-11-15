@@ -1,20 +1,8 @@
-//! The editing grid (M3 slice 5a): where positions snap and where grid
-//! lines fall. One grid serves every place a position is chosen (the ruler,
-//! dropped files, and later clip and note edits), so snapping behaves the
-//! same everywhere.
-//!
-//! The grid is **adaptive** (the finest musical step that is
-//! at least a set width on screen, in five widths) or **fixed** (8 bars down
-//! to 1/64), straight, triplet or dotted, and snapping can be switched off.
-//! Steps finer than a bar are counted from each bar's start, so they stay
-//! right across time-signature changes.
-
 use serde::{Deserialize, Serialize};
 
 use crate::meter::{Meter, MeterMap};
 use crate::time::{PPQ, Ticks};
 
-/// How wide an adaptive grid's steps are on screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Width {
@@ -34,7 +22,6 @@ impl Width {
         Width::Widest,
     ];
 
-    /// The narrowest a step may be, in points.
     pub fn min_points(self) -> f64 {
         match self {
             Width::Narrowest => 6.0,
@@ -60,7 +47,6 @@ impl Width {
     }
 }
 
-/// A fixed grid's step: whole bars, or a note value (`Note(16)` is 1/16).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Size {
@@ -69,7 +55,6 @@ pub enum Size {
 }
 
 impl Size {
-    /// The fixed sizes, coarsest first.
     const LADDER: [Size; 10] = [
         Size::Bars(8),
         Size::Bars(4),
@@ -96,7 +81,6 @@ impl Size {
     }
 }
 
-/// Straight, triplet (two thirds of the step) or dotted (one and a half).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Feel {
@@ -106,8 +90,6 @@ pub enum Feel {
     Dotted,
 }
 
-/// The grid as the user set it. Both the adaptive width and the fixed size
-/// are kept, so switching between them returns to where each was.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Grid {
@@ -115,8 +97,6 @@ pub struct Grid {
     pub width: Width,
     pub size: Size,
     pub feel: Feel,
-    /// Positions snap to the grid (Ctrl+4 turns it off; Alt bypasses it
-    /// for one gesture).
     pub snap: bool,
 }
 
@@ -132,14 +112,12 @@ impl Default for Grid {
     }
 }
 
-/// A grid step: every `n` bars, or a length counted from each bar's start.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Step {
     Bars(u32),
     Ticks(Ticks),
 }
 
-/// How strong a grid line is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Level {
     Bar,
@@ -147,23 +125,17 @@ pub enum Level {
     Sub,
 }
 
-/// A grid line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Line {
     pub at: Ticks,
     pub level: Level,
 }
 
-/// Lines are never drawn closer than this (points)...
 pub const MIN_LINE_POINTS: f64 = 6.0;
-/// ...and a grid finer than that shows lines this far apart instead (as
-/// the Narrow adaptive grid), still snapping to its own steps.
 pub const FALLBACK_LINE_POINTS: f64 = 12.0;
 
-/// The longest bar step an adaptive grid uses.
 const MAX_BARS: u32 = 1 << 16;
 
-/// `1/n` of a whole note with `feel`, if it is whole ticks.
 fn note(n: u32, feel: Feel) -> Option<Ticks> {
     let (num, den) = match feel {
         Feel::Straight => (1, i64::from(n)),
@@ -173,11 +145,6 @@ fn note(n: u32, feel: Feel) -> Option<Ticks> {
     Ticks::whole_note_fraction(num, den)
 }
 
-/// The ticks a fixed size lasts in `meter` (M8 D2: a drum sound's own quantize
-/// grid), or `None` when it is not a whole number of ticks. A bar has no
-/// triplet or dotted feel (it is not whole ticks in every meter): the map
-/// editor does not offer one, and a file that names one reads as straight
-/// (review L8).
 pub fn size_ticks(size: Size, feel: Feel, meter: Meter) -> Option<Ticks> {
     match size {
         Size::Note(n) => note(n.max(1), feel),
@@ -192,7 +159,6 @@ pub fn size_ticks(size: Size, feel: Feel, meter: Meter) -> Option<Ticks> {
 }
 
 impl Grid {
-    /// The step for `meter` at a zoom of `points_per_quarter`.
     pub fn step(&self, meter: Meter, points_per_quarter: f64) -> Step {
         if self.fixed {
             return match self.size {
@@ -208,7 +174,6 @@ impl Grid {
         )
     }
 
-    /// `t` moved to the nearest grid line, or `t` itself with snapping off.
     pub fn snap(&self, map: &MeterMap, t: Ticks, points_per_quarter: f64) -> Ticks {
         if !self.snap {
             return t;
@@ -221,9 +186,6 @@ impl Grid {
         }
     }
 
-    /// The grid step `t` falls in, `[start, end)`, whether or not snapping
-    /// is on (scrubbing plays it, M3 slice 5e). Steps never cross a bar
-    /// line.
     pub fn cell(&self, map: &MeterMap, t: Ticks, points_per_quarter: f64) -> (Ticks, Ticks) {
         let bar = map.bbt_at(t).bar;
         let start = map.bar_start(bar);
@@ -242,9 +204,6 @@ impl Grid {
         }
     }
 
-    /// The lines to draw in `from..to` (at most a few screens' worth):
-    /// this grid's steps when they are at least [`MIN_LINE_POINTS`] apart,
-    /// otherwise the finest straight steps that are.
     pub fn lines(
         &self,
         map: &MeterMap,
@@ -296,10 +255,6 @@ impl Grid {
         lines
     }
 
-    /// The step lines are drawn at in `meter`: this grid's step when it is
-    /// at least [`MIN_LINE_POINTS`] wide, otherwise the finest straight step
-    /// at least [`FALLBACK_LINE_POINTS`] wide. The lines change only when
-    /// this does.
     pub fn display_step(&self, meter: Meter, points_per_quarter: f64) -> Step {
         let step = self.step(meter, points_per_quarter);
         if points(step, meter, points_per_quarter) < MIN_LINE_POINTS {
@@ -314,7 +269,6 @@ impl Grid {
         }
     }
 
-    /// One step finer (Ctrl+1): a narrower width, or a smaller size.
     pub fn narrower(&mut self) {
         if self.fixed {
             self.size = neighbour(&Size::LADDER, self.size, 1);
@@ -323,7 +277,6 @@ impl Grid {
         }
     }
 
-    /// One step coarser (Ctrl+2).
     pub fn wider(&mut self) {
         if self.fixed {
             self.size = neighbour(&Size::LADDER, self.size, -1);
@@ -332,7 +285,6 @@ impl Grid {
         }
     }
 
-    /// Triplet on or off (Ctrl+3).
     pub fn toggle_triplet(&mut self) {
         self.feel = if self.feel == Feel::Triplet {
             Feel::Straight
@@ -341,8 +293,6 @@ impl Grid {
         };
     }
 
-    /// Fixed or adaptive (Ctrl+5). Turning fixed takes the size closest to
-    /// the step showing now (`shown`).
     pub fn toggle_fixed(&mut self, shown: Step) {
         if !self.fixed {
             self.size = Size::nearest(shown, self.feel);
@@ -350,16 +300,12 @@ impl Grid {
         self.fixed = !self.fixed;
     }
 
-    /// What the grid is, for the screen: "1/16", "1/8T", "1/8.", "4 bars".
-    /// Shown whether or not snapping is on (the app shows that with a
-    /// magnet, MT-APP-13 run 1).
     pub fn label(&self, step: Step) -> String {
         step_label(step, self.feel)
     }
 }
 
 impl Size {
-    /// The fixed size nearest `step` (a step made with `feel`).
     fn nearest(step: Step, feel: Feel) -> Size {
         match step {
             Step::Bars(n) => Size::LADDER
@@ -380,13 +326,11 @@ impl Size {
     }
 }
 
-/// The name of `step`: "1/16", "1/8T", "1/8.", "1 bar", "4 bars".
 pub fn step_label(step: Step, feel: Feel) -> String {
     match step {
         Step::Bars(1) => "1 bar".into(),
         Step::Bars(n) => format!("{n} bars"),
         Step::Ticks(t) => {
-            // The note value this step was made from.
             let (straight, mark) = match feel {
                 Feel::Straight => (t.0, ""),
                 Feel::Triplet => (t.0 * 3 / 2, "T"),
@@ -401,7 +345,6 @@ pub fn step_label(step: Step, feel: Feel) -> String {
     }
 }
 
-/// How far apart `step` is on screen, in points (for bars, in this meter).
 fn points(step: Step, meter: Meter, points_per_quarter: f64) -> f64 {
     match step {
         Step::Bars(n) => f64::from(n) * meter.bar().as_quarters() * points_per_quarter,
@@ -409,9 +352,6 @@ fn points(step: Step, meter: Meter, points_per_quarter: f64) -> f64 {
     }
 }
 
-/// The finest step at least `min` points wide: a note value from 1/64 up
-/// to (not including) a bar, then 1, 2, 4... bars. Straight note values
-/// must divide the bar, so lines meet every bar line.
 fn adaptive(meter: Meter, points_per_quarter: f64, min: f64, feel: Feel) -> Step {
     let bar = meter.bar();
     for n in [64, 32, 16, 8, 4, 2, 1] {
@@ -430,7 +370,6 @@ fn adaptive(meter: Meter, points_per_quarter: f64, min: f64, feel: Feel) -> Step
     Step::Bars(n)
 }
 
-/// The item `by` places from `current` in `all`, held at the ends.
 fn neighbour<T: Copy + PartialEq>(all: &[T], current: T, by: isize) -> T {
     let at = all.iter().position(|x| *x == current).unwrap_or(0) as isize;
     all[(at + by).clamp(0, all.len() as isize - 1) as usize]
@@ -457,7 +396,6 @@ mod tests {
             snap: false,
             ..Grid::default()
         };
-        // 24 points a quarter: eighths.
         let eighth = Ticks(PPQ / 2);
         let t = Ticks(PPQ * 5 + PPQ / 4 + 7);
         assert_eq!(
@@ -469,15 +407,11 @@ mod tests {
 
     #[test]
     fn the_adaptive_grid_follows_the_zoom_and_the_width() {
-        let grid = Grid::default(); // Narrow: 12 points.
-        // 24 points a quarter: eighths are 12.
+        let grid = Grid::default();
         assert_eq!(grid.step(FOUR, 24.0), Step::Ticks(Ticks(PPQ / 2)));
-        // Zoomed in: down to 1/64 and no finer.
         assert_eq!(grid.step(FOUR, 10_000.0), Step::Ticks(Ticks(PPQ / 16)));
-        // Zoomed out: a bar, then 2, 4... bars.
         assert_eq!(grid.step(FOUR, 3.0), Step::Bars(1));
         assert_eq!(grid.step(FOUR, 1.0), Step::Bars(4));
-        // Wider widths take coarser steps at the same zoom.
         let wide = Grid {
             width: Width::Widest,
             ..grid
@@ -513,7 +447,6 @@ mod tests {
             fixed(Feel::Dotted).label(fixed(Feel::Dotted).step(FOUR, 1.0)),
             "1/8."
         );
-        // An adaptive triplet grid: eighth triplets are 8 points at 24.
         let triplet = Grid {
             feel: Feel::Triplet,
             width: Width::Narrowest,
@@ -524,7 +457,6 @@ mod tests {
 
     #[test]
     fn a_size_with_a_feel_lasts_whole_ticks_in_a_meter() {
-        // M8 D2: a drum sound's own quantize grid.
         assert_eq!(
             size_ticks(Size::Note(16), Feel::Straight, FOUR),
             Some(Ticks(PPQ / 4))
@@ -545,9 +477,6 @@ mod tests {
             size_ticks(Size::Bars(2), Feel::Straight, FOUR),
             Some(Ticks(PPQ * 8))
         );
-        // A bar is straight only: a triplet or dotted bar is not whole ticks
-        // in every meter, so the map editor does not offer one and
-        // `size_ticks` refuses it (review L8).
         assert_eq!(size_ticks(Size::Bars(1), Feel::Triplet, FOUR), None);
         let odd = Meter {
             numerator: 7,
@@ -576,7 +505,6 @@ mod tests {
             ..grid
         };
         assert_eq!(off.snap(&map(), Ticks(123), 1.0), Ticks(123));
-        // Every 4 bars: bar 3 (of 1-based 1..) goes back to bar 1, bar 4 on to 5.
         let bars = Grid {
             size: Size::Bars(4),
             ..grid
@@ -596,7 +524,6 @@ mod tests {
             feel: Feel::Dotted,
             ..Grid::default()
         };
-        // Dotted quarters in 4/4: 0, 1.5, 3, then the next bar at 4.
         let lines: Vec<Ticks> = grid
             .lines(&map(), Ticks::ZERO, Ticks::quarters(6), 100.0)
             .iter()
@@ -612,7 +539,6 @@ mod tests {
                 Ticks(PPQ * 11 / 2)
             ]
         );
-        // Just before the bar line, the bar line is nearer than 3 + 1.5.
         assert_eq!(
             grid.snap(&map(), Ticks(PPQ * 7 / 2 + 1), 100.0),
             Ticks::quarters(4)
@@ -621,7 +547,6 @@ mod tests {
 
     #[test]
     fn steps_count_from_each_bar_across_time_signature_changes() {
-        // Two bars of 4/4, then 7/8 (3.5 quarters a bar).
         let map = MeterMap::new(vec![
             MeterPoint {
                 at: Ticks::ZERO,
@@ -641,7 +566,6 @@ mod tests {
             size: Size::Note(4),
             ..Grid::default()
         };
-        // In 7/8, quarters from the bar at 8: 8, 9, 10, 11, then 11.5.
         let lines: Vec<(Ticks, Level)> = grid
             .lines(&map, Ticks::quarters(8), Ticks::quarters(12), 100.0)
             .iter()
@@ -658,9 +582,6 @@ mod tests {
 
     #[test]
     fn lines_thin_out_when_the_grid_is_finer_than_the_screen() {
-        // A fixed 1/64 grid at 1 point a quarter would be 0.06 points apart:
-        // the lines shown are every 4 bars (16 points) instead; snapping
-        // still uses 1/64.
         let grid = Grid {
             fixed: true,
             size: Size::Note(64),
@@ -686,7 +607,6 @@ mod tests {
         grid.wider();
         grid.wider();
         assert_eq!(grid.width, Width::Medium);
-        // Fixed takes the size showing now.
         grid.toggle_fixed(Step::Ticks(Ticks(PPQ / 2)));
         assert!(grid.fixed);
         assert_eq!(grid.size, Size::Note(8));

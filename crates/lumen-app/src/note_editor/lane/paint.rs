@@ -1,8 +1,3 @@
-//! Drawing the lane (M5 slice 4b): the plotting area under the piano roll,
-//! with stems (velocity) or a step trace (controllers), the picks, the hover
-//! and the gesture's preview. Like `note_editor::paint` it draws from data
-//! only; the document is never changed to show a preview.
-
 use eframe::egui::{
     Align2, Color32, FontId, Mesh, Painter, Pos2, Rect, Shape, Stroke, StrokeKind, pos2,
 };
@@ -15,39 +10,26 @@ use super::geometry::{HEAD_RADIUS, LaneKind, LaneView};
 use super::gesture::Resolved;
 use crate::theme;
 
-/// Stems: the margin they may sit beyond the body, width, head radii, and the
-/// spacing under which only the louder of two is drawn.
 const STEM_MARGIN: f32 = 8.0;
 const STEM_WIDTH: f32 = 2.0;
 const STEM_RADIUS: f32 = HEAD_RADIUS;
 const STEM_RADIUS_HOVER: f32 = 5.0;
 const STEM_SPACING: f32 = 3.0;
-/// The controller trace: its stroke, and its fill's alpha over the accent.
 const TRACE_WIDTH: f32 = 1.6;
 const TRACE_FILL_ALPHA: f32 = 0.16;
-/// Event dots: radii; drawn only below `DOT_LIMIT` visible points, on average
-/// `DOT_GAP` points apart.
 const POINT_R: f32 = 2.5;
 const POINT_R_HOVER: f32 = 4.0;
 const DOT_LIMIT: usize = 250;
 const DOT_GAP: f32 = 5.0;
-/// The preview's stroke, and the bend handle's stroke and dot radius.
 const PREVIEW_WIDTH: f32 = 1.4;
 const BEND_WIDTH: f32 = 1.6;
 const BEND_RADIUS: f32 = 5.0;
-/// Samples along a span or ramp curve; the share of the app colour that
-/// dims the time outside the clip.
 const CURVE_STEPS: usize = 64;
 const DIM: f32 = 0.55;
-/// Guides sit at these fractions of the range.
 const GUIDES: [f64; 3] = [0.25, 0.5, 0.75];
-/// Scale labels: inset from the column's right edge, and half a label's
-/// height (their centres stay that far from the column's ends).
 const SCALE_INSET: f32 = 6.0;
 const LABEL_HALF: f32 = theme::size::SCALE * 0.6;
 
-/// One event of the open lane: clip time, value in the lane's units and its
-/// index in the clip's `events`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct LanePoint {
     pub at: Ticks,
@@ -55,19 +37,17 @@ pub(crate) struct LanePoint {
     pub index: usize,
 }
 
-/// What the pointer is over.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum LaneHover {
     #[default]
     None,
-    /// The velocity head of `note`, on the stem `LaneScene::stems[stem]`.
-    Head { stem: usize, note: usize },
-    /// An index into `LaneScene::points`.
+    Head {
+        stem: usize,
+        note: usize,
+    },
     Point(usize),
 }
 
-/// A line or curve just drawn, whose shape can still be bent by dragging its
-/// dot.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct BendHandle {
     pub from: (Ticks, i32),
@@ -75,8 +55,6 @@ pub(crate) struct BendHandle {
     pub curve: Curve,
 }
 
-/// Where the handle's dot is: the curve's middle point mapped onto the
-/// line's ends.
 pub(crate) fn bend_dot(view: &LaneView, bend: &BendHandle) -> Pos2 {
     let [fx, fy] = bend.curve.point(0.5);
     let span = (bend.to.0 - bend.from.0).0 as f64;
@@ -85,34 +63,23 @@ pub(crate) fn bend_dot(view: &LaneView, bend: &BendHandle) -> Pos2 {
     pos2(view.x_of(at), view.y_of(value.round() as i32))
 }
 
-/// Everything [`paint_lane`] needs, as data.
 pub(crate) struct LaneScene<'a> {
     pub notes: &'a [Note],
-    /// The notes grouped by start (`velocity::stems`), in time order.
     pub stems: &'a [(Ticks, Vec<usize>)],
-    /// The picked notes (the velocity lane shows them lit).
     pub picked_notes: &'a [usize],
-    /// The open controller lane's events in time order (empty for velocity).
     pub points: &'a [LanePoint],
-    /// The picked events (`LanePoint::index`).
     pub picked_points: &'a [usize],
-    /// The note colour: the clip's.
     pub colour: Color32,
     pub clip_length: Ticks,
-    /// The grid lines of the visible time, as the ruler draws them.
     pub lines: &'a [Line],
     pub hover: LaneHover,
-    /// The gesture's result so far (`Resolved::Nothing` when none).
     pub preview: &'a Resolved,
     pub bend: Option<&'a BendHandle>,
 }
 
-/// Draws the lane inside `view.body`.
 pub(crate) fn paint_lane(painter: &Painter, view: &LaneView, scene: &LaneScene<'_>) {
     let palette = theme::p();
     let body = view.body;
-    // A head on the plot's left edge (a note at the clip's start) may reach
-    // over the scale beside it rather than show half of itself.
     let overhang = painter.with_clip_rect(
         body.with_min_x(body.left() - STEM_RADIUS_HOVER - theme::stroke::LIT)
             .intersect(painter.clip_rect()),
@@ -141,8 +108,6 @@ pub(crate) fn paint_lane(painter: &Painter, view: &LaneView, scene: &LaneScene<'
     }
 }
 
-/// Draws the value scale in `column` (the strip left of the plot): the
-/// range's top and bottom, and the centre line's 0 for pitch bend.
 pub(crate) fn paint_scale(painter: &Painter, view: &LaneView, column: Rect) {
     let palette = theme::p();
     painter.rect_filled(column, 0.0, palette.raised);
@@ -163,8 +128,6 @@ pub(crate) fn paint_scale(painter: &Painter, view: &LaneView, column: Rect) {
     );
 }
 
-/// The grid lines the ruler draws, at the same x (the lines are in
-/// arrangement time, as the ruler reads them).
 fn draw_grid(painter: &Painter, view: &LaneView, lines: &[Line]) {
     let palette = theme::p();
     let body = view.body;
@@ -186,7 +149,6 @@ fn draw_grid(painter: &Painter, view: &LaneView, lines: &[Line]) {
     }
 }
 
-/// Guides at the range's quarters; pitch bend's centre line replaces its half.
 fn draw_guides(painter: &Painter, view: &LaneView) {
     let palette = theme::p();
     let (low, high) = view.kind.range();
@@ -211,7 +173,6 @@ fn draw_guides(painter: &Painter, view: &LaneView) {
     }
 }
 
-/// Dims the time before the clip and after it, as the piano roll does.
 fn draw_outside_clip(painter: &Painter, view: &LaneView, clip_length: Ticks) {
     let palette = theme::p();
     let body = view.body;
@@ -234,13 +195,6 @@ fn draw_outside_clip(painter: &Painter, view: &LaneView, clip_length: Ticks) {
     }
 }
 
-/// The velocity lane: one stem per visible start, thinned so no more than one
-/// stem sits in each [`STEM_SPACING`], with a head for every note of the
-/// stem at its own velocity (lit when picked, greyed when muted, bigger when
-/// hovered). Heads are drawn in note order, so the higher index is on top.
-/// `painters` are the plot's, and the plot's with room for a head to reach
-/// past its left edge: a stem at or right of the edge uses the second, so
-/// its head shows whole; one scrolled past it is cut at the edge as before.
 fn draw_stems(painters: [&Painter; 2], view: &LaneView, scene: &LaneScene<'_>) {
     let body = view.body;
     let picked = Members::new(scene.picked_notes);
@@ -272,8 +226,6 @@ fn draw_stems(painters: [&Painter; 2], view: &LaneView, scene: &LaneScene<'_>) {
     }
 }
 
-/// One stem from the baseline up to its loudest head (lit up to the loudest
-/// picked one), and the heads of its notes.
 fn draw_chord(
     painter: &Painter,
     view: &LaneView,
@@ -336,7 +288,6 @@ fn draw_chord(
     }
 }
 
-/// One head; lit, a light disc with an accent ring.
 fn draw_head(painter: &Painter, head: Pos2, colour: Color32, radius: f32, lit: bool) {
     let palette = theme::p();
     if lit {
@@ -351,7 +302,6 @@ fn draw_head(painter: &Painter, head: Pos2, colour: Color32, radius: f32, lit: b
     }
 }
 
-/// The controller lanes: the step trace, its fill and the event dots.
 fn draw_trace(painter: &Painter, view: &LaneView, scene: &LaneScene<'_>) {
     let palette = theme::p();
     let body = view.body;
@@ -374,7 +324,6 @@ fn draw_trace(painter: &Painter, view: &LaneView, scene: &LaneScene<'_>) {
     draw_points(painter, view, scene);
 }
 
-/// The event dots of the visible points, when [`dots_visible`] allows.
 fn draw_points(painter: &Painter, view: &LaneView, scene: &LaneScene<'_>) {
     let palette = theme::p();
     let (first, end) = visible_points(view, scene.points);
@@ -404,8 +353,6 @@ fn draw_points(painter: &Painter, view: &LaneView, scene: &LaneScene<'_>) {
     }
 }
 
-/// The gesture's preview, drawn in text colour over the lane. It never
-/// touches the document.
 fn draw_preview(painter: &Painter, view: &LaneView, scene: &LaneScene<'_>) {
     let palette = theme::p();
     let ink = Stroke::new(PREVIEW_WIDTH, palette.text);
@@ -447,7 +394,6 @@ fn draw_preview(painter: &Painter, view: &LaneView, scene: &LaneScene<'_>) {
         } => {
             let from = (from.0, i32::from(from.1));
             let to = (to.0, i32::from(to.1));
-            // The bend handle draws this same curve while it is dragged.
             if scene.bend.is_none() {
                 painter.line(sample_span(view, from, to, *curve), ink);
             }
@@ -478,7 +424,6 @@ fn draw_preview(painter: &Painter, view: &LaneView, scene: &LaneScene<'_>) {
     }
 }
 
-/// A velocity preview: a stem and a hollow head, skipped when out of view.
 fn preview_head(painter: &Painter, view: &LaneView, at: Ticks, value: i32, ink: Stroke) {
     if !view.visible(at) {
         return;
@@ -489,7 +434,6 @@ fn preview_head(painter: &Painter, view: &LaneView, at: Ticks, value: i32, ink: 
     painter.circle(head, STEM_RADIUS, Color32::TRANSPARENT, ink);
 }
 
-/// The fill of a step trace: a rectangle per run, in one mesh.
 fn fill_runs(painter: &Painter, runs: &[StepRun], base: f32, colour: Color32) {
     let mut mesh = Mesh::default();
     for run in runs {
@@ -499,8 +443,6 @@ fn fill_runs(painter: &Painter, runs: &[StepRun], base: f32, colour: Color32) {
     painter.add(Shape::from(mesh));
 }
 
-/// The range of `points` (time order) whose x lies in the body, as
-/// `first..end`. `end` is at least `first`.
 fn visible_points(view: &LaneView, points: &[LanePoint]) -> (usize, usize) {
     let (lo, hi) = (view.body.left(), view.body.right());
     let first = points.partition_point(|p| view.x_of(p.at) < lo);
@@ -508,7 +450,6 @@ fn visible_points(view: &LaneView, points: &[LanePoint]) -> (usize, usize) {
     (first, end)
 }
 
-/// One run of a step trace: the value `y` holds from `x0` to `x1`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct StepRun {
     pub x0: f32,
@@ -516,9 +457,6 @@ pub(crate) struct StepRun {
     pub y: f32,
 }
 
-/// The step trace of `points` (time order) as runs over the x range `lo..=hi`.
-/// A value holds to the next point, the last to `end_x`. The run from before
-/// the left edge starts at `lo`; nothing is held before the first point.
 pub(crate) fn step_runs<P: Copy>(
     view: &LaneView,
     points: &[P],
@@ -546,21 +484,16 @@ pub(crate) fn step_runs<P: Copy>(
     runs
 }
 
-/// The polyline of `runs`: consecutive runs join by a vertical step.
 pub(crate) fn step_polyline(runs: &[StepRun]) -> Vec<Pos2> {
     runs.iter()
         .flat_map(|run| [pos2(run.x0, run.y), pos2(run.x1, run.y)])
         .collect()
 }
 
-/// Whether event dots show: fewer than [`DOT_LIMIT`] visible points, on
-/// average [`DOT_GAP`] points apart. `span` is their x distance, first to last.
 pub(crate) fn dots_visible(count: usize, span: f32) -> bool {
     count < DOT_LIMIT && (count < 2 || span / (count - 1) as f32 >= DOT_GAP)
 }
 
-/// A stem as the velocity lane thins them: its index into `LaneScene::stems`,
-/// its x and its head's velocity.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct StemMark {
     pub index: usize,
@@ -568,8 +501,6 @@ pub(crate) struct StemMark {
     pub velocity: u8,
 }
 
-/// Thins stems (in x order) to none closer than [`STEM_SPACING`]: the louder
-/// of two is kept (the earlier on a tie); the hovered stem always wins.
 pub(crate) fn thin_stems(
     marks: impl Iterator<Item = StemMark>,
     hovered: Option<usize>,
@@ -589,7 +520,6 @@ pub(crate) fn thin_stems(
     kept
 }
 
-/// The sampled line of a span shaped by `curve`: [`CURVE_STEPS`] + 1 points.
 pub(crate) fn sample_span(
     view: &LaneView,
     from: (Ticks, i32),
@@ -607,13 +537,10 @@ pub(crate) fn sample_span(
         .collect()
 }
 
-/// The lane value `t` of the way along a span or ramp (`t` by time, 0 to 1),
-/// unrounded: the curve's level at `t`, between the two ends.
 fn curve_level(from: (Ticks, i32), to: (Ticks, i32), curve: &Curve, t: f32) -> f64 {
     f64::from(from.1) + f64::from(to.1 - from.1) * f64::from(curve.at(t))
 }
 
-/// How far `at` is from `from` towards `to`, as 0 to 1 by time, clamped.
 fn fraction(from: (Ticks, i32), to: (Ticks, i32), at: Ticks) -> f32 {
     let span = (to.0 - from.0).0;
     if span == 0 {
@@ -622,18 +549,15 @@ fn fraction(from: (Ticks, i32), to: (Ticks, i32), at: Ticks) -> f32 {
     (((at - from.0).0 as f64) / span as f64).clamp(0.0, 1.0) as f32
 }
 
-/// A scale label's y, kept inside the column.
 pub(crate) fn label_y(y: f32, column: Rect) -> f32 {
     let (top, bottom) = (column.top() + LABEL_HALF, column.bottom() - LABEL_HALF);
     y.max(top).min(bottom)
 }
 
-/// Whether a label at `y` has room beside labels at `others`.
 fn clear_of(y: f32, others: &[f32]) -> bool {
     others.iter().all(|o| (o - y).abs() >= 2.0 * LABEL_HALF)
 }
 
-/// The scale's `(y, text)` labels: the range's ends and pitch bend's 0.
 pub(crate) fn scale_labels(view: &LaneView) -> Vec<(f32, String)> {
     let (low, high) = view.kind.range();
     let top = view.y_of(high);
@@ -644,7 +568,6 @@ pub(crate) fn scale_labels(view: &LaneView) -> Vec<(f32, String)> {
     if view.kind == LaneKind::PitchBend && clear(top) && clear(bottom) {
         labels.push((centre, "0".to_owned()));
     } else if view.kind != LaneKind::PitchBend {
-        // The middle of 0 to 127, as the mock-up's 127 / 64 / 0 scale.
         let middle = view.y_of((low + high + 1) / 2);
         if clear_of(middle, &[top, bottom]) {
             labels.push((middle, ((low + high + 1) / 2).to_string()));
@@ -653,7 +576,6 @@ pub(crate) fn scale_labels(view: &LaneView) -> Vec<(f32, String)> {
     labels
 }
 
-/// A point clamped into `body`.
 fn clamp_into(body: Rect, p: Pos2) -> Pos2 {
     pos2(
         p.x.max(body.left()).min(body.right()),
@@ -661,7 +583,6 @@ fn clamp_into(body: Rect, p: Pos2) -> Pos2 {
     )
 }
 
-/// Membership in a pick list: bisection when sorted, a scan otherwise.
 struct Members<'a> {
     list: &'a [usize],
     sorted: bool,
@@ -691,7 +612,6 @@ mod tests {
     use super::*;
     use crate::timeview::TimeView;
 
-    /// The geometry tests' view: 40 points a beat from x 100, y 50 to 250.
     fn lane(kind: LaneKind) -> LaneView {
         LaneView {
             body: Rect::from_min_max(pos2(100.0, 50.0), pos2(500.0, 250.0)),
@@ -738,7 +658,6 @@ mod tests {
     #[test]
     fn the_bend_dot_of_a_linear_curve_lies_on_the_line_between_its_ends() {
         let view = lane(LaneKind::Controller(7));
-        // Each midpoint value is whole, so the dot is exact.
         let ends = [
             ((Ticks::ZERO, 0), (beats(4.0), 100)),
             ((beats(1.0), 90), (beats(3.0), 10)),
@@ -786,10 +705,8 @@ mod tests {
                 pos2(260.0, y30),
             ]
         );
-        // The level held from before the left edge starts at the edge.
         let edge = step_runs(&view, &points, pick, end, 150.0, 170.0);
         assert_eq!(edge, [run(150.0, 170.0, y60)]);
-        // Nothing is held before the first point.
         let late = step_runs(&view, &points[1..2], pick, end, 100.0, 500.0);
         assert_eq!(late, [run(140.0, 260.0, y60)]);
     }
@@ -815,7 +732,6 @@ mod tests {
         let kept = thin_stems(marks.iter().copied(), None);
         assert_eq!(kept, [mark(1, 101.5, 90), mark(3, 120.0, 70)]);
         let hovered = thin_stems(marks.iter().copied(), Some(0));
-        // Stem 1 yields to the hovered 0, and stem 2 is then 4 points from it.
         assert_eq!(
             hovered,
             [mark(0, 100.0, 40), mark(2, 104.0, 50), mark(3, 120.0, 70)]
@@ -849,7 +765,6 @@ mod tests {
         assert_eq!(labels(&lane(LaneKind::Controller(7))), ["127", "0", "64"]);
         assert_eq!(labels(&lane(LaneKind::Velocity)), ["127", "1", "64"]);
         assert_eq!(labels(&lane(LaneKind::PitchBend)), ["8191", "-8192", "0"]);
-        // Too short for a centre label beside the ends: it is left out.
         let short = Rect::from_min_max(pos2(100.0, 50.0), pos2(500.0, 60.0));
         let crowded = LaneView {
             body: short,

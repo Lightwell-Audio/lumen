@@ -1,17 +1,3 @@
-//! Overdub at clip boundaries (ADR-0058), end to end: the owner's report on
-//! MIDI Arrangement Overdub.
-//!
-//! 1. Recording Overdub over an empty lane shows its clip from the moment
-//!    recording begins, before anything is played.
-//! 2. Overdub begun inside a clip, over a note that is sounding: the new
-//!    clip keeps the note whole, so it carries on across the boundary
-//!    instead of looking cut off there.
-//! 3. That note sustains while recording and when played back: it is
-//!    struck once and let go once, not cut at the boundary or struck again
-//!    at each commit (about once a second).
-//! 4. Played from the new clip's start, the note is not struck again: it
-//!    belongs to the clip it began in (ADR-0059).
-
 use lumen_core::time::Ticks;
 use lumen_project::edit::seams;
 use lumen_project::model::{Id, Note};
@@ -22,7 +8,6 @@ use super::record::{
     beats, clips_of, heard_project, keyboard, launch, play_to, reach, record, stop, track, track_at,
 };
 
-/// The note-ons and note-offs the fake output was sent for `pitch`.
 fn ons_and_offs(fake: &lumen_midi::fake::FakeControl, pitch: u8) -> (usize, usize) {
     let sent: Vec<Vec<u8>> = fake
         .sent()
@@ -51,8 +36,6 @@ fn an_overdub_over_an_empty_lane_shows_its_clip_before_any_note() {
     let drawn = lumen.app().drawn_clips(0);
     assert_eq!(drawn.len(), 1, "the clip shows at once: {drawn:?}");
     assert_eq!(drawn[0].start, Ticks::ZERO, "from where recording began");
-    // Past a commit (about once a second at 120 BPM) the clip is in the
-    // project too, and it stays when nothing was played.
     reach(&mut lumen, beats(3.0));
     let stopped = stop(&mut lumen);
     let clips = clips_of(&lumen);
@@ -65,7 +48,6 @@ fn an_overdub_over_an_empty_lane_shows_its_clip_before_any_note() {
 
 #[test]
 fn a_note_held_where_overdub_begins_sustains_across_the_new_clip() {
-    // At 480 BPM a beat lasts 125 ms: beats 3 to 24 hold two commits.
     let (mut project, fake) = heard_project(vec![]);
     let mut keys = track_at((0, 32), vec![Note::new(beats(1.0), beats(30.0), 50, 100)]);
     keys.midi_to = project.tracks[0].midi_to.clone();
@@ -84,7 +66,6 @@ fn a_note_held_where_overdub_begins_sustains_across_the_new_clip() {
     );
     stop(&mut lumen);
 
-    // The new clip keeps the note whole, so it carries on through it.
     let clips = clips_of(&lumen);
     assert_eq!(clips.len(), 3, "before, the take, after: {clips:?}");
     assert_eq!(clips[0].id, Id(3));
@@ -93,10 +74,6 @@ fn a_note_held_where_overdub_begins_sustains_across_the_new_clip() {
     assert_eq!(carried[1].len(), 1, "the take carries the note on");
     assert_eq!(carried[2].len(), 1, "and so does the rest of the clip");
 
-    // Played back from the start, it sounds once from beat 1 to beat 31.
-    // The stop lets the held note go, and the sender thread delivers that
-    // off a moment later: count from when it has reached the port, or a slow
-    // machine counts it against this pass.
     lumen.wait_for("the stop's note-off at the port", |_| {
         ons_and_offs(&fake, 50).1 >= 1
     });
@@ -111,8 +88,6 @@ fn a_note_held_where_overdub_begins_sustains_across_the_new_clip() {
     );
     stop(&mut lumen);
 
-    // Played from the take's start (a click on its header puts the playhead
-    // there), the note is not struck: it began in the clip before.
     let take = clips[1].clone();
     let ctx = lumen.harness.ctx.clone();
     let r = lumen

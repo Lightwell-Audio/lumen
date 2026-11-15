@@ -51,7 +51,6 @@ fn whole(clips: &[Arc<Clip>]) -> Vec<Member<'_>> {
         .collect()
 }
 
-/// `(start, length, pitch)` of a run's notes, in quarters, sorted.
 fn played(run: &[Member<'_>]) -> Vec<(i64, i64, u8)> {
     let mut out: Vec<_> = run_notes(run)
         .iter()
@@ -63,7 +62,6 @@ fn played(run: &[Member<'_>]) -> Vec<(i64, i64, u8)> {
 
 #[test]
 fn a_note_held_across_a_split_plays_whole_as_one_note() {
-    // A note from 2 to 10 split at 4 and 6, with a short one on each side.
     let clips = [
         clip(1, 0, 4, vec![note(2, 8, 60), note(0, 1, 62)]),
         clip(2, 4, 2, vec![note(-2, 8, 60), note(1, 1, 64)]),
@@ -83,7 +81,6 @@ fn a_note_held_across_a_split_plays_whole_as_one_note() {
 
 #[test]
 fn a_clip_that_does_not_hold_the_note_cuts_it_at_the_seam() {
-    // Moved up against the first clip, the second holds no such note.
     let clips = [
         clip(1, 0, 4, vec![note(2, 8, 60)]),
         clip(2, 4, 4, vec![note(0, 1, 64)]),
@@ -95,9 +92,6 @@ fn a_clip_that_does_not_hold_the_note_cuts_it_at_the_seam() {
 
 #[test]
 fn a_hidden_capture_sharing_a_start_does_not_carry_the_old_note_on() {
-    // The old note sounds 1 to 3; a punched take from 2 keeps a recorded
-    // note of the same pitch hidden from 1 to 5. The old note stops at 2
-    // and nothing sounds in the take's window.
     let clips = [
         clip(1, 0, 2, vec![note(1, 2, 60)]),
         clip(2, 2, 2, vec![note(-1, 4, 60)]),
@@ -266,7 +260,6 @@ fn a_split_loop_seam_does_not_cut_a_sustained_source_note() {
 
 #[test]
 fn a_run_cut_short_stops_at_its_end() {
-    // A Replace take records over the first clip from 3: no seam.
     let clips = [
         clip(1, 0, 4, vec![note(2, 8, 60)]),
         clip(2, 4, 4, vec![note(-2, 8, 60)]),
@@ -287,11 +280,11 @@ fn bounded_replace_suppresses_only_inside_the_punch_window() {
         0,
         12,
         vec![
-            note(1, 1, 60),  // before punch-in
-            note(3, 5, 61),  // cut at punch-in
-            note(4, 1, 62),  // inside
-            note(8, 1, 63),  // at punch-out
-            note(11, 1, 64), // after punch-out
+            note(1, 1, 60),
+            note(3, 5, 61),
+            note(4, 1, 62),
+            note(8, 1, 63),
+            note(11, 1, 64),
         ],
     );
     let suppression = Suppression {
@@ -515,8 +508,6 @@ fn carried_note_does_not_resume_after_a_bounded_replace_window() {
 
 #[test]
 fn a_run_is_known_by_its_first_clip_while_the_seams_after_it_move() {
-    // An Overdub begun at 4 inside a clip, committed twice: the notes keep
-    // their places and lengths in the run, so the engine keeps them.
     let commit = |end: i64| {
         [
             clip(1, 0, 4, vec![note(2, 8, 60)]),
@@ -560,10 +551,6 @@ fn sounding_keys_follow_a_note_across_a_seam() {
     assert!(sounding_keys(&project, &track, q(10)).is_empty());
 }
 
-// ------------------------------------------------- translation (M8 D0)
-
-/// A kit whose sounds sit on other notes, one muted, one soloed and one with
-/// a length override.
 fn kit() -> DrumMap {
     use lumen_project::model::{DrumIcon, DrumMap, Sound};
     let mut sounds = vec![
@@ -584,7 +571,6 @@ fn voiced<'a>(clips: &'a [Arc<Clip>], map: &'a DrumMap) -> Vec<Member<'a>> {
         .collect()
 }
 
-/// `(start, length, key, channel)` of what a run plays, in quarters.
 fn heard(run: &[Member<'_>]) -> Vec<(i64, i64, u8, Option<u8>)> {
     let mut out: Vec<_> = run_notes(run)
         .iter()
@@ -611,14 +597,7 @@ fn a_map_plays_its_sounds_notes_channels_and_lengths_and_leaves_a_stranger_alone
     let members = voiced(&clips, &map);
     assert_eq!(
         heard(&members),
-        vec![
-            (0, 4, 60, None),
-            // The snare is muted: nothing plays, and no note is left behind.
-            (2, 1, 64, Some(9)),
-            // A note with no sound plays as written, on the track's channel
-            // (cut where its clip ends, as any note is).
-            (3, 1, 70, None),
-        ]
+        vec![(0, 4, 60, None), (2, 1, 64, Some(9)), (3, 1, 70, None),]
     );
 }
 
@@ -643,7 +622,6 @@ fn a_solo_in_a_map_silences_the_sounds_it_does_not_name() {
 #[test]
 fn a_map_carries_a_note_across_a_seam_and_bakes_a_loops_repeats() {
     let map = kit();
-    // A kick held past the seam: one note, in the sound's note, through it.
     let clips = [
         clip(1, 0, 4, vec![note(2, 4, 36)]),
         clip(2, 4, 4, vec![Note::new(q(-2), q(4), 36, 100)]),
@@ -653,7 +631,6 @@ fn a_map_carries_a_note_across_a_seam_and_bakes_a_loops_repeats() {
         vec![(2, 4, 60, None)],
         "the sound's note sounds on through the seam"
     );
-    // A loop's repeats keep the sound's note, its channel and its override.
     let mut looping = (*clip(3, 0, 6, vec![note(0, 1, 36), note(1, 2, 42)])).clone();
     looping.loop_length = Some(q(3));
     let looping = Arc::new(looping);
@@ -683,28 +660,21 @@ fn a_note_left_out_of_a_window_or_muted_in_the_clip_never_reaches_the_map() {
 
 #[test]
 fn one_kit_is_shared_by_every_run_that_plays_it() {
-    // A map is shared, not copied into every cached run: a project of many
-    // mapped clips holds one kit (M8 D0 review L7).
     let map = kit();
     let mut cache = Cache::default();
     let first = cache.shared(Some(&map)).expect("a map");
     let second = cache.shared(Some(&map)).expect("a map");
     assert!(Arc::ptr_eq(&first, &second), "the same map is one copy");
-    // An edit is another copy, holding what the edit says.
     let mut edited = map.clone();
     edited.sounds[0].output = 61;
     let third = cache.shared(Some(&edited)).expect("a map");
     assert!(!Arc::ptr_eq(&first, &third));
     assert_eq!(third.sounds[0].output, 61);
-    // A track with no map shares nothing.
     assert!(cache.shared(None).is_none());
 }
 
 #[test]
 fn a_long_mapped_clip_reads_the_map_once_and_translates_every_note() {
-    // 100,000 notes through a 47-sound kit: the map is read once for the run
-    // (`Voice`), so the work is per note, not per note and sound
-    // (M8 D0 review L7).
     let map = lumen_project::drums::presets::Preset::GENERAL_MIDI.map(Id(60));
     let step = q(1).0 / 4;
     let notes: Vec<Note> = (0..100_000)
@@ -719,8 +689,6 @@ fn a_long_mapped_clip_reads_the_map_once_and_translates_every_note() {
     let long = Arc::new(long);
     let out = run_notes(&voiced(std::slice::from_ref(&long), &map));
     assert_eq!(out.len(), 100_000);
-    // Each note plays as its sound: General MIDI's kick, rim, snare and clap
-    // play the notes they answer to.
     for n in &out {
         assert_eq!(n.pitch, 36 + (n.start.0 / step % 4) as u8);
     }

@@ -1,9 +1,3 @@
-//! The browser's Project media tab (M9 slice R4b, ADR-0106): every audio file
-//! the project holds, which ones are missing or unused, and the actions on
-//! them. It decides nothing about files: `app::media_pool` does that, and
-//! this draws the state and says what was clicked. What the app does with
-//! what was clicked is `app::browser::media_tab` (audit M12).
-
 use eframe::egui::text::{LayoutJob, TextFormat, TextWrapping};
 use eframe::egui::{self, Color32, FontId, Id, Painter, Rect, Sense, Ui, pos2, vec2};
 use lumen_project::model::Id as MediaId;
@@ -13,16 +7,12 @@ use crate::pool::Row;
 use crate::{fonts, motion, theme, widgets};
 
 pub(crate) const ROW_H: f32 = 44.0;
-/// Room inside a row, either side.
 pub(crate) const PAD: f32 = 6.0;
-/// What the strays card needs below the list.
 pub(crate) const STRAYS_H: f32 = 84.0;
 
-/// What the pointer or a key did in the list.
 #[derive(Default)]
 pub(crate) struct Out {
     pub(crate) select: Option<MediaId>,
-    /// Double-click or Enter: show where it is used, or locate it.
     pub(crate) open: Option<MediaId>,
     pub(crate) locate: Option<MediaId>,
     pub(crate) reveal: Option<std::path::PathBuf>,
@@ -30,8 +20,6 @@ pub(crate) struct Out {
     pub(crate) select_clips: Option<MediaId>,
 }
 
-/// The words the empty list says: nothing in the project at all, nothing
-/// that matches, and the words of a filter that has nothing to say.
 pub(crate) fn empty_words(
     nothing_at_all: bool,
     filter: Filter,
@@ -54,7 +42,6 @@ pub(crate) fn empty_words(
     }
 }
 
-/// One row: the name and where it stands, then what it is.
 pub(crate) fn media_row(
     ui: &mut Ui,
     rect: Rect,
@@ -172,8 +159,6 @@ fn state_word(row: &Row) -> String {
     }
 }
 
-/// The second line: where it lives and what it is. A missing file says where
-/// the project looked.
 fn detail_line(row: &Row, project_rate: u32) -> String {
     if row.missing {
         return format!("Was {}", row.path);
@@ -192,8 +177,6 @@ fn detail_line(row: &Row, project_rate: u32) -> String {
         channels,
         crate::files::describe_size(row.size_bytes),
     );
-    // The rate is said when it is not the project's: that is the file the
-    // engine converts.
     if row.sample_rate != project_rate {
         let khz = f64::from(row.sample_rate) / 1000.0;
         line.push_str(&format!(" \u{00B7} {khz} kHz"));
@@ -201,7 +184,6 @@ fn detail_line(row: &Row, project_rate: u32) -> String {
     line
 }
 
-/// A line of `text` cut with "…" to fit `width`.
 fn fit(
     painter: &Painter,
     text: &str,
@@ -214,7 +196,6 @@ fn fit(
     painter.layout_job(job)
 }
 
-/// A card on the pane's ground, the width of the pane.
 pub(crate) fn card(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
     egui::Frame::new()
         .fill(theme::p().raised)
@@ -228,7 +209,6 @@ pub(crate) fn card(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
     ui.add_space(theme::space::XS);
 }
 
-/// A sentence that wraps within the card.
 pub(crate) fn wrapped(ui: &mut Ui, text: &str) {
     ui.add(
         egui::Label::new(
@@ -240,7 +220,6 @@ pub(crate) fn wrapped(ui: &mut Ui, text: &str) {
     );
 }
 
-/// A quieter line under the sentence.
 pub(crate) fn detail(ui: &mut Ui, text: &str) {
     ui.add(
         egui::Label::new(
@@ -252,7 +231,6 @@ pub(crate) fn detail(ui: &mut Ui, text: &str) {
     );
 }
 
-/// A thin bar: a sunk trough and the accent for how far.
 pub(crate) fn bar(ui: &mut Ui, fraction: f32) {
     let (rect, _) =
         ui.allocate_exact_size(vec2(ui.available_width(), theme::space::S), Sense::hover());
@@ -273,7 +251,6 @@ pub(crate) fn count_files(n: usize) -> String {
     }
 }
 
-/// The folder a found file is in, for the report.
 pub(crate) fn parent_of(path: &std::path::Path) -> String {
     path.parent()
         .map_or_else(|| path.display().to_string(), |p| p.display().to_string())
@@ -289,7 +266,6 @@ mod tests {
             empty_words(true, Filter::All, true).0,
             "No audio in this project"
         );
-        // No words typed: the filter itself is what has nothing to show.
         assert_eq!(
             empty_words(false, Filter::Missing, true).0,
             "No file is missing"
@@ -298,7 +274,6 @@ mod tests {
             empty_words(false, Filter::Unused, true).0,
             "Every file is used"
         );
-        // Words typed over a filter: they are what the person can clear.
         assert_eq!(
             empty_words(false, Filter::Unused, false).0,
             "No files match"

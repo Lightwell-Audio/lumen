@@ -1,7 +1,3 @@
-//! Format v27 (M7b slice E1): an audio clip may be reversed and may have its
-//! polarity inverted. Older files hold neither; a flag on a MIDI clip is
-//! refused with a reason.
-
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -42,7 +38,6 @@ fn clip(content: ClipContent) -> Clip {
     }
 }
 
-/// The model the v27 golden file must always load as. Never change it.
 fn golden_v27_expected() -> Project {
     let mut track = Track::new(Id(2000), "Reversed", TrackKind::Audio, Color(0x4F81BD));
     let mut flagged = clip(ClipContent::Audio {

@@ -1,14 +1,9 @@
-//! The keyboard side of an audio track's input (M9 slice R1): the commands
-//! that step the selected audio tracks through the inputs and through the
-//! monitor modes, for those who never open the chip's menu.
-
 use lumen_project::model::{Id, Monitor, TrackKind};
 
 use crate::App;
 use crate::recording::audio_input::next_input;
 
 impl App {
-    /// The selected audio tracks.
     pub(crate) fn selected_audio_tracks(&self) -> Vec<Id> {
         self.document
             .project()
@@ -19,8 +14,6 @@ impl App {
             .collect()
     }
 
-    /// Steps the selected audio tracks to the next input (the first track's
-    /// decides which; the others follow it).
     pub(crate) fn next_input_for_selected(&mut self) {
         let ids = self.selected_audio_tracks();
         let Some(first) = self
@@ -36,7 +29,6 @@ impl App {
         self.document.set_audio_input(&ids, next);
     }
 
-    /// Steps the selected audio tracks' monitor mode: Auto, In, Off.
     pub(crate) fn next_monitor_for_selected(&mut self) {
         let ids = self.selected_audio_tracks();
         let Some(first) = self

@@ -1,29 +1,13 @@
-//! The compact card (D2, the owner's A): as wide as a full card, 116 pt
-//! tall. A 36 pt header with the power and the window's buttons at the small
-//! control's height, one row of the strip's first four knobs at 18 pt, and a
-//! 24 pt footer with the signal and latency and "All N", which opens the
-//! parameter panel. The preset, Learn and All are also in the card's menu
-//! (right-click, or the name). A card that is not running says what happened
-//! in the knobs' place, whole, and puts its buttons in the footer; such a
-//! card is as tall as its words need.
-
 use super::*;
 use crate::chain::geometry::{COMPACT_FOOTER, COMPACT_H, COMPACT_HEADER};
 
-/// The knobs' row starts this far under the header, and sits this far in
-/// from the card's sides.
 const ROW_TOP: f32 = theme::space::XS;
 const ROW_SIDE: f32 = theme::size::CARD_INSET;
-/// A message's words: their line, and the room above and below them.
 const LINE: f32 = theme::size::CAPTION_LINE;
 const WORDS_TOP: f32 = theme::space::S;
 const WORDS_BOTTOM: f32 = theme::space::XS;
-/// A footer with buttons has this much room above and below them (DESIGN:
-/// a control never touches a card's edge).
 const BUTTONS_PAD: f32 = theme::size::CARD_INSET;
 
-/// What a card that is not running (or has lost its sidechain's source)
-/// says in its knobs' place.
 pub(in crate::chain) struct Message {
     title: &'static str,
     warn: bool,
@@ -31,7 +15,6 @@ pub(in crate::chain) struct Message {
     buttons: Vec<(&'static str, Action)>,
 }
 
-/// What `look`'s compact card says, if anything.
 fn message<'l>(look: &'l Look<'_>) -> Option<&'l Message> {
     look.message.get_or_init(|| message_of(look)).as_ref()
 }
@@ -92,7 +75,6 @@ fn message_of(look: &Look<'_>) -> Option<Message> {
     }
 }
 
-/// The width of a footer button with `label`.
 fn button_width(painter: &Painter, label: &str) -> f32 {
     let font = FontId::proportional(theme::size::CAPTION);
     painter
@@ -102,7 +84,6 @@ fn button_width(painter: &Painter, label: &str) -> f32 {
         + 2.0 * theme::space::M
 }
 
-/// How the footer's buttons sit: on one row when they fit, else one a row.
 fn button_rows(painter: &Painter, buttons: &[(&str, Action)], room: f32) -> usize {
     if buttons.is_empty() {
         return 0;
@@ -115,7 +96,6 @@ fn button_rows(painter: &Painter, buttons: &[(&str, Action)], room: f32) -> usiz
     if total <= room { 1 } else { buttons.len() }
 }
 
-/// The footer's height: 24 pt, or room for the buttons with air round them.
 fn footer_height(rows: usize) -> f32 {
     if rows == 0 {
         COMPACT_FOOTER
@@ -125,7 +105,6 @@ fn footer_height(rows: usize) -> f32 {
     }
 }
 
-/// The words' height at the card's width.
 fn words_height(painter: &Painter, words: &str, width: f32) -> f32 {
     let font = FontId::proportional(theme::size::CAPTION);
     let mut job = egui::text::LayoutJob::simple(words.to_owned(), font, Color32::WHITE, width);
@@ -133,8 +112,6 @@ fn words_height(painter: &Painter, words: &str, width: f32) -> f32 {
     painter.layout_job(job).size().y.max(LINE)
 }
 
-/// How tall the compact card of `look` is: 116 pt, or what its message
-/// needs, whole.
 pub(in crate::chain) fn height(ui: &Ui, look: &Look<'_>) -> f32 {
     if look.folded {
         return COMPACT_H;
@@ -154,7 +131,6 @@ pub(in crate::chain) fn height(ui: &Ui, look: &Look<'_>) -> f32 {
     need.max(COMPACT_H).ceil()
 }
 
-/// Paints the compact card in `rect`; `body` is the card's own response.
 pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body: Response) -> Out {
     let palette = *theme::p();
     let pixels = ui.pixels_per_point();
@@ -213,7 +189,6 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body
         track_band(&painter, header, RADIUS, look.track_color);
     }
 
-    // The header: power, name and vendor, the window's button.
     let small = theme::size::CONTROL_SMALL;
     let power_rect = Rect::from_center_size(
         pos2(header.left() + side + small / 2.0, header.center().y),
@@ -265,8 +240,6 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body
         vendor_font,
         palette.text_secondary,
     );
-    // The name opens the card's menu; the preset menu opens under it (from
-    // the card's menu, or the command).
     let names = Rect::from_min_max(
         pos2(text_left, header.top() + theme::space::XS),
         pos2(text_right, header.bottom() - theme::space::XS),
@@ -285,7 +258,6 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body
     });
     let name = name.on_hover_text("The device's menu: presets, Learn, every parameter and more");
 
-    // Between header and footer: the knobs, or what replaces them.
     let middle = Rect::from_min_max(header.left_bottom(), pos2(rect.right(), footer.top()));
     let mut action = None;
     match message {
@@ -336,7 +308,6 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body
         }
         None => match look.face {
             Face::Loading => {
-                // Waiting: the trough the knobs will stand in.
                 let trough = Rect::from_center_size(
                     middle.center(),
                     vec2(middle.width() - 2.0 * side, theme::size::CONTROL),
@@ -372,7 +343,6 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body
         },
     }
 
-    // The footer: a chooser or the signal on the left, "All N" on the right.
     let mono = FontId::monospace(theme::size::MONO_SMALL);
     let (signal, held) = footer_words(look);
     let words = if held.is_empty() {
@@ -414,7 +384,6 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body
         );
     }
 
-    // The edge, as a full card's.
     painter.rect_filled(
         rect,
         radius,
@@ -445,8 +414,6 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body
     }
 }
 
-/// "All 873 ▸" at the right of `footer`: the bare word, which opens every
-/// parameter. Returns whether it was clicked, and the width it took.
 fn all_word(ui: &mut Ui, footer: Rect, id: egui::Id, count: usize) -> (bool, f32) {
     let palette = *theme::p();
     let font = FontId::proportional(theme::size::CAPTION);
@@ -454,7 +421,6 @@ fn all_word(ui: &mut Ui, footer: Rect, id: egui::Id, count: usize) -> (bool, f32
     let galley = ui
         .painter()
         .layout_no_wrap(words, font, palette.text_secondary);
-    // The arrow is drawn: the interface fonts have no "▸".
     let arrow = theme::space::XS;
     let width = galley.size().x + theme::space::XS + arrow;
     let rect = Rect::from_min_size(
@@ -497,9 +463,6 @@ fn all_word(ui: &mut Ui, footer: Rect, id: egui::Id, count: usize) -> (bool, f32
     (clicked, width)
 }
 
-/// The message's buttons at the right of `area` (the footer inside its
-/// padding), on one row or one a row from the top. Returns the action of
-/// the one pressed.
 fn footer_buttons(
     ui: &mut Ui,
     area: Rect,

@@ -1,10 +1,3 @@
-//! One track's header (M3 slice 4a, groups in M4 slice 3, sends and
-//! returns in slice 4; redrawn in M9 slice R1b, ADR-0101): the background
-//! that selects and drags, the rails and level strip, the fold button and
-//! name, the well of M S and arm, the volume and pan row, the send well
-//! and input, a return's senders, and the edge that resizes. Split from `headers.rs` (M4 review M1); the column around the
-//! rows stays there.
-
 use std::sync::Arc;
 
 use eframe::egui::{
@@ -27,21 +20,13 @@ use crate::icons::draw_type_icon;
 use crate::widgets::{self, draw_arrow, draw_edge_glow, gradient, raised};
 use crate::{fonts, motion, theme};
 
-/// The armed wash: this strong at the rail, fading across this share of
-/// the header (the design system's `.is-armed`).
 const ARMED_WASH: f32 = 0.10;
 const ARMED_WASH_SPAN: f32 = 0.55;
 
-/// How far each side of a row's bottom line the resize edge reaches: the
-/// controls stay 8 pt clear of a row's ends, so a 12 pt band takes none of
-/// them.
 const RESIZE_REACH: f32 = 6.0;
 
-/// The width of a piece of the M S ● well.
 const PIECE_W: f32 = theme::size::WELL_PIECE_W;
 
-/// The well holding `pieces` pieces, its right edge at `right` and centred
-/// on `mid`: 60 pt for M S ●, 41 pt for a return's M S.
 fn well_rect(right: f32, mid: f32, pieces: usize) -> Rect {
     let width = widgets::well::width(&vec![PIECE_W; pieces]);
     Rect::from_min_max(
@@ -50,21 +35,16 @@ fn well_rect(right: f32, mid: f32, pieces: usize) -> Rect {
     )
 }
 
-/// Where a header row is, and what it shows.
 pub(super) struct HeaderRow<'a> {
     pub track: Arc<Track>,
-    /// The track's index in the project.
     pub index: usize,
     pub rect: Rect,
-    /// The header column.
     pub column: Rect,
     pub modifiers: Modifiers,
     pub hearing: &'a Heard,
 }
 
 impl Arrangement {
-    /// A device card carried over a header: the track takes it when let go
-    /// (`alt`: a copy). The result is left for the app to follow.
     pub(super) fn device_drop_target(
         &mut self,
         ctx: &egui::Context,
@@ -99,8 +79,6 @@ impl Arrangement {
         }
     }
 
-    /// A device carried from the browser over a track's header or lane: the
-    /// track lights, and when it is let go the app puts the device there.
     pub(super) fn browser_drop_target(
         &mut self,
         ctx: &egui::Context,
@@ -126,8 +104,6 @@ impl Arrangement {
         }
     }
 
-    /// Draws one track's header in its zone (`painter` is clipped to it);
-    /// its resize edge is [`Self::resize_edge`].
     pub(super) fn track_header(
         &mut self,
         ui: &mut Ui,
@@ -157,8 +133,6 @@ impl Arrangement {
         let inside = lumen_project::groups::span(&doc.project().tracks, index).len() - 1;
         let collapsed = self.collapsed.contains(&track.id);
 
-        // Background: click to select, right-click for the menu.
-        // Click to select; drag to move (the selection, or this track).
         let background = ui.interact(rect, id, Sense::click_and_drag());
         background.widget_info(|| {
             egui::WidgetInfo::selected(
@@ -173,8 +147,6 @@ impl Arrangement {
         }
         self.device_drop_target(&ctx, &painter, doc, rect, track.id, modifiers.alt);
         self.browser_drop_target(&ctx, &painter, rect, track.id);
-        // Returns stay pinned in their own order (reordering them waits;
-        // KNOWN_ISSUES).
         if background.drag_started() && track.kind != TrackKind::Return {
             self.start_drag(doc.project(), track.id, false);
         }
@@ -192,12 +164,8 @@ impl Arrangement {
         };
         let look = theme::controls(selected);
         painter.rect_filled(rect, 0.0, fill);
-        // The rails: the groups it is in, then its own, the track
-        // colour, or red with a glow into the header while armed.
         let left = nesting::draw_rails(&painter, rect, doc.project(), &track, arm.on());
         if arm.on() {
-            // The armed wash: `record` at 10%, fading out across the
-            // header's left 55% (the design system's `.is-armed`).
             gradient(
                 &painter,
                 Rect::from_min_size(
@@ -209,9 +177,6 @@ impl Arrangement {
             );
         }
 
-        // The name row: the fold button, the name, the monitor badge and
-        // the well of M S ●. It sits in the middle of a folded row and
-        // moves up to the first unfolded row as the track opens (ADR-0101).
         let mid = name_center(rect.top(), row_height);
         let ppp = ui.ctx().pixels_per_point();
         let open = if group {
@@ -225,8 +190,6 @@ impl Arrangement {
             Some(note) => format!("{} \u{b7} {}", kind_name(track.kind), note.text),
             None => kind_name(track.kind).to_owned(),
         };
-        // The type icon is the fold button: it turns into the arrow under
-        // the pointer (a group always shows its arrow).
         let fold_rect =
             Rect::from_min_size(pos2(left + CONTENT_X, mid - FOLD / 2.0), vec2(FOLD, FOLD))
                 .round_to_pixels(ppp);
@@ -273,7 +236,6 @@ impl Arrangement {
         } else if heard {
             palette.text_secondary
         } else {
-            // Silenced: dimmed to 45% (the design system's `.is-dim`).
             palette.text_secondary.gamma_multiply(SILENCED)
         };
         if arrow < 1.0 {
@@ -294,8 +256,6 @@ impl Arrangement {
         }
         raised::focus_ring(&painter, &fold, fold_rect);
 
-        // M, S and arm: pieces of one sunk well at the right (a return's
-        // has M and S only), snapped to whole pixels together.
         let pieces = if track.kind == TrackKind::Return {
             2
         } else {
@@ -307,7 +267,6 @@ impl Arrangement {
         let (mute_rect, solo_rect, arm_rect) = (piece(0), piece(1), piece(2));
 
         let before = trough.left();
-        // A track whose Monitor is not Auto shows a badge before that.
         let silent = note.as_ref().filter(|n| n.warn).map(|n| n.text.clone());
         let badge = (super::monitor_badge::shown(&track) || silent.is_some()).then(|| {
             Rect::from_center_size(
@@ -320,8 +279,6 @@ impl Arrangement {
             pos2(fold_rect.right() + GAP, mid - 10.0),
             pos2(badge.map_or(before, |b| b.left()) - GAP, mid + 10.0),
         );
-        // A return's letter (A, B, C), in its colour: its sends carry
-        // the same letter and colour (slice 4).
         if track.kind == TrackKind::Return
             && let Some(letter) = super::pinned::letter_of(doc.project(), track.id)
         {
@@ -341,8 +298,6 @@ impl Arrangement {
             );
             name_rect.min.x = badge.right() + GAP;
         }
-        // The name is on top of the header's background: it gets the
-        // same menu, so a right-click on it opens the track's menu too.
         let count = (group && collapsed).then_some(inside);
         if let Some(name) = self.name(ui, doc, &track, name_rect, (heard, count), (id, false)) {
             let keys = keymap.keys(Command::Rename);
@@ -358,8 +313,6 @@ impl Arrangement {
 
         if let Some(badge) = badge {
             if let Some(why) = &silent {
-                // The track plays a plugin's output and the plugin is not
-                // running: it is silent, and this says why.
                 painter.text(
                     badge.center(),
                     Align2::CENTER_CENTER,
@@ -385,28 +338,21 @@ impl Arrangement {
             (mute_rect, solo_rect),
             (id, look, ""),
         );
-        // Returns record nothing: no arm piece.
         if track.kind != TrackKind::Return && arm_button(ui, arm_rect, id, &track.name, arm) {
             self.press_arm(ui, doc, track.id, arm.on());
         }
 
-        // The level rises beside the rail, folded or not (ADR-0101).
         self.level_strip(ui, rect, left, &track, (id, heard));
-        // Unfolded: volume and pan, then the sends and the input (or a
-        // return's senders) on the third row.
         if row_height >= FOLDED + 22.0 {
             self.mixer_row(ui, doc, &track, (rect, left), (id, look));
             let (_, _, third) = columns(rect, left);
             if super::sends::has_sends(track.kind) {
                 self.send_well(ui, doc, &track, third, (selected, false));
             }
-            // An unfolded return lists what sends to it (the owner's R2).
             if track.kind == TrackKind::Return {
                 self.senders_rows(ui, doc, &track, (rect, third));
             }
         }
-        // A return lights with the sends that feed it, and the other
-        // way round (the owner's K1).
         if track.kind == TrackKind::Return {
             if background.hovered() {
                 self.hot_return_next = Some(track.id);
@@ -434,11 +380,6 @@ impl Arrangement {
         );
     }
 
-    /// The edge under a track's header in `rect` that resizes it: a band
-    /// `RESIZE_REACH` each side of the row's bottom line. Called once every
-    /// row is drawn, so the next row's header (which drags tracks) does not
-    /// take the band's lower half. Returns the track's bottom edge and how
-    /// strongly it glows, while it does, so the lane can continue the glow.
     pub(super) fn resize_edge(
         &mut self,
         ui: &mut Ui,
@@ -478,13 +419,11 @@ impl Arrangement {
                 self.expanded.insert(track.id);
                 self.heights.insert(track.id, wanted);
             }
-            // Follow the pointer exactly while dragging.
             ctx.data_mut(|d| d.remove::<f32>(EguiId::new(("track height", track.id))));
         }
         if resize.drag_stopped() {
             self.resizing = None;
         }
-        // The handle glows while hovered or dragged (owner request).
         let hot = resize.hovered() || self.resizing.is_some_and(|(r, _)| r == track.id);
         let glow = motion::hover(&ctx, id.with("edge glow"), hot);
         if glow > 0.0 {

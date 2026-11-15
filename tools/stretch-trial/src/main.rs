@@ -1,25 +1,7 @@
-//! The M9.5 S0 time-stretch trial (docs/milestones/M9.5.md, TS1 and E).
-//!
-//! `stretch-trial <sources dir> <out dir>` reads every 48 kHz stereo WAV in
-//! the sources folder, renders each candidate on each transform, writes the
-//! blind listening pack (`<out>/pack/<source>/<transform>/<letter>.wav`) and
-//! prints the measurements as JSON (`<out>/results.json`).
-//!
-//! Every candidate is driven the way Lumen would drive it: streaming, a block
-//! of input at a time, with its latency compensated so the output lines up
-//! with the input. The same routine renders the "prepared ahead" chunks of
-//! the plan's variant E A: each chunk is rendered by a fresh instance from a
-//! fixed pre-roll of source before it, so a jump and straight play give the
-//! same bits by construction; the chunks are joined with a 3 ms crossfade.
-
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Instant;
-
-// ---------------------------------------------------------------------------
-// Allocation counting: only while `COUNTING` is set (the steady state of a
-// streaming render), so setup allocations are not counted.
 
 struct Counting;
 static COUNTING: AtomicBool = AtomicBool::new(false);
@@ -48,7 +30,6 @@ static GLOBAL: Counting = Counting;
 
 const RATE: u32 = 48_000;
 
-/// Stereo audio, one Vec per channel.
 #[derive(Clone)]
 struct Stereo {
     l: Vec<f32>,
@@ -84,7 +65,6 @@ impl Stereo {
             r: v.iter().skip(1).step_by(2).copied().collect(),
         }
     }
-    /// Pads or cuts to exactly `n` frames.
     fn fit(mut self, n: usize) -> Self {
         self.l.resize(n, 0.0);
         self.r.resize(n, 0.0);
@@ -92,13 +72,11 @@ impl Stereo {
     }
 }
 
-/// A transform: playback speed (2.0 is twice as fast) and pitch in semitones.
 #[derive(Clone, Copy)]
 struct Transform {
     name: &'static str,
     speed: f64,
     semitones: f64,
-    /// On the listening page (the others are measured only).
     listen: bool,
 }
 
@@ -141,7 +119,6 @@ const TRANSFORMS: &[Transform] = &[
     },
 ];
 
-/// What the trial knows of a candidate.
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Candidate {
     Signalsmith,
@@ -169,24 +146,17 @@ impl Candidate {
             Candidate::TimestretchRs => "timestretch (pure Rust, whole-buffer render)",
         }
     }
-    /// Whether the block size is ours to choose (streaming APIs).
     fn streams(self) -> bool {
         !matches!(self, Candidate::TimestretchRs)
     }
 }
 
-/// Measured during one streaming render.
 #[derive(Default, Clone, Copy)]
 struct RenderStats {
-    /// Allocations counted while processing, after the first 8 blocks.
     steady_allocs: u64,
-    /// The candidate's own latency, in input frames.
     latency_frames: usize,
 }
 
-/// Renders `input` through `candidate` at `speed` and `semitones`, feeding
-/// `block` input frames at a time. The output is aligned with the input (the
-/// candidate's latency removed) and is exactly `len / speed` frames long.
 fn render(
     candidate: Candidate,
     input: &Stereo,
@@ -217,10 +187,6 @@ fn signalsmith(
     s.set_transpose_factor_semitones(semitones as f32, None);
     let in_lat = s.input_latency();
     let out_lat = s.output_latency();
-    // As the library's own `exact()`: the first `in_lat` frames go to `seek`,
-    // which centres the stream on input frame 0; the rest of the input is
-    // processed, then `in_lat` frames of silence so the end comes out; the
-    // first `out_lat` output frames are dropped.
     let n = input.len();
     let lead = in_lat.min(n);
     let mut inter = input.interleaved();
@@ -293,12 +259,6 @@ fn rubberband(
     let mut pos = 0;
     let mut blocks = 0usize;
     ALLOCS.store(0, Ordering::Relaxed);
-    // Counted wrapper calls: the `rubberband` wrapper collects the channel
-    // pointers into a Vec on every `process` and every `retrieve` call (its
-    // src/lib.rs), so one allocation per counted call is the wrapper's, not
-    // the library's, and is taken off. Lumen would call `rubberband-sys`
-    // directly. A library that allocated once per call itself would be
-    // hidden by this; that is the method's limit, stated in ADR-0120.
     let mut wrapper_calls = 0u64;
     let mut drain =
         |s: &mut Stretcher, l: &mut Vec<f32>, r: &mut Vec<f32>, counting: bool, calls: &mut u64| {
@@ -360,10 +320,6 @@ fn bungee(
     use bungee_rs::Stream;
     let n = input.len();
     let mut s = Stream::new(RATE as usize, 2, block).expect("bungee stream");
-    // The stream's `latency()` reads its last output grain, which exists
-    // only once grains have been made. It is read at one input position for
-    // every block size (`LATENCY_AT`, a multiple of every block tried), so
-    // renders at different block sizes are aligned alike.
     const LATENCY_AT: usize = 16_384;
     let mut latency_in: Option<f64> = None;
     let cap = (block as f64 / speed).ceil() as usize + 8;
@@ -375,7 +331,6 @@ fn bungee(
     let mut blocks = 0usize;
     let mut made = 0.0f64;
     ALLOCS.store(0, Ordering::Relaxed);
-    // Feed the input, then silence only until the latency has come out.
     loop {
         let latency_out = latency_in.map_or(usize::MAX, |li| (li / speed).round() as usize);
         if pos >= n && l.len() >= want.saturating_add(latency_out) {
@@ -446,9 +401,6 @@ fn timestretch_render(
     )
 }
 
-/// The plan's E A: output chunks of `chunk` frames, each rendered by a fresh
-/// instance from `preroll` source frames before it (and `postroll` after, so
-/// its end is complete), then joined with a 3 ms equal-power crossfade.
 fn render_chunked(
     c: Candidate,
     input: &Stereo,
@@ -477,8 +429,6 @@ fn render_chunked(
             if src >= rendered.len() {
                 break;
             }
-            // Fade in over the first 3 ms (except the first chunk), fade the
-            // previous chunk's overhang out over the same frames.
             let g_in = if start == 0 || i >= fade {
                 1.0
             } else {
@@ -514,7 +464,6 @@ fn read_wav(path: &Path) -> Stereo {
     Stereo::from_interleaved(&v)
 }
 
-/// The RMS of both channels together.
 fn rms(s: &Stereo) -> f64 {
     let sum: f64 =
         s.l.iter()
@@ -524,14 +473,11 @@ fn rms(s: &Stereo) -> f64 {
     (sum / (2 * s.len().max(1)) as f64).sqrt()
 }
 
-/// The gain that brings `s` to `reference`'s RMS, so the pack is
-/// loudness-matched (a louder render tends to sound better).
 fn level_match(s: &Stereo, reference: &Stereo) -> f32 {
     let (a, b) = (rms(s), rms(reference));
     if a > 0.0 { (b / a) as f32 } else { 1.0 }
 }
 
-/// `s` scaled by `gain`.
 fn scaled(s: &Stereo, gain: f32) -> Stereo {
     Stereo {
         l: s.l.iter().map(|v| v * gain).collect(),
@@ -574,8 +520,6 @@ fn max_diff(a: &Stereo, b: &Stereo) -> f32 {
         .fold(0.0, f32::max)
 }
 
-/// The listening letter of each candidate: fixed across the whole pack so a
-/// favourite can be followed from row to row, and not in the order above.
 fn letter(c: Candidate) -> char {
     match c {
         Candidate::Bungee => 'A',
@@ -602,15 +546,12 @@ fn main() {
         let input = read_wav(src);
         let seconds = input.len() as f64 / RATE as f64;
         eprintln!("{name}: {seconds:.2} s");
-        // The pack's files, written at the end with one gain for the whole
-        // source so the loudest peaks at -1 dBFS at most and none clips.
         let mut pack: Vec<(PathBuf, Stereo)> = vec![(
             out_dir.join("pack").join(&name).join("original.wav"),
             input.clone(),
         )];
         for t in TRANSFORMS {
             for &c in CANDIDATES {
-                // CPU: the best of three renders at a 512-frame block.
                 let mut best = f64::MAX;
                 let mut first = None;
                 let mut stats = RenderStats::default();
@@ -636,8 +577,6 @@ fn main() {
                 } else {
                     ("not measured: whole-buffer API".to_string(), false)
                 };
-                // The click-to-sound cost under E A: one 4,096-frame chunk from
-                // a 16,384-frame pre-roll, on one core.
                 let mid = input.len() / 2;
                 let piece = input.slice(
                     mid - 16_384,
@@ -659,8 +598,6 @@ fn main() {
                     chunk_ms,
                     stats.steady_allocs
                 );
-                // The pack is loudness-matched to the original; the
-                // measurements above are of the render as it came out.
                 let gain = level_match(&out, &input);
                 if t.listen {
                     pack.push((
@@ -678,10 +615,6 @@ fn main() {
                 ));
             }
         }
-        // The prepared-ahead chunks (E A), for listening: 0.9 speed, 4,096-frame
-        // pieces, 16,384-frame pre-roll. Their sustained cost is timed too, at
-        // that piece size and at 2 s pieces (96,000 frames), as a share of
-        // one core while the clip plays.
         let t = TRANSFORMS[1];
         let out_seconds = seconds / t.speed;
         for &c in CANDIDATES {
@@ -701,7 +634,6 @@ fn main() {
                 letter(c)
             ));
             let (whole, _) = render(c, &input, t.speed, t.semitones, 1024);
-            // Both at the straight render's matching gain, so they compare.
             let gain = level_match(&whole, &input);
             pack.push((
                 out_dir

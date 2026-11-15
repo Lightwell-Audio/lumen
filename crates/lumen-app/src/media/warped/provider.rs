@@ -1,13 +1,3 @@
-//! The warped streams of a project, made once and kept while they play.
-//!
-//! A clip list is built again at every edit, and a stream is expensive: its
-//! pages are what the disk thread prepares ahead of the playhead. So a stream
-//! is keyed by everything its frames depend on, and an edit that changes none
-//! of it (a gain, a fade, another track's clip) finds the stream it had and the
-//! pages already prepared. An edit that changes it (a marker, the tempo, a move)
-//! makes a new stream, and the engine keeps playing the old one until it is
-//! replaced.
-
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
@@ -21,33 +11,21 @@ use lumen_project::model::Warp;
 use super::{Engine, Origin, Pitch, Warped};
 use crate::media::streams;
 
-/// What a warped clip is played from: everything the stream depends on.
 pub struct Request<'a> {
     pub warp: &'a Warp,
-    /// The file's audio at the device rate.
     pub source: &'a Arc<ClipAudio>,
     pub tempo: &'a TempoMap,
     pub rate: u32,
-    /// The clip's content origin: where its map's ticks start.
     pub origin: Ticks,
-    /// The last timeline sample any clip of the project reaches: a stream is
-    /// as long as the song, rounded up, so that the pieces of one clip share
-    /// it, and so does every other clip of the file.
     pub reach: i64,
-    /// The pitch envelope of the clips that share this stream, in semitones
-    /// in song ticks (`pitch::merge`). Heard only in a mode that transposes.
     pub pitch: Option<&'a Lane>,
 }
 
-/// The shortest a stream is: about 22 seconds at 48 kHz.
 const MIN_FRAMES: u64 = 1 << 20;
 
-/// The streams made so far, by what they are made from.
 pub struct WarpedStreams {
     pool: Arc<PagePool>,
     made: HashMap<u64, Made>,
-    /// The transients of each file a Rhythmic stream is made from, found once
-    /// however many streams an edit makes (by [`source_key`]).
     scans: HashMap<u64, Arc<super::SliceScan>>,
 }
 
@@ -57,8 +35,6 @@ struct Made {
 }
 
 impl WarpedStreams {
-    /// Streams with tables in `pool`. A pool that nothing reads (an offline
-    /// render swaps in its own tables) can be a small one.
     pub fn new(pool: &Arc<PagePool>) -> Self {
         Self {
             pool: Arc::clone(pool),
@@ -67,14 +43,10 @@ impl WarpedStreams {
         }
     }
 
-    /// The pool the streams' tables are in.
     pub fn pool(&self) -> &Arc<PagePool> {
         &self.pool
     }
 
-    /// The stream for `request`, made if it is new. `None` when the clip
-    /// cannot be played warped: the file is at another rate than the device, or
-    /// it holds nothing, or the song reaches no sample.
     pub fn stream(&mut self, request: &Request<'_>) -> Option<Arc<ClipAudio>> {
         if request.reach <= 0
             || request.source.sample_rate() != request.rate
@@ -122,8 +94,6 @@ impl WarpedStreams {
         Some(audio)
     }
 
-    /// Forgets the streams not among `keep` (the ids of the streams the
-    /// engine plays or is about to). Call after a list is sent.
     pub fn retain(&mut self, keep: &HashSet<u64>) {
         self.made.retain(|_, made| {
             let kept = keep.contains(&made.id);
@@ -132,11 +102,9 @@ impl WarpedStreams {
             }
             kept
         });
-        // A file's scan goes with its last stream.
         self.scans.retain(|_, scan| Arc::strong_count(scan) > 1);
     }
 
-    /// How many streams are held.
     #[cfg(test)]
     pub fn len(&self) -> usize {
         self.made.len()
@@ -151,20 +119,14 @@ impl Drop for WarpedStreams {
     }
 }
 
-/// What a request says about the line from timeline to file, without the
-/// clip it came from: the same for the pieces a split leaves.
 struct Shape {
-    /// The tick the map is measured from (see [`Warped::anchor`]).
     anchor: Ticks,
-    /// The map, measured from `anchor`.
     markers: Vec<Marker>,
     frames: u64,
 }
 
 impl Shape {
     fn of(request: &Request<'_>) -> Self {
-        // A split moves a clip's origin and shifts its markers by the same
-        // ticks, so the first marker's place in the song is what stays.
         let first = request.warp.markers.first().map_or(Ticks::ZERO, |m| m.at);
         let anchor = request.origin + first;
         let markers = request
@@ -182,8 +144,6 @@ impl Shape {
     }
 }
 
-/// Which file a stream reads: the stream file's id, or (for audio in memory)
-/// the audio itself, not a copy of it: the same Arc is the same audio.
 fn source_key(source: &Arc<ClipAudio>) -> u64 {
     let mut hasher = std::hash::DefaultHasher::new();
     match &**source {
@@ -193,8 +153,6 @@ fn source_key(source: &Arc<ClipAudio>) -> u64 {
     hasher.finish()
 }
 
-/// Hashes everything a stream's frames depend on: the engine the mode plays
-/// with, and the pitch (the transpose and the envelope's points).
 fn key(request: &Request<'_>, shape: &Shape, pitch: &Pitch) -> u64 {
     let mut hasher = std::hash::DefaultHasher::new();
     Engine::of(request.warp.mode, pitch).hash(&mut hasher);

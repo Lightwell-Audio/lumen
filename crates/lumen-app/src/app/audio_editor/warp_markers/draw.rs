@@ -1,7 +1,3 @@
-//! How the warp strip is painted (M9.5 S5b): its ground, each marker's notch
-//! and the hairline through the wave, the ghost, the focus ring, and the small
-//! triangles that mark the transients.
-
 use eframe::egui::{self, Painter, Rect, Response, Stroke, pos2};
 use lumen_media::detect::Analysis;
 
@@ -15,7 +11,6 @@ use crate::theme;
 use crate::timeview::TimeView;
 
 impl App {
-    /// The strip's ground, drawn before the transients' triangles.
     pub(crate) fn paint_strip_ground(painter: &Painter, rect: Rect) {
         let palette = theme::p();
         painter.rect_filled(rect, 0.0, palette.raised);
@@ -26,8 +21,6 @@ impl App {
         );
     }
 
-    /// The strip's notches, the ghost and a hairline down each marker
-    /// through the wave, over the ground and the triangles.
     pub(crate) fn paint_warp_strip(
         &self,
         painter: &Painter,
@@ -50,15 +43,11 @@ impl App {
             if !view.contains(*x) {
                 continue;
             }
-            // Touched or chosen: the accent. Under the pointer: the notch
-            // keeps its colour and its pole thickens.
             let chosen = Some(index) == dragged
                 || Some(index) == ed.markers.picked
                 || focused.is_some_and(|(i, _)| *i == index);
             let lit = chosen || Some(index) == hot;
             let ink = if chosen { palette.accent } else { palette.text };
-            // The notch's tip, its pole and the hairline through the wave
-            // share one x and one stroke.
             let x = snapped(painter, *x);
             let pole = Stroke::new(
                 if lit {
@@ -106,8 +95,6 @@ impl App {
                 },
             );
         }
-        // The ring reaches past the strip (it is round the notch), so it is
-        // drawn with the editor's painter, not the strip's.
         if let Some((index, response)) = focused
             && let Some(ring) = strip.notch_rect(*index)
         {
@@ -115,10 +102,6 @@ impl App {
         }
     }
 
-    /// The transients in the strip: a small triangle pointing down at each,
-    /// except where a marker already stands (within a point). Only those in
-    /// view are looked at. The triangle is the one a detected hit is drawn as
-    /// on the wave too (`paint::hit_triangle`).
     pub(crate) fn paint_transient_ticks(
         painter: &Painter,
         strip: &WarpStrip,
@@ -137,8 +120,6 @@ impl App {
                 continue;
             };
             let x = time.x(strip.rect.left(), beat);
-            // The markers are in time order: one beside this transient is
-            // the first at or after a point before it.
             let next = strip.flags.partition_point(|f| *f < x - 1.0);
             if strip.flags.get(next).is_some_and(|f| *f < x + 1.0) {
                 continue;
@@ -147,8 +128,6 @@ impl App {
         }
     }
 
-    /// One notch: a rounded pin centred on `x` that points down at its
-    /// place, with its pole under it to the strip's floor.
     fn paint_notch(painter: &Painter, rect: Rect, x: f32, look: Look) {
         let (w, h) = (theme::size::WARP_NOTCH_W, theme::size::WARP_NOTCH_H);
         let (left, right) = (x - w / 2.0, x + w / 2.0);
@@ -183,9 +162,6 @@ impl App {
     }
 }
 
-/// How a notch is drawn: its ink, the stroke of its pole, whether it is the
-/// ghost (a rim and a faint fill) and whether it is lifted (a marker under
-/// the pointer, with an accent rim).
 struct Look {
     ink: egui::Color32,
     pole: Stroke,
@@ -193,8 +169,6 @@ struct Look {
     lifted: bool,
 }
 
-/// `x` on a whole physical pixel, so a notch's tip, its pole and the
-/// hairline through the wave land on the same one.
 fn snapped(painter: &Painter, x: f32) -> f32 {
     let ppp = painter.pixels_per_point();
     (x * ppp).round() / ppp

@@ -1,37 +1,12 @@
-//! Recording MIDI: what armed tracks are sent while the transport records
-//! (M5 slice 6, ADR-0055). Not recording, the player keeps the same messages
-//! of every track that listens or is armed, flagged by whether the transport
-//! was moving, for Capture MIDI (M9 slice R3, ADR-0104); the app decides
-//! whether to keep them.
-//!
-//! The player keeps every live message a recording track takes, with the
-//! timeline sample the player *heard* when playing it, and queues it for the
-//! app, which turns the samples into ticks and commits them to the project.
-//! The sample is worked out here, where the position of each part is known:
-//! it is the time the message was played (the device frame the feed read
-//! from the driver's stamp, before the feed's one block of delay), taken
-//! back to the timeline the part renders, less the read ahead, so a note
-//! lands where the playhead was when its key went down. The output
-//! latency, which the app knows, is taken off by the app.
-
 use lumen_core::midi::Msg;
 use lumen_core::time::Ticks;
 
 use crate::source::RenderContext;
 
-/// Messages waiting for the app. A player holds a few hundred at most, so
-/// this is room for seconds of a dense take if the UI stalls.
 pub(super) const QUEUE: usize = 8_192;
 
-/// The `source` of a marker the player queues at each loop wrap, for every
-/// recording track, instead of a message: it carries the new pass and no
-/// message. A note held across a wrap is told from one played again by it.
 pub const WRAP: u8 = u8::MAX;
 
-/// Applies latency compensation to a captured position, keeping the first
-/// pass at the Record boundary and carrying later compensated positions
-/// across the loop seam when needed. Returns the adjusted position and its
-/// owning pass.
 pub fn record_position(
     heard: Ticks,
     compensated: Ticks,
@@ -56,46 +31,25 @@ pub fn record_position(
     (at, pass)
 }
 
-/// What the transport was doing when a message was played.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Heard {
-    /// Recording: the message belongs to the take.
     Recording,
-    /// Playing, not recording: only Capture MIDI keeps it.
     Playing,
-    /// Stopped: only Capture MIDI keeps it, by its device frame.
     Stopped,
 }
 
-/// A live message kept for the take.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Captured {
-    /// The track recording it.
     pub track: u64,
-    /// The input's slot, or the keyboard; [`WRAP`] for a wrap marker.
     pub source: u8,
-    /// The timeline sample heard when it was played: never before 0, and
-    /// inside the loop when it was played just before a wrap.
     pub at: i64,
-    /// The pass through the loop it was played in: it counts up at every
-    /// wrap and never goes back, so it is the same for the messages of one
-    /// pass (and one less than the playing pass for a message played just
-    /// before a wrap). Only differences mean anything.
     pub pass: u32,
-    /// The device frame the message was played at (the driver's stamp), so
-    /// messages played while the transport is stopped, which all share one
-    /// `at`, keep their time apart (Capture MIDI, M9 slice R3).
     pub frame: u64,
-    /// What the transport was doing when it was played.
     pub state: Heard,
     pub msg: Msg,
 }
 
-/// The timeline sample heard at device frame `played`, for a part `cx`, and
-/// whether it is of the pass before this part's (played just before a wrap).
-/// `wrapped` is true only after a loop wrap since the last discontinuity.
 pub(super) fn heard(cx: &RenderContext<'_>, played: u64, wrapped: bool) -> (i64, bool) {
-    // The render position leads what is heard by the read ahead.
     let ahead = cx.stream.saturating_sub(cx.device) as i64;
     let heard_now = cx.start - ahead;
     let mut at = heard_now + (played as i64 - cx.device as i64);
@@ -160,7 +114,6 @@ mod tests {
 
     #[test]
     fn the_read_ahead_is_taken_off() {
-        // The part renders 480 frames ahead of what is heard.
         let timeline = Timeline::default();
         let cx = context(&timeline, 10_480, 5_000, 5_480, None);
         assert_eq!(at(&cx, 5_000), 10_000);
@@ -168,12 +121,9 @@ mod tests {
 
     #[test]
     fn a_note_played_before_a_loop_wrap_lands_at_the_loop_end() {
-        // The loop is 8_000 to 16_000; the part begins at its start, and
-        // the note was played 100 frames earlier.
         let timeline = Timeline::default();
         let cx = context(&timeline, 8_000, 5_000, 5_000, Some((8_000, 16_000)));
         assert_eq!(at(&cx, 4_900), 15_900);
-        // Not wrapped when the part is not at the loop start.
         let cx = context(&timeline, 9_000, 5_000, 5_000, Some((8_000, 16_000)));
         assert_eq!(at(&cx, 4_900), 8_900);
     }

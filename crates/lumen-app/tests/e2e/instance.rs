@@ -1,8 +1,3 @@
-//! One Lumen per settings file (M9 R8, ADR-0117): what the window does with
-//! a project a later start hands over, and the guard that keeps a project
-//! from replacing a recording or an export. Requests are injected as a
-//! later start sends them; the real endpoint is covered by the smoke tests.
-
 use std::path::{Path, PathBuf};
 
 use eframe::egui::{Key, Modifiers};
@@ -14,7 +9,6 @@ use super::{Lumen, wav};
 
 const VOX: Id = Id(21);
 
-/// Saves a project with one track named `track` at `dir/<name>.lumen`.
 fn song(dir: &Path, name: &str, track: &str) -> PathBuf {
     let project = project_of(
         name,
@@ -29,7 +23,6 @@ fn shows_track(app: &App, name: &str) -> bool {
     app.project().tracks.iter().any(|t| t.name == name)
 }
 
-/// Waits for the window's answer to a hand-over.
 fn answer(lumen: &mut Lumen, sent: &lumen_app::testing::HandOver) -> String {
     let got = std::cell::RefCell::new(None);
     lumen.run_until("the answer", |_| {
@@ -121,8 +114,6 @@ fn a_dropped_project_opens_and_nothing_else_in_the_drop_is_added() {
     );
 }
 
-/// Starts on the input test device with Vox, an armed-able audio track,
-/// in a saved project.
 fn recording_ready(name: &str) -> Lumen {
     let dir = TempDir::new(&format!("e2e-instance-{name}"));
     let path = song(dir.path(), "Take", "Vox");
@@ -133,8 +124,6 @@ fn recording_ready(name: &str) -> Lumen {
     lumen.click("Arm Vox");
     lumen.key(Modifiers::NONE, Key::F9);
     lumen.wait_for("the recording", |app| app.recording() && app.is_playing());
-    // A take stopped before its first input block has nothing to place, so
-    // wait for frames on disk: a slow runner can take longer than a frame.
     let vox = lumen.app().project().tracks[0].id;
     lumen.wait_for("the take's first frames", move |app| {
         app.audio_take_frames(vox).is_some_and(|f| f > 0)
@@ -173,7 +162,6 @@ fn stop_and_open_places_the_take_then_asks_and_save_keeps_it() {
     assert_eq!(answer(&mut lumen, &sent), "accepted");
     lumen.run_until("the notice", |l| l.shows("Stop and open"));
     lumen.click("Stop and open");
-    // The take is placed before anything opens; it is an unsaved change.
     lumen.wait_for("the save question", |app| app.save_prompt_open());
     assert!(!lumen.app().recording() && !lumen.app().audio_takes_placing());
     assert_eq!(lumen.app().project().tracks[0].clips.len(), 1, "the take");
@@ -192,7 +180,7 @@ fn a_recording_started_behind_the_save_question_holds_dont_save_and_asks_again()
     lumen.wait_for("the project", |app| shows_track(app, "Vox"));
     lumen.wait_for("the device's inputs", |app| app.open_inputs() == 2);
     lumen.frames(30);
-    lumen.click("Arm Vox"); // An unsaved change.
+    lumen.click("Arm Vox");
     assert!(lumen.app().is_dirty());
     let other = song(lumen.dir(), "Night Drive", "Keys");
     let sent = lumen.app_mut().hand_over(Some(other));
@@ -200,8 +188,6 @@ fn a_recording_started_behind_the_save_question_holds_dont_save_and_asks_again()
     lumen.wait_for("the save question", |app| app.save_prompt_open());
     lumen.key(Modifiers::NONE, Key::F9);
     lumen.wait_for("the recording", |app| app.recording());
-    // The take is the change asked about again; one stopped before its
-    // first input block has nothing to place (as in `recording_ready`).
     let vox = lumen.app().project().tracks[0].id;
     lumen.wait_for("the take's first frames", move |app| {
         app.audio_take_frames(vox).is_some_and(|f| f > 0)
@@ -214,7 +200,6 @@ fn a_recording_started_behind_the_save_question_holds_dont_save_and_asks_again()
     );
     assert!(shows_track(lumen.app(), "Vox"));
     lumen.key(Modifiers::NONE, Key::Space);
-    // The take is a change Don't save did not cover: asked again.
     lumen.wait_for("the question again", |app| {
         !app.is_holding() && app.save_prompt_open()
     });
@@ -250,15 +235,12 @@ fn while_exporting_the_project_waits_until_the_export_ends() {
     );
     lumen.run_until("cancel control", |l| l.shows("Cancel export"));
     lumen.click("Cancel export");
-    // The import is unsaved: once the export has stopped, the question.
     lumen.wait_for("the save question", |app| {
         !app.audio_export_busy() && !app.is_holding() && app.save_prompt_open()
     });
     lumen.click("Don't save");
     lumen.wait_for("the project", |app| shows_track(app, "Keys"));
 }
-
-// ── Opening .lumen files (FA A) ───────────────────────────────────────────
 
 const SWITCH: &str = "Open .lumen files with Lumen";
 
@@ -285,7 +267,6 @@ fn the_files_switch_registers_this_copy_and_removes_it() {
     assert_eq!(lumen.app().association(), "off");
     assert!(!lumen.app().wants_association());
 
-    // The palette's command does the same.
     super::copies::command(&mut lumen, "Open .lumen files");
     lumen.frames(3);
     assert_eq!(lumen.app().association(), "this");
@@ -317,8 +298,6 @@ fn another_copy_is_named_and_use_this_copy_takes_it_over() {
 fn the_files_row_draws_the_status_a_worker_read() {
     let mut lumen = files_page("instance-assoc-cache");
     assert_eq!(lumen.app().association(), "off");
-    // Changed in Windows while the page shows: drawing keeps the answer the
-    // worker brought, and never reads the registry itself (sweep M4b).
     let other = lumen.dir().join("Old").join("lumen.exe");
     lumen.app_mut().change_association_hive(Some(&other));
     lumen.frames(10);
@@ -328,7 +307,6 @@ fn the_files_row_draws_the_status_a_worker_read() {
         "the row did not look again"
     );
     assert!(!lumen.is_on(SWITCH));
-    // A window opening asks again: the next answer shows.
     lumen.key(Modifiers::NONE, Key::Escape);
     lumen.run_until("Preferences closed", |l| !l.shows(SWITCH));
     lumen.open_preferences("Files");
@@ -390,8 +368,6 @@ fn an_edit_made_while_a_file_is_read_is_asked_about() {
         shows_track(app, "Vox") && !app.is_dirty()
     });
     let other = song(lumen.dir(), "Night Drive", "Keys");
-    // Nothing is unsaved when the file is asked for; the edit comes before
-    // it arrives, so the choice did not cover it.
     lumen.app_mut().open_project_file(other);
     lumen
         .app_mut()
@@ -452,8 +428,6 @@ fn a_project_handed_over_while_another_is_read_opens_after_it() {
     let mut lumen = Lumen::start("instance-second-open");
     let first = song(lumen.dir(), "Alpha", "Bass");
     let second = song(lumen.dir(), "Night Drive", "Keys");
-    // The first file is being read when the second is handed over: the
-    // second waits behind it instead of being dropped.
     lumen.app_mut().open_project_file(first);
     let sent = lumen.app_mut().hand_over(Some(second));
     assert_eq!(answer(&mut lumen, &sent), "accepted");
@@ -468,21 +442,18 @@ fn a_project_handed_over_while_another_is_read_opens_after_it() {
 #[test]
 fn a_normal_start_registers_this_copy_only_when_none_is_and_it_is_wanted() {
     let mut lumen = files_page("instance-assoc-start");
-    // Nothing registered, the setting on as it is by default: registered.
     assert!(lumen.app().wants_association());
     lumen.app_mut().associate_as_a_normal_start();
     lumen.frames(3);
     assert_eq!(lumen.app().association(), "this");
     assert!(lumen.is_on(SWITCH));
 
-    // Another copy owns it: left alone.
     let other = lumen.dir().join("Old").join("lumen.exe");
     lumen.app_mut().fake_association(Some(&other), None, None);
     lumen.app_mut().associate_as_a_normal_start();
     lumen.frames(3);
     assert!(lumen.app().association().starts_with("other: "));
 
-    // Turned off by the person: never turned on again by a start.
     lumen.app_mut().fake_association(None, None, None);
     lumen.app_mut().associate_as_a_normal_start();
     lumen.frames(3);

@@ -1,17 +1,8 @@
-//! The numeric well: tempo and its Tap piece, the time signature, and the
-//! position at the end.
-
 use super::*;
 
-/// The tempo a double-click on the tempo field returns it to: a new
-/// project's, as every control returns to its default on a double-click.
 const DEFAULT_BPM: f64 = 120.0;
 
 impl Transport {
-    /// Tempo, meter and position as the pieces of one 30 pt numeric well
-    /// (the interface audit's TB1), hairlines between them. The values are
-    /// Martian Mono, units in `text_hint`; the piece under the pointer
-    /// takes the Ember wash.
     pub(super) fn numbers(
         &mut self,
         ui: &mut Ui,
@@ -21,9 +12,6 @@ impl Transport {
         plan: fit::Plan,
     ) {
         let compact = plan.compact;
-        // The tempo and the time signature in force at the playhead: with
-        // changes along the song, the fields show and edit the segment the
-        // playhead is in (M7 slice A6, the owner's choice).
         let mut bpm = lumen_project::edit::maps::tempo_in(&doc.project().tempo, state.ticks);
         let pad = well_pad(compact);
         let unit = (!compact).then_some("BPM");
@@ -32,7 +20,6 @@ impl Transport {
             theme::space::S + fit::text_width(ui, unit, unit_font())
         });
         let position = self.position_text(ui, state, compact);
-        // The Tap piece, when it fits, follows the tempo (the owner's TT A).
         let tap = plan.tap.then(|| tap_width(ui));
         let widths: Vec<f32> = [Some(2.0 * pad + value_w + unit_w), tap]
             .into_iter()
@@ -47,8 +34,6 @@ impl Transport {
         let pieces = widgets::well::paint(ui.painter(), well, &widths);
         widgets::well::dividers(ui.painter(), &pieces);
 
-        // Tempo: the drag value fills the value's part of its piece, with no
-        // fill or outline of its own: the well is its ground.
         let tempo_piece = pieces[0];
         widgets::well::wash(ui, tempo_piece, ui.id().with("tempo well"));
         let value_rect = egui::Rect::from_min_max(
@@ -78,9 +63,6 @@ impl Transport {
             value_rect.size(),
             egui::DragValue::new(&mut bpm)
                 .range(20.0..=999.0)
-                // Typed values apply on Enter or leaving the field: live,
-                // "1" on the way to "125" played at 20 BPM and sent the
-                // playhead past the audio (owner, after slice 4a).
                 .update_while_editing(false)
                 .speed(0.1)
                 .fixed_decimals(2),
@@ -108,7 +90,6 @@ impl Transport {
                 .galley(at.round(), galley, theme::p().text_hint);
         }
         if tempo.changed() || reset {
-            // A drag is one undo step (merged until the pointer is released).
             doc.set_tempo_at(state.ticks, bpm, Some("tempo"));
         }
 
@@ -119,7 +100,6 @@ impl Transport {
             next += 1;
         }
 
-        // Time signature: one field (the interface audit's S7).
         let here = self.timeline.meter.meter_at(state.ticks);
         let current = (here.numerator, here.denominator);
         if let Some((beats, unit)) = widgets::time_signature(
@@ -142,9 +122,6 @@ impl Transport {
         }
     }
 
-    /// The Tap piece (M9 R7, the owner's TT A): "Tap" until a run starts,
-    /// then the run's taps counted, so its state is read, not only seen.
-    /// A click is the Tap tempo command, timed by the app.
     fn tap_piece(&mut self, ui: &mut Ui, piece: egui::Rect, keymap: &Keymap) {
         let id = ui.id().with("tap tempo");
         let response = ui.interact(piece, id, egui::Sense::click());
@@ -156,7 +133,6 @@ impl Transport {
             keys.as_ref(),
             Some("Tap in time: the tempo follows from the third tap"),
         );
-        // The count is the button's value, so a screen reader hears it too.
         let taps = self.taps;
         response.widget_info(|| {
             let mut info = egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Tap tempo");

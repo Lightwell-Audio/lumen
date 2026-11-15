@@ -1,8 +1,3 @@
-//! Audio input through the engine (M9 slice R1): the device's inputs are
-//! metered whatever the transport does, an armed track is heard stopped, while
-//! counting in and while recording and not in plain playback, the route's
-//! track chain hears it, and none of it touches the heap.
-
 use lumen_engine::{
     Command, Destination, Engine, EngineHandle, InputHandle, InputPlayer, InputRoute, Mixer,
     MixerHandle, Monitoring, NodeSpec, Routing, Timeline, engine, input_player, mixer,
@@ -22,7 +17,6 @@ struct Rig {
     inputs: InputHandle,
     routing: MixerHandle,
     engine: Engine<Mixer<InputPlayer>>,
-    /// Frames fed so far.
     fed: usize,
 }
 
@@ -60,8 +54,6 @@ fn rig(monitoring: Monitoring) -> Rig {
 }
 
 impl Rig {
-    /// Runs `blocks` blocks of two input channels (silence, then `level`) and
-    /// returns the last block's left output.
     fn run(&mut self, blocks: usize, level: f32) -> Vec<f32> {
         let mut out = vec![0.0; 2 * BLOCK];
         let mut input = vec![0.0; 2 * BLOCK];
@@ -156,8 +148,6 @@ fn input_never_touches_the_heap() {
             1_500 => rig.transport.send(Command::Stop).unwrap(),
             _ => {}
         }
-        // New route lists arrive while it runs, some for tracks the routing
-        // does not have, one with no inputs at all.
         if block % 250 == 100 {
             let monitoring = if block % 500 == 100 {
                 Monitoring::Always

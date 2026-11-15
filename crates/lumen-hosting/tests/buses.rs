@@ -1,8 +1,3 @@
-//! Audio buses through the engine's link (M6 slice 6b): the buses a plugin
-//! declares come with the link, the auxiliary outputs turned on are read per
-//! bus pair, a sidechain input the engine gives nothing for is silent, and a
-//! plugin set up again with other buses gets a link that matches.
-
 mod support;
 
 use lumen_core::midi::{Event, Msg};
@@ -23,13 +18,11 @@ fn on(key: u8) -> Event {
     }
 }
 
-/// The plugin's level at full, so a note is heard at full scale.
 fn full(mut start: lumen_hosting::Start) -> lumen_hosting::Start {
     start.values = vec![(lumen_test_plugin::params::LEVEL, 1.0)];
     start
 }
 
-/// What one note sounds like on the main bus of a plain instrument.
 fn alone(key: u8) -> Vec<f32> {
     let mut manager = manager();
     manager.want(1, full(instrument(""))).unwrap();
@@ -37,7 +30,6 @@ fn alone(key: u8) -> Vec<f32> {
     block(&mut linked.link, &[key]).0
 }
 
-/// A block of held notes: the main pair, and the link to read the others.
 fn block(link: &mut dyn Hosted, keys: &[u8]) -> (Vec<f32>, Vec<f32>) {
     let events: Vec<Event> = keys.iter().map(|&k| on(k)).collect();
     let (left, right, reply) = play(link, FRAMES, &[], &events);
@@ -87,14 +79,12 @@ fn a_sidechain_the_engine_gives_nothing_for_is_silence_to_the_plugin() {
     let mut linked = linked(&mut manager, 2);
     assert_eq!(linked.buses.0.len(), 2);
     let steady = vec![0.5_f32; FRAMES];
-    // Two channels given, four carried: the sidechain pair is silence.
     let (plain, _, reply) = play(&mut linked.link, FRAMES, &[&steady, &steady], &[]);
     assert!(matches!(reply, Some(Reply::Ready { .. })));
     assert!(
         plain.iter().all(|&s| s == plain[0] && s != 0.0),
         "{plain:?}"
     );
-    // And with the sidechain given, the loud sample is silenced.
     let mut impulse = vec![0.0_f32; FRAMES];
     impulse[10] = 1.0;
     let silent = vec![0.0_f32; FRAMES];
@@ -126,7 +116,6 @@ fn a_plugin_set_up_again_with_other_buses_gets_a_link_that_matches() {
     let second = linked(&mut manager, 1);
     assert_eq!(second.aux.outputs, 0b010);
     assert_eq!(second.link.pairs().len(), 2);
-    // A plain relink keeps the buses it had.
     manager.relink(1, 48_000.0, 128);
     let third = linked(&mut manager, 1);
     assert_eq!(third.link.pairs().len(), 2);

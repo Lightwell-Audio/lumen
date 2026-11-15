@@ -1,7 +1,3 @@
-//! Format v32 (M9 slice R4): a project may carry notes and the colour new
-//! tracks take. Earlier files have neither, and a project without them writes
-//! nothing.
-
 use std::path::PathBuf;
 
 use lumen_project::model::{Color, Id, MOST_NOTES_BYTES, Project, Track, TrackKind};
@@ -16,7 +12,6 @@ fn fixture(name: &str) -> PathBuf {
         .join(name)
 }
 
-/// The model the v32 golden file must always load as. Never change it.
 fn golden_v32_expected() -> Project {
     let drums = Track::new(Id(3_200), "Drums", TrackKind::Midi, Color(0x4F81BD));
     let mut project = project_of("Golden v32", vec![drums]);

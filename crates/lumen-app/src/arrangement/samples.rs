@@ -1,10 +1,3 @@
-//! Waveforms sample by sample (M3 slice 4d part 4; owner: zoom to single
-//! samples). Past the peaks' detail (fewer than [`SAMPLE_BELOW`] frames per
-//! pixel) the app hands the GPU the visible samples of each wave, with a
-//! screen's width to spare on each side so scrolling rarely needs more.
-//! Where they go on screen is worked out here in f64 and sent as viewport
-//! pixels, so it stays exact deep into a long file.
-
 use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -15,13 +8,8 @@ use lumen_render::{STRIP_CAPACITY, StripEntry};
 
 use crate::media::streams::Readers;
 
-/// Below this many frames per pixel a wave is drawn from its samples (the
-/// finest peaks hold 16 frames a bucket).
 pub(super) const SAMPLE_BELOW: f64 = 16.0;
 
-/// A wave's place in time, exactly: the beat it starts at, its first frame
-/// at the device rate, frames per beat (its tempo), and how many frames it
-/// covers.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct Geometry {
     pub media: u64,
@@ -32,9 +20,6 @@ pub(super) struct Geometry {
     pub frames: f64,
 }
 
-/// The view in the GPU's physical pixels: the beat at the left edge, pixels
-/// per beat, where the left edge falls in the viewport (under a pixel), and
-/// the width.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct Pixels {
     pub left: f64,
@@ -54,8 +39,6 @@ impl Geometry {
         px.origin + (beat - px.left) * px.per_beat
     }
 
-    /// The frames on screen, within the wave and the file (`length`):
-    /// first and last, with a sample to spare at each end for the line.
     fn visible(&self, px: Pixels, length: usize) -> Option<(i64, i64)> {
         let wave_end = self.first_frame + self.frames;
         let a = self.frame_at(px, 0.0).max(self.first_frame).floor() as i64 - 1;
@@ -65,21 +48,16 @@ impl Geometry {
     }
 }
 
-/// Strips sent this frame: an entry per wave, and new samples to place.
 pub struct Update {
     pub table: Vec<StripEntry>,
     pub writes: Vec<(u32, Vec<[i16; 2]>)>,
 }
 
-/// Which samples each wave has on the GPU.
 #[derive(Debug, Default)]
 pub(super) struct Strips {
     cached: Vec<Option<Cached>>,
-    /// Space handed out in the sample atlas.
     used: u32,
-    /// Reads the samples of files played from disk.
     reader: StripReader,
-    /// Strips were in use at the last update (so a clear is sent once).
     active: bool,
 }
 
@@ -91,15 +69,11 @@ struct Cached {
 }
 
 impl Strips {
-    /// The waves were rebuilt: strips start over.
     pub fn reset(&mut self) {
         self.cached.clear();
         self.used = 0;
     }
 
-    /// Strips for the waves in sample mode on the `visible` rows; `None`
-    /// when nothing changes on the GPU. `waves` are in row order, so only
-    /// the visible rows' waves are looked at.
     pub fn update(
         &mut self,
         waves: &[Geometry],
@@ -109,8 +83,6 @@ impl Strips {
         audio: impl Fn(u64) -> Option<Arc<ClipAudio>>,
     ) -> Option<Update> {
         self.cached.resize(waves.len(), None);
-        // The frames each wave in sample mode needs, and whether its strip
-        // already holds them.
         let mut needs = Vec::new();
         let from = waves.partition_point(|w| w.row < visible.start);
         let to = waves.partition_point(|w| w.row < visible.end);
@@ -130,8 +102,6 @@ impl Strips {
         if needs.is_empty() && !self.active {
             return None;
         }
-        // New strips, each a screen's width to spare on either side; if they
-        // will not fit, start the atlas over and place every strip afresh.
         let spare =
             |a: i64, b: i64, len: usize| ((a - (b - a)).max(0), (b + (b - a)).min(len as i64 - 1));
         let fresh: u64 = needs
@@ -156,13 +126,10 @@ impl Strips {
                 let (a, b) = spare(a, b, sound.frames());
                 let count = (b - a + 1) as u32;
                 if self.used + count > STRIP_CAPACITY {
-                    // Too much on screen at once: these draw from peaks.
                     self.cached[i] = None;
                     continue;
                 }
                 let Some(samples) = self.reader.samples(&sound, a, count, ctx) else {
-                    // A file played from disk is read on a worker: until
-                    // then this wave draws from its peaks.
                     self.cached[i] = None;
                     continue;
                 };
@@ -190,8 +157,6 @@ impl Strips {
     }
 }
 
-/// Samples as the strips hold them: left and right (mono repeats), as 16-bit
-/// fractions of full scale.
 fn to_strip(left: &[f32], right: &[f32]) -> Vec<[i16; 2]> {
     let at = |v: f32| (v.clamp(-1.0, 1.0) * 32_767.0).round() as i16;
     left.iter()
@@ -200,8 +165,6 @@ fn to_strip(left: &[f32], right: &[f32]) -> Vec<[i16; 2]> {
         .collect()
 }
 
-/// `count` samples of `audio` in memory from frame `first`; frames past the
-/// end are silent.
 fn in_memory(channels: &[Vec<f32>], first: i64, count: u32) -> Vec<[i16; 2]> {
     let left = channels.first().map_or(&[][..], Vec::as_slice);
     let right = channels.get(1).map_or(left, Vec::as_slice);
@@ -215,15 +178,10 @@ fn in_memory(channels: &[Vec<f32>], first: i64, count: u32) -> Vec<[i16; 2]> {
     to_strip(&range(left), &range(right))
 }
 
-/// Which samples were asked for: a file, its first frame and the count.
 type Want = (u64, i64, u32);
 
-/// What the worker read: the request and its samples.
 type Read = (Want, Vec<[i16; 2]>);
 
-/// Reads strips of files played from disk on a worker thread (M9 slice R6),
-/// so the UI never waits for the disk. One request at a time is kept: a
-/// newer one replaces what was asked before.
 #[derive(Default)]
 pub(crate) struct StripReader {
     worker: Option<Worker>,
@@ -242,7 +200,6 @@ struct Worker {
 }
 
 impl StripReader {
-    /// A read was asked for and its answer has not arrived yet.
     pub(crate) fn waiting(&self) -> bool {
         self.worker.as_ref().is_some_and(|w| {
             w.asked.is_some()
@@ -253,9 +210,6 @@ impl StripReader {
         })
     }
 
-    /// `count` samples of `audio` from frame `first`: at once for audio in
-    /// memory; for a file played from disk once the worker has read them
-    /// (`None` until then, and `ctx` is woken when they are there).
     pub(crate) fn samples(
         &mut self,
         audio: &ClipAudio,
@@ -277,7 +231,6 @@ impl StripReader {
         drop(done);
         if worker.asked != Some(want) {
             worker.asked = Some(want);
-            // The worker only ends when this reader drops.
             let _ = worker.requests.send((stream.clone(), want, ctx.clone()));
         }
         None
@@ -292,7 +245,6 @@ impl Worker {
         let spawned = crate::spawn::spawn_named("lumen-strip-read", move || {
             let mut readers = Readers::default();
             while let Ok(mut request) = inbox.recv() {
-                // Only the newest request is wanted.
                 while let Ok(newer) = inbox.try_recv() {
                     request = newer;
                 }
@@ -300,7 +252,6 @@ impl Worker {
                 let (mut left, mut right) = (vec![0.0; count as usize], vec![0.0; count as usize]);
                 let from = first.max(0) as u64;
                 if readers.read(&stream, from, &mut left, &mut right).is_err() {
-                    // A file that cannot be read draws from its peaks.
                     continue;
                 }
                 if stream.channels() == 1 {
@@ -313,9 +264,6 @@ impl Worker {
             }
         });
         if let Err(error) = spawned {
-            // The strip is drawn from its peaks without this reader: it only
-            // makes the samples crisper, so a thread that cannot start is
-            // noted in the log, not shown.
             crate::trace::log(|| {
                 format!(
                     "samples: {}",
@@ -335,7 +283,6 @@ impl Worker {
 mod tests {
     use super::*;
 
-    /// A one-second stereo file at 48 kHz: left ramps up, right down.
     fn audio() -> Arc<ClipAudio> {
         let left: Vec<f32> = (0..48_000).map(|i| i as f32 / 48_000.0).collect();
         let right = left.iter().map(|v| -v).collect();
@@ -345,7 +292,6 @@ mod tests {
         })
     }
 
-    /// A wave of the whole file from beat 100, at 120 BPM.
     const WAVE: Geometry = Geometry {
         media: 7,
         row: 0,
@@ -355,7 +301,6 @@ mod tests {
         frames: 48_000.0,
     };
 
-    /// 8 pixels per sample, the view starting a quarter beat into the wave.
     const DEEP: Pixels = Pixels {
         left: 100.25,
         per_beat: 192_000.0,
@@ -365,16 +310,12 @@ mod tests {
 
     #[test]
     fn the_visible_frames_have_a_sample_to_spare() {
-        // A quarter beat in is frame 6,000 (the left edge sits 0.3 pixels
-        // in, a fraction of a sample earlier); 1,000 pixels are 125 samples.
         assert_eq!(WAVE.visible(DEEP, 48_000), Some((5_998, 6_126)));
-        // Clamped to the file.
         let late = Pixels {
             left: 101.999,
             ..DEEP
         };
         assert_eq!(WAVE.visible(late, 48_000).unwrap().1, 47_999);
-        // Nothing of it in view.
         let after = Pixels {
             left: 103.0,
             ..DEEP
@@ -390,18 +331,14 @@ mod tests {
         let update = strips
             .update(&[WAVE], 0..1, DEEP, &ctx, |_| Some(Arc::clone(&sound)))
             .unwrap();
-        // One strip, a screen's width to spare either side.
         assert_eq!(update.writes.len(), 1);
         let [at, count, x, per] = update.table[0];
         assert_eq!((at, count), (0, 385));
         let first = 5_998 - 128;
         let level = ((first as f32 / 48_000.0) * 32_767.0).round() as i16;
         assert_eq!(update.writes[0].1[0], [level, -level]);
-        // The first sample's x: 130 samples (8 pixels each) before frame
-        // 6,000, which sits at the edge.
         assert!((f64::from(f32::from_bits(x)) - (0.3 - 130.0 * 8.0)).abs() < 1e-3);
         assert_eq!(f32::from_bits(per), 8.0);
-        // Scrolling a little: no new samples, only the place moves.
         let moved = Pixels {
             left: 100.2505,
             ..DEEP
@@ -418,7 +355,6 @@ mod tests {
         let mut strips = Strips::default();
         let ctx = egui::Context::default();
         let sound = audio();
-        // 20 frames per pixel: peaks.
         let coarse = Pixels {
             per_beat: 1_200.0,
             ..DEEP
@@ -428,13 +364,11 @@ mod tests {
                 .update(&[WAVE], 0..1, coarse, &ctx, |_| Some(Arc::clone(&sound)))
                 .is_none()
         );
-        // Deep, but the row is out of view.
         assert!(
             strips
                 .update(&[WAVE], 0..0, DEEP, &ctx, |_| Some(Arc::clone(&sound)))
                 .is_none()
         );
-        // After strips were in use, leaving sample level clears them once.
         strips.update(&[WAVE], 0..1, DEEP, &ctx, |_| Some(Arc::clone(&sound)));
         let clear = strips
             .update(&[WAVE], 0..1, coarse, &ctx, |_| Some(Arc::clone(&sound)))
@@ -477,7 +411,6 @@ mod tests {
             .update(&[WAVE], 0..1, DEEP, &ctx, |_| Some(Arc::clone(&sound)))
             .unwrap();
         let mut strips = Strips::default();
-        // Asked for: nothing to draw yet but the peaks.
         let first = strips
             .update(&[WAVE], 0..1, DEEP, &ctx, |_| Some(Arc::clone(&streamed)))
             .unwrap();

@@ -1,24 +1,9 @@
-//! Box layers (M3 slice 4b): clip bodies on the GPU. Each box is a time
-//! range on a row slot, drawn as a rounded body with a title bar, a border
-//! and an optional loading fill, antialiased in the fragment shader.
-//!
-//! Boxes are uploaded once and replaced only when they change (an edit, a
-//! file finishing loading). Where rows sit (their top, height and dimming)
-//! is a separate small table, a float texture read in the vertex shader, so
-//! folding, resizing and their animations upload a few hundred rows, not
-//! every box. A texture rather than a storage buffer, so every backend can
-//! read it from the vertex stage.
-
 use bytemuck::{Pod, Zeroable};
 use vello::wgpu;
 
 use crate::waves::{self, StripEntry, WaveInstance, WaveStyle, Waves};
 use crate::{Area, Beats, Prepared, Renderer, View, beats, pipeline};
 
-/// One box: a time range (timeline units, as [`View::left`]) on row slot
-/// `row`, with straight-alpha colours (`0xAABBGGRR`, from [`crate::rgba`]).
-/// `row`'s low 24 bits are the slot; its top 8 bits, when set, are how many
-/// further slots below it the box also covers (see [`spanning`]).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
 pub struct BoxInstance {
@@ -26,25 +11,17 @@ pub struct BoxInstance {
     pub end: Beats,
     pub row: u32,
     pub body: u32,
-    /// The title bar along the top.
     pub bar: u32,
-    /// The border, drawn inside the edge.
     pub border: u32,
-    /// Covers the body's left `progress` (0 to 1): a loading file.
     pub fill: u32,
     pub progress: f32,
 }
 
-/// A box's `row` for one that starts on slot `first` and covers `extra`
-/// further slots below it (at most 255; slots up to 2^24).
 pub fn spanning(first: u32, extra: u32) -> u32 {
     debug_assert!(first < 1 << 24);
     (first & 0xFF_FFFF) | (extra.min(255) << 24)
 }
 
-/// Where a row slot is: its top and height in content pixels (before the
-/// view's vertical scroll), and an opacity for everything on it. A height
-/// of 0 hides the row's boxes.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
 pub struct RowSlot {
@@ -72,38 +49,28 @@ impl RowSlot {
     };
 }
 
-/// How boxes are drawn, in physical pixels.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BoxStyle {
-    /// Space between the row's edges and the box, above and below.
     pub inset: f32,
     pub radius: f32,
-    /// Height of the title bar.
     pub title: f32,
-    /// Border width.
     pub border: f32,
-    /// Boxes are never narrower than this.
     pub min_width: f32,
 }
 
-/// Opaque handle to a box layer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BoxLayerId(usize);
 
-/// Row slots per texture row.
 const SLOTS_WIDE: u32 = 256;
 
 pub(crate) struct BoxLayer {
     instances: wgpu::Buffer,
     count: u32,
     rows: wgpu::Texture,
-    /// Slots the texture holds.
     row_capacity: u32,
-    /// Waveforms inside the boxes, on the same rows.
     waves: Waves,
 }
 
-/// One box layer to draw: where, at which scroll and zoom, and how.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BoxDraw {
     pub layer: BoxLayerId,
@@ -113,7 +80,6 @@ pub struct BoxDraw {
     pub waves: WaveStyle,
 }
 
-// Matches the shader's uniform block, or the build fails.
 const _: () = assert!(size_of::<BoxUniform>() == crate::shaders::BOXES_UNIFORM);
 
 #[repr(C)]
@@ -211,7 +177,6 @@ fn row_texture(device: &wgpu::Device, slots: u32) -> (wgpu::Texture, u32) {
 }
 
 impl Renderer {
-    /// Adds an empty box layer.
     pub fn add_box_layer(&mut self, device: &wgpu::Device) -> BoxLayerId {
         let (rows, row_capacity) = row_texture(device, SLOTS_WIDE);
         self.box_layers.push(BoxLayer {
@@ -229,7 +194,6 @@ impl Renderer {
         BoxLayerId(self.box_layers.len() - 1)
     }
 
-    /// Replaces a layer's boxes. Reallocates only if it grew.
     pub fn update_boxes(
         &mut self,
         device: &wgpu::Device,
@@ -253,7 +217,6 @@ impl Renderer {
         layer.count = boxes.len() as u32;
     }
 
-    /// Replaces a layer's waveforms. Reallocates only if it grew.
     pub fn update_waves(
         &mut self,
         device: &wgpu::Device,
@@ -266,9 +229,6 @@ impl Renderer {
             .set_instances(device, queue, waves);
     }
 
-    /// Stores waveform peaks as `slot` of a layer: `levels` finest first,
-    /// [`waves::PEAK_BASE`] frames per bucket at level 0, each level
-    /// [`waves::PEAK_FACTOR`] times coarser. False if the atlas is full.
     pub fn set_peaks(
         &mut self,
         device: &wgpu::Device,
@@ -282,15 +242,10 @@ impl Renderer {
             .set_peaks(device, queue, slot, levels)
     }
 
-    /// Empties a layer's peak atlas, to store the peaks still drawn again
-    /// from its start (M9 slice R6: space held by peaks no longer drawn is
-    /// reclaimed).
     pub fn clear_peaks(&mut self, queue: &wgpu::Queue, id: BoxLayerId) {
         self.box_layers[id.0].waves.clear_peaks(queue);
     }
 
-    /// Sample strips for waves drawn sample by sample (deep zoom): see
-    /// [`StripEntry`].
     pub fn update_strips(
         &mut self,
         device: &wgpu::Device,
@@ -304,7 +259,6 @@ impl Renderer {
             .set_strips(device, queue, table, writes);
     }
 
-    /// Replaces a layer's row slots (every frame, if rows move).
     pub fn update_rows(
         &mut self,
         device: &wgpu::Device,
@@ -317,7 +271,6 @@ impl Renderer {
         if slots > layer.row_capacity {
             (layer.rows, layer.row_capacity) = row_texture(device, slots.next_power_of_two());
         }
-        // Whole texture rows, so the copy's row pitch is the texture's.
         let height = slots.div_ceil(SLOTS_WIDE).max(1);
         let mut data = rows.to_vec();
         data.resize((height * SLOTS_WIDE) as usize, RowSlot::HIDDEN);
@@ -337,8 +290,6 @@ impl Renderer {
         );
     }
 
-    /// Prepares drawing target `target` of size `canvas` (physical pixels)
-    /// with box layers.
     pub fn prepare_boxes(
         &mut self,
         device: &wgpu::Device,

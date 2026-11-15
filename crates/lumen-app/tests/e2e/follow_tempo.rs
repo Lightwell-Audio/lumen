@@ -1,11 +1,3 @@
-//! New audio clips follow the song's tempo (M9.5 S4d, the owner's W A).
-//!
-//! A file that says it is a loop, by a BPM in its name, comes in as a clip
-//! as long in beats as the file is at that tempo, made at it, so it fits the
-//! song whatever the song's tempo is. Any other file comes in at its own
-//! speed. The Editing page's "Follow the tempo" decides, and recordings are
-//! in `audio_record.rs`.
-
 use eframe::egui::{Key, Modifiers};
 use lumen_core::time::Ticks;
 use lumen_project::model::{Clip, WarpMode};
@@ -42,7 +34,6 @@ fn a_file_with_a_tempo_in_its_name_comes_in_as_a_loop_that_follows_the_song() {
     let funk = first_clip(&lumen, at("Funk Loop 90 BPM"));
     let warp = funk.warp.as_ref().expect("a file that says 90 BPM follows");
     assert_eq!((warp.mode, warp.original_bpm), (WarpMode::FullMix, 90.0));
-    // Two seconds at 90 BPM are three beats, though the song is at 120.
     assert_eq!(funk.length, Ticks::quarters(3));
 
     let kick = first_clip(&lumen, at("Kick"));

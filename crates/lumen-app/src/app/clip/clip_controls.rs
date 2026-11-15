@@ -1,8 +1,3 @@
-//! The clip controls that more than one place draws (M9.5 S3, D37): the
-//! floating properties card and the audio editor's strip both show the gain
-//! and the fades through these, so the two edit the same fields in the same
-//! way, with the same undo steps.
-
 use eframe::egui::{self, Rect, Ui, vec2};
 use lumen_core::fade::FadeShape;
 use lumen_core::time::{TempoMap, Ticks};
@@ -12,7 +7,6 @@ use lumen_project::model::{Clip, ClipContent};
 use crate::widgets::{self, SliderKind};
 use crate::{App, theme};
 
-/// How long the fade at `edge` of `clip` lasts, in milliseconds.
 pub(crate) fn fade_ms(tempo: &TempoMap, clip: &Clip, edge: Edge) -> f32 {
     let end = clip.start + clip.length;
     let (a, b) = match edge {
@@ -22,13 +16,11 @@ pub(crate) fn fade_ms(tempo: &TempoMap, clip: &Clip, edge: Edge) -> f32 {
     ((tempo.seconds_at(b) - tempo.seconds_at(a)) * 1000.0) as f32
 }
 
-/// How long `clip` lasts, in milliseconds.
 pub(crate) fn clip_ms(tempo: &TempoMap, clip: &Clip) -> f32 {
     let end = clip.start + clip.length;
     ((tempo.seconds_at(end) - tempo.seconds_at(clip.start)) * 1000.0) as f32
 }
 
-/// The length of a fade at `edge` of `clip` that lasts `ms`.
 pub(crate) fn fade_ticks(tempo: &TempoMap, clip: &Clip, edge: Edge, ms: f32) -> Ticks {
     let seconds = f64::from(ms.clamp(0.0, clip_ms(tempo, clip))) / 1000.0;
     let end = clip.start + clip.length;
@@ -38,7 +30,6 @@ pub(crate) fn fade_ticks(tempo: &TempoMap, clip: &Clip, edge: Edge, ms: f32) -> 
     }
 }
 
-/// The name of a fade's controls: "Fade in" or "Fade out".
 pub(crate) fn fade_label(edge: Edge) -> &'static str {
     match edge {
         Edge::Start => "Fade in",
@@ -47,8 +38,6 @@ pub(crate) fn fade_label(edge: Edge) -> &'static str {
 }
 
 impl App {
-    /// The gain slider of an audio `clip` in `rect`; one undo step per drag.
-    /// `id` must be unique to the place that draws it.
     pub(crate) fn clip_gain_slider(&mut self, ui: &mut Ui, rect: Rect, clip: &Clip, id: egui::Id) {
         let ClipContent::Audio { gain_db, .. } = &clip.content else {
             return;
@@ -68,8 +57,6 @@ impl App {
         }
     }
 
-    /// The length slider of a fade in `rect`, in milliseconds; one undo
-    /// step per drag. `id` must be unique to the place that draws it.
     pub(crate) fn clip_fade_slider(
         &mut self,
         ui: &mut Ui,
@@ -97,8 +84,6 @@ impl App {
         }
     }
 
-    /// The shape dropdown of a fade, `width` wide. `id` must be unique to the
-    /// place that draws it.
     pub(crate) fn clip_fade_shape(
         &mut self,
         ui: &mut Ui,
@@ -121,8 +106,6 @@ impl App {
         }
     }
 
-    /// A fade's slider and shape side by side in the room `ui` has: the
-    /// shape takes `shape`, the slider the rest.
     pub(crate) fn clip_fade_row(
         &mut self,
         ui: &mut Ui,
@@ -172,7 +155,6 @@ mod tests {
 
     #[test]
     fn fade_lengths_read_and_set_in_milliseconds() {
-        // 120 BPM: a quarter is 500 ms.
         let tempo = TempoMap::constant(120.0).expect("a tempo");
         let mut c = clip(4, 8);
         assert_eq!(clip_ms(&tempo, &c), 4000.0);
@@ -182,7 +164,6 @@ mod tests {
         assert_eq!(c.fade_out.length, Ticks::quarters(2));
         assert!((fade_ms(&tempo, &c, Edge::Start) - 250.0).abs() < 0.01);
         assert!((fade_ms(&tempo, &c, Edge::End) - 1000.0).abs() < 0.01);
-        // Never longer than the clip.
         assert_eq!(fade_ticks(&tempo, &c, Edge::End, 1e9), c.length);
     }
 }

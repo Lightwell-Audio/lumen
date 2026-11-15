@@ -1,7 +1,3 @@
-//! The flat processing plan the audio thread runs ([`Plan`]), compiled
-//! from a routing by [`super::compile`]. On the audio thread a plan only
-//! reads and writes what it already holds.
-
 mod buses;
 mod node;
 mod process;
@@ -19,54 +15,30 @@ use super::smooth::Smoothed;
 use super::spec::Compensation;
 pub use super::spec::Tap;
 
-/// Frames a plan processes at a time; longer blocks are split.
 pub const CHUNK: usize = 256;
-// Plugin hosts are configured for blocks of at most this many frames.
 const _: () = assert!(CHUNK <= lumen_devices::MOST_FRAMES);
-/// Channels on every bus: stereo.
 pub const BUS_CHANNELS: usize = 2;
 pub(super) const BUS: usize = CHUNK * BUS_CHANNELS;
 
-/// A compiled routing: nodes in processing order, each with a stereo bus.
 pub struct Plan {
     pub(super) nodes: Vec<Node>,
     pub(super) sends: Vec<Send>,
     pub(super) devices: Vec<Dev>,
     pub(super) taps: Vec<TapOut>,
-    /// Delay lines: compensation and latent devices.
     pub(super) lines: Lines,
-    /// Where a path is delayed on its way out (`Lines::through`): both
-    /// sides, `CHUNK` frames each. Held here rather than zeroed on the
-    /// stack every block.
     pub(super) scratch: Box<[f32; 2 * CHUNK]>,
-    /// Where hosted devices work, and whether the plan has any.
     pub(super) host_scratch: Box<HostScratch>,
     pub(super) hosted: bool,
-    /// The plan names a built-in effect, so the song's tempo is read each
-    /// part for it (M8 slice B3); a project without one does no such work.
     pub(super) builtins: bool,
-    /// `(id, index)` sorted by id: where tracks find their bus.
     pub(super) by_id: Vec<(u64, u32)>,
-    /// Every node's bus, `BUS` samples each: left then right, `CHUNK`
-    /// frames per side.
     pub(super) buses: Vec<f32>,
-    /// Sidechain buses, laid out as `buses`.
     pub(super) sides: Vec<f32>,
-    /// What the tracks would have played after a jump, laid out as
-    /// `buses`, to blend from (only in a latent plan).
     pub(super) input_tail: Vec<f32>,
-    /// Identifies the routing's shape (order, outputs, sends, devices,
-    /// sidechains and delay lines, not levels): a plan with another shape
-    /// crossfades in.
     pub(super) topology: u64,
-    /// The cue bus: `CHUNK` frames a side, as a node's.
     pub(super) cue_bus: Vec<f32>,
-    /// Where the cue bus is heard (its first channel), and how loud.
     pub(super) cue_channel: Option<u16>,
     pub(super) cue_volume: Smoothed,
-    /// Where the nodes' levels go, when metered.
     pub(super) meters: Option<Arc<MeterBank>>,
-    /// The index of the node whose loudness is measured.
     pub(super) measured: Option<u32>,
     pub(super) compensation: Compensation,
 }
@@ -82,7 +54,6 @@ impl std::fmt::Debug for Plan {
 }
 
 impl Plan {
-    /// An empty plan: silence.
     pub fn empty() -> Self {
         Self {
             nodes: Vec::new(),
@@ -108,17 +79,14 @@ impl Plan {
         }
     }
 
-    /// The delay compensation this plan applies.
     pub fn compensation(&self) -> &Compensation {
         &self.compensation
     }
 
-    /// Frames the device outputs trail what the tracks play.
     pub(super) fn latency(&self) -> u32 {
         self.compensation.frames
     }
 
-    /// Zeroes the first `frames` of every bus.
     pub(super) fn clear(&mut self, frames: usize) {
         for buses in [&mut self.buses, &mut self.sides, &mut self.cue_bus] {
             for bus in buses.as_chunks_mut::<BUS>().0 {
@@ -128,7 +96,6 @@ impl Plan {
         }
     }
 
-    /// Silences every delay line: playback starts. Real-time safe.
     pub(super) fn clear_lines(&mut self) {
         self.lines.clear();
     }
@@ -141,8 +108,6 @@ impl Plan {
         }
     }
 
-    /// The tracks' buses for what they would have played after a jump,
-    /// zeroed: `None` unless the plan is latent.
     pub(super) fn input_tail(&mut self, frames: usize) -> Option<Buses<'_>> {
         if self.input_tail.is_empty() {
             return None;
@@ -155,9 +120,6 @@ impl Plan {
         })
     }
 
-    /// Blends `frames` of the input tail, from its frame `done` of
-    /// `length`, out of every bus as the new input comes in. Real-time
-    /// safe.
     pub(super) fn blend_inputs(&mut self, done: usize, frames: usize, length: usize) {
         if self.input_tail.is_empty() {
             return;
@@ -175,8 +137,6 @@ impl Plan {
         }
     }
 
-    /// Copies the first `frames` of `from`'s buses into the buses of the
-    /// same nodes here: what the tracks played, for a plan fading out.
     pub(super) fn copy_inputs(&mut self, from: &Plan, frames: usize) {
         let (mut i, mut j) = (0, 0);
         while let (Some(&(a, here)), Some(&(b, there))) = (self.by_id.get(i), from.by_id.get(j)) {
@@ -196,13 +156,6 @@ impl Plan {
         }
     }
 
-    /// Takes over the current levels of the nodes and sends that `old`
-    /// also has, so they glide to their new values, and what is in flight
-    /// in the delay lines they share. Real-time safe: merges over sorted
-    /// lists, a short search per send, and a copy per delay line.
-    ///
-    /// With `retiring`, `old` will not play again, so delay lines laid out
-    /// alike are taken over without a copy ([`Lines::take_over`]).
     pub(super) fn carry(&mut self, old: &mut Plan, retiring: bool) {
         if old.cue_channel.is_some() {
             self.cue_volume.carry(&old.cue_volume);
@@ -229,9 +182,6 @@ impl Plan {
                     if let (Some(new), Some(was)) = (node.auto.as_deref_mut(), &before.auto) {
                         new.carry(was);
                     }
-                    // A hosted device keeps where it was in the glide
-                    // between its host and its fallback; a built-in keeps where
-                    // it was between its dry signal and its own.
                     let mine =
                         node.first_device as usize..(node.first_device + node.devices) as usize;
                     let theirs = before.first_device as usize
@@ -261,8 +211,6 @@ impl Plan {
         }
     }
 
-    /// `frames` passed with nothing played: every node's RMS falls as in
-    /// silence. Real-time safe: a load and a store per side and node.
     pub(super) fn idle_meters(&self, rate: u32, frames: usize) {
         let Some(meters) = self.meters.as_deref() else {
             return;
@@ -273,7 +221,6 @@ impl Plan {
         }
     }
 
-    /// Every level jumps to its target (after a transport jump).
     pub(super) fn settle(&mut self) {
         for node in &mut self.nodes {
             node.pre.settle();
@@ -288,10 +235,6 @@ impl Plan {
         for send in &mut self.sends {
             send.gain.settle();
         }
-        // A built-in is where its power says it is: playback starts (or jumps)
-        // with the device heard or not, not fading in from silence, which is
-        // what makes an export play what playback plays frame for frame
-        // (M8 slice B0, review L9).
         for dev in &mut self.devices {
             if dev.builtin != NO_BUILTIN {
                 dev.wet.set(if dev.bypass { 0.0 } else { 1.0 });

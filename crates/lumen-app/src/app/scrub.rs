@@ -1,10 +1,3 @@
-//! The scrub strip (M3 slice 5e): the strip's upper part,
-//! around the locator flags. Click to jump there (snapped; Alt places
-//! freely). Drag to hear the song under the pointer: by default the grid
-//! step under it loops at normal pitch; with Alt, the audio
-//! follows the hand like tape. While playing, a drag jumps playback from
-//! step to step instead. Right-click adds a locator there.
-
 use eframe::egui::{self, CursorIcon, Rect, Sense, pos2};
 use lumen_core::time::Ticks;
 use lumen_engine::{MAX_SCRUB_SPEED, ScrubStyle};
@@ -15,7 +8,6 @@ use super::rulers::{BRACE_BAND, Layout};
 use crate::commands::Command;
 use crate::{App, ruler, theme, trace, widgets};
 
-/// What a scrub drag last sent.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Sent {
     at: Ticks,
@@ -23,8 +15,6 @@ struct Sent {
 }
 
 impl App {
-    /// The scrub strip's interaction. Called before the brace and the
-    /// flags, so they win where they are.
     pub(crate) fn scrub_zone(&mut self, ui: &mut egui::Ui, painter: &egui::Painter, at: &Layout) {
         let zone = Rect::from_x_y_ranges(
             at.strip.x_range(),
@@ -44,8 +34,6 @@ impl App {
                 "Scrub strip: click to jump, drag to listen",
             )
         });
-        // Right-click: add a locator where it was clicked, leaving the
-        // playhead alone (MT-APP-13 run 1).
         let menu_at = id.with("menu at");
         if response.secondary_clicked()
             && let Some(p) = response.interact_pointer_pos()
@@ -81,7 +69,6 @@ impl App {
             ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
             let sent: Option<Sent> = ui.data(|d| d.get_temp(id));
             let next = if playing {
-                // Playing: jump from step to step, as a click would.
                 let target = self.snapped(raw, free);
                 if sent.is_none_or(|s| s.at != target) {
                     self.transport.locate(target);
@@ -94,7 +81,6 @@ impl App {
                 if sent.is_none_or(|s| s.at != raw) {
                     self.transport.scrub(raw, ScrubStyle::Tape);
                 }
-                // The tape's speed, as the hand sets it.
                 let speed = self.tape_speed(ui, id, raw);
                 let text = format!("tape {speed:.1}×");
                 widgets::draw_caption(
@@ -119,7 +105,6 @@ impl App {
                 if sent != Some(next) {
                     self.transport.scrub(start, style);
                 }
-                // The step that plays, lit on the strip.
                 painter.rect_filled(
                     Rect::from_x_y_ranges(x(start)..=x(end), zone.y_range()),
                     0.0,
@@ -141,9 +126,6 @@ impl App {
         }
         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
         let target = self.snapped(raw, free);
-        // What a drag would do (MT-APP-13 run 1, the owner's choice B2):
-        // the step it would play, washed; the words are in the info line
-        // (M4 slice 0).
         let info = Info::new("Scrub strip").on(Held::NONE, Mouse::Click, "jump");
         let info = if playing {
             info.on(Held::NONE, Mouse::Drag, "jump along")
@@ -174,8 +156,6 @@ impl App {
         }
     }
 
-    /// How fast a tape scrub plays, times normal: the song time the hand
-    /// covers per second, smoothed, within the engine's limit.
     fn tape_speed(&self, ui: &egui::Ui, id: egui::Id, at: Ticks) -> f64 {
         let rate = self.transport.state().sample_rate.max(1);
         let song = self.transport.timeline.sample_at(at, rate) as f64 / f64::from(rate);
@@ -204,10 +184,8 @@ impl App {
     }
 }
 
-/// A tape scrub's speed, carried from frame to frame.
 #[derive(Debug, Clone, Copy)]
 struct Speed {
-    /// Where the hand was, in seconds of song, and when.
     song: f64,
     time: f64,
     speed: f64,

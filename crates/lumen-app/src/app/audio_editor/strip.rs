@@ -1,15 +1,3 @@
-//! The audio editor's properties strip (M9.5 S3, `docs/milestones/M9.5.md`
-//! §10): one 32 pt row under the shared header, which holds what the clip
-//! card held, for the opened clip. Left to right: the Clip chip (colour and
-//! name), Gain, Mute and Lock, the two Fades, Reverse, Polarity and Normalize,
-//! and at the right the File chip. When the row is too narrow its groups give
-//! way in the owner's order (`audio_editor::strip`): Processing folds into the
-//! ⋯ menu first, then the Fades.
-//!
-//! The controls are the card's own (`app::clip_controls`), so the two cannot
-//! differ. Gain, the fades, Mute and Lock edit the opened clip; Processing
-//! selects it first and runs the command the menus and keys run (D30).
-
 use eframe::egui::{self, Color32, FontId, Rect, RichText, Sense, Stroke, Ui, UiBuilder, vec2};
 use eframe::emath::GuiRounding as _;
 use lumen_core::time::TempoMap;
@@ -30,13 +18,10 @@ use crate::icons::{self, Icon};
 use crate::theme;
 use crate::widgets::{self, Menu, raised};
 
-/// An icon on a strip button.
 const GLYPH: f32 = 14.0;
-/// The ⋯ button's dots: their radius and how far apart.
 const DOTS: f32 = 1.25;
 const DOT_GAP: f32 = 4.0;
 
-/// The three processing controls, in the strip's order.
 #[derive(Clone, Copy, PartialEq)]
 enum Processing {
     Reverse,
@@ -55,7 +40,6 @@ impl Processing {
         }
     }
 
-    /// The row in the ⋯ menu.
     fn menu(self) -> &'static str {
         match self {
             Self::Reverse => "Reverse",
@@ -88,7 +72,6 @@ impl Processing {
         }
     }
 
-    /// Whether the clip has it on (Normalize is an action, never on).
     fn on(self, clip: &Clip) -> bool {
         match self {
             Self::Reverse => clip.reversed,
@@ -98,8 +81,6 @@ impl Processing {
     }
 }
 
-/// A raised button that does something (Normalize), the size of the strip's
-/// toggle buttons.
 fn action_button(ui: &mut Ui, label: &str) -> egui::Response {
     let galley = ui.painter().layout_no_wrap(
         label.to_owned(),
@@ -128,14 +109,12 @@ fn action_button(ui: &mut Ui, label: &str) -> egui::Response {
     response
 }
 
-/// Mute as the letter the track headers use.
 fn mute_glyph(painter: &egui::Painter, centre: egui::Pos2, ink: Color32) {
     let galley =
         painter.layout_no_wrap("M".to_owned(), crate::fonts::medium(theme::size::BODY), ink);
     painter.galley(centre - galley.size() / 2.0, galley, ink);
 }
 
-/// A label in the strip's caption type, centred on the row.
 fn caption(row: &mut Ui, text: &str) {
     let galley = row.painter().layout_no_wrap(
         text.to_owned(),
@@ -147,8 +126,6 @@ fn caption(row: &mut Ui, text: &str) {
         .galley(rect.min, galley, theme::p().text_secondary);
 }
 
-/// `add` in a child of `row` that has an id of its own, so the controls in
-/// it keep theirs when a group before it appears or goes.
 fn group<R>(row: &mut Ui, name: &'static str, add: impl FnOnce(&mut Ui) -> R) -> R {
     row.scope_builder(
         UiBuilder::new().id_salt(("audio strip group", name)),
@@ -160,8 +137,6 @@ fn group<R>(row: &mut Ui, name: &'static str, add: impl FnOnce(&mut Ui) -> R) ->
     .inner
 }
 
-/// What the strip's ⋯ menu acts on: the clip, the tempo its fades land on,
-/// why it cannot be changed, and how the strip is laid out.
 #[derive(Clone, Copy)]
 struct More<'a> {
     clip: &'a Clip,
@@ -170,7 +145,6 @@ struct More<'a> {
     layout: Layout,
 }
 
-/// Why the opened clip's gain, fades and processing cannot be changed.
 pub(super) enum Fixed {
     No,
     Locked,
@@ -190,7 +164,6 @@ impl Fixed {
 }
 
 impl App {
-    /// Why the clip `id` cannot be edited now.
     pub(super) fn strip_fixed(&self, id: Id) -> Fixed {
         for track in &self.document.project().tracks {
             if let Some(clip) = track.clips.iter().find(|c| c.id == id) {
@@ -207,9 +180,6 @@ impl App {
         Fixed::No
     }
 
-    /// Whether Properties (Alt+Enter) belongs to the strip: the audio editor
-    /// is shown with its keys live, and the clip it would name is the
-    /// opened one, or none is selected (D32).
     pub(crate) fn properties_in_strip(&self, ctx: &egui::Context) -> bool {
         let Some(opened) = self.detail_audio_clip() else {
             return false;
@@ -220,8 +190,6 @@ impl App {
                 .is_none_or(|first| first == opened)
     }
 
-    /// Properties: the strip's Gain takes the keyboard when the strip is
-    /// where the owner works, else the floating card opens for the clip.
     pub(crate) fn run_clip_properties(&mut self, ctx: &egui::Context) {
         if self.properties_in_strip(ctx) {
             self.audio_editor.focus_strip = true;
@@ -231,8 +199,6 @@ impl App {
         }
     }
 
-    /// A Processing control was used: the opened clip becomes the selection,
-    /// then the command runs as the menus and keys run it, with its notes.
     fn strip_command(&mut self, ctx: &egui::Context, clip: Id, command: Command) {
         self.select_opened_clip(clip);
         match self.availability(ctx, command) {
@@ -241,7 +207,6 @@ impl App {
         }
     }
 
-    /// What the parts measure this frame.
     fn strip_widths(&self, ui: &Ui, room: f32, clip: &Clip, file: &str) -> Widths {
         let s = theme::space::S;
         let font = FontId::proportional(theme::size::CAPTION);
@@ -276,7 +241,6 @@ impl App {
         }
     }
 
-    /// The strip for the opened audio `clip` in `rect`.
     pub(super) fn audio_strip(
         &mut self,
         ui: &mut Ui,
@@ -289,8 +253,6 @@ impl App {
         };
         let media = *media;
         let palette = *theme::p();
-        // The strip is where the work is while the pointer is over it or a
-        // control in it has the keyboard (D32): Properties focuses Gain.
         let ctx = ui.ctx().clone();
         let in_strip = ctx.memory(|m| m.focused()).is_some_and(|id| {
             ctx.read_response(id)
@@ -306,20 +268,16 @@ impl App {
             Stroke::new(theme::stroke::HAIRLINE, palette.border),
         );
         let inner = rect.shrink2(vec2(theme::space::M, 0.0));
-        // The chip shows what it will say: the file's name, or "Missing".
         let file_name = self.file_chip_text(media);
         let widths = self.strip_widths(ui, inner.width(), clip, &file_name);
         let layout = strip::choose(widths);
         ed.strip = layout;
         let ends = strip::ends(layout, widths);
-        // The File chip has the right end; the row has what is left.
         let file_rect = Rect::from_min_max(
             egui::pos2(inner.right() - ends.file, inner.top()),
             inner.right_bottom(),
         )
         .shrink2(vec2(0.0, (inner.height() - theme::size::CONTROL) / 2.0));
-        // The Warp chip stands beside it, to its left, until the narrowest
-        // layouts fold it into the ⋯ menu.
         let warp_rect = layout.shows_warp().then(|| {
             Rect::from_min_max(
                 egui::pos2(
@@ -329,8 +287,6 @@ impl App {
                 egui::pos2(file_rect.left() - strip::GROUP_GAP, file_rect.bottom()),
             )
         });
-        // The Pitch chip is to the Warp chip's left, or beside the File chip
-        // when Warp has folded; it folds last of the two (S6).
         let pitch_rect = layout.shows_pitch().then(|| {
             let right = warp_rect.map_or(file_rect.left(), |r| r.left()) - strip::GROUP_GAP;
             Rect::from_min_max(
@@ -400,8 +356,6 @@ impl App {
                     },
                     ed,
                 );
-                // A group that folded while it had the keyboard leaves it on
-                // the ⋯ button (D36).
                 if let Some(was) = ed.strip_group
                     && !layout.shows(was)
                 {
@@ -441,7 +395,6 @@ impl App {
         ed.strip_group = now;
     }
 
-    /// Gain: its label (when there is room) and slider.
     fn strip_gain(
         &mut self,
         ui: &mut Ui,
@@ -472,7 +425,6 @@ impl App {
         }
     }
 
-    /// On a clip that cannot change, says why over the control in `rect`.
     fn disabled_why(&self, ui: &mut Ui, rect: Rect, id: egui::Id, fixed: &Fixed) {
         if let Some(why) = fixed.why() {
             ui.interact(rect, id.with("why"), Sense::hover())
@@ -480,12 +432,10 @@ impl App {
         }
     }
 
-    /// Mute and Lock, which stay live on a locked clip.
     fn strip_state(&mut self, ui: &mut Ui, clip: &Clip, (fixed, focus): (&Fixed, bool)) {
         let keys = self.keymap.keys(Command::MuteClips);
         let mute = icon_toggle(ui, "Mute clip", clip.muted, mute_glyph);
         if focus && fixed.why().is_some() {
-            // Gain is off: the keyboard starts at Mute (D32).
             mute.request_focus();
         }
         if widgets::tip(
@@ -518,7 +468,6 @@ impl App {
         }
     }
 
-    /// The two fades. True when one has the keyboard.
     fn strip_fades(
         &mut self,
         ui: &mut Ui,
@@ -546,8 +495,6 @@ impl App {
         focused
     }
 
-    /// Reverse, Polarity and Normalize, with their words or as icons. True
-    /// when one has the keyboard.
     fn strip_processing(
         &mut self,
         ui: &mut Ui,
@@ -601,8 +548,6 @@ impl App {
         focused
     }
 
-    /// The ⋯ button and its menu, which holds the folded groups. Returns the
-    /// button's response.
     fn strip_more(
         &mut self,
         ui: &mut Ui,
@@ -639,8 +584,6 @@ impl App {
         let mut to_fades = None;
         let mut to_warp = None;
         let mut to_pitch = None;
-        // The menu stays open across its two pages; a Processing row closes it
-        // itself.
         Menu::below(&more).staying().show(|ui| {
             if page_fades {
                 ui.set_width(CARD_WIDTH);
@@ -729,7 +672,6 @@ impl App {
             }
         });
         if let Some(page) = to_fades {
-            // A plain row closes its menu: the page change keeps it open.
             ed.strip_fades = page;
             Menu::open_for(ctx, more.id);
         }
@@ -745,8 +687,6 @@ impl App {
             ed.strip_fades = false;
             ed.strip_warp = false;
             ed.strip_pitch = false;
-            // Closing gives the keyboard back to the button that opened the
-            // menu, unless a click elsewhere has already taken it.
             if was_open && !ctx.input(|i| i.pointer.any_pressed()) {
                 more.request_focus();
             }

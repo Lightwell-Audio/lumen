@@ -1,7 +1,3 @@
-//! Publish all stems together. Old files are moved aside until every rename
-//! succeeds; a failed publish restores them. Only this task's staging folder
-//! is removed on drop.
-
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -59,7 +55,6 @@ impl Stage {
                 }
             }
             if !errors.is_empty() {
-                // Preserve the backups when restoration itself fails.
                 return Err(format!("{why}. Recovery files: {}", errors.join("; ")));
             }
             return Err(why);
@@ -73,8 +68,6 @@ impl Stage {
 
 impl Drop for Stage {
     fn drop(&mut self) {
-        // A remaining previous-* file may be the only copy after a failed
-        // rollback. Keep that folder and report its path rather than erase it.
         if std::fs::read_dir(&self.0).is_ok_and(|mut entries| {
             entries
                 .any(|e| e.is_ok_and(|e| e.file_name().to_string_lossy().starts_with("previous-")))

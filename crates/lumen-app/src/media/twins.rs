@@ -1,14 +1,3 @@
-//! Reversed twins of loaded files (M7b slice E1). A reversed clip's place in
-//! its file is measured in the reversed file (`Clip.reversed`), so the clip
-//! player, the waveform and the sample view all read a copy of the audio with
-//! its frames in the other order. A twin is made on a worker thread when the
-//! project first has a reversed clip of a file, is named by
-//! [`reversed_key`] wherever a media id is wanted, and goes when no clip
-//! needs it. Until it is ready the reversed clip is silent and has no
-//! waveform, as a clip is while its file loads. The twin of a file played
-//! from disk is a reversed stream file in the cache, played from disk too
-//! (M9 slice R6), so a reversed clip never holds a second copy in memory.
-
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -20,25 +9,18 @@ use lumen_media::{MediaError, Peaks};
 
 use super::{Item, Library, State, streaming, streams};
 
-/// Set in a media id to name the reversed twin of that file.
 const REVERSED: u64 = 1 << 62;
 
-/// The key of the reversed twin of media `id`, for [`Library::get`] and the
-/// engine's and the waveform's lookups.
 pub fn reversed_key(id: u64) -> u64 {
     id | REVERSED
 }
 
-/// The media id a key stands for, and whether it names a reversed twin.
 pub fn media_of(key: u64) -> (u64, bool) {
     (key & !REVERSED, key & REVERSED != 0)
 }
 
-/// A reversed copy of one file's audio, made or being made.
 pub(super) struct Twin {
     pub item: Item,
-    /// The audio it was made from: a file converted again (another device
-    /// rate) is a new `Arc`, and the twin is made again.
     from: Arc<ClipAudio>,
     cancel: Arc<AtomicBool>,
 }
@@ -49,13 +31,11 @@ impl Drop for Twin {
     }
 }
 
-/// What a twin's worker made: the audio in memory, or a stream file.
 enum Made {
     Memory(ClipAudio),
     Stream(Prepared),
 }
 
-/// A finished twin on its way back to the library.
 pub(super) struct Mirrored {
     key: u64,
     from: Arc<ClipAudio>,
@@ -63,9 +43,6 @@ pub(super) struct Mirrored {
     peaks: Option<Peaks>,
 }
 
-/// `audio` with every channel's frames in the other order, in memory (a
-/// streamed file is read whole from disk: a render's own copy, on its
-/// worker). A file that cannot be read is silent.
 pub fn mirror(audio: &ClipAudio) -> ClipAudio {
     ClipAudio::Memory {
         sample_rate: audio.sample_rate(),
@@ -80,8 +57,6 @@ pub fn mirror(audio: &ClipAudio) -> ClipAudio {
     }
 }
 
-/// The twin of `from`, made on its worker: a reversed stream file when
-/// `from` plays from disk and there is a cache, else a copy in memory.
 fn make(
     from: &ClipAudio,
     cache: Option<&Cache>,
@@ -109,10 +84,6 @@ fn make(
 }
 
 impl Library {
-    /// Makes the reversed twins of the files in `wanted` (media ids) that
-    /// are ready and have none, and drops twins nobody wants or whose file
-    /// was converted again. Returns whether a twin was dropped, so the
-    /// engine's clips need building again.
     pub fn keep_reversed(&mut self, wanted: &[u64], ctx: &egui::Context) -> bool {
         let before = self.twins.len();
         let items = &self.items;
@@ -164,8 +135,6 @@ impl Library {
                 ctx.request_repaint();
             });
             if let Err(error) = spawned {
-                // The reversed clip stays silent, as one whose file is
-                // missing does; it does not wait for a twin that never comes.
                 let why = crate::spawn::start_failed("reversing the audio", &error);
                 crate::trace::log(|| format!("media: {why}"));
                 if let Some(twin) = self.twins.last_mut() {
@@ -176,7 +145,6 @@ impl Library {
         dropped
     }
 
-    /// Takes the twins that finished. Returns whether any did.
     pub(super) fn take_twins(&mut self) -> bool {
         let mut changed = false;
         while let Ok(done) = self.twin_rx.try_recv() {
@@ -191,8 +159,6 @@ impl Library {
                 Ok(Made::Memory(audio)) => audio,
                 Ok(Made::Stream(prepared)) => {
                     let Some(streaming) = &self.streaming else {
-                        // Streaming was turned off meanwhile: the file loads
-                        // again, and a new twin is made from it.
                         continue;
                     };
                     let layout = prepared.layout;
@@ -219,7 +185,6 @@ impl Library {
         changed
     }
 
-    /// Whether a twin is still being made.
     #[cfg(test)]
     pub fn is_reversing(&self) -> bool {
         self.twins
@@ -297,10 +262,8 @@ mod tests {
         );
         assert!(twin.peaks.is_some());
 
-        // Asking again makes no second twin.
         assert!(!library.keep_reversed(&[5], &ctx));
         assert!(!library.is_reversing());
-        // Nobody wants it any more.
         assert!(library.keep_reversed(&[], &ctx));
         assert!(library.get(reversed_key(5)).is_none());
     }
@@ -315,7 +278,6 @@ mod tests {
         wait_for_twins(&mut library);
         let second = audio(12_000);
         library.insert_ready(5, "a", Arc::clone(&second), peaks_of(&second));
-        // The old twin goes; the new one starts.
         assert!(library.keep_reversed(&[5], &ctx));
         assert!(library.is_reversing());
         wait_for_twins(&mut library);

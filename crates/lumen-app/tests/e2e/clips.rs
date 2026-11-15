@@ -1,8 +1,3 @@
-//! Clips: the header moves (Ctrl
-//! copies), the body selects a time range, a drag in empty lanes
-//! selects time on the tracks it spans and Ctrl+Shift draws a marquee
-//! (ADR-0049); clicks select; Delete and Esc.
-
 use eframe::egui::{Key, Modifiers, Pos2, Rect, vec2};
 use egui_kittest::kittest::Queryable;
 use lumen_core::time::Ticks;
@@ -12,8 +7,6 @@ use super::{Lumen, keys, wav};
 
 const BAR: i64 = Ticks::quarters(4).0;
 
-/// Lumen with two one-second files dropped in (two tracks, a clip each),
-/// on a one-bar grid.
 fn with_two_clips(name: &str) -> (Lumen, Id, Id) {
     let mut lumen = Lumen::start(name);
     let kick = wav(&lumen.dir().join("kick.wav"), 1.0);
@@ -22,11 +15,8 @@ fn with_two_clips(name: &str) -> (Lumen, Id, Id) {
     lumen.frames(5);
     lumen.click("Grid: 1/8");
     lumen.click("1 bar");
-    // The grid menu stays open for more choices: close it. New tracks
-    // glide to their height: let them settle.
     lumen.key(Modifiers::NONE, Key::Escape);
     lumen.frames(40);
-    // In the order they were dropped, whichever loads first.
     assert_eq!(lumen.track_names(), ["kick", "snare"]);
     let tracks = &lumen.app().project().tracks;
     let (a, b) = (tracks[0].clips[0].id, tracks[1].clips[0].id);
@@ -49,7 +39,6 @@ fn body(r: Rect) -> Pos2 {
     Pos2::new(r.left() + 12.0, r.bottom() - 6.0)
 }
 
-/// `(track index, start)` of `clip`.
 fn place(lumen: &Lumen, clip: Id) -> (usize, Ticks) {
     let tracks = &lumen.app().project().tracks;
     tracks
@@ -64,7 +53,6 @@ fn the_header_moves_a_clip_across_tracks_snapped_in_one_step() {
     let (mut lumen, kick, snare) = with_two_clips("clip-move");
     let (_, start) = place(&lumen, kick);
     let zoom = lumen.app().view().zoom as f32;
-    // A bar and a bit to the right, and down onto the snare's track.
     let from = header(rect(&lumen, kick));
     let to = Pos2::new(from.x + 4.3 * zoom, header(rect(&lumen, snare)).y);
     lumen.drag(from, to, Modifiers::NONE);
@@ -97,8 +85,6 @@ fn ctrl_dragging_copies_and_selects_the_copy() {
 fn a_marquee_selects_clips_and_delete_removes_them() {
     let (mut lumen, kick, snare) = with_two_clips("clip-marquee");
     let (a, b) = (rect(&lumen, kick), rect(&lumen, snare));
-    // From empty space right of the clips, back over both. Ctrl+Shift draws
-    // the marquee; a plain drag there selects time (ADR-0049).
     let from = Pos2::new(a.right().max(b.right()) + 120.0, a.top() + 2.0);
     let to = Pos2::new(a.left() + 20.0, b.bottom() - 2.0);
     lumen.drag(from, to, Modifiers::COMMAND | Modifiers::SHIFT);
@@ -151,7 +137,6 @@ fn the_body_selects_a_time_range_across_tracks() {
     lumen.key(Modifiers::NONE, Key::Escape);
     assert!(lumen.app().time_range().is_none());
 
-    // Body space shares the empty lane's explicit clip marquee gesture.
     let to = Pos2::new(
         rect(&lumen, snare).right() + 20.0,
         body(rect(&lumen, snare)).y,
@@ -172,13 +157,11 @@ fn clicks_select_and_hovering_names_the_header_and_body() {
     let (a, b) = (rect(&lumen, kick), rect(&lumen, snare));
     lumen.harness.hover_at(header(a));
     lumen.frames(2);
-    // M4 slice 0: in the info line, not by the pointer.
     assert!(
         lumen.info().starts_with("Clip “kick”: drag to move"),
         "{}",
         lumen.info()
     );
-    // The interface audit's I1: nothing is lit until a key is held.
     assert_eq!(lumen.lit(), None, "a plain drag never looks chosen");
     assert!(lumen.app().hint().is_none(), "nothing floats over the clip");
     lumen.harness.hover_at(body(a));
@@ -220,8 +203,6 @@ fn clicks_select_and_hovering_names_the_header_and_body() {
     );
 }
 
-/// Selects bars `from` to `to` (quarters, snapped) over both tracks by
-/// dragging the kick's body down to the snare's.
 fn select_range(lumen: &mut Lumen, kick: Id, snare: Id, from: f64, to: f64) {
     let zoom = lumen.app().view().zoom as f32;
     let (a, b) = (rect(lumen, kick), rect(lumen, snare));
@@ -247,9 +228,7 @@ fn starts(lumen: &Lumen, track: usize) -> Vec<(i64, i64)> {
 #[test]
 fn a_range_on_two_tracks_cuts_and_pastes_as_one_step_each() {
     let (mut lumen, kick, snare) = with_two_clips("range-cut");
-    // The one-second clips last two quarters from quarter 0.
     assert_eq!(starts(&lumen, 0), [(0, BAR / 2)]);
-    // Quarters: the one-bar grid, twice finer.
     lumen.key(Modifiers::COMMAND, Key::Num1);
     lumen.key(Modifiers::COMMAND, Key::Num1);
     select_range(&mut lumen, kick, snare, 1.0, 1.9);
@@ -257,7 +236,6 @@ fn a_range_on_two_tracks_cuts_and_pastes_as_one_step_each() {
     assert_eq!((a, b), (Ticks::quarters(1), Ticks::quarters(2)));
     assert_eq!(tracks.len(), 2);
 
-    // Cut: both clips end at the range; one undo step brings both back.
     lumen.key(Modifiers::COMMAND, Key::X);
     for track in 0..2 {
         assert_eq!(starts(&lumen, track), [(0, BAR / 4)], "track {track}");
@@ -267,7 +245,6 @@ fn a_range_on_two_tracks_cuts_and_pastes_as_one_step_each() {
         assert_eq!(starts(&lumen, track), [(0, BAR / 2)], "track {track}");
     }
 
-    // Copy it, and paste at the playhead (bar 3): both tracks get a piece.
     select_range(&mut lumen, kick, snare, 1.0, 1.9);
     lumen.key(Modifiers::COMMAND, Key::C);
     lumen.key(Modifiers::NONE, Key::Escape);
@@ -287,28 +264,21 @@ fn a_range_on_two_tracks_cuts_and_pastes_as_one_step_each() {
     assert_eq!((a, tracks.len()), (Ticks(2 * BAR), 2));
 }
 
-/// Owner, MT-APP-14 run 2: the menu had grown to 33 rows. Its choice A:
-/// each right-click gets the menu for what it landed on.
 #[test]
 fn each_right_click_gets_the_menu_for_what_it_landed_on() {
     let (mut lumen, kick, snare) = with_two_clips("menus");
     let a = rect(&lumen, kick);
-    // A clip: clip edits and properties; no grid, no time edits.
     lumen.right_click(header(a));
     assert!(lumen.shows(&keys("Rename Ctrl+R")) && lumen.shows(&keys("Cut Ctrl+X")));
     assert!(!lumen.shows(&keys("Delete time Ctrl+Shift+Delete")));
     assert!(!lumen.shows("Narrowest"));
-    // Esc closes the menu and keeps the selection.
     lumen.key(Modifiers::NONE, Key::Escape);
     assert!(!lumen.shows(&keys("Rename Ctrl+R")), "closed");
     assert_eq!(lumen.app().selected_clips(), [kick]);
     let away = Pos2::new(a.right() + 300.0, a.bottom() + 120.0);
 
-    // Empty lanes: the grid, in a submenu; Paste only once there is
-    // something to paste.
     let empty = Pos2::new(a.right() + 300.0, a.center().y);
     lumen.right_click(empty);
-    // The ruler's grid button has the same name: the menu adds a second.
     let grids = |lumen: &Lumen| {
         lumen
             .harness
@@ -317,12 +287,9 @@ fn each_right_click_gets_the_menu_for_what_it_landed_on() {
     };
     assert_eq!(grids(&lumen), 2);
     assert!(!lumen.shows(&keys("Cut Ctrl+X")) && !lumen.shows(&keys("Paste Ctrl+V")));
-    // A click elsewhere closes it.
     lumen.drag(away, away, Modifiers::NONE);
     assert_eq!(grids(&lumen), 1);
 
-    // A time range: its edits, Delete time and Insert time.
-    // From a beat in (the left edge would trim), snapped to bar 1.
     select_range(&mut lumen, kick, snare, 1.0, 4.0);
     let inside = Pos2::new(a.center().x, a.bottom() - 5.0);
     lumen.right_click(inside);
@@ -330,31 +297,23 @@ fn each_right_click_gets_the_menu_for_what_it_landed_on() {
     assert!(!lumen.shows(&keys("Rename Ctrl+R")));
 }
 
-/// Owner, MT-APP-14 run 2: a click anywhere on the lanes moves the
-/// playhead there while stopped (snapped); on a clip it also selects it.
 #[test]
 fn a_click_on_the_lanes_moves_the_playhead_while_stopped() {
     let (mut lumen, kick, _) = with_two_clips("click-locate");
     let a = rect(&lumen, kick);
     let zoom = lumen.app().view().zoom as f32;
-    // Empty lane, near bar 3 (8 quarters): snapped to it.
     let p = Pos2::new(a.left() + 8.4 * zoom, a.center().y);
     lumen.drag(p, p, Modifiers::NONE);
     lumen.wait_for("the playhead", |app| app.playhead() == Ticks::quarters(8));
-    // On a clip: selected, and the playhead goes to its bar.
     lumen.drag(header(a), header(a), Modifiers::NONE);
     assert_eq!(lumen.app().selected_clips(), [kick]);
     lumen.wait_for("the playhead", |app| app.playhead() == Ticks::ZERO);
-    // Ctrl+click only adds to the selection.
     let empty = Pos2::new(a.left() + 4.2 * zoom, a.center().y);
     lumen.drag(empty, empty, Modifiers::COMMAND);
     lumen.frames(10);
     assert_eq!(lumen.app().playhead(), Ticks::ZERO);
 }
 
-/// Owner, M5: a click on a clip's header while stopped puts the playhead
-/// at the clip's start, wherever along the header it lands; a click on
-/// its body still locates to the clicked place.
 #[test]
 fn a_click_on_a_clip_header_moves_the_playhead_to_its_start_while_stopped() {
     let (mut lumen, kick, _) = with_two_clips("header-click-locate");
@@ -368,11 +327,9 @@ fn a_click_on_a_clip_header_moves_the_playhead_to_its_start_while_stopped() {
     let (_, start) = place(&lumen, kick);
     assert_eq!(start, Ticks::quarters(4));
     let a = rect(&lumen, kick);
-    // Alt places freely, so a click a quarter in would land there.
     let p = Pos2::new(a.left() + 1.0 * zoom, a.top() + 6.0);
     lumen.drag(p, p, Modifiers::ALT);
     lumen.wait_for("the playhead", |app| app.playhead() == start);
-    // The body still locates where it is clicked.
     let b = Pos2::new(a.left() + 1.0 * zoom, a.bottom() - 6.0);
     lumen.drag(b, b, Modifiers::ALT);
     let near = |t: Ticks| (t.0 - Ticks::quarters(5).0).abs() < Ticks::quarters(1).0 / 8;
@@ -382,7 +339,6 @@ fn a_click_on_a_clip_header_moves_the_playhead_to_its_start_while_stopped() {
 #[test]
 fn playing_clip_and_lane_clicks_select_without_seeking() {
     let (mut lumen, kick, snare) = with_two_clips("playing-click-select");
-    // Keep the clicked positions in view as playback advances.
     lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::F);
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.wait_for("playback past the clips", |app| {
@@ -392,7 +348,6 @@ fn playing_clip_and_lane_clicks_select_without_seeking() {
     for point in [header(rect(&lumen, kick)), body(rect(&lumen, snare))] {
         let before = lumen.app().playhead();
         lumen.drag(point, point, Modifiers::NONE);
-        // Give the audio thread a block to hear a locate, if one was sent.
         lumen.listen(std::time::Duration::ZERO, 256);
         assert!(lumen.app().is_playing());
         assert!(
@@ -448,7 +403,6 @@ fn playing_ruler_and_scrub_clicks_still_seek_and_keep_clip_selection() {
     }
 }
 
-/// Moves the playhead to `quarters` by clicking the ruler.
 fn locate(lumen: &mut Lumen, quarters: f64) {
     let ruler = lumen
         .harness
@@ -486,14 +440,10 @@ fn copy_pastes_at_the_playhead_and_delete_time_closes_the_gap() {
     let p = header(rect(&lumen, kick));
     lumen.drag(p, p, Modifiers::NONE);
     lumen.key(Modifiers::COMMAND, Key::C);
-    // The playhead to bar 3 by the ruler, then paste.
     locate(&mut lumen, 8.0);
     lumen.key(Modifiers::COMMAND, Key::V);
     assert_eq!(starts(&lumen, 0), [(0, BAR / 2), (2 * BAR, BAR / 2)]);
 
-    // Delete bar 2 as time: a range from the pasted clip back to bar 2 (a
-    // range starts on a clip's body), then Ctrl+Shift+Delete. The
-    // paste moves back a bar.
     let pasted = lumen.app().project().tracks[0].clips[1].id;
     select_range(&mut lumen, pasted, snare, 8.6, 4.0);
     let (a, b, _) = lumen.app().time_range().unwrap();
@@ -528,15 +478,11 @@ fn the_lanes_menu_edits_what_was_right_clicked() {
     assert_eq!(starts(&lumen, 0).len(), 2);
 }
 
-/// ADR-0049 (owner, MT-MIDI-4): a drag in empty lane space selects time on
-/// the tracks it spans, snapped like a clip's body; the clips stay.
 #[test]
 fn a_drag_in_empty_lane_space_selects_time_on_the_tracks_it_spans() {
     let (mut lumen, kick, snare) = with_two_clips("lane-range");
     let zoom = lumen.app().view().zoom as f32;
     let (a, b) = (rect(&lumen, kick), rect(&lumen, snare));
-    // Bars 3 to 5 (quarters 8.2 to 16.3, snapped), from the kick's lane
-    // down to the snare's: empty space on both.
     let x = |q: f32| a.left() + q * zoom;
     lumen.drag(
         Pos2::new(x(8.2), a.center().y),
@@ -550,7 +496,6 @@ fn a_drag_in_empty_lane_space_selects_time_on_the_tracks_it_spans() {
     assert_eq!(lumen.app().selected_tracks(), ids, "the range's tracks");
     assert!(lumen.app().selected_clips().is_empty());
     assert_eq!(starts(&lumen, 0), [(0, BAR / 2)], "nothing moved");
-    // The range stays with its selection on later frames.
     lumen.frames(3);
     assert!(lumen.app().time_range().is_some(), "the range stays");
     lumen.key(Modifiers::NONE, Key::Escape);
@@ -573,8 +518,6 @@ fn a_horizontal_drag_in_one_lane_selects_only_that_track() {
     assert_eq!(lumen.app().selected_tracks(), [kick_track]);
 }
 
-/// ADR-0049: the ruler's range is on the selected tracks, and the selection
-/// is kept; with none selected it is on every track (the test below).
 #[test]
 fn the_ruler_drag_selects_time_on_the_selected_tracks_only() {
     let (mut lumen, _, _) = with_two_clips("ruler-selected");
@@ -600,8 +543,6 @@ fn the_ruler_drag_selects_time_on_the_selected_tracks_only() {
     );
 }
 
-/// Owner, slice 6b: a range could only start on a clip, so empty bars could
-/// not be chosen. Dragging the time ruler selects time on every track.
 #[test]
 fn dragging_the_time_ruler_selects_empty_bars_on_every_track() {
     let (mut lumen, _, _) = with_two_clips("time-ruler-range");
@@ -621,15 +562,11 @@ fn dragging_the_time_ruler_selects_empty_bars_on_every_track() {
         "every track"
     );
 
-    // Insert two bars of time there: one step, the clips before it stay.
     lumen.key(Modifiers::COMMAND, Key::I);
     assert_eq!(lumen.app().undo_label(), Some("Insert time"));
     assert_eq!(starts(&lumen, 0), [(0, BAR / 2)]);
 }
 
-/// The offset of `clip`'s audio in its file.
-/// Where in the file the clip's first frame plays: the integer anchor plus
-/// the exact source time a trim or split has advanced it by.
 fn offset(lumen: &Lumen, clip: Id) -> i64 {
     let project = lumen.app().project();
     let found = project
@@ -649,7 +586,6 @@ fn offset(lumen: &Lumen, clip: Id) -> i64 {
 #[test]
 fn an_edge_trims_within_the_file_and_shift_loops_it() {
     let (mut lumen, kick, _) = with_two_clips("clip-trim");
-    // Quarters.
     lumen.key(Modifiers::COMMAND, Key::Num1);
     lumen.key(Modifiers::COMMAND, Key::Num1);
     let zoom = lumen.app().view().zoom as f32;
@@ -662,19 +598,15 @@ fn an_edge_trims_within_the_file_and_shift_loops_it() {
         "End of “kick”: drag to trim · Shift+drag to loop"
     );
 
-    // A quarter shorter: one step.
     lumen.drag(end, end - vec2(zoom, 0.0), Modifiers::NONE);
     assert_eq!(starts(&lumen, 0), [(0, BAR / 4)]);
     assert_eq!(lumen.app().undo_label(), Some("Trim clip"));
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert_eq!(starts(&lumen, 0), [(0, BAR / 2)]);
 
-    // Past the file's end it stops there (the file is one second, two
-    // quarters).
     lumen.drag(end, end + vec2(6.0 * zoom, 0.0), Modifiers::NONE);
     assert_eq!(starts(&lumen, 0), [(0, BAR / 2)]);
 
-    // With Shift it loops: two bars of a two-quarter clip.
     lumen.drag(end, end + vec2(6.0 * zoom, 0.0), Modifiers::SHIFT);
     let clip = &lumen.app().project().tracks[0].clips[0];
     assert_eq!(
@@ -690,8 +622,6 @@ fn a_clip_dropped_on_another_cuts_it_back() {
     lumen.key(Modifiers::COMMAND, Key::Num1);
     lumen.key(Modifiers::COMMAND, Key::Num1);
     let zoom = lumen.app().view().zoom as f32;
-    // The snare onto the kick's track, a quarter in: the kick keeps its
-    // first quarter.
     let from = header(rect(&lumen, snare));
     let over = Pos2::new(from.x + zoom, header(rect(&lumen, kick)).y);
     lumen.drag(from, over, Modifiers::NONE);
@@ -700,7 +630,6 @@ fn a_clip_dropped_on_another_cuts_it_back() {
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert_eq!(starts(&lumen, 0), [(0, BAR / 2)], "one step");
 
-    // Passing over the kick and dropping elsewhere leaves it whole.
     let from = header(rect(&lumen, snare));
     let over = Pos2::new(from.x + zoom, header(rect(&lumen, kick)).y);
     lumen.harness.hover_at(from);
@@ -718,7 +647,6 @@ fn a_clip_dropped_on_another_cuts_it_back() {
 #[test]
 fn ctrl_alt_slips_the_audio_inside_the_clip() {
     let (mut lumen, kick, _) = with_two_clips("clip-slip");
-    // Trim the start in a quarter first, so there is audio to slip back to.
     lumen.key(Modifiers::COMMAND, Key::Num1);
     lumen.key(Modifiers::COMMAND, Key::Num1);
     let zoom = lumen.app().view().zoom as f32;
@@ -743,8 +671,6 @@ fn ctrl_alt_slips_the_audio_inside_the_clip() {
     assert_eq!(lumen.app().undo_label(), Some("Slip clip"));
 }
 
-/// Owner, after 6c: nothing showed that slipping exists. Holding Ctrl over
-/// a clip's header says so.
 #[test]
 fn holding_ctrl_over_a_clip_tells_how_to_slip() {
     let (mut lumen, kick, _) = with_two_clips("clip-slip-hint");
@@ -762,10 +688,6 @@ fn holding_ctrl_over_a_clip_tells_how_to_slip() {
     assert_eq!(lumen.lit(), Some(keys("Ctrl+Alt+drag to slip the audio")));
 }
 
-/// Owner, after 6c: zooming all the way into a long clip crashed ("memory
-/// allocation of 68719476736 bytes failed"): the hover's dashed split line
-/// ran the clip's whole width, hundreds of millions of points deep in.
-/// Drawing is now cut to the view, so deep frames stay quick.
 #[test]
 fn hovering_a_long_clip_at_the_deepest_zoom_stays_quick() {
     let mut lumen = Lumen::start("deep-long-clip");
@@ -776,7 +698,6 @@ fn hovering_a_long_clip_at_the_deepest_zoom_stays_quick() {
     let r = rect(&lumen, clip);
     let p = Pos2::new(r.left() + r.width().min(600.0) * 0.5, header(r).y);
     lumen.harness.hover_at(p);
-    // About a second in all with the fix; nearly a minute without it.
     let started = std::time::Instant::now();
     for _ in 0..80 {
         lumen.key(Modifiers::NONE, Key::Equals);
@@ -792,9 +713,6 @@ fn hovering_a_long_clip_at_the_deepest_zoom_stays_quick() {
     assert!(lumen.app().info_line().is_some(), "hovering the clip");
 }
 
-/// Owner, after 6c: dragging a clip while it played crackled. Each new
-/// position made the audio under the playhead jump to another point of the
-/// file, once per screen frame. Moved clips now crossfade in the engine.
 #[test]
 fn dragging_a_playing_clip_does_not_click() {
     let mut lumen = Lumen::start("drag-while-playing");
@@ -804,13 +722,11 @@ fn dragging_a_playing_clip_does_not_click() {
     let clip = lumen.app().project().tracks[0].clips[0].id;
     let (_, start) = place(&lumen, clip);
     lumen.key(Modifiers::NONE, Key::Space);
-    // Well inside the clip, however far the drag below moves it.
     lumen.wait_for("the playhead to pass beat 2", |app| {
         app.playhead() > Ticks::quarters(2)
     });
     lumen.app_mut().heard();
 
-    // Back and forth, off the grid (Alt), a step per screen frame.
     let zoom = lumen.app().view().zoom as f32;
     let from = header(rect(&lumen, clip));
     lumen
@@ -836,8 +752,6 @@ fn dragging_a_playing_clip_does_not_click() {
     assert!(lumen.app().is_playing());
     assert!(place(&lumen, clip).1 > start, "the clip moved");
 
-    // The test tone is 0.09 loud and moves at most 0.0046 a frame; a jump
-    // to another point of it steps by up to 0.18.
     assert!(heard.len() > 2_000, "heard {} frames", heard.len());
     let loudest = heard.iter().map(|s| s.0.abs()).fold(0.0, f32::max);
     assert!(loudest > 0.05, "the clip played: {loudest}");
@@ -848,18 +762,12 @@ fn dragging_a_playing_clip_does_not_click() {
     assert!(steepest < 0.006, "a click: a step of {steepest}");
 }
 
-/// Owner, after slice 7: a clip copied, then pasted onto another track
-/// (with keys, or from the lanes' menu) did not land there; and Ctrl+C and
-/// Ctrl+V did nothing at all in the real window (`Lumen::key` sends them
-/// as the window does).
 #[test]
 fn a_copied_clip_pastes_onto_the_track_clicked() {
     let (mut lumen, kick, snare) = with_two_clips("paste-other-track");
     let p = header(rect(&lumen, kick));
     lumen.drag(p, p, Modifiers::NONE);
     lumen.key(Modifiers::COMMAND, Key::C);
-    // A click on the snare's empty lane at bar 3 (two bars right of the
-    // clips' start), then Ctrl+V.
     let zoom = lumen.app().view().zoom as f32;
     let s = rect(&lumen, snare);
     let spot = Pos2::new(s.left() + 8.0 * zoom + 2.0, s.center().y);
@@ -872,7 +780,6 @@ fn a_copied_clip_pastes_onto_the_track_clicked() {
     );
     assert_eq!(starts(&lumen, 1), [(0, BAR / 2), (2 * BAR, BAR / 2)]);
 
-    // The lanes' menu: a right-click on the snare's lane at bar 5, Paste.
     let spot = Pos2::new(s.left() + 16.0 * zoom + 2.0, s.center().y);
     lumen.right_click(spot);
     lumen.click(&keys("Paste Ctrl+V"));
@@ -882,8 +789,6 @@ fn a_copied_clip_pastes_onto_the_track_clicked() {
         [(0, BAR / 2), (2 * BAR, BAR / 2), (4 * BAR, BAR / 2)]
     );
 
-    // Ctrl+V with text on the system clipboard (the window sends a Paste
-    // event then): the clip again, on the snare's track at bar 7.
     let spot = Pos2::new(s.left() + 24.0 * zoom + 2.0, s.center().y);
     lumen.drag(spot, spot, Modifiers::NONE);
     lumen.paste_with_text_on_the_clipboard("some text from elsewhere");

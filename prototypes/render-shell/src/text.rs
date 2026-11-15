@@ -1,7 +1,3 @@
-//! Spike: clip-name labels laid out by Parley and drawn by Vello, to cost
-//! text in a toolkit-free host. Layouts are cached per distinct label, as a
-//! real arrangement would cache them.
-
 use std::collections::HashMap;
 
 use lumen_render::vello::kurbo::Affine;
@@ -43,7 +39,6 @@ impl Labels {
         })
     }
 
-    /// Adds a label to every visible clip wider than 40 px.
     pub fn draw(&mut self, scene: &mut Scene, area: Area, view: View) {
         self.drawn = 0;
         let first = (view.top_px / view.row_height).floor().max(0.0) as usize;

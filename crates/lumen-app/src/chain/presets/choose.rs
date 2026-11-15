@@ -1,12 +1,7 @@
-//! The sounds a plugin offers and the one a card has: what the field shows, the
-//! list, the arrows, and a frame's worth of files read, chosen and saved.
-
 use super::state::{Choice, Current, Source};
 use super::*;
 
 impl App {
-    /// What the field of `device`'s card shows; none for a card without one (a
-    /// device that cannot keep presets).
     pub(crate) fn field_look(&self, device: Id) -> Option<FieldLook> {
         let (_, d) = find_device(self.document.project(), device)?;
         let usable = crate::builtin::is_builtin(d)
@@ -23,11 +18,6 @@ impl App {
         })
     }
 
-    /// The folders that may hold the presets of `device`: a plugin's under its
-    /// vendor and name, a built-in's in Lumen's own folder (M8 slice B0). A
-    /// built-in's folder is its stable saved name, never its personality's:
-    /// renaming a personality must not orphan every preset a person saved
-    /// (review L5).
     pub(super) fn preset_folders(&self, device: Id) -> Vec<(PathBuf, bool)> {
         let Some((_, d)) = find_device(self.document.project(), device) else {
             return Vec::new();
@@ -38,7 +28,6 @@ impl App {
         }
     }
 
-    /// Where a sound of `device` is saved.
     pub(super) fn preset_folder(&self, device: Id) -> Option<PathBuf> {
         let (_, d) = find_device(self.document.project(), device)?;
         match &d.plugin {
@@ -49,7 +38,6 @@ impl App {
         }
     }
 
-    /// Asks for the preset files of a plugin that has not been asked about.
     pub(in crate::chain) fn ensure_listed(&mut self, ctx: &egui::Context, device: Id) {
         if self.chain.presets.asked.contains(&device) {
             return;
@@ -60,8 +48,6 @@ impl App {
         }
     }
 
-    /// The sounds that can be chosen for `device`, in the menu's order: the
-    /// factory programs, then the user's files, then the system's.
     pub(super) fn choices(&self, device: Id) -> Vec<Choice> {
         let mut out = Vec::new();
         let lists = self.hosting.programs(device);
@@ -90,7 +76,6 @@ impl App {
         out
     }
 
-    /// Chooses a sound for `device`.
     pub(super) fn choose_preset(&mut self, ctx: &egui::Context, device: Id, choice: Choice) {
         match choice {
             Choice::Program {
@@ -115,8 +100,6 @@ impl App {
         }
     }
 
-    /// The previous or next sound after the one `device` has (the card's
-    /// arrows), wrapping round. With none chosen, the first or the last.
     pub(in crate::chain) fn step_preset(&mut self, ctx: &egui::Context, device: Id, forward: bool) {
         let choices = self.choices(device);
         if choices.is_empty() {
@@ -140,8 +123,6 @@ impl App {
         self.choose_preset(ctx, device, choices[to].clone());
     }
 
-    /// Once a frame: files found, read and written; a save waiting for its
-    /// plugin; the names of the sounds kept honest.
     pub(crate) fn poll_presets(&mut self, ctx: &egui::Context) {
         if let Some(why) = self.chain.presets.files.take_failure() {
             self.say(why);
@@ -184,7 +165,6 @@ impl App {
         }
     }
 
-    /// A file was written: it is the card's sound now, and listed.
     fn saved(&mut self, ctx: &egui::Context, device: Id, path: PathBuf) {
         let name = path
             .file_stem()
@@ -206,8 +186,6 @@ impl App {
         }
     }
 
-    /// Drops the name of a sound an undo took away, and notes the values a
-    /// sound settled at so a change after it shows.
     fn keep_names_honest(&mut self) {
         let project = self.document.project();
         let hosting = &self.hosting;
@@ -218,8 +196,6 @@ impl App {
             if matches!(current.source, Source::File { .. }) && d.state_rev != current.rev {
                 return false;
             }
-            // A program's answering edits are part of it for a moment; a
-            // file is the whole sound at once.
             let settled = matches!(current.source, Source::File { .. })
                 || hosting.program_loading(device).is_none();
             if current.baseline.is_none() && settled {
@@ -229,7 +205,6 @@ impl App {
         });
     }
 
-    /// Whether the chosen device has a preset field (a running plugin).
     pub(crate) fn chosen_has_presets(&self) -> bool {
         self.chain
             .selected

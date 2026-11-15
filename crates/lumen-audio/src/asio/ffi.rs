@@ -1,10 +1,3 @@
-//! Clean-room description of the ASIO 2 driver ABI on 64-bit Windows.
-//!
-//! Written from the publicly documented interface (vtable order, struct
-//! layouts, constants), without the Steinberg SDK. Shipping this needs the
-//! licensing decision in ADR-0006. x86-64 only: on 32-bit Windows the driver
-//! methods would use `thiscall`.
-
 use std::ffi::{c_char, c_void};
 
 use windows_sys::core::{GUID, HRESULT};
@@ -25,7 +18,6 @@ pub const ASE_SP_NOT_ADVANCING: AsioError = -996;
 pub const ASE_NO_CLOCK: AsioError = -995;
 pub const ASE_NO_MEMORY: AsioError = -994;
 
-// asioMessage selectors.
 pub const K_ASIO_SELECTOR_SUPPORTED: i32 = 1;
 pub const K_ASIO_ENGINE_VERSION: i32 = 2;
 pub const K_ASIO_RESET_REQUEST: i32 = 3;
@@ -35,10 +27,8 @@ pub const K_ASIO_LATENCIES_CHANGED: i32 = 6;
 pub const K_ASIO_SUPPORTS_TIME_INFO: i32 = 7;
 pub const K_ASIO_OVERLOAD: i32 = 15;
 
-// AsioTimeInfo flags.
 pub const K_SAMPLE_POSITION_VALID: u32 = 1 << 1;
 
-// Sample types (little-endian ones are what Windows drivers use).
 pub const ST_INT16_LSB: AsioSampleType = 16;
 pub const ST_INT24_LSB: AsioSampleType = 17;
 pub const ST_INT32_LSB: AsioSampleType = 18;
@@ -84,7 +74,6 @@ pub fn error_name(e: AsioError) -> &'static str {
     }
 }
 
-/// 64-bit value split into two 32-bit halves (Windows has no native int64 here).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AsioSamples {
@@ -129,7 +118,6 @@ pub struct AsioBufferInfo {
     pub buffers: [*mut c_void; 2],
 }
 
-// The SDK forces 4-byte packing for these on Windows.
 #[repr(C, packed(4))]
 #[derive(Clone, Copy)]
 pub struct AsioTimeInfo {
@@ -178,7 +166,6 @@ pub struct AsioCallbacks {
     ) -> *mut AsioTime,
 }
 
-/// The driver object: a COM object whose vtable extends `IUnknown`.
 #[repr(C)]
 pub struct IAsio {
     pub vtbl: *const IAsioVtbl,
@@ -222,7 +209,6 @@ pub struct IAsioVtbl {
     pub output_ready: unsafe extern "system" fn(*mut IAsio) -> AsioError,
 }
 
-/// Reads a NUL-terminated driver string, tolerating missing terminators.
 pub fn c_string(buf: &[c_char]) -> String {
     let bytes: Vec<u8> = buf
         .iter()

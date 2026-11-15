@@ -1,21 +1,3 @@
-//! The send knob (M4 slice 4, the owner's K1 "comet"; the design system's
-//! Knob card, ADR-0052): a ring with the return's letter in the middle;
-//! the level is a trail of light in the return's colour that brightens
-//! towards a glowing head. A dot at the top marks a pre-fader send. Silent,
-//! it is only the ring and the letter.
-//!
-//! It acts as every value control does (DESIGN.md §7): drag up or right
-//! (Shift for fine), double-click for silence, click then type a level
-//! (Enter applies, Esc cancels), arrow keys when focused; the right-click
-//! menu switches pre- and post-fader. The wheel turns it a dB a notch
-//! (Shift a tenth) when its gesture starts on the knob (`wheel.rs`).
-//!
-//! On a track header and a mixer strip the same control is a slot in the
-//! send well (M9 slice R1b, ADR-0101; the interface audit's X1–X4): a
-//! narrow bar in the return's colour that fills from the bottom, dragged up
-//! and down; pointing at it shows a flag with the return's letter, name and
-//! the level.
-
 use std::f32::consts::PI;
 
 use eframe::egui::{
@@ -26,20 +8,14 @@ use eframe::egui::{
 use super::{db_text, raised};
 use crate::{fonts, motion, theme};
 
-/// The loudest send, in dB.
 pub const MAX_DB: f32 = 6.0;
-/// Quieter than this is silence.
 const FLOOR_DB: f32 = -60.0;
-/// Where 0 dB sits on the knob's travel (three quarters, as on a console).
 const UNITY_AT: f32 = 0.75;
-/// dB per decade of travel: 48 puts +6 dB at the top.
 const TAPER: f32 = 48.0;
 
-/// The ring's sweep: 270°, from lower left round to lower right.
 const START: f32 = 0.75 * PI;
 const SWEEP: f32 = 1.5 * PI;
 
-/// Where `db` sits on the knob's travel, 0 to 1 (silence is 0).
 pub fn position(db: f32) -> f32 {
     if !db.is_finite() || db <= FLOOR_DB {
         return 0.0;
@@ -47,13 +23,10 @@ pub fn position(db: f32) -> f32 {
     (UNITY_AT * 10f32.powf(db.min(MAX_DB) / TAPER)).clamp(0.0, 1.0)
 }
 
-/// Where the travel turns to silence: the position of −60 dB.
 fn floor() -> f32 {
     UNITY_AT * 10f32.powf(FLOOR_DB / TAPER)
 }
 
-/// The level at `position` on the travel: silence at the bottom. (Before
-/// MT-MIX-4 run 1 the bottom was −80 dB: the floor was taken as 0.)
 pub fn level(position: f32) -> f32 {
     if position <= floor() {
         return f32::NEG_INFINITY;
@@ -61,68 +34,42 @@ pub fn level(position: f32) -> f32 {
     (TAPER * (position.min(1.0) / UNITY_AT).log10()).min(MAX_DB)
 }
 
-/// How a send is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Style<'a> {
-    /// The comet knob (lists, such as a return's senders, and a
-    /// parameter's knob).
     Ring,
-    /// A slot in a header's or a strip's send well; `title` is the
-    /// return's name, for its flag.
     Slot { title: &'a str },
 }
 
-/// What a knob shows.
 #[derive(Debug, Clone, Copy)]
 pub struct SendKnob<'a> {
     pub style: Style<'a>,
-    /// The return's letter.
     pub letter: &'a str,
-    /// The return's colour.
     pub color: Color32,
-    /// In dB; `NEG_INFINITY` when silent or not there yet.
     pub db: f32,
     pub pre_fader: bool,
-    /// The send is heard now (not muted or silenced by a solo).
     pub heard: bool,
-    /// Its return is hovered somewhere: the knob lights up to match.
     pub linked: bool,
-    /// On a selected row its ring and letter step up, as every control's
-    /// colours do there (the owner's C4, MT-MIX-4 run 1).
     pub selected: bool,
-    /// Shows its level in a chip above it while it moves. Off in lists,
-    /// whose level column already follows (MT-MIX-4 run 3: the two drew
-    /// over each other).
     pub live_value: bool,
-    /// The accessible name: "Send Vocal to A Reverb".
     pub name: &'a str,
-    /// The controller that moves it (channel, number), if one is mapped.
     pub mapped: Option<(u8, u8)>,
-    /// It waits for a controller to move, to be mapped.
     pub waiting: bool,
 }
 
-/// What happened to a knob this frame.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct KnobOut {
-    /// A new level, in dB (`NEG_INFINITY` for silence).
     pub db: Option<f32>,
-    /// Pre- or post-fader chosen from the menu.
     pub pre_fader: Option<bool>,
     pub hovered: bool,
-    /// Being set right now: dragged, focused or typed into.
     pub active: bool,
-    /// What the menu's rows about lanes and controllers asked.
     pub ask: Option<super::Ask>,
 }
 
-/// A send knob in `rect` (square). Returns what the user changed.
 pub fn send_knob(ui: &mut Ui, rect: Rect, id: EguiId, knob: SendKnob<'_>) -> KnobOut {
     let palette = *theme::p();
     let mut out = KnobOut::default();
     let typing_id = id.with("typing");
     if let Some(mut text) = ui.data(|d| d.get_temp::<String>(typing_id)) {
-        // Typing a level, in a field wide enough to read.
         let field = Rect::from_center_size(rect.center(), vec2(64.0, rect.height().max(18.0)));
         let edit = ui.put(
             field,
@@ -170,10 +117,6 @@ pub fn send_knob(ui: &mut Ui, rect: Rect, id: EguiId, knob: SendKnob<'_>) -> Kno
     let fine = ui.input(|i| i.modifiers.shift);
     let mut at = position(knob.db);
     let before = at;
-    // A drag keeps its own position on the travel, from where it was
-    // pressed: started again from the level each frame, slow moves below
-    // the silence floor were rounded back to silence every frame and never
-    // added up (owner, MT-MIX-4 run 5: hard to turn up from −∞).
     let drag_id = id.with("drag");
     if response.dragged()
         && let Some(pointer) = ui.input(|i| i.pointer.interact_pos())
@@ -185,8 +128,6 @@ pub fn send_knob(ui: &mut Ui, rect: Rect, id: EguiId, knob: SendKnob<'_>) -> Kno
                 (position(knob.db), origin)
             });
         let d = pointer - last;
-        // A slot moves up and down only: across, the pointer is on the
-        // next slot.
         let moved = if slot { -d.y } else { d.x - d.y };
         travel = (travel + moved / 160.0 * if fine { 0.1 } else { 1.0 }).clamp(0.0, 1.0);
         ui.data_mut(|data| data.insert_temp(drag_id, (travel, pointer)));
@@ -228,8 +169,6 @@ pub fn send_knob(ui: &mut Ui, rect: Rect, id: EguiId, knob: SendKnob<'_>) -> Kno
     if at != before {
         out.db = Some(level(at));
     }
-    // The wheel: a dB a notch, set as a level (not through the travel, where
-    // the floor itself reads as silence); up from silence starts at −60 dB.
     let notches = super::wheel::steps(ui, id, rect);
     if notches != 0.0 {
         let step = notches * if fine { 0.1 } else { 1.0 };
@@ -260,7 +199,6 @@ pub fn send_knob(ui: &mut Ui, rect: Rect, id: EguiId, knob: SendKnob<'_>) -> Kno
             ui.close();
         }
         ui.separator();
-        // A menu item closes the menu itself.
         if super::menu_item(ui, "Silence the send", None, true).clicked() {
             out.db = Some(f32::NEG_INFINITY);
         }
@@ -286,8 +224,6 @@ pub fn send_knob(ui: &mut Ui, rect: Rect, id: EguiId, knob: SendKnob<'_>) -> Kno
         raised::paint_focus(ui.painter(), rect, theme::radius::FULL);
     }
     if knob.live_value && (response.dragged() || response.has_focus() && out.db.is_some()) {
-        // The level, live, in a chip above the knob, over everything: beside
-        // it, it ran over the next knob (MT-MIX-4 run 3).
         let text = db_text(level(shown).max(-60.0));
         let layer = egui::LayerId::new(egui::Order::Tooltip, id.with("live value"));
         let painter = ui.ctx().layer_painter(layer);
@@ -304,7 +240,6 @@ pub fn send_knob(ui: &mut Ui, rect: Rect, id: EguiId, knob: SendKnob<'_>) -> Kno
     out
 }
 
-/// Reads a typed level: "-6", "−6 dB", "-inf"; below −60 is silence.
 fn parse(text: &str) -> Option<f32> {
     let text = text.trim().replace('\u{2212}', "-").to_ascii_lowercase();
     let text = text.trim_end_matches("db").trim();
@@ -319,23 +254,16 @@ fn parse(text: &str) -> Option<f32> {
     })
 }
 
-/// The point at `t` (0 to 1) along the ring of radius `r`.
 fn on_ring(center: Pos2, r: f32, t: f32) -> Pos2 {
     let angle = START + SWEEP * t;
     center + vec2(angle.cos(), angle.sin()) * r
 }
 
-/// Paints the knob: the ring, the comet's trail and head, the letter and
-/// the pre-fader dot. `hot` (0 to 1) brightens the head and rings the knob
-/// in its colour.
 pub(super) fn draw(painter: &egui::Painter, rect: Rect, knob: &SendKnob<'_>, at: f32, hot: f32) {
     let palette = *theme::p();
     let center = rect.center();
     let r = rect.width() / 2.0 - 2.0;
     let width = (r * 0.28).max(1.8);
-    // The ring, all the way round its sweep: `control_press` (the Knob
-    // card); on a selected row a quarter of the way to the text colour
-    // (lighter on dark, darker on light), clear of the row either way.
     let ring_color = if knob.selected {
         palette.control_press.lerp_to_gamma(palette.text, 0.25)
     } else {
@@ -347,8 +275,6 @@ pub(super) fn draw(painter: &egui::Painter, rect: Rect, knob: &SendKnob<'_>, at:
     painter.add(Shape::line(ring, Stroke::new(width, ring_color)));
     let strength = if knob.heard { 1.0 } else { 0.4 };
     if at > 0.0 {
-        // The trail: faint at the start, full at the head, and thicker
-        // towards it.
         let pieces = 24;
         for i in 0..pieces {
             let (a, b) = (i as f32 / pieces as f32, (i + 1) as f32 / pieces as f32);
@@ -359,7 +285,6 @@ pub(super) fn draw(painter: &egui::Painter, rect: Rect, knob: &SendKnob<'_>, at:
                 Stroke::new(width * (0.7 + 0.6 * b), knob.color.gamma_multiply(alpha)),
             ));
         }
-        // The head: a soft glow, then a bright core in the colour.
         let head = on_ring(center, r, at);
         let glow = 1.0 + hot;
         for (radius, alpha) in [(width * 2.4 * glow, 0.14), (width * 1.6 * glow, 0.3)] {
@@ -399,27 +324,15 @@ pub(super) fn draw(painter: &egui::Painter, rect: Rect, knob: &SendKnob<'_>, at:
     }
 }
 
-/// A slot's corner: the 20 pt well's radius less its 2 pt inset.
 const SLOT_RADIUS: u8 = theme::radius::SMALL - theme::space::XXS as u8;
-/// The line along an empty slot's bottom, and how strong its colour is.
 const SLOT_BASELINE: f32 = 2.0;
 const SLOT_BASELINE_ALPHA: f32 = 0.6;
-/// How much lighter a slot's fill is at its top than at its bottom.
 const SLOT_SHEEN: f32 = 0.08;
-/// The fill's top edge glows, as a ring knob's head does: a bright line
-/// this much towards white, and a wash in the colour this tall above it at
-/// this strength (stronger while its return is lit).
 const SLOT_EDGE: f32 = 0.45;
 const SLOT_GLOW: f32 = 6.0;
 const SLOT_GLOW_ALPHA: f32 = 0.35;
-/// How strongly a send that is not heard shows (as the knob's trail).
 const NOT_HEARD: f32 = 0.4;
 
-/// Paints a send slot: an Ember wash while pointed at (`point`), the fill in
-/// the return's colour from the bottom up to `at` of the travel with a glow
-/// at its top edge (a short baseline when silent), its letter when there is
-/// room, a ring in its colour while its return is lit (`hot`), and a dot at
-/// the top for a pre-fader send.
 fn draw_slot(
     painter: &egui::Painter,
     rect: Rect,
@@ -494,7 +407,6 @@ fn draw_slot(
         );
     }
     if rect.width() >= theme::size::SEND_SLOT_LETTER {
-        // On the fill once it reaches the letter; quiet in the well below.
         let ink = if at >= 0.5 {
             theme::text_on(knob.color)
         } else if knob.selected {
@@ -519,8 +431,6 @@ fn draw_slot(
     }
 }
 
-/// The flag above a slot: the return's letter badge in its colour, its
-/// name, and the level, over everything.
 fn flag(ui: &Ui, slot: Rect, id: EguiId, knob: &SendKnob<'_>, (title, db): (&str, f32)) {
     let palette = *theme::p();
     let layer = egui::LayerId::new(egui::Order::Tooltip, id.with("flag"));
@@ -550,7 +460,6 @@ fn flag(ui: &Ui, slot: Rect, id: EguiId, knob: &SendKnob<'_>, (title, db): (&str
         + FLAG_GAP
         + level.size().x
         + FLAG_PAD_RIGHT;
-    // Centred over the slot, kept inside the panel the slot is in.
     let x = (slot.center().x - width / 2.0)
         .min(bounds.right() - width)
         .max(bounds.left().max(ui.clip_rect().left()));
@@ -585,8 +494,6 @@ fn flag(ui: &Ui, slot: Rect, id: EguiId, knob: &SendKnob<'_>, (title, db): (&str
     );
 }
 
-/// The flag: its height, how far above the slot it floats, its padding and
-/// gaps, and the letter badge's size.
 const FLAG_H: f32 = 22.0;
 const FLAG_RISE: f32 = 6.0;
 const FLAG_PAD_LEFT: f32 = 3.0;
@@ -610,7 +517,6 @@ mod tests {
         for db in [-48.0, -24.0, -12.0, -6.0, 0.0, 3.0, 6.0] {
             assert!((level(position(db)) - db).abs() < 0.01, "{db}");
         }
-        // Monotonic.
         let mut last = f32::NEG_INFINITY;
         for i in 0..=100 {
             let db = level(i as f32 / 100.0);

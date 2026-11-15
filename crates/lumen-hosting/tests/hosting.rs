@@ -1,8 +1,3 @@
-//! The hosting manager against real host processes running the test
-//! plugins: sound sample for sample as the host makes it over the pipe, state
-//! restored at load, every way a load can fail, a host that crashes or hangs
-//! mid-session, and no process left behind.
-
 mod support;
 
 use std::time::{Duration, Instant};
@@ -21,7 +16,6 @@ fn manager() -> Manager {
     Manager::new(|| {})
 }
 
-/// The host's own answer for the same blocks, over the pipe.
 fn pipe(instrument: bool) -> HostProcess {
     let mut host = HostProcess::spawn(&built().1, &[(FAULT, "")]).expect("start");
     let class = if instrument {
@@ -88,8 +82,6 @@ fn an_instrument_sounds_exactly_as_the_host_makes_it_over_the_pipe() {
 
 #[test]
 fn a_flush_makes_the_effect_forget_the_audio_it_was_holding() {
-    // The effect holds its input 96 frames before it plays it. A block that
-    // follows a flush finds nothing of the last one (M6 slice 6a).
     for flush in [false, true] {
         let mut manager = manager();
         let mut start = effect("");
@@ -99,7 +91,6 @@ fn a_flush_makes_the_effect_forget_the_audio_it_was_holding() {
         let mut impulse = vec![0.0_f32; 64];
         impulse[0] = 1.0;
         let silence = vec![0.0_f32; 64];
-        // The impulse goes in; the first block plays 64 frames of nothing.
         let (l, _, _) = play(&mut linked.link, 64, &[&impulse, &impulse], &[]);
         assert!(l.iter().all(|&s| s == 0.0));
         if flush {
@@ -118,9 +109,6 @@ fn an_effect_processes_the_audio_it_is_given_and_reports_its_latency() {
     manager.want(2, effect("")).unwrap();
     let mut linked = linked(&mut manager, 2);
     let mut piped = pipe(false);
-    // Unless told the device's block, the plugin is promised the engine's
-    // largest, never the protocol's: some plugins work in proportion to it
-    // on every call (ADR-0075). The link has room for the engine's largest.
     assert_eq!(linked.frames as usize, lumen_devices::MOST_FRAMES);
     assert_eq!(
         linked.link.most_frames() as usize,
@@ -150,7 +138,6 @@ fn an_effect_processes_the_audio_it_is_given_and_reports_its_latency() {
 
 #[test]
 fn state_sent_at_load_is_what_the_plugin_plays_with() {
-    // A state with the level turned up, taken from a plugin that was.
     let mut source = pipe(true);
     let up = vec![ParamQueue {
         id: LEVEL,
@@ -270,7 +257,6 @@ fn a_host_that_hangs_is_failed_after_a_second_of_late_audio_and_forgetting_it_ki
     let status = guard.status();
     let (mut l, mut r) = (vec![0.0; 8192], vec![0.0; 8192]);
     let mut blocks = 0;
-    // Long blocks, so a second of audio is a handful of them.
     while !status.failed() && blocks < 12 {
         let deadline = Instant::now() + Duration::from_millis(60);
         if guard.begin(
@@ -294,8 +280,6 @@ fn a_host_that_hangs_is_failed_after_a_second_of_late_audio_and_forgetting_it_ki
 
 #[test]
 fn a_link_counts_the_blocks_its_host_answers() {
-    // The count is how the device thread tells a host working on a long block
-    // from one that stopped answering its control calls (sweep M8).
     let mut manager = manager();
     manager.want(1, instrument("")).unwrap();
     let mut linked = linked(&mut manager, 1);
@@ -310,16 +294,11 @@ fn a_link_counts_the_blocks_its_host_answers() {
 
 #[test]
 fn a_host_that_stops_answering_control_calls_is_failed_and_killed() {
-    // One thread in the host runs the plugin and answers Lumen: a plugin
-    // stuck in `process` leaves every control call unanswered. Each waits its
-    // own deadline; a run of them is a plugin no reload of the project could
-    // use, so it is given up on as a hang rather than waited for for ever.
     let mut manager = manager();
     manager.want(1, instrument("process_hang@0")).unwrap();
     let mut linked = linked(&mut manager, 1);
     let pid = linked.pid;
     assert!(exists(pid));
-    // The first block never comes back.
     let (mut left, mut right) = (vec![0.0; 64], vec![0.0; 64]);
     assert!(
         linked
@@ -339,7 +318,6 @@ fn a_host_that_stops_answering_control_calls_is_failed_and_killed() {
         &mut right,
     );
     assert!(matches!(reply, Reply::Late), "the plugin hung: {reply:?}");
-    // Control calls go unanswered too; past the limit the host is failed.
     for n in 0..8 {
         manager.set_param(1, LEVEL, f64::from(n) / 10.0);
     }
@@ -367,13 +345,11 @@ fn forgetting_and_reloading_leave_no_process_behind() {
     let first_pid = first.pid;
     assert!(exists(first_pid));
 
-    // Reload: a new process, the old one gone.
     assert!(manager.reload(1).unwrap());
     let second = linked(&mut manager, 1);
     assert_ne!(second.pid, first_pid);
     assert!(gone_within(first_pid, Duration::from_secs(10)));
 
-    // Forget: nothing runs, and nothing more is said.
     manager.forget(1);
     assert!(gone_within(second.pid, Duration::from_secs(10)));
     assert!(!manager.has(1));
@@ -381,7 +357,6 @@ fn forgetting_and_reloading_leave_no_process_behind() {
     std::thread::sleep(Duration::from_millis(100));
     assert!(manager.poll().is_empty());
 
-    // The old link answers nothing now.
     let mut link = second.link;
     assert!(
         link.ended()
@@ -394,8 +369,6 @@ fn forgetting_and_reloading_leave_no_process_behind() {
 
 #[test]
 fn shutting_down_does_not_wait_for_a_plugin_that_is_still_loading() {
-    // A plugin stuck in its load cannot hear Quit until the load's deadline
-    // (here 8 s). Closing Lumen waits for the grace only (review H1).
     let mut manager = manager();
     let mut start = instrument("factory_hang");
     start.deadlines.load = Duration::from_secs(8);
@@ -506,7 +479,6 @@ fn only_key_pressure_is_dropped_and_counted_while_controllers_and_programs_are_c
     let (left, _, reply) = play(&mut linked.link, 64, &[], &events);
     assert!(matches!(reply, Some(Reply::Ready { .. })));
     assert!(left[..32].iter().any(|s| *s != 0.0), "the note sounded");
-    // Only the key pressure is not carried.
     assert_eq!(linked.link.counts().dropped_events(), 1);
 }
 
@@ -522,7 +494,6 @@ fn a_block_too_long_for_the_region_is_refused_and_counted_not_a_crash() {
         Err(Refused::Busy)
     );
     assert_eq!(linked.link.counts().unfit_blocks(), 1);
-    // The link is fine afterwards.
     let (_, _, reply) = play(&mut linked.link, 64, &[], &[note_on(0, 60)]);
     assert!(matches!(reply, Some(Reply::Ready { .. })));
 }
@@ -542,7 +513,6 @@ fn a_fresh_link_for_a_new_engine_plays_at_the_new_rate_and_the_old_one_is_stale(
     let (at_44k, ..) = play(&mut second.link, 128, &[], &events);
     assert_ne!(at_48k, at_44k, "the new rate changes the note's phase step");
 
-    // The same as a plugin configured at that rate over the pipe.
     let mut piped = pipe(true);
     piped.configure(44_100.0, 512, 0, 2, SLOW).unwrap();
     let expected = piped
@@ -550,12 +520,9 @@ fn a_fresh_link_for_a_new_engine_plays_at_the_new_rate_and_the_old_one_is_stale(
         .unwrap();
     assert_eq!(at_44k, expected.output[0]);
 
-    // A block longer than promised (a driver that delivered more) is still
-    // played: the host hands the plugin pieces it accepts.
     let (_, _, reply) = play(&mut second.link, 256, &[], &events);
     assert!(matches!(reply, Some(Reply::Ready { .. })), "{reply:?}");
 
-    // A block on the old link is for an old configuration: no sound.
     let (_, _, reply) = play(&mut first.link, 128, &[], &events);
     assert!(
         !matches!(reply, Some(Reply::Ready { .. })),

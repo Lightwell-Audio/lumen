@@ -1,11 +1,3 @@
-//! The arrangement's rulers, in the owner's layout A (M3 slice 5b): a
-//! strip for locators and the loop brace above the bar ruler,
-//! and a time ruler along the bottom in a chosen format (minutes and
-//! seconds, samples or timecode).
-//!
-//! The bar ruler locates on click (snapped; Alt places freely) and zooms
-//! and scrolls when dragged (`App::drag_ruler`).
-
 use eframe::egui::{self, Align2, CursorIcon, FontId, Rect, Sense, Stroke, pos2};
 use lumen_core::time::{PPQ, Ticks};
 
@@ -16,21 +8,13 @@ use crate::timefmt::{self, TimeFormat};
 use crate::timeview::TimeView;
 use crate::{App, motion, ruler, theme, trace, widgets};
 
-/// The strip for locators, scrubbing and the loop brace.
 pub(crate) const STRIP_HEIGHT: f32 = 24.0;
-/// The loop brace's band, along the strip's bottom; scrubbing and the
-/// locator flags take the rest.
 pub(crate) const BRACE_BAND: f32 = 10.0;
-/// The bar ruler.
 pub(crate) const RULER_HEIGHT: f32 = 22.0;
-/// The time ruler along the bottom.
 pub(crate) const TIME_HEIGHT: f32 = 20.0;
-/// Bars wider than this (points) get beat labels on the bar ruler.
 const BEATS_FROM: f64 = 240.0;
-/// Time labels are at least this far apart (points).
 const TIME_GAP: f64 = 90.0;
 
-/// Where the rulers and lanes are, and how they are viewed.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Layout {
     pub strip: Rect,
@@ -45,16 +29,12 @@ impl Layout {
         self.view.x(self.canvas.left(), quarters)
     }
 
-    /// From the bar ruler down to the time ruler: where guides are drawn.
     pub fn guides(&self) -> Rect {
         Rect::from_x_y_ranges(self.canvas.x_range(), self.ruler.top()..=self.time.top())
     }
 }
 
 impl App {
-    /// The strip above the bar ruler: the loop brace (edited by
-    /// `App::loop_brace`), punch in and out, and the locators
-    /// (`App::locator_flags`).
     pub(crate) fn locator_strip(
         &mut self,
         ui: &mut egui::Ui,
@@ -100,13 +80,10 @@ impl App {
         }
     }
 
-    /// The bar ruler: labels, click to locate, drag to zoom and scroll.
     pub(crate) fn bar_ruler(&mut self, ui: &mut egui::Ui, painter: &egui::Painter, at: &Layout) {
         painter.rect_filled(at.ruler, 0.0, theme::p().raised);
         self.bar_labels(painter, at);
 
-        // Click to locate (snapped; Alt places freely). Drag down or up to
-        // zoom, sideways to scroll.
         let response = ui
             .interact(at.ruler, ui.id().with("ruler"), Sense::click_and_drag())
             .on_hover_text(
@@ -141,15 +118,11 @@ impl App {
             if response.clicked() {
                 trace::log(|| format!("ruler: locate {target:?} (snapped: {})", !free));
                 self.transport.locate(target);
-                // A click on the ruler pauses Follow.
                 self.transport.follow_paused = true;
             }
         }
     }
 
-    /// Bar numbers, thinned so they never collide; zoomed in, beats and
-    /// sixteenths too. When no label falls in view (the deepest zooms), the
-    /// left edge's position is shown pinned at the left.
     fn bar_labels(&self, painter: &egui::Painter, at: &Layout) {
         let map = &self.transport.timeline.meter;
         let view = at.view;
@@ -202,7 +175,6 @@ impl App {
             }
         }
         if shown == 0 {
-            // Too deep for any label: say where the view is.
             let left = map.bbt_at(ruler::ticks_at(view.left));
             painter.text(
                 pos2(ruler.left() + 4.0, ruler.center().y),
@@ -219,11 +191,6 @@ impl App {
         }
     }
 
-    /// The time ruler along the bottom, in the chosen format.
-    /// Dragging the time ruler selects a time range on the selected tracks,
-    /// or on every track when none is selected, so empty bars can be chosen
-    /// too (owner, slice 6b; ADR-0049 keeps the selection). A click moves the
-    /// playhead, as on the bar ruler. Both snap; Alt places freely.
     pub(crate) fn time_ruler_input(
         &mut self,
         ui: &mut egui::Ui,
@@ -260,8 +227,6 @@ impl App {
         if response.dragged()
             && let Some(start) = ui.data(|d| d.get_temp::<Ticks>(id))
         {
-            // The selected tracks keep their selection and get the range;
-            // with none selected, every track does (ADR-0049).
             let project = self.document.project();
             let chosen: Vec<lumen_project::model::Id> = if self.arrangement.selected.is_empty() {
                 project.tracks.iter().map(|t| t.id).collect()
@@ -299,7 +264,6 @@ impl App {
         let palette = theme::p();
         let rect = at.time;
         painter.rect_filled(rect, 0.0, palette.raised);
-        // The selected time range shows on the ruler too.
         if let Some(range) = &self.arrangement.range {
             let span = Rect::from_x_y_ranges(
                 at.x(range.start.as_quarters())..=at.x(range.end.as_quarters()),
@@ -351,7 +315,6 @@ impl App {
         }
     }
 
-    /// The time ruler's corner: its format, and a menu to change it.
     pub(crate) fn time_format_button(&mut self, ui: &mut egui::Ui, rect: Rect) {
         let palette = theme::p();
         ui.painter().rect_filled(rect, 0.0, palette.raised);
@@ -394,7 +357,6 @@ impl App {
         widgets::Menu::below(&response).show(|ui| self.time_format_menu(ui));
     }
 
-    /// The time ruler's formats, from its corner or a right-click on it.
     fn time_format_menu(&mut self, ui: &mut egui::Ui) {
         let format = self.transport.time_format;
         for choice in TimeFormat::ALL {
@@ -408,7 +370,6 @@ impl App {
     }
 }
 
-/// "5", "5.2" or "5.2.3": bar, beat and sixteenth, as far as needed.
 fn bbt_label(map: &lumen_core::meter::MeterMap, t: Ticks, sixteenth: Ticks) -> String {
     let bbt = map.bbt_at(t);
     if bbt.ticks == Ticks::ZERO && bbt.beat == 0 {

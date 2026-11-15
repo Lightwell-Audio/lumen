@@ -1,21 +1,3 @@
-//! Freeze (M7b slice E5), the pure parts. A track's instrument, devices, trim
-//! and polarity are rendered into a file; while the track is frozen it plays
-//! the file and runs no plugin, and its clips, notes and devices stay exactly
-//! as they were, so unfreezing gives them back. Flatten keeps the file and
-//! drops everything it was made from.
-//!
-//! What the owner chose (FR1 to FR4, 2026-10-24):
-//! - the file holds the sound only; fader, pan, sends, mute, solo and output
-//!   stay live on a frozen track;
-//! - a frozen track is read-only ([`violations`], which `History` enforces);
-//! - Flatten turns the track into a plain audio track in place;
-//! - only audio and MIDI tracks freeze, and not those whose sound depends on
-//!   other tracks ([`Refusal`]).
-//!
-//! The rendering is the app's (it runs on a worker with the track's plugins in
-//! hosts of its own); this module says which tracks go, over what span, what
-//! the project becomes, and what a frozen track sounds like ([`played`]).
-
 use std::borrow::Cow;
 use std::sync::Arc;
 
@@ -26,26 +8,18 @@ use crate::model::{
     Clip, ClipContent, Device, Frozen, Id, Media, MidiFrom, Project, Track, TrackKind,
 };
 
-/// Why a track cannot be frozen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Refusal {
-    /// Groups, returns and the master have no clips or notes to render.
     Kind,
-    /// A MIDI track sent to hardware has no sound of its own.
     ToHardware,
     AlreadyFrozen,
-    /// Nothing on the track to render.
     Empty,
-    /// A device is keyed from another track's sound.
     KeyedFromOthers,
-    /// The track plays an output of another track's instrument.
     PlaysAnotherOutput,
-    /// Other tracks play outputs of this track's instrument.
     FeedsOthers,
 }
 
 impl Refusal {
-    /// The reason, as a clause to follow the track's name.
     pub fn reason(self) -> &'static str {
         match self {
             Refusal::Kind => "only audio and MIDI tracks can be frozen",
@@ -65,29 +39,21 @@ impl Refusal {
     }
 }
 
-/// One track's freeze.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Part {
     pub track: Id,
-    /// The track as it was when the part was planned. A part is applied only
-    /// if the track is still exactly this.
     pub planned: Arc<Track>,
-    /// From the first clip's start to the last clip's end; the file adds its
-    /// tail past that.
     pub start: Ticks,
     pub end: Ticks,
-    /// The track plays mono material ([`Track::plays_mono`]).
     pub mono: bool,
 }
 
-/// What [`plan`] found.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Plan {
     pub parts: Vec<Part>,
     pub refused: Vec<(Id, Refusal)>,
 }
 
-/// Why `track` cannot be frozen, if it cannot.
 pub fn refusal(project: &Project, track: &Track) -> Option<Refusal> {
     match track.kind {
         TrackKind::Audio | TrackKind::Midi => {}
@@ -119,7 +85,6 @@ pub fn refusal(project: &Project, track: &Track) -> Option<Refusal> {
     None
 }
 
-/// The parts for `tracks` (in project order) and the tracks refused.
 pub fn plan(project: &Project, tracks: &[Id]) -> Plan {
     let mut plan = Plan::default();
     for track in &project.tracks {
@@ -146,21 +111,14 @@ pub fn plan(project: &Project, tracks: &[Id]) -> Plan {
     plan
 }
 
-/// A part and the file rendered for it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Baked {
     pub part: Part,
     pub media: Media,
-    /// Where the file ends, with its tail: at least `part.end`.
     pub end: Ticks,
-    /// The track's devices with the states the plugins held when the file was
-    /// rendered (empty: as the project has them). A frozen track starts no
-    /// plugin, so what they hold now would be lost; unfreezing starts them from
-    /// these.
     pub devices: Vec<Device>,
 }
 
-/// Whether the track of `part` is still exactly as it was planned.
 pub fn is_current(project: &Project, part: &Part) -> bool {
     project
         .tracks
@@ -169,8 +127,6 @@ pub fn is_current(project: &Project, part: &Part) -> bool {
         .is_some_and(|t| Arc::ptr_eq(t, &part.planned) || **t == *part.planned)
 }
 
-/// Freezes each track with its file and registers the files as media. Parts
-/// whose track changed are skipped. Returns the tracks frozen.
 pub fn apply(project: &mut Project, baked: &[Baked], fresh: &mut impl FnMut() -> Id) -> Vec<Id> {
     let mut frozen = Vec::new();
     for Baked {
@@ -210,8 +166,6 @@ pub fn apply(project: &mut Project, baked: &[Baked], fresh: &mut impl FnMut() ->
     frozen
 }
 
-/// Unfreezes `tracks`: the clips, notes and devices play again. The file stays
-/// in the project's media. Returns the tracks that were frozen.
 pub fn unfreeze(project: &mut Project, tracks: &[Id]) -> Vec<Id> {
     let mut thawed = Vec::new();
     for track in &mut project.tracks {
@@ -223,10 +177,6 @@ pub fn unfreeze(project: &mut Project, tracks: &[Id]) -> Vec<Id> {
     thawed
 }
 
-/// Flattens `tracks` (owner's FR3): each frozen track becomes a plain audio
-/// track holding the file as one clip. Its name, colour, fader, pan, sends and
-/// output stay; its clips, notes, instrument, devices and the lanes for them
-/// go. Returns the tracks flattened.
 pub fn flatten(project: &mut Project, tracks: &[Id]) -> Vec<Id> {
     let mut flat = Vec::new();
     for track in &mut project.tracks {
@@ -255,7 +205,6 @@ pub fn flatten(project: &mut Project, tracks: &[Id]) -> Vec<Id> {
     flat
 }
 
-/// The values that stay live on a frozen track: the mixer's.
 fn mixing(target: Target) -> bool {
     matches!(
         target,
@@ -263,7 +212,6 @@ fn mixing(target: Target) -> bool {
     )
 }
 
-/// The clip that plays a frozen track's file.
 fn frozen_clip(frozen: &Frozen, name: &str) -> Clip {
     Clip {
         id: frozen.id,
@@ -292,11 +240,6 @@ fn frozen_clip(frozen: &Frozen, name: &str) -> Clip {
     }
 }
 
-/// The project as it sounds: each frozen track is an audio track that plays
-/// its file, with no instrument, devices, trim or polarity, and no lane for
-/// them. The live engine, its routing, its MIDI and the plugin hosts are built
-/// from this, so a frozen track starts no plugin by construction. The track
-/// keeps its `frozen` marker, which [`Track::plays_mono`] reads.
 pub fn played(project: &Project) -> Cow<'_, Project> {
     if project.tracks.iter().all(|t| t.frozen.is_none()) {
         return Cow::Borrowed(project);
@@ -320,25 +263,13 @@ pub fn played(project: &Project) -> Cow<'_, Project> {
     Cow::Owned(copy)
 }
 
-/// What an edit may not do: change a frozen track, or the clips of a track
-/// being recorded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Violation {
-    /// It changed this frozen track's clips, devices, trim, polarity or the
-    /// lanes for them, or armed it.
     Track(Id),
-    /// It changed the clips of this track, or removed it, while a recording
-    /// is writing a take into it: the next commit would put them back as they
-    /// were when recording began.
     Recording(Id),
-    /// It changed the tempo or the time signatures, which would leave a frozen
-    /// track's file behind the music.
     Timing,
 }
 
-/// What `new` does to the frozen tracks of `old` that an edit may not do
-/// (owner's FR2). Empty for an edit that leaves them alone, and for freezing,
-/// unfreezing and flattening, which end or start the freeze themselves.
 pub fn violations(old: &Project, new: &Project) -> Vec<Violation> {
     let mut found = Vec::new();
     let mut any = false;
@@ -357,7 +288,6 @@ pub fn violations(old: &Project, new: &Project) -> Vec<Violation> {
     found
 }
 
-/// Whether an edit touched what a freeze fixes.
 fn changed(before: &Track, after: &Track) -> bool {
     let lanes = |track: &Track| -> Vec<_> {
         track
@@ -483,7 +413,6 @@ mod tests {
             Some(Refusal::PlaysAnotherOutput)
         );
         make(&mut p, &|t| t.plugin_output = None);
-        // Another track plays an output of track 2's instrument.
         let mut synth = Device::synth(Id(7), "Init");
         synth.id = Id(7);
         Arc::make_mut(&mut p.tracks[1]).devices.push(synth);
@@ -513,7 +442,6 @@ mod tests {
         assert_eq!(frozen.length, Ticks::quarters(13), "with the tail");
         assert!(frozen.mono);
         assert!(p.media.iter().any(|m| m.id == Id(950)));
-        // The track still holds its clips; it sounds as one file.
         assert_eq!(track.clips.len(), 2);
         let sounds = played(&p);
         let heard = &sounds.tracks[0];
@@ -610,7 +538,6 @@ mod tests {
         let mut next = p.clone();
         next.tempo[0].bpm += 10.0;
         assert_eq!(violations(&p, &next), vec![Violation::Timing]);
-        // With nothing frozen, the tempo is free.
         let free = project();
         let mut faster = free.clone();
         faster.tempo[0].bpm += 10.0;

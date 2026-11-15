@@ -1,11 +1,3 @@
-//! Programs and presets on plugin devices (M6 slice 5c): a program chosen is
-//! one undo step with the values the plugin sets in answer, and is heard; a
-//! preset file's state is tried on the running plugin, put into the project as
-//! one undo step, and given back exactly by undo; a preset made for another
-//! plugin, or a state the plugin refuses, changes nothing. The plugins and the
-//! host program are the real ones, built by the test; the card's preset menu is
-//! slice 5f's, so these drive the same commands the menu will.
-
 use eframe::egui::{Key, Modifiers};
 use lumen_hosting::Preset;
 
@@ -13,12 +5,8 @@ use super::hosting::{
     LEVEL, PLUGIN, WAVE, instrument_device, launch, level, play, project, wait_for_state,
 };
 
-/// The test instrument's program-change parameter.
 const PROGRAM: u32 = 91;
 
-/// A preset file for the test instrument holding `level` and `wave` (the
-/// plugin's saved state is its tag, its kind (0 for the instrument) and its two
-/// parameters' values).
 pub(super) fn preset_for_instrument(level: f64, wave: f64) -> Vec<u8> {
     Preset {
         class_id: lumen_test_plugin::INSTRUMENT.map(|c| c as u8),
@@ -66,8 +54,6 @@ fn choosing_a_program_is_one_undo_step_it_is_heard_and_undo_goes_back() {
     let before = level(&mut lumen);
     assert!(before > 0.05, "the instrument is silent: {before}");
 
-    // "Saw, loud": the plugin sets its own level and wave when the program
-    // parameter moves, and what it sets is part of the choice.
     lumen.app_mut().choose_program(PLUGIN, 0, 1);
     lumen.wait_for("the program's values to be in the project", |app| {
         let held = app.device_params(PLUGIN);
@@ -80,7 +66,6 @@ fn choosing_a_program_is_one_undo_step_it_is_heard_and_undo_goes_back() {
     let loud = level(&mut lumen);
     assert!(loud > before * 1.3, "{loud} is not louder than {before}");
 
-    // One undo takes the whole choice back, and the plugin with it.
     lumen.key(Modifiers::COMMAND, Key::Z);
     lumen.wait_for("the plugin to go back", |app| {
         app.device_params(PLUGIN).is_empty()
@@ -111,7 +96,6 @@ fn a_preset_file_is_one_undo_step_and_undo_gives_the_old_sound_back() {
         .app_mut()
         .load_preset_from_bytes(PLUGIN, "Quiet square", &preset_for_instrument(0.1, 0.0))
         .expect("a good file");
-    // The project holds the state once the plugin has taken it.
     lumen.wait_for("the project to hold the preset", |app| {
         app.project().tracks[0].devices[0].state == state(0.1, 0.0)
     });
@@ -122,12 +106,9 @@ fn a_preset_file_is_one_undo_step_and_undo_gives_the_old_sound_back() {
     assert!(lumen.app().is_dirty());
     let quiet = level(&mut lumen);
     assert!(quiet < before * 0.5, "{quiet} is not quieter than {before}");
-    // The plugin was given the state once: the project did not send it again.
     lumen.frames(30);
     assert_eq!(lumen.app().device_param_known(PLUGIN, LEVEL), Some(0.1));
 
-    // Undo gives back what the project held: no state at all, so the plugin
-    // starts again as it was added.
     lumen.key(Modifiers::COMMAND, Key::Z);
     lumen.wait_for("the project to hold no state", |app| {
         app.project().tracks[0].devices[0].state.is_empty()
@@ -136,15 +117,12 @@ fn a_preset_file_is_one_undo_step_and_undo_gives_the_old_sound_back() {
     lumen.wait_for("the plugin to start again", |app| {
         app.device_param_known(PLUGIN, LEVEL) == Some(0.5)
     });
-    // A plugin instrument that starts again does not sound a note that is
-    // already held until the next one (KNOWN_ISSUES): play from the start.
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.wait_for("playback to stop", |app| !app.is_playing());
     play(&mut lumen);
     let back = level(&mut lumen);
     assert!(back > quiet * 2.0, "{back} is not back above {quiet}");
 
-    // Redo gives the preset's state to the running plugin again.
     lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z);
     lumen.wait_for("the plugin to take the preset again", |app| {
         app.project().tracks[0].devices[0].state == state(0.1, 0.0)
@@ -172,7 +150,6 @@ fn a_second_preset_is_undone_to_the_first_without_restarting_the_plugin() {
         app.project().tracks[0].devices[0].state == state(0.2, 0.0)
             && app.device_param_known(PLUGIN, LEVEL) == Some(0.2)
     });
-    // The host kept running: a state was loaded, nothing was started again.
     assert_eq!(lumen.app().device_state(PLUGIN).as_deref(), Some("ready"));
 }
 
@@ -229,7 +206,6 @@ fn a_state_the_plugin_refuses_changes_nothing_and_says_so() {
     assert_eq!(lumen.app().project(), &before);
     assert!(!lumen.app().is_dirty());
     assert_eq!(lumen.app().device_state(PLUGIN).as_deref(), Some("ready"));
-    // The plugin is as it was: a good preset still loads.
     lumen
         .app_mut()
         .load_preset_from_bytes(PLUGIN, "Fine", &preset_for_instrument(0.3, 0.0))

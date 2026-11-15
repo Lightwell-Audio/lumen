@@ -1,11 +1,3 @@
-//! Reading and writing `.lumen` files.
-//!
-//! Saving is atomic: the document is written to a temporary file in the same
-//! folder, flushed to disk, and only then renamed over the old file. A crash
-//! at any moment leaves either the old or the new document, never a mix.
-//! Lumen also never writes a document it could not read back: saving
-//! validates first.
-
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -20,7 +12,6 @@ use crate::migrate::{CURRENT_VERSION, FIRST_VERSION, MIGRATIONS, upgrade};
 use crate::model::{Media, Project};
 use crate::{json, validate::validate};
 
-/// Value of the `format` field that identifies a project file.
 pub const FORMAT_ID: &str = "lumen-project";
 
 #[derive(Serialize)]
@@ -39,7 +30,6 @@ struct EnvelopeIn {
 #[derive(Debug)]
 pub enum LoadError {
     Io(io::Error),
-    /// Not valid JSON: truncated, damaged, or not text.
     Syntax {
         line: usize,
         column: usize,
@@ -54,7 +44,6 @@ pub enum LoadError {
         from: u64,
         message: String,
     },
-    /// Valid JSON that does not describe a consistent project.
     Invalid(String),
 }
 
@@ -91,7 +80,6 @@ impl std::error::Error for LoadError {}
 
 #[derive(Debug)]
 pub enum SaveError {
-    /// The in-memory project is inconsistent; nothing was written.
     Invalid(String),
     Io(io::Error),
 }
@@ -109,7 +97,6 @@ impl std::fmt::Display for SaveError {
 
 impl std::error::Error for SaveError {}
 
-/// Serializes `project` as the current format version.
 pub fn to_bytes(project: &Project) -> Result<Vec<u8>, SaveError> {
     validate(project).map_err(SaveError::Invalid)?;
     let envelope = EnvelopeOut {
@@ -125,7 +112,6 @@ pub fn to_bytes(project: &Project) -> Result<Vec<u8>, SaveError> {
     Ok(text.into_bytes())
 }
 
-/// Parses, migrates and validates a document of any supported version.
 pub fn from_bytes(bytes: &[u8]) -> Result<Project, LoadError> {
     let document: Value = serde_json::from_slice(bytes).map_err(|e| LoadError::Syntax {
         line: e.line(),
@@ -159,7 +145,6 @@ pub fn load(path: &Path) -> Result<Project, LoadError> {
 
 #[derive(Debug, Clone)]
 pub struct SaveOptions {
-    /// Previous versions kept in the `Backups` folder next to the project.
     pub keep_backups: usize,
 }
 
@@ -169,25 +154,15 @@ impl Default for SaveOptions {
     }
 }
 
-/// What a successful save did besides write the project.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SaveReport {
-    /// Why the previous version could not be copied into `Backups`. The save
-    /// itself committed: the project file holds the new content. A caller may
-    /// show this as a warning.
     pub backup_error: Option<String>,
 }
 
-/// Saves atomically, keeping rolling backups of the previous file.
-///
-/// A backup that cannot be made is reported in [`SaveReport`] and does not
-/// stop the save: the new content replaces the old file either way, because
-/// losing the save is worse than losing one backup.
 pub fn save(project: &Project, path: &Path, options: &SaveOptions) -> Result<(), SaveError> {
     save_with_report(project, path, options).map(|_| ())
 }
 
-/// [`save`], also saying whether the backup of the previous version was made.
 pub fn save_with_report(
     project: &Project,
     path: &Path,
@@ -199,18 +174,11 @@ pub fn save_with_report(
     Ok(SaveReport { backup_error })
 }
 
-/// Writes any file (an exported MIDI file, M5 slice 7) by the project's
-/// commit protocol: a temporary file beside it, flushed, then renamed over
-/// the old one, so a crash leaves the old file or the new, never half.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let options = SaveOptions { keep_backups: 0 };
     write_atomically(path, bytes, &options, &mut |_| Ok(())).map(|_| ())
 }
 
-/// The commit protocol. `before_commit` runs after the new content is safely
-/// on disk and before it replaces the old file (a test seam for failures).
-/// Returns why the backup of the previous version could not be made, if it
-/// could not: that is a warning, not a failure of the write.
 fn write_atomically(
     path: &Path,
     bytes: &[u8],
@@ -233,8 +201,6 @@ fn write_atomically(
         file.sync_all()?;
         drop(file);
         before_commit(&temp)?;
-        // Best effort: whatever happens to the backup, the new content is
-        // renamed into place below.
         let backup_error = if options.keep_backups > 0 && path.exists() {
             back_up(path, dir, &name, options.keep_backups)
                 .err()
@@ -261,25 +227,15 @@ fn sync_dir(dir: &Path) -> io::Result<()> {
 
 #[cfg(not(unix))]
 fn sync_dir(_dir: &Path) -> io::Result<()> {
-    // NTFS journals the rename; directory handles cannot be flushed this way.
     Ok(())
 }
 
-/// The temporary file a save writes before renaming it over the project:
-/// `.<name>.<pid>.<save>.saving`. The counter makes it unique per save
-/// within the process, so two saves of one path cannot share it. (Older
-/// names had only the process id; [`remove_stale_temp_files`] still
-/// recognises them.)
 fn temp_name(name: &str) -> String {
     static COUNTER: AtomicU64 = AtomicU64::new(1);
     let save = COUNTER.fetch_add(1, Ordering::Relaxed);
     format!(".{name}.{}.{save}.saving", std::process::id())
 }
 
-/// Whether `file` is a temporary file this module wrote for `name`, in the
-/// current `.<name>.<pid>.<save>.saving` shape or the older
-/// `.<name>.<pid>.saving` one. Its parts are all digits, so a file of a
-/// similar name that a person made is left alone.
 fn is_temp_name(file: &str, name: &str) -> bool {
     file.strip_prefix(&format!(".{name}."))
         .and_then(|rest| rest.strip_suffix(".saving"))
@@ -291,7 +247,6 @@ fn is_temp_name(file: &str, name: &str) -> bool {
         })
 }
 
-/// Leftovers of saves that crashed before committing.
 fn remove_stale_temp_files(dir: &Path, name: &str) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
@@ -304,15 +259,10 @@ fn remove_stale_temp_files(dir: &Path, name: &str) {
     }
 }
 
-/// Copies the current file to `Backups/<stem> <UTC timestamp>.lumen` and
-/// prunes the oldest beyond `keep`.
 fn back_up(path: &Path, dir: &Path, name: &str, keep: usize) -> io::Result<()> {
     back_up_at(path, dir, name, keep, &utc_timestamp())
 }
 
-/// `back_up` with a given timestamp. Saves within the same millisecond get
-/// `_001`, `_002`… after it: `_` sorts after `.`, and the padding keeps the
-/// numbers in order, so the newest backup always sorts last.
 fn back_up_at(path: &Path, dir: &Path, name: &str, keep: usize, stamp: &str) -> io::Result<()> {
     let backups = dir.join("Backups");
     fs::create_dir_all(&backups)?;
@@ -324,8 +274,6 @@ fn back_up_at(path: &Path, dir: &Path, name: &str, keep: usize, stamp: &str) -> 
         .extension()
         .map(|e| e.to_string_lossy().into_owned())
         .unwrap_or_default();
-    // Continue after the highest suffix already used for this stamp, so a
-    // slot freed by pruning is never reused for a newer backup.
     let taken = format!("{stem} {stamp}");
     let mut newest: Option<u32> = None;
     for entry in fs::read_dir(&backups)?.flatten() {
@@ -358,7 +306,7 @@ fn back_up_at(path: &Path, dir: &Path, name: &str, keep: usize, stamp: &str) -> 
                 .is_some_and(|n| n.to_string_lossy().starts_with(&prefix))
         })
         .collect();
-    existing.sort(); // timestamps sort lexicographically
+    existing.sort();
     let excess = existing.len().saturating_sub(keep);
     for old in &existing[..excess] {
         let _ = fs::remove_file(old);
@@ -366,14 +314,12 @@ fn back_up_at(path: &Path, dir: &Path, name: &str, keep: usize, stamp: &str) -> 
     Ok(())
 }
 
-/// `2026-10-05T183012.345Z`: sortable and valid in Windows file names.
 pub fn utc_timestamp() -> String {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
     let secs = now.as_secs() as i64;
     let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
-    // Civil-from-days (Howard Hinnant), proleptic Gregorian calendar.
     let z = days + 719_468;
     let era = z.div_euclid(146_097);
     let doe = z.rem_euclid(146_097);
@@ -392,8 +338,6 @@ pub fn utc_timestamp() -> String {
     )
 }
 
-/// The path to store for `file` in a project kept in `project_dir`:
-/// relative with `/` separators when inside the folder, absolute otherwise.
 pub fn media_path_for(project_dir: &Path, file: &Path) -> String {
     match file.strip_prefix(project_dir) {
         Ok(relative) => relative
@@ -408,14 +352,9 @@ pub fn media_path_for(project_dir: &Path, file: &Path) -> String {
 #[derive(Debug, PartialEq, Eq)]
 pub enum MediaLocation {
     Found(PathBuf),
-    /// Offer relinking; these are the places that were checked.
-    Missing {
-        tried: Vec<PathBuf>,
-    },
+    Missing { tried: Vec<PathBuf> },
 }
 
-/// Finds a media file: the stored path (relative to the project folder),
-/// then the last known absolute location.
 pub fn locate_media(project_dir: &Path, media: &Media) -> MediaLocation {
     let stored = Path::new(&media.path);
     let mut tried = vec![if stored.is_absolute() {
@@ -481,8 +420,6 @@ mod tests {
         let dir = TempDir::new("backup-fails");
         let path = dir.path().join("Song.lumen");
         save(&small_project(1), &path, &SaveOptions::default()).unwrap();
-        // A file where the `Backups` folder would be: making the folder
-        // fails on every platform.
         fs::write(dir.path().join("Backups"), b"not a folder").unwrap();
 
         let report = save_with_report(&small_project(2), &path, &SaveOptions::default())
@@ -497,7 +434,6 @@ mod tests {
             dir.path().join("Backups").is_file(),
             "the failed backup left what was there alone"
         );
-        // The previous API keeps working the same way.
         save(&small_project(3), &path, &SaveOptions::default()).expect("the save still wins");
         assert_eq!(load(&path).unwrap(), small_project(3));
     }
@@ -544,7 +480,6 @@ mod tests {
             .collect();
         backups.sort();
         assert_eq!(backups.len(), 3);
-        // The newest backup is the version before the current one.
         assert_eq!(load(backups.last().unwrap()).unwrap(), small_project(4));
         assert_eq!(load(&path).unwrap(), small_project(5));
     }

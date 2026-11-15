@@ -1,6 +1,3 @@
-//! A real host process: the plugin loaded, configured, played and saved
-//! through the protocol, as Lumen will drive it.
-
 mod support;
 
 use lumen_plugin_host::client::{ExitKind, HostError};
@@ -81,7 +78,6 @@ fn state_saved_in_one_host_restores_in_another() {
             ..
         }
     ));
-    // The host survived the refusal.
     assert!(second.state(SLOW).is_ok());
 }
 
@@ -104,7 +100,6 @@ fn requests_out_of_order_are_answered_not_obeyed() {
         })
     ));
     host.load(plugin(), None, SLOW).unwrap();
-    // Loading twice is refused; the first plugin is still there.
     assert!(host.load(plugin(), None, SLOW).is_err());
     assert!(host.parameters(SLOW).is_ok());
 }
@@ -117,8 +112,6 @@ fn a_host_does_not_outlive_its_handle() {
     assert!(!support::exists(pid), "host {pid} is still running");
 }
 
-/// A host session runs at high priority, so a plugin's own threads are not
-/// kept waiting behind ordinary programs while the audio waits on them.
 #[cfg(windows)]
 #[test]
 fn a_host_session_runs_at_high_priority() {
@@ -126,14 +119,10 @@ fn a_host_session_runs_at_high_priority() {
     use windows_sys::Win32::System::Threading::{
         GetPriorityClass, HIGH_PRIORITY_CLASS, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
     };
-    // Loaded, so the session is past its start.
     let mut host = instrument("");
-    // SAFETY: opening a process this test started, to read its priority.
     let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, host.id()) };
     assert!(!handle.is_null(), "open the host process");
-    // SAFETY: a live handle with query rights.
     let class = unsafe { GetPriorityClass(handle) };
-    // SAFETY: the handle opened above, closed once.
     unsafe { CloseHandle(handle) };
     assert_eq!(class, HIGH_PRIORITY_CLASS);
     assert_eq!(host.quit(SLOW), ExitKind::Clean);

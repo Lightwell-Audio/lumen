@@ -1,18 +1,3 @@
-//! Autosave and crash recovery (M3 slice 3d).
-//!
-//! While a project has unsaved changes, a copy is written a minute after the
-//! first change (and every minute while changes continue) to the local app
-//! data folder, never over the project's own file. Each running Lumen has
-//! its own session: `<session>.lumen` with a `<session>.json` note saying
-//! which project it belongs to. Saving, starting over or closing normally
-//! deletes the session's files, so anything left at start-up was left by a
-//! crash, and Lumen offers to recover it.
-//!
-//! A session with an autosave also holds a lock on `<session>.lock` for as
-//! long as it runs. The system releases the lock when the process ends,
-//! however it ends, so another Lumen started meanwhile skips autosaves
-//! whose lock is held: they belong to a session that is still open.
-
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Receiver;
@@ -23,21 +8,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::files;
 
-/// How long after the first unsaved change the copy is written, unless the
-/// Autosave preference says otherwise (M9 R7).
 pub const DELAY: Duration = Duration::from_secs(60);
 
-/// The intervals the Autosave preference offers. More than two minutes is
-/// not offered: a crash may cost at most a couple of minutes (CLAUDE.md §4).
 pub const INTERVALS: [Duration; 3] = [
     Duration::from_secs(30),
     Duration::from_secs(60),
     Duration::from_secs(120),
 ];
 
-/// The folder for autosaves: `%LOCALAPPDATA%\Lumen\Autosave` on Windows,
-/// `~/Library/Application Support/Lumen/Autosave` on macOS,
-/// `$XDG_STATE_HOME/lumen/autosave` (or `~/.local/state/...`) on Linux.
 pub fn default_dir() -> Option<PathBuf> {
     let dir = if cfg!(windows) {
         PathBuf::from(std::env::var_os("LOCALAPPDATA")?)
@@ -58,40 +36,22 @@ pub fn default_dir() -> Option<PathBuf> {
     Some(dir)
 }
 
-/// The note's shape version (sweep M9). A note written before the field
-/// existed has this shape, so it reads as version 1 ([`legacy_note_version`]).
-/// A note with a higher version was written by a newer build: this build
-/// still offers the autosave copy beside it (the copy is the person's work)
-/// and ignores the metadata it cannot read.
 pub const VERSION: u32 = 1;
 
-/// The note next to an autosave.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Note {
-    /// The shape this note is written in. Notes written before it was added
-    /// have exactly this shape, so they read as version 1.
     #[serde(default = "legacy_note_version")]
     pub version: u32,
-    /// The project's own file, if it had been saved.
     pub project: Option<String>,
-    /// Its name, for the recovery message.
     pub name: String,
-    /// When the autosave was written (seconds since 1970).
     pub written: u64,
 }
 
-/// The version of a note written before the field existed: its shape is
-/// version 1's, so there is nothing to migrate.
 fn legacy_note_version() -> u32 {
     VERSION
 }
 
-/// Reads the note at `path`. A note a newer build wrote is still read for
-/// what this build needs to offer its copy, its name and age, since the copy
-/// is the person's work; the fields this build cannot read are ignored.
-/// `None` when the file is not a note at all.
 fn read_note(path: &Path) -> Option<Note> {
-    /// The fields that say what a note is, whatever its version.
     #[derive(Deserialize)]
     struct Header {
         #[serde(default)]
@@ -131,8 +91,6 @@ fn read_note(path: &Path) -> Option<Note> {
     })
 }
 
-/// When `path` was last written (seconds since 1970): the age of a note
-/// whose own `written` this build cannot read.
 fn modified_seconds(path: &Path) -> u64 {
     std::fs::metadata(path)
         .and_then(|meta| meta.modified())
@@ -141,7 +99,6 @@ fn modified_seconds(path: &Path) -> u64 {
         .map_or_else(now_seconds, |since| since.as_secs())
 }
 
-/// An autosave left by a session that did not close normally.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Leftover {
     pub session: String,
@@ -149,33 +106,20 @@ pub struct Leftover {
     pub note: Note,
 }
 
-/// One running session's autosave.
 pub struct Autosave {
     dir: Option<PathBuf>,
     session: String,
-    /// When the oldest change not yet autosaved was made.
     pending_since: Option<Instant>,
-    /// The document state last written.
     written: Option<u64>,
     writing: Option<Receiver<Written>>,
-    /// The session's lock, held while it has an autosave on disk.
     lock: Option<File>,
-    /// The wait when nothing is recorded: the preference, or a fixed delay.
     interval: Duration,
-    /// The interval was fixed at launch (`--autosave-after-ms`, tests): the
-    /// preference does not change it.
     fixed: bool,
-    /// A shorter wait while a take or an automation pass is under way, so a
-    /// crash costs seconds.
     hurried: Option<Duration>,
-    /// How the last write ended (`true`: written), until taken.
     finished: Option<bool>,
-    /// Why the last write could not start, until taken.
     failed: Option<String>,
 }
 
-/// What the autosave thread sends back: the save's result, and the
-/// session's lock if it took it.
 struct Written {
     saved: Result<files::Saved, String>,
     lock: Option<File>,
@@ -201,32 +145,26 @@ impl Autosave {
         }
     }
 
-    /// A fixed delay, which the preference does not change
-    /// (`--autosave-after-ms`, tests).
     pub fn with_delay(mut self, delay: Duration) -> Self {
         self.interval = delay;
         self.fixed = true;
         self
     }
 
-    /// The Autosave preference's interval; ignored when the delay is fixed.
     pub fn set_interval(&mut self, interval: Duration) {
         if !self.fixed {
             self.interval = interval;
         }
     }
 
-    /// Waits at most `delay` while recording, so a crash costs seconds.
     pub fn hurry(&mut self, delay: Duration) {
         self.hurried = Some(delay);
     }
 
-    /// Back to the interval once recording ends.
     pub fn unhurry(&mut self) {
         self.hurried = None;
     }
 
-    /// How long after the first unsaved change the copy is written now.
     pub fn delay(&self) -> Duration {
         self.hurried
             .map_or(self.interval, |hurried| hurried.min(self.interval))
@@ -236,19 +174,14 @@ impl Autosave {
         &self.session
     }
 
-    /// The write of this document state has finished and its session lock
-    /// has been handed back from the worker.
     pub(crate) fn has_saved(&self, state: u64) -> bool {
         self.written == Some(state) && self.writing.is_none()
     }
 
-    /// A write is on the worker thread, which may hold the session's lock
-    /// until the app takes its answer.
     pub(crate) fn is_writing(&self) -> bool {
         self.writing.is_some()
     }
 
-    /// Where autosaves go (`None`: autosave is off).
     pub fn dir(&self) -> Option<&Path> {
         self.dir.as_deref()
     }
@@ -269,17 +202,12 @@ impl Autosave {
         Some(lock_file(self.dir.as_ref()?, &self.session))
     }
 
-    /// Takes over a recovered session, so its files are replaced by this
-    /// session's next autosave (and deleted with it), not left behind. Its
-    /// lock is taken with that autosave.
     pub fn adopt(&mut self, leftover: &Leftover) {
         self.session = leftover.session.clone();
         self.written = None;
         self.lock = None;
     }
 
-    /// Call every frame. `dirty` and `state` describe the document; `save`
-    /// builds the request when an autosave is due.
     pub fn tick(
         &mut self,
         dirty: bool,
@@ -302,8 +230,6 @@ impl Autosave {
             }
         }
         if !dirty {
-            // Saved (or back to the saved state): nothing to recover. The
-            // files go in the background, never on the UI thread.
             self.pending_since = None;
             if self.written.is_some() {
                 let files: Vec<PathBuf> = [self.file(), self.note_file()]
@@ -319,8 +245,6 @@ impl Autosave {
                     release(lock, lock_file);
                 });
                 if let Err(error) = spawned {
-                    // The files stay and will read as an old recovery; the
-                    // lock is released when its handle drops either way.
                     crate::trace::log(|| {
                         format!(
                             "autosave: {}",
@@ -343,12 +267,8 @@ impl Autosave {
             return;
         };
         self.pending_since = None;
-        // The note and the project are written together on a background
-        // thread: the UI never waits on the disk.
         let note = serde_json::to_string_pretty(&note()).ok();
         let request = save(file);
-        // The lock comes first, so a running session's files are never on
-        // disk unclaimed.
         let lock_file = self.lock.is_none().then(|| self.lock_file()).flatten();
         let (tx, rx) = std::sync::mpsc::channel();
         let report = tx.clone();
@@ -362,8 +282,6 @@ impl Autosave {
             let _ = tx.send(Written { saved, lock });
         });
         if let Err(error) = spawned {
-            // The interface says autosave is not running; the write is
-            // finished as failed so nothing waits for it.
             crate::trace::log(|| {
                 format!(
                     "autosave: {}",
@@ -379,18 +297,14 @@ impl Autosave {
         self.writing = Some(rx);
     }
 
-    /// Why autosave could not start, once, for the interface to say.
     pub fn take_failure(&mut self) -> Option<String> {
         self.failed.take()
     }
 
-    /// How the last write ended, once: `Some(true)` when it was written.
     pub fn take_finished(&mut self) -> Option<bool> {
         self.finished.take()
     }
 
-    /// Deletes this session's autosave now, waiting for the disk: for a
-    /// normal close, when Lumen is exiting anyway.
     pub fn clear(&mut self) {
         for file in [self.file(), self.note_file()].into_iter().flatten() {
             let _ = std::fs::remove_file(file);
@@ -400,14 +314,12 @@ impl Autosave {
         self.pending_since = None;
     }
 
-    /// When the next autosave is due, to wake up for it.
     pub fn due_in(&self, now: Instant) -> Option<Duration> {
         self.pending_since
             .map(|since| self.delay().saturating_sub(now.duration_since(since)))
     }
 }
 
-/// Autosaves left by sessions that did not close normally, newest first.
 pub fn leftovers(dir: &Path, own_session: Option<&str>) -> Vec<Leftover> {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return Vec::new();
@@ -439,7 +351,6 @@ pub fn leftovers(dir: &Path, own_session: Option<&str>) -> Vec<Leftover> {
     found
 }
 
-/// Deletes a leftover autosave the user chose not to recover.
 pub fn discard(leftover: &Leftover) {
     let _ = std::fs::remove_file(&leftover.file);
     let _ = std::fs::remove_file(leftover.file.with_extension("json"));
@@ -450,8 +361,6 @@ fn lock_file(dir: &Path, session: &str) -> PathBuf {
     dir.join(format!("{session}.lock"))
 }
 
-/// Opens (or makes) a session's lock file and locks it; `None` if another
-/// process holds it or it cannot be made.
 fn take_lock(path: &Path) -> Option<File> {
     let file = File::options()
         .create(true)
@@ -463,7 +372,6 @@ fn take_lock(path: &Path) -> Option<File> {
     Some(file)
 }
 
-/// Gives up a session's lock and deletes its file.
 fn release(lock: Option<File>, path: Option<PathBuf>) {
     if let (Some(lock), Some(path)) = (lock, path) {
         drop(lock);
@@ -471,9 +379,6 @@ fn release(lock: Option<File>, path: Option<PathBuf>) {
     }
 }
 
-/// Whether `session` belongs to a running Lumen: its lock is held. A
-/// session from before locks (or one whose lock could not be made) counts
-/// as ended, and is offered as before.
 fn is_running(dir: &Path, session: &str) -> bool {
     let Ok(file) = File::open(lock_file(dir, session)) else {
         return false;
@@ -490,7 +395,6 @@ pub fn now_seconds() -> u64 {
         .map_or(0, |d| d.as_secs())
 }
 
-/// "3 minutes ago", for the recovery message.
 pub fn ago(written: u64) -> String {
     let seconds = now_seconds().saturating_sub(written);
     match seconds {
@@ -510,14 +414,12 @@ mod tests {
     use lumen_core::time::Ticks;
     use lumen_project::testing::TempDir;
 
-    /// A frozen fixture in the crate's `tests/fixtures`.
     fn fixture(name: &str) -> std::path::PathBuf {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures")
             .join(name)
     }
 
-    /// What both frozen note fixtures say.
     fn frozen_note(version: u32) -> Note {
         Note {
             version,
@@ -592,8 +494,6 @@ mod tests {
         let tmp = TempDir::new("autosave-changed-note");
         let copy = tmp.path().join(format!("future.{}", files::EXTENSION));
         std::fs::write(&copy, "{}").unwrap();
-        // A shape this build cannot read: its name and age come from the
-        // note's own file, so the copy is offered all the same.
         std::fs::write(
             tmp.path().join("future.json"),
             r#"{"version":3,"title":{"text":"Night Drive"}}"#,
@@ -628,7 +528,6 @@ mod tests {
         assert_eq!(autosave.delay(), Duration::from_secs(30));
         autosave.hurry(Duration::from_secs(10));
         assert_eq!(autosave.delay(), Duration::from_secs(10));
-        // A preference changed while recording waits until it ends.
         autosave.set_interval(Duration::from_secs(120));
         assert_eq!(autosave.delay(), Duration::from_secs(10));
         autosave.unhurry();
@@ -696,9 +595,6 @@ mod tests {
             if autosave.written == Some(doc.state()) {
                 return;
             }
-            // Which of the two it was: a write still under way (a stalled
-            // disk) or one that ended in an error (its reason is in the
-            // trace log).
             deadline.check(format_args!(
                 "the autosave was never written: still writing {}, last write ended {:?} \
                  (Some(false): it failed)",
@@ -721,21 +617,17 @@ mod tests {
             name: "Untitled".into(),
             written: now_seconds(),
         };
-        // Not before the delay.
         autosave.tick(true, doc.state(), start, |f| request(&doc, f), note);
         assert!(leftovers(tmp.path(), None).is_empty());
-        // After it: written in the background.
         autosave.tick(true, doc.state(), start + DELAY, |f| request(&doc, f), note);
         wait_for_write(&mut autosave, &doc, start + DELAY);
 
-        // "Crash": the session ends without clearing. A new session finds it.
         drop(autosave);
         let found = leftovers(tmp.path(), Some("another-session"));
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].note.name, "Untitled");
         let recovered = files::open_now(&found[0].file).unwrap();
         assert_eq!(recovered.project.tracks, doc.project().tracks);
-        // Media paths stay absolute: the files are not in the autosave folder.
         assert_eq!(recovered.project.media, doc.project().media);
         discard(&found[0]);
         assert!(leftovers(tmp.path(), None).is_empty());
@@ -757,9 +649,7 @@ mod tests {
         autosave.tick(true, doc.state(), start + DELAY, |f| request(&doc, f), note);
         wait_for_write(&mut autosave, &doc, start + DELAY);
         let files = |dir: &Path| std::fs::read_dir(dir).unwrap().count();
-        // The copy, its note and the session's lock.
         assert_eq!(files(tmp.path()), 3);
-        // The project was saved: the document is clean, the copy goes.
         autosave.tick(
             false,
             doc.state(),
@@ -767,14 +657,11 @@ mod tests {
             |_| unreachable!(),
             || unreachable!(),
         );
-        // Removed in the background.
         lumen_testkit::wait_until("the copy to be removed", || files(tmp.path()) == 0);
-        // And a session never leaves its own autosave to itself.
         autosave.clear();
         assert!(leftovers(tmp.path(), None).is_empty());
     }
 
-    /// A session that has written its autosave.
     fn autosaved(dir: &Path, doc: &Document) -> Autosave {
         let mut autosave = Autosave::new(Some(dir.to_path_buf()));
         let start = Instant::now();
@@ -795,14 +682,10 @@ mod tests {
         let tmp = TempDir::new("autosave-running");
         let doc = edited_document();
         let running = autosaved(tmp.path(), &doc);
-        // A second Lumen started now leaves it alone: the session holds
-        // its lock (KNOWN_ISSUES, M3 4c).
         assert!(leftovers(tmp.path(), Some("another-session")).is_empty());
-        // Until it crashes: the system releases the lock with the process.
         drop(running);
         let found = leftovers(tmp.path(), Some("another-session"));
         assert_eq!(found.len(), 1);
-        // Discarding takes every file, the lock's too.
         discard(&found[0]);
         assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
     }

@@ -1,9 +1,3 @@
-//! The keys and commands on automation lanes (M7 slices A1 and A2). They
-//! work on the lane of the chosen track: A shows or hides it, a command adds
-//! a point at the playhead, the arrows move the picked points, Delete takes
-//! them away, copy, paste and duplicate repeat them, and commands give the
-//! segments a shape or put a tool in hand.
-
 use eframe::egui;
 use lumen_core::automation::{Lane, Shape};
 use lumen_core::curve::Curve;
@@ -17,13 +11,9 @@ use crate::arrangement::auto_scale as scale;
 use crate::arrangement::auto_state::{LaneClip, Picks, Tool};
 use crate::arrangement::auto_view::without;
 
-/// How far an arrow moves a picked point's value, as a share of the lane's
-/// height, and with the fine modifier.
 pub(crate) const VALUE_STEP: f32 = 0.02;
 pub(crate) const VALUE_STEP_FINE: f32 = 0.005;
 
-/// The value `track`'s own control holds for `target` now: where a lane
-/// that is just starting should begin, so adding a point does not jump.
 fn control_value(track: &Track, target: Target) -> f32 {
     match target {
         Target::Volume => track.gain_db,
@@ -43,8 +33,6 @@ fn control_value(track: &Track, target: Target) -> f32 {
 }
 
 impl App {
-    /// The tracks the lane commands act on: the selected tracks, else the
-    /// track last clicked in the lanes.
     pub(crate) fn auto_tracks(&self) -> Vec<Id> {
         if self.arrangement.selected.is_empty() {
             self.arrangement.insert.into_iter().collect()
@@ -53,7 +41,6 @@ impl App {
         }
     }
 
-    /// The lane the commands act on: the first chosen track that shows one.
     pub(crate) fn auto_chosen(&self) -> Option<(Id, Target)> {
         let shown = &self.arrangement.auto.shown;
         self.auto_tracks()
@@ -61,7 +48,6 @@ impl App {
             .find_map(|t| shown.get(&t).map(|target| (t, *target)))
     }
 
-    /// Whether the lane under the commands has points of its own yet.
     pub(crate) fn auto_chosen_has_lane(&self) -> bool {
         self.auto_chosen().is_some_and(|(track, target)| {
             self.document
@@ -73,14 +59,10 @@ impl App {
         })
     }
 
-    /// Points are picked and the keys mean them: not while the clip editor
-    /// or the Devices tab holds the keyboard.
     pub(crate) fn auto_keys_picked(&self) -> bool {
         self.arrangement.auto.picks.is_some() && !self.note_keys() && !self.chain.live
     }
 
-    /// A lane has the keyboard: it was pressed last, and the clip editor and
-    /// the Devices tab do not hold it.
     pub(crate) fn auto_keys_lane(&self) -> bool {
         self.arrangement.auto.focus
             && self.auto_chosen().is_some()
@@ -88,18 +70,15 @@ impl App {
             && !self.chain.live
     }
 
-    /// Something to paste into the lane that has the keyboard.
     pub(crate) fn auto_can_paste(&self) -> bool {
         self.auto_keys_lane() && self.arrangement.auto.clip.is_some()
     }
 
-    /// The picks, if they are on the lane the commands act on.
     fn auto_picks(&self) -> Option<Picks> {
         let (track, target) = self.auto_chosen()?;
         self.arrangement.auto.picked_on(track, target).cloned()
     }
 
-    /// Shows or hides the lanes of the chosen tracks.
     pub(crate) fn auto_show(&mut self) {
         let tracks = self.auto_tracks();
         self.arrangement
@@ -107,7 +86,6 @@ impl App {
             .toggle(self.document.project(), &tracks);
     }
 
-    /// Opens the parameter chooser of the chosen lane.
     pub(crate) fn auto_choose(&self, ctx: &egui::Context) {
         if let Some((track, _)) = self.auto_chosen() {
             crate::widgets::Menu::open_for(
@@ -117,8 +95,6 @@ impl App {
         }
     }
 
-    /// Adds a point at the playhead to the chosen lane, holding the value
-    /// the lane has there, or the control's own when the lane is new.
     pub(crate) fn auto_add_point(&mut self) {
         let Some((track, target)) = self.auto_chosen() else {
             return;
@@ -135,12 +111,10 @@ impl App {
         self.add_auto_point(track, target, at, value, false);
     }
 
-    /// Switches the chosen lane on or off, keeping its points.
     pub(crate) fn auto_toggle_lane(&mut self) {
         let Some((track, target)) = self.auto_chosen() else {
             return;
         };
-        // A clip's envelope is always on: it has no switch.
         if target.clip().is_some() {
             return;
         }
@@ -156,7 +130,6 @@ impl App {
         self.arrangement.note_lane(result);
     }
 
-    /// Takes the chosen lane away, points and all.
     pub(crate) fn auto_remove_lane(&mut self) {
         let Some((track, target)) = self.auto_chosen() else {
             return;
@@ -166,8 +139,6 @@ impl App {
         self.arrangement.auto.picks = None;
     }
 
-    /// Takes the picked points out of their lane. The last one takes the
-    /// lane with it, and the control is its own again.
     pub(crate) fn auto_delete(&mut self) {
         let Some(picks) = self.arrangement.auto.picks.take() else {
             return;
@@ -181,9 +152,6 @@ impl App {
         }
     }
 
-    /// Moves the picked points: `time` grid steps (earlier is negative) and
-    /// `value` steps of the lane's height (up is positive). Fine steps for
-    /// the value are a quarter the size.
     pub(crate) fn auto_nudge(&mut self, time: i32, value: i32, fine: bool) {
         let Some(picks) = self.arrangement.auto.picks.clone() else {
             return;
@@ -218,7 +186,6 @@ impl App {
             }
         };
         if let Some(done) = pure::shifted(&lane, &list, at - first.at, map) {
-            // One undo step for each press: not a drag.
             let result = self
                 .document
                 .set_lane(picks.track, picks.target, done.lane, false);
@@ -226,7 +193,6 @@ impl App {
         }
     }
 
-    /// Picks every point of the chosen lane.
     pub(crate) fn auto_select_all(&mut self) {
         let Some((track, target)) = self.auto_chosen() else {
             return;
@@ -241,7 +207,6 @@ impl App {
         });
     }
 
-    /// Gives the segments leaving the picked points `shape`.
     pub(crate) fn auto_shape_segments(&mut self, shape: Shape) {
         let Some(picks) = self.auto_picks() else {
             return;
@@ -257,18 +222,14 @@ impl App {
         }
     }
 
-    /// The curve a segment takes when it is first made curved: the S, which
-    /// reads as bent at once and meets its neighbours smoothly.
     pub(crate) fn auto_curve() -> Shape {
         Shape::Curve(Curve::S_CURVE)
     }
 
-    /// Puts `tool` in hand.
     pub(crate) fn auto_use_tool(&mut self, tool: Tool) {
         self.arrangement.auto.use_tool(tool);
     }
 
-    /// B: the pencil, or the pointer again.
     pub(crate) fn auto_toggle_draw(&mut self) {
         let next = if self.arrangement.auto.tool == Tool::Pencil {
             Tool::Pointer
@@ -278,7 +239,6 @@ impl App {
         self.arrangement.auto.use_tool(next);
     }
 
-    /// Keeps the picked points to paste.
     pub(crate) fn auto_copy(&mut self) {
         let Some(picks) = self.auto_picks() else {
             return;
@@ -294,7 +254,6 @@ impl App {
         }
     }
 
-    /// Pastes what was copied at the playhead, over what is there.
     pub(crate) fn auto_paste(&mut self) {
         let Some((track, target)) = self.auto_chosen() else {
             return;
@@ -315,7 +274,6 @@ impl App {
         self.commit_points(track, target, next, indices);
     }
 
-    /// Repeats the picked points right after themselves.
     pub(crate) fn auto_duplicate(&mut self) {
         let Some(picks) = self.auto_picks() else {
             return;
@@ -330,7 +288,6 @@ impl App {
         self.commit_points(picks.track, picks.target, next, indices);
     }
 
-    /// Writes `lane` as one undo step and picks `indices` of it.
     fn commit_points(&mut self, track: Id, target: Target, lane: Lane, indices: Vec<usize>) {
         match self.document.set_lane(track, target, lane, false) {
             Ok(()) => {

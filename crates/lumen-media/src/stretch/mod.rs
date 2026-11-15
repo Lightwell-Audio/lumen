@@ -1,19 +1,3 @@
-//! Time-stretching for the Melodic and Full mix warp modes (M9.5 S4c,
-//! ADR-0132): the file played at the song's tempo without changing its pitch.
-//!
-//! The algorithm is a vendored C++ library (`vendor/`, MIT) behind a C
-//! interface of our own (`shim.cpp`). [`Stretcher`] is that interface made
-//! safe: one stretcher, fed a hop at a time. [`Chunks`] is what the rest of
-//! Lumen uses: it renders a warped stream as a [`repitch::Renderer`] does,
-//! frames asked for by index, but from a stretcher that has state, so it
-//! renders from a fixed grid of *chunks*, each started from nothing a little
-//! ahead of itself. That is what makes a render repeat bit for bit however
-//! the audio is asked for (in pages, after a jump, split between clips).
-//!
-//! Slow work for a background thread: it reads the file and allocates.
-//!
-//! [`repitch::Renderer`]: crate::repitch::Renderer
-
 mod chunks;
 
 pub use chunks::{CHUNK, Chunks, FADE};
@@ -22,14 +6,9 @@ use std::ptr::NonNull;
 
 use crate::MediaError;
 
-/// Which of the library's two settings a mode plays with. Both are tried by
-/// ear in the owner's listening test (MT-WARP-1); the names say what each
-/// is for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Preset {
-    /// The library's default: a longer block, the best sound for a full mix.
     Full,
-    /// A shorter block and a longer hop: cheaper, for a single melodic line.
     Light,
 }
 
@@ -56,7 +35,6 @@ unsafe extern "C" {
     ) -> i32;
 }
 
-/// One stretcher: feed it a run of the file and take a run of the output.
 pub struct Stretcher {
     raw: NonNull<Raw>,
     channels: usize,
@@ -68,12 +46,9 @@ pub struct Stretcher {
     output_latency: usize,
 }
 
-// SAFETY: the stretcher is plain memory owned by this value, with no thread
-// affinity, and every call takes `&mut self`.
 unsafe impl Send for Stretcher {}
 
 impl Stretcher {
-    /// A stretcher for one or two channels at `rate`.
     pub fn new(channels: usize, rate: u32, preset: Preset) -> Result<Self, MediaError> {
         let failed = || MediaError::Resample("the time-stretcher could not be made".into());
         let code = match preset {
@@ -81,10 +56,8 @@ impl Stretcher {
             Preset::Light => 1,
         };
         let signed = i32::try_from(rate).map_err(|_| failed())?;
-        // SAFETY: plain values in; the result is checked for null below.
         let raw = unsafe { lumen_stretch_new(channels as i32, signed, code) };
         let raw = NonNull::new(raw).ok_or_else(failed)?;
-        // SAFETY: `raw` is a live stretcher made above.
         let (block, interval, input, output) = unsafe {
             (
                 lumen_stretch_block(raw.as_ptr()),
@@ -117,51 +90,33 @@ impl Stretcher {
         self.preset
     }
 
-    /// Frames in the analysis block.
     pub fn block(&self) -> usize {
         self.block
     }
 
-    /// Output frames per hop: the stretcher is fed one hop's output at a
-    /// time.
     pub fn interval(&self) -> usize {
         self.interval
     }
 
-    /// How far the input it has been given runs ahead of the point it is
-    /// playing, in input frames.
     pub fn input_latency(&self) -> usize {
         self.input_latency
     }
 
-    /// How far the output runs behind the point it is playing, in output
-    /// frames.
     pub fn output_latency(&self) -> usize {
         self.output_latency
     }
 
-    /// Shifts the pitch of what it plays by `cents` (S6), without changing the
-    /// speed. A stream that is pitched sets this before every hop, so its
-    /// frames do not depend on what the stretcher played before; one that is
-    /// not never calls it, and keeps the library's own settings.
     pub fn set_transpose(&mut self, cents: f64) -> Result<(), MediaError> {
-        // SAFETY: `raw` is live, and we hold the only reference.
         let code =
             unsafe { lumen_stretch_set_transpose(self.raw.as_ptr(), (cents / 100.0) as f32) };
         status(code)
     }
 
-    /// Forgets everything it has heard.
     pub fn reset(&mut self) -> Result<(), MediaError> {
-        // SAFETY: `raw` is live, and we hold the only reference.
         let code = unsafe { lumen_stretch_reset(self.raw.as_ptr()) };
         status(code)
     }
 
-    /// Takes `input` (one slice per channel, all one length) and fills
-    /// `output` (one slice per channel, all one length, normally
-    /// [`interval`](Self::interval) frames). The ratio of the two lengths is
-    /// the speed the file plays at.
     pub fn process(
         &mut self,
         input: &[&[f32]],
@@ -187,10 +142,6 @@ impl Stretcher {
             ins[c] = input[c].as_ptr();
             outs[c] = output[c].as_mut_ptr();
         }
-        // SAFETY: `ins` and `outs` hold one pointer per channel, each to
-        // `n_in` readable and `n_out` writable frames (the lengths were
-        // checked above); the slices outlive the call and the output slices
-        // do not alias the input ones (they are `&mut` against `&`).
         let code = unsafe {
             lumen_stretch_process(
                 self.raw.as_ptr(),
@@ -206,7 +157,6 @@ impl Stretcher {
 
 impl Drop for Stretcher {
     fn drop(&mut self) {
-        // SAFETY: `raw` came from `lumen_stretch_new` and is freed once.
         unsafe { lumen_stretch_free(self.raw.as_ptr()) }
     }
 }

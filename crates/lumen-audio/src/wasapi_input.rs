@@ -1,19 +1,3 @@
-//! WASAPI input (M9 slice R1, ADR-0100).
-//!
-//! WASAPI has no stream that carries a device's inputs and outputs together:
-//! an audio interface shows up as several capture endpoints ("Analogue 1 + 2",
-//! "Analogue 3 + 4", ...) next to its render endpoints. The inputs of a
-//! device are the capture endpoints on the same adapter as its render
-//! endpoint, side by side in name order. Each one is a *tap*: a shared-mode
-//! capture stream converted by Windows to the render rate, read every render
-//! block, and passed through a drift-corrected queue ([`crate::drift`])
-//! because its clock is not the render clock.
-//!
-//! Capture is always shared mode, also beside an exclusive render stream: it
-//! costs the audio engine's latency (about one more period) but never keeps
-//! another program from the device's inputs, and it needs no format search.
-//! Reading happens on the render thread; there is no thread of its own.
-
 use wasapi::{
     AudioCaptureClient, AudioClient, Device, DeviceEnumerator, DeviceState, Direction, SampleType,
     StreamMode, WasapiError, WaveFormat, calculate_period_100ns,
@@ -23,7 +7,6 @@ use crate::drift::Corrected;
 use crate::types::{AudioError, StreamConfig};
 use crate::wasapi::{hns_to_frames, map_error};
 
-/// A capture endpoint on the adapter of a render endpoint.
 pub(crate) struct Endpoint {
     device: Device,
     name: String,
@@ -31,9 +14,6 @@ pub(crate) struct Endpoint {
     channels: usize,
 }
 
-/// The capture endpoints on the same adapter as `render`, in name order.
-/// Empty when the adapter has none (an HDMI monitor, say) or `render` does
-/// not name its adapter.
 pub(crate) fn endpoints(enumerator: &DeviceEnumerator, render: &Device) -> Vec<Endpoint> {
     let Some(adapter) = render
         .get_interface_friendlyname()
@@ -69,7 +49,6 @@ pub(crate) fn endpoints(enumerator: &DeviceEnumerator, render: &Device) -> Vec<E
     found
 }
 
-/// How many input channels the adapter of `render` has.
 pub(crate) fn channel_count(enumerator: &DeviceEnumerator, render: &Device) -> usize {
     endpoints(enumerator, render)
         .iter()
@@ -77,14 +56,9 @@ pub(crate) fn channel_count(enumerator: &DeviceEnumerator, render: &Device) -> u
         .sum()
 }
 
-/// One capture endpoint being read.
 struct Tap {
-    /// `None` when the endpoint would not open for an "all inputs" request
-    /// (a microphone blocked in Windows privacy settings, say): its channels
-    /// stay in place and are silent, so the others keep their numbers.
     live: Option<Live>,
     channels: usize,
-    /// (channel of this tap, channel the callback sees).
     wanted: Vec<(usize, usize)>,
 }
 
@@ -92,7 +66,6 @@ struct Live {
     client: AudioClient,
     capture: AudioCaptureClient,
     queue: Corrected,
-    /// One device packet, as the bytes WASAPI returns.
     bytes: Vec<u8>,
     samples: Vec<f32>,
     block_align: usize,
@@ -116,7 +89,6 @@ impl Live {
             endpoint.channels,
             None,
         );
-        // Room for several render blocks and device packets between reads.
         let render_period = calculate_period_100ns(period as i64, i64::from(rate));
         let buffer = (4 * default_period).max(4 * render_period);
         let mode = StreamMode::PollingShared {
@@ -141,7 +113,6 @@ impl Live {
         })
     }
 
-    /// Moves everything the device has captured into the queue.
     fn drain(&mut self, channels: usize) -> Result<(), WasapiError> {
         while let Some(frames) = self.capture.get_next_packet_size()? {
             let frames = (frames as usize).min(self.bytes.len() / self.block_align);
@@ -166,25 +137,15 @@ impl Live {
     }
 }
 
-/// The inputs of a stream.
 pub(crate) struct Capture {
     taps: Vec<Tap>,
-    /// One tap's block, channel after channel.
     pulled: Vec<f32>,
-    /// Channels the callback sees.
     channels: usize,
-    /// Frames from the sound reaching the device to the callback: the queue
-    /// and one device packet, a little below the true figure (the converter
-    /// and driver add their own).
     latency: u32,
-    /// Endpoints that would not open for "all inputs", by name.
     silent: Vec<String>,
 }
 
 impl Capture {
-    /// Opens the inputs `config` asks for, beside the render stream on
-    /// `render` that runs `period` frames at a time at `rate`. `Ok(None)`
-    /// when none are asked for, or "all" were and there are none.
     pub(crate) fn open(
         config: &StreamConfig,
         enumerator: &DeviceEnumerator,
@@ -260,7 +221,6 @@ impl Capture {
         }))
     }
 
-    /// The endpoints that would not open, by name: their channels are silent.
     pub(crate) fn silent(&self) -> &[String] {
         &self.silent
     }
@@ -286,8 +246,6 @@ impl Capture {
         }
     }
 
-    /// Fills `inputs` (`channels × period`, channel after channel) with the
-    /// next block of every wanted channel.
     pub(crate) fn fill(&mut self, inputs: &mut [f32], period: usize) -> Result<(), WasapiError> {
         for tap in &mut self.taps {
             let block = &mut self.pulled[..tap.channels * period];

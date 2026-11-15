@@ -1,21 +1,3 @@
-//! Stream files (M9 slice R6): audio a disk thread reads at any frame without
-//! decoding it.
-//!
-//! An uncompressed WAV, RF64 or AIFF file at the device rate is its own
-//! stream file. Anything else (another rate, FLAC, MP3, Ogg) is converted
-//! once into a 32-bit float WAV in the cache ([`cache`]), and that copy is
-//! the stream file. Lumen plays the first two channels of any file, so a
-//! converted copy keeps those two.
-//!
-//! A [`Reader`] reads with positioned reads, never a memory map: a mapped
-//! page that is not resident is a blocking read wherever it is touched, and
-//! the audio thread must never be that place (ADR-0109, S1). Samples become
-//! `f32` by the same arithmetic the decoder uses, so a file streamed plays
-//! exactly what the same file loaded into memory plays.
-//!
-//! Like the rest of this crate, everything here is work for a background
-//! thread: it reads the disk and may allocate.
-
 pub mod cache;
 pub mod convert;
 mod parse;
@@ -25,7 +7,6 @@ use std::path::Path;
 
 use crate::MediaError;
 
-/// How samples are stored in a stream file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Encoding {
     U8,
@@ -43,7 +24,6 @@ pub enum Encoding {
 }
 
 impl Encoding {
-    /// Bytes per sample.
     pub fn bytes(self) -> usize {
         match self {
             Encoding::U8 | Encoding::I8 => 1,
@@ -54,7 +34,6 @@ impl Encoding {
         }
     }
 
-    /// One sample from its bytes, scaled as the decoder scales it.
     #[inline]
     fn sample(self, b: &[u8]) -> f32 {
         match self {
@@ -82,21 +61,16 @@ impl Encoding {
     }
 }
 
-/// Where a stream file's audio is and how it is stored.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Layout {
     pub sample_rate: u32,
-    /// Channels in the file; Lumen plays the first two ([`Layout::played`]).
     pub channels: u16,
     pub encoding: Encoding,
-    /// Byte offset of the first frame.
     pub data: u64,
-    /// Whole frames the file holds.
     pub frames: u64,
 }
 
 impl Layout {
-    /// Channels Lumen plays: one or two.
     pub fn played(&self) -> usize {
         usize::from(self.channels.min(2))
     }
@@ -110,25 +84,19 @@ fn io(error: std::io::Error) -> MediaError {
     MediaError::Io(error.to_string())
 }
 
-/// The layout of `path`, or `None` when it is not a file a stream reads
-/// directly (compressed, or not WAV or AIFF): such a file is converted.
 pub fn layout(path: &Path) -> Result<Option<Layout>, MediaError> {
     let mut file = File::open(path).map_err(io)?;
     let total = file.metadata().map_err(io)?.len();
     parse::layout(&mut file, total)
 }
 
-/// Reads any range of frames of a stream file.
 pub struct Reader {
     file: File,
     layout: Layout,
-    /// Bytes read, kept between reads so a steady size allocates once.
     bytes: Vec<u8>,
 }
 
 impl Reader {
-    /// Opens `path`; fails with [`MediaError::Unsupported`] when the file is
-    /// not a stream file.
     pub fn open(path: &Path) -> Result<Self, MediaError> {
         let mut file = File::open(path).map_err(io)?;
         let total = file.metadata().map_err(io)?.len();
@@ -148,10 +116,6 @@ impl Reader {
         &self.layout
     }
 
-    /// Reads the frames from `from` into `out`, one slice per channel, all of
-    /// one length: the file's first `out.len()` channels (at most
-    /// [`Layout::channels`]). Frames past the end of the file are silence.
-    /// Returns how many frames came from the file.
     pub fn read(&mut self, from: u64, out: &mut [&mut [f32]]) -> Result<usize, MediaError> {
         let wanted = out.first().map_or(0, |c| c.len());
         if out.len() > usize::from(self.layout.channels) || out.iter().any(|c| c.len() != wanted) {
@@ -182,12 +146,8 @@ impl Reader {
     }
 }
 
-/// Frames a whole-file scan reads at a time.
 const SCAN: usize = 65_536;
 
-/// The waveform peaks of the stream file `path`, read in blocks so the file
-/// is never held whole: the same as [`crate::Peaks::build`] over the file in
-/// memory. `progress` gets 0 to 1; `None` if `cancel` was set.
 pub fn peaks(
     path: &Path,
     cancel: &std::sync::atomic::AtomicBool,
@@ -217,8 +177,6 @@ pub fn peaks(
     Ok(Some(growing.finish()))
 }
 
-/// Transients and tempo of the stream file `path`, read in blocks
-/// ([`crate::detect`]). `progress` gets 0 to 1; `None` if `cancel` was set.
 pub fn analysis(
     path: &Path,
     cancel: &std::sync::atomic::AtomicBool,
@@ -236,7 +194,6 @@ pub fn analysis(
     )
 }
 
-/// Fills `buf` from `offset` without moving a shared cursor.
 fn read_at(file: &File, buf: &mut [u8], offset: u64) -> Result<(), MediaError> {
     #[cfg(unix)]
     {

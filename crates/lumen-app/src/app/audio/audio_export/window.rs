@@ -1,5 +1,3 @@
-//! Export uses the shared floating window, rows, dropdowns and switches.
-
 use eframe::egui::{self, Align2, Id, RichText, pos2};
 
 use crate::export::{Buses, Format, Options, Scope};

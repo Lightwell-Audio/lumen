@@ -1,9 +1,3 @@
-//! Quantize in the clip editor (M5 slice 5): Q with the last settings on the
-//! picked notes (or every note), the Shift+Q popover (its preview, Apply and
-//! Esc), strength and iteration, and the palette tools that share the picks
-//! (Fixed length, Reverse). Every change is one undo step, and controller and
-//! pitch bend events are never touched.
-
 use eframe::egui::{Event, Key, Modifiers, PointerButton, Pos2};
 use egui_kittest::kittest::Queryable;
 use lumen_app::TimeView;
@@ -15,21 +9,16 @@ use super::Lumen;
 
 const CLIP: Id = Id(3);
 
-/// A sixteenth note: the 1/16 grid the tests set.
 const SIXTEENTH: i64 = PPQ / 4;
 
 fn q(n: i64) -> Ticks {
     Ticks::quarters(n)
 }
 
-/// `n` beats, rounded to the tick (so 0.04 beats is exact).
 fn beat(n: f64) -> Ticks {
     Ticks((n * PPQ as f64).round() as i64)
 }
 
-/// Four loose notes off the grid (pitches C4, E4, G4 and C5), starting at
-/// beats 0.04, 1.03, 2.06 and 4.10. The first three are a beat long, the
-/// last two beats. On the 1/16 grid their starts go to 0, 1, 2 and 4 beats.
 fn loose_notes() -> Vec<Note> {
     vec![
         Note::new(beat(0.04), q(1), 60, 100),
@@ -39,7 +28,6 @@ fn loose_notes() -> Vec<Note> {
     ]
 }
 
-/// A controller 1 event at `at` beats.
 fn cc(at: f64, value: u8) -> ClipEvent {
     ClipEvent {
         at: beat(at),
@@ -47,7 +35,6 @@ fn cc(at: f64, value: u8) -> ClipEvent {
     }
 }
 
-/// A pitch bend at `at` beats.
 fn bend(at: f64, value: i16) -> ClipEvent {
     ClipEvent {
         at: beat(at),
@@ -55,13 +42,10 @@ fn bend(at: f64, value: i16) -> ClipEvent {
     }
 }
 
-/// Controller and bend events between the notes, off the grid.
 fn sample_events() -> Vec<ClipEvent> {
     vec![cc(0.37, 20), bend(1.58, 4000), cc(3.21, 100)]
 }
 
-/// One MIDI track whose clip (beats 0 to 8) holds the loose notes and
-/// `events`.
 fn project(events: Vec<ClipEvent>) -> Project {
     project_of(
         "Quantize",
@@ -77,12 +61,10 @@ fn project(events: Vec<ClipEvent>) -> Project {
     )
 }
 
-/// Starts Lumen with the project, the grid at 1/16 and the clip open.
 fn launch(name: &str, events: Vec<ClipEvent>) -> Lumen {
     launch_with(name, events, None)
 }
 
-/// As [`launch`], with a settings file of `settings` when given.
 fn launch_with(name: &str, events: Vec<ClipEvent>, settings: Option<&str>) -> Lumen {
     let dir = TempDir::new(&format!("e2e-{name}"));
     let path = dir.path().join("song.lumen");
@@ -113,8 +95,6 @@ fn launch_with(name: &str, events: Vec<ClipEvent>, settings: Option<&str>) -> Lu
     lumen
 }
 
-/// Sets the editing grid to 1/16 and fixes it, so the roll's grid does not
-/// change with its zoom: Ctrl+1 narrows until it shows, Ctrl+5 fixes it.
 fn sixteenths(lumen: &mut Lumen) {
     for _ in 0..6 {
         if lumen.shows("Grid: 1/16") {
@@ -127,7 +107,6 @@ fn sixteenths(lumen: &mut Lumen) {
     assert!(lumen.shows("Grid: 1/16"), "fixed at 1/16");
 }
 
-/// Opens the clip by double-clicking it in the arrangement.
 fn open(lumen: &mut Lumen) {
     let ctx = lumen.harness.ctx.clone();
     let r = lumen
@@ -139,7 +118,6 @@ fn open(lumen: &mut Lumen) {
     assert_eq!(lumen.app().editor_open_clip(), Some(CLIP));
 }
 
-/// The grid step the roll draws with, at the clip's start.
 fn grid_step(lumen: &Lumen) -> i64 {
     let (a, b) = lumen
         .app()
@@ -187,13 +165,11 @@ fn pitches(notes: &[Note]) -> Vec<u8> {
     notes.iter().map(|n| n.pitch()).collect()
 }
 
-/// The grid line nearest `t` (1/16), and how far `t` is from it.
 fn nearest_line(t: Ticks) -> (i64, i64) {
     let line = (t.0 + SIXTEENTH / 2).div_euclid(SIXTEENTH) * SIXTEENTH;
     (line, (t.0 - line).abs())
 }
 
-/// The point in the roll at `t` beats, in `pitch`'s row.
 fn at(lumen: &Lumen, t: Ticks, pitch: u8) -> Pos2 {
     lumen
         .app()
@@ -201,7 +177,6 @@ fn at(lumen: &Lumen, t: Ticks, pitch: u8) -> Pos2 {
         .expect("the editor has drawn")
 }
 
-/// An empty spot of the roll: beat 6.5 on D4, where no note is.
 fn empty_spot(lumen: &Lumen) -> Pos2 {
     at(lumen, beat(6.5), 62)
 }
@@ -211,7 +186,6 @@ fn hover(lumen: &mut Lumen, p: Pos2) {
     lumen.frames(2);
 }
 
-/// A click without moving: press and release in one frame.
 fn click(lumen: &mut Lumen, p: Pos2, modifiers: Modifiers) {
     lumen.harness.event(Event::ModifiersChanged(modifiers));
     lumen.harness.hover_at(p);
@@ -231,8 +205,6 @@ fn click(lumen: &mut Lumen, p: Pos2, modifiers: Modifiers) {
     lumen.frames(2);
 }
 
-/// Presses `key` with the pointer over the roll, where the editor's keys
-/// are live.
 fn roll_key(lumen: &mut Lumen, modifiers: Modifiers, key: Key) {
     let p = empty_spot(lumen);
     hover(lumen, p);
@@ -243,7 +215,6 @@ fn undo(lumen: &mut Lumen) {
     lumen.key(Modifiers::COMMAND, Key::Z);
 }
 
-/// Runs the palette command that `query` finds first.
 fn palette(lumen: &mut Lumen, query: &str) {
     lumen.key(Modifiers::COMMAND, Key::K);
     lumen.key(Modifiers::COMMAND, Key::A);
@@ -254,15 +225,12 @@ fn palette(lumen: &mut Lumen, query: &str) {
     assert!(!lumen.app().palette_open(), "{query} ran");
 }
 
-/// Shift+Q: the popover opens, with its controls drawn.
 fn open_popover(lumen: &mut Lumen) {
     roll_key(lumen, Modifiers::SHIFT, Key::Q);
     lumen.frames(20);
     assert!(lumen.shows("Apply"), "the popover is open");
 }
 
-/// Types `percent` into the Strength slider: click it, type the digits,
-/// press Enter.
 fn set_strength(lumen: &mut Lumen, percent: &str) {
     lumen.harness.get_by_label_contains("Strength:").click();
     lumen.frames(3);
@@ -296,7 +264,6 @@ fn q_with_nothing_picked_moves_every_note_onto_the_grid_and_undo_restores_them()
 fn q_with_two_notes_picked_changes_only_those() {
     let mut lumen = launch("quantize-picked", vec![]);
     let before = notes(&lumen);
-    // The C4 at beat 0.04 and the G4 at beat 2.06.
     let c4 = at(&lumen, beat(0.5), 60);
     let g4 = at(&lumen, beat(2.5), 67);
     click(&mut lumen, c4, Modifiers::NONE);
@@ -321,7 +288,6 @@ fn shift_q_previews_without_changing_the_notes_and_apply_changes_them_in_one_ste
     let label = lumen.app().undo_label().map(str::to_owned);
     open_popover(&mut lumen);
 
-    // The controls, by the names they are given.
     for name in [
         "Strength: 100%",
         "Swing: 0%",
@@ -394,7 +360,6 @@ fn esc_closes_the_popover_and_changes_nothing() {
     assert_eq!(notes(&lumen), before, "Esc changes nothing");
     assert_eq!(lumen.app().undo_label().map(str::to_owned), label);
 
-    // The toolbar's Quantize button opens it too, and Esc closes it again.
     lumen.click("Quantize");
     assert!(lumen.shows("Apply"), "the button opens the popover");
     lumen.key(Modifiers::NONE, Key::Escape);
@@ -429,7 +394,6 @@ fn strength_moves_notes_part_way_and_each_q_moves_them_closer() {
         );
     }
 
-    // Q again, with the same settings: each note closer to its line.
     roll_key(&mut lumen, Modifiers::NONE, Key::Q);
     let again = notes(&lumen);
     for (i, ((b, h), a)) in before.iter().zip(&half).zip(&again).enumerate() {
@@ -468,12 +432,8 @@ fn fixed_length_and_reverse_from_the_palette_are_one_undo_step_each() {
 
     palette(&mut lumen, "Reverse notes");
     let reversed = notes(&lumen);
-    // Each note mirrors across the span the notes cover: from the first
-    // start to the last end.
     let first = fixed.iter().map(|n| n.start()).min().expect("notes");
     let last = fixed.iter().map(|n| n.end()).max().expect("notes");
-    // Edits keep the notes sorted by start, so match them by their pitch
-    // (each pitch appears once here), not by index.
     for f in &fixed {
         let r = reversed
             .iter()
@@ -483,12 +443,10 @@ fn fixed_length_and_reverse_from_the_palette_are_one_undo_step_each() {
         assert_eq!(r.length(), f.length(), "length kept");
     }
     assert_eq!(reversed.len(), fixed.len(), "no note was added or lost");
-    // The last note now comes first: the pitches read backwards in time.
     let mut by_time = reversed.clone();
     by_time.sort_by_key(|n| n.start());
     assert_eq!(pitches(&by_time), [72, 67, 64, 60], "the order reversed");
 
-    // Reverse is one step, and Fixed length is another.
     undo(&mut lumen);
     assert_eq!(notes(&lumen), fixed, "one undo takes back Reverse");
     undo(&mut lumen);
@@ -517,7 +475,6 @@ fn controller_events_are_never_touched() {
     palette(&mut lumen, "Reverse notes");
     assert_eq!(events(&lumen), events0, "Reverse");
 
-    // Four changes, four undo steps, back to the start with its events.
     for _ in 0..4 {
         undo(&mut lumen);
     }
@@ -606,7 +563,6 @@ fn q_with_nothing_picked_says_what_it_quantized_in_a_note() {
 
 #[test]
 fn the_quantize_options_are_kept_for_the_next_start() {
-    // They used to last the session only (KNOWN_ISSUES row 120).
     let mut lumen = launch_with(
         "quantize-kept",
         Vec::new(),

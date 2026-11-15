@@ -1,23 +1,13 @@
-//! Fades (M3 slice 6), shared by the engine that plays them and the
-//! arrangement that draws them, so a fade sounds as it is drawn. A fade's
-//! shape is a [`Curve`] (format v6, owner's choice C3), bent freely; the
-//! four named shapes are presets of it.
-
 use serde::{Deserialize, Serialize};
 
 use crate::curve::Curve;
 use crate::time::Ticks;
 
-/// The preset fade shapes, in the right-click menu.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FadeShape {
-    /// Straight.
     Linear,
-    /// Slow at first, then quick (x²): gentle starts.
     Slow,
-    /// Quick at first, then slow: punchy starts, smooth tails.
     Fast,
-    /// Slow at both ends (smoothstep): the smoothest crossfades.
     SCurve,
 }
 
@@ -33,7 +23,6 @@ impl FadeShape {
         }
     }
 
-    /// The curve of this shape: exactly the shape it is named for.
     pub fn curve(self) -> Curve {
         match self {
             Self::Linear => Curve::LINEAR,
@@ -43,37 +32,27 @@ impl FadeShape {
         }
     }
 
-    /// The preset `curve` is, if it is one.
     pub fn of(curve: &Curve) -> Option<Self> {
         Self::ALL.into_iter().find(|s| s.curve().same(curve))
     }
 }
 
-/// A clip's fade in or out: how long, and its curve from silence to full
-/// (a fade out plays it backwards). A zero length is no fade (the 2 ms
-/// edge fade still applies).
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 pub struct Fade {
     pub length: Ticks,
-    /// Position within the original fade when this is a sliced part.
     #[serde(default, skip_serializing_if = "ticks_are_zero")]
     pub offset: Ticks,
-    /// Original fade span; zero means `length` for an unsliced fade.
     #[serde(default, skip_serializing_if = "ticks_are_zero")]
     pub span: Ticks,
-    /// Written only when it is not straight.
     #[serde(default, skip_serializing_if = "Curve::is_linear")]
     pub curve: Curve,
 }
 
 impl Fade {
-    /// No fade: zero length, straight.
     pub fn is_none(&self) -> bool {
         self.length == Ticks::ZERO && self.curve.is_linear()
     }
 
-    /// The level `x` of the way through a fade in (0 to 1), from silence
-    /// to full; a fade out reads it backwards, at `1 − x`.
     pub fn level(&self, x: f32) -> f32 {
         let span = if self.span == Ticks::ZERO {
             self.length

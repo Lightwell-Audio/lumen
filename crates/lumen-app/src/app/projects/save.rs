@@ -1,5 +1,3 @@
-//! Writing the project: a save, a copy, a collect or a template.
-
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -13,13 +11,9 @@ use crate::app::copies::{Purpose, Waiting};
 use crate::files;
 use crate::trace;
 
-/// How long a save waits for the plugins' states to be read. Each read has
-/// its own deadline in the host; this is the whole wait.
 pub(super) const PLUGIN_READ_WAIT: std::time::Duration = std::time::Duration::from_secs(4);
 
 impl App {
-    /// The project as it should be saved: the document with the view
-    /// stamped in (it is not an undo step).
     pub(crate) fn stamped(&self) -> Project {
         let mut project = self.document.project().clone();
         project.view = lumen_project::model::ViewState {
@@ -35,13 +29,10 @@ impl App {
         self.arrangement.save_into(&mut project.view);
         project.view.folded_devices = self.chain.folded.iter().copied().collect();
         project.view.shown_params = self.chain.shown.clone();
-        // What the running plugins report goes in with the view: it is not an
-        // edit (M6 slice 2c, the owner's C2).
         self.hosting.stamp(&mut project);
         project
     }
 
-    /// Save (Ctrl+S): to the project's file, or ask where (Save As).
     pub(crate) fn save(&mut self, ctx: &egui::Context, ask: bool) {
         if self.saving.is_some()
             || self.save_waiting.is_some()
@@ -85,10 +76,7 @@ impl App {
         self.start_save_for(Purpose::Save, chosen, true);
     }
 
-    /// Starts a save, a copy or a collect.
     pub(crate) fn start_save_for(&mut self, purpose: Purpose, path: PathBuf, normalize: bool) {
-        // Every running plugin is read first, and the save is written when
-        // the answers are in (or after a few seconds, with what there is).
         if self.hosting.request_captures() {
             trace::log(|| {
                 format!(
@@ -116,7 +104,6 @@ impl App {
         }
     }
 
-    /// Writes the save, with the plugins' states as they were last read.
     fn write_save(&mut self, path: PathBuf, normalize_project_path: bool) {
         trace::log(|| format!("files: saving {}", path.display()));
         self.document.begin_save();

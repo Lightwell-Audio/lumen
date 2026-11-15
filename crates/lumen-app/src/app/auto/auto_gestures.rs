@@ -1,15 +1,3 @@
-//! The gestures on an automation lane (M7 slices A1 and A2): moving the
-//! picked points, dragging out a box, drawing freehand, drawing a shape and
-//! bending a segment. A press starts one (`auto_begin`), every frame of the
-//! drag rebuilds the lane from the lane as it was at the press plus the drag
-//! (`auto_update`), and the release lets go (`auto_finish`). A gesture's
-//! document edits are all one undo step.
-//!
-//! Time snaps to the grid and values to the places a control rests (0 dB,
-//! the centre of pan...); Alt places freely. The pencil is the exception:
-//! it follows the pointer to the pixel, because a stroke cut to the grid
-//! would not be a stroke.
-
 use std::collections::BTreeSet;
 
 use eframe::egui::{self, CursorIcon, Modifiers, Pos2, Rect, vec2};
@@ -32,7 +20,6 @@ use crate::arrangement::select::Edge;
 use crate::theme;
 
 impl App {
-    /// The lane's points as the document holds them.
     pub(crate) fn lane_points_of(
         &self,
         track: Id,
@@ -47,7 +34,6 @@ impl App {
             .map(|l| l.lane.clone())
     }
 
-    /// `height` taken to a resting place of the control if one is near.
     fn snap_to_rest(target: Target, frame: &Frame, height: f32, free: bool) -> (f32, bool) {
         if free {
             return (height, false);
@@ -56,9 +42,6 @@ impl App {
         scale::snap_height(target, height, reach)
     }
 
-    /// Adds a point to `track`'s lane for `target` (a new lane if it has
-    /// none) and picks it, on the arrangement's lanes. `gesture` joins the
-    /// edit to the drag it starts.
     pub(super) fn add_auto_point(
         &mut self,
         track: Id,
@@ -73,7 +56,6 @@ impl App {
         added
     }
 
-    /// Adds a point and picks it in `hands`.
     pub(crate) fn add_lane_point(
         &mut self,
         hands: &mut Hands,
@@ -105,7 +87,6 @@ impl App {
         }
     }
 
-    /// A press that becomes a drag, on the arrangement's lanes.
     pub(super) fn auto_begin(
         &mut self,
         track: Id,
@@ -119,7 +100,6 @@ impl App {
         self.arrangement.auto.restore(hands);
     }
 
-    /// A press that becomes a drag, with `hands`' tool, picks and gesture.
     pub(crate) fn lane_begin(
         &mut self,
         hands: &mut Hands,
@@ -246,7 +226,6 @@ impl App {
         hands.active = Some(Active { track, target, how });
     }
 
-    /// Takes hold of the picked points by `here`.
     fn begin_move(&mut self, hands: &mut Hands, frame: &Frame, here: Picked, origin: Pos2) {
         let Some(base) = self.lane_points_of(here.track, here.target) else {
             return;
@@ -277,8 +256,6 @@ impl App {
         );
     }
 
-    /// The arrangement's gesture under way follows the pointer at `p`.
-    /// `painter` draws the guides when there is one.
     pub(super) fn auto_update(
         &mut self,
         painter: Option<(&egui::Painter, Rect)>,
@@ -291,7 +268,6 @@ impl App {
         self.arrangement.auto.restore(hands);
     }
 
-    /// The gesture in `hands` follows the pointer at `p`.
     pub(crate) fn lane_update(
         &mut self,
         hands: &mut Hands,
@@ -307,8 +283,6 @@ impl App {
         let free = modifiers.alt;
         match &mut active.how {
             Gesture::Move(moving) => {
-                // Snapped as it is drawn: the editor draws a clip's envelope where it is
-                // heard (M9.5 D20).
                 let want = frame.shown(moving.anchor_at)
                     + (frame.shown_at(p.x) - frame.shown(moving.press_at));
                 let at = frame
@@ -361,7 +335,6 @@ impl App {
             Gesture::Draw(drawing) => {
                 let at = frame.ticks_at(p.x).max(Ticks::ZERO);
                 let value = scale::value(target, frame.height_at(p.y));
-                // Going back over what was drawn takes it back.
                 drawing.raw.retain(|(t, _)| *t < at);
                 drawing.raw.push((at, value));
                 let steps = target == Target::Mute;
@@ -385,7 +358,6 @@ impl App {
                     waving.end,
                     |h| scale::value(target, h),
                 );
-                // A mute lane holds each value until the next point.
                 if target == Target::Mute {
                     for point in &mut points {
                         point.shape = Shape::Step;
@@ -411,8 +383,6 @@ impl App {
                         (frame.x(to.at) - frame.x(from.at)).abs(),
                         (frame.y(target, to.value) - frame.y(target, from.value)).abs(),
                     );
-                    // The dot's height is a share of the way from this value to
-                    // the next, so a falling segment reads upside down.
                     let falling = to.value < from.value;
                     let mut by = p - bending.press;
                     if falling {
@@ -430,27 +400,22 @@ impl App {
         hands.active = Some(active);
     }
 
-    /// The release on the arrangement.
     pub(super) fn auto_finish(&mut self) {
         let mut hands = self.arrangement.auto.lend();
         Self::lane_finish(&mut hands);
         self.arrangement.auto.restore(hands);
     }
 
-    /// The release: the gesture is done, and the document already holds it.
     pub(crate) fn lane_finish(hands: &mut Hands) {
         let Some(active) = hands.active.take() else {
             return;
         };
-        // A stroke and a shape make new points: the old indices mean nothing.
         if matches!(active.how, Gesture::Draw(_) | Gesture::Wave(_)) {
             hands.picks = None;
         }
     }
 }
 
-/// How far a stroke may be thinned from what was drawn: a pixel and a half
-/// of the lane's height, in the target's units.
 fn stroke_tolerance(target: Target, frame: &Frame) -> f32 {
     let reach = 1.5 / frame.area().height().max(1.0);
     (scale::value(target, 0.5 + reach) - scale::value(target, 0.5)).abs()

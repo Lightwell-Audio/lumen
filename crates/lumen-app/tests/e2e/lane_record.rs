@@ -1,8 +1,3 @@
-//! Recording a lane (M7 slice A4b): a track in Touch, Latch or Write writes the
-//! controls that move while the song plays into its lanes, one undo step for
-//! each pass, and Read is left as it was. The scenarios hold a fader with the
-//! pointer, listen, and read the lane the pass wrote.
-
 use std::time::Duration;
 
 use eframe::egui::{Key, Modifiers, Pos2, Rect};
@@ -18,11 +13,8 @@ use super::hosting::{
 use super::lane_view::{near, peak, points, run_command, tone};
 use super::{Lumen, TempDir};
 
-/// The test tone's peak (`wav`): 3,000 of 32,768.
 const TONE: f32 = 3_000.0 / 32_768.0;
 
-/// The tone track with its header unfolded and a volume lane that holds -20 dB,
-/// in `mode`.
 fn recording(name: &str, mode: &str) -> (Lumen, Id) {
     let (mut lumen, track) = tone(name);
     let lane = Lane::new(vec![
@@ -48,8 +40,6 @@ fn volume_slider(lumen: &Lumen) -> Rect {
     lumen.harness.get_by_label_contains("Volume tone:").rect()
 }
 
-/// Presses the fader and moves it right in steps a frame apart, as a hand
-/// would, and keeps holding it.
 pub(super) fn grab(lumen: &mut Lumen, slider: Rect) -> Pos2 {
     let from = slider.center();
     lumen.harness.hover_at(from);
@@ -91,7 +81,6 @@ fn touch_writes_while_a_fader_is_held_and_hands_the_lane_back_when_it_is_let_go(
     );
     let held = peak(&mut lumen);
     assert!(held > level * 2.0, "the hand is heard: {held} over {level}");
-    // Nothing is written until the hand lets go.
     assert_eq!(lane_points(&lumen, track), before);
 
     let_go(&mut lumen, at);
@@ -107,14 +96,11 @@ fn touch_writes_while_a_fader_is_held_and_hands_the_lane_back_when_it_is_let_go(
         -20.0,
         "the glide ends back on the lane: {written:?}"
     );
-    // The lane plays again from the next block: the fader follows it and the
-    // sound is the lane's.
     lumen.frames(20);
     let back = peak(&mut lumen);
     assert!(near(back, level), "the lane again: {back} against {level}");
     lumen.key(Modifiers::NONE, Key::Space);
 
-    // One pass, one undo step.
     lumen.key(Modifiers::COMMAND, Key::Z);
     lumen.frames(3);
     assert_eq!(lane_points(&lumen, track), before);
@@ -151,7 +137,6 @@ fn latch_goes_on_writing_after_the_hand_is_gone_until_stop() {
 #[test]
 fn write_overwrites_the_lane_with_the_control_from_where_playing_began() {
     let (mut lumen, track) = recording("record-write", "write");
-    // A pan lane the track also has, not the one its chip shows.
     let pan = Lane::new(vec![
         Point::new(Ticks::ZERO, -0.5),
         Point::new(Ticks::quarters(8), 0.5),
@@ -168,7 +153,6 @@ fn write_overwrites_the_lane_with_the_control_from_where_playing_began() {
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.wait_for("playback", |app| app.playhead() > Ticks::quarters(2));
     assert!(lumen.app().recording_automation(track, Target::Volume));
-    // The lane is not heard against what is written: the fader's own 0 dB is.
     let heard = peak(&mut lumen);
     assert!(near(heard, TONE), "the control's own level: {heard}");
     lumen.key(Modifiers::NONE, Key::Space);
@@ -216,7 +200,6 @@ fn a_control_moved_while_stopped_is_not_recorded() {
     lumen.frames(5);
     assert_eq!(lane_points(&lumen, track), before);
     assert!(!lumen.app().recording_automation(track, Target::Volume));
-    // It is the control's own value, as in Read: the lane is taken over.
     assert!(lumen.app().lane_taken_over(track, Target::Volume));
 }
 
@@ -285,9 +268,6 @@ fn a_plugin_gesture_is_recorded_from_its_begin_to_its_end() {
     assert!(lumen.app().recording_automation(KEYS, target), "held");
     let mut through = lumen.app().playhead();
     for value in [0.4, 0.6, 0.8] {
-        // A later sample at the same audio position replaces the earlier one
-        // when the recorded points are reduced to ticks. Let the audio clock
-        // advance past the last value before injecting the next one.
         lumen.wait_for("a new audio position between plugin moves", |app| {
             app.playhead() > through
         });
@@ -327,10 +307,6 @@ fn a_plugin_gesture_is_recorded_from_its_begin_to_its_end() {
     lumen.key(Modifiers::NONE, Key::Space);
 }
 
-/// How true to the clock the playhead is that stamps every recorded point
-/// (M7 slice A4b: measured, not assumed). A move is stamped with the playhead
-/// of the frame that sees it, so a point is late by at most one frame of the
-/// interface on top of what this measures.
 #[test]
 fn the_playhead_that_stamps_the_points_follows_the_clock_to_within_a_frame() {
     let (mut lumen, _) = recording("record-timing", "touch");
@@ -340,9 +316,6 @@ fn the_playhead_that_stamps_the_points_follows_the_clock_to_within_a_frame() {
     while samples.len() < 150 {
         lumen.frames(1);
         std::thread::sleep(Duration::from_millis(16));
-        // A sample is a playhead read and the clock at the same moment: when
-        // this thread was held up between the two reads (a busy machine) the
-        // pair says nothing about the playhead, so it is not kept.
         let before = start.elapsed();
         let at = lumen.app().playhead().0 as f64;
         let after = start.elapsed();
@@ -355,7 +328,6 @@ fn the_playhead_that_stamps_the_points_follows_the_clock_to_within_a_frame() {
         );
     }
     lumen.key(Modifiers::NONE, Key::Space);
-    // The best straight line through the playhead against the clock.
     let n = samples.len() as f64;
     let (mt, mp) = (
         samples.iter().map(|s| s.0).sum::<f64>() / n,
@@ -363,21 +335,12 @@ fn the_playhead_that_stamps_the_points_follows_the_clock_to_within_a_frame() {
     );
     let slope = samples.iter().map(|s| (s.0 - mt) * (s.1 - mp)).sum::<f64>()
         / samples.iter().map(|s| (s.0 - mt).powi(2)).sum::<f64>();
-    // The silent test device does not run at the speed of the clock, so what
-    // is measured is how straight the playhead runs, in the time the fitted
-    // speed takes for a tick.
     let ms_per_tick = 1.0 / slope;
     let mut off: Vec<f64> = samples
         .iter()
         .map(|s| ((s.1 - (mp + slope * (s.0 - mt))) * ms_per_tick).abs())
         .collect();
     off.sort_by(f64::total_cmp);
-    // The playhead is read once a frame, so it is as old as the frame is
-    // long: "within a frame" is a bound in frames. On a fast machine that is
-    // the 20 ms the product asks for; a slow shared runner draws slower
-    // frames, and the bound is that many milliseconds. A read held up on top
-    // of that is allowed for in the worst case, which only has to be a long
-    // way short of a lost beat.
     let mut steps: Vec<f64> = samples.windows(2).map(|w| w[1].0 - w[0].0).collect();
     steps.sort_by(f64::total_cmp);
     let frame = steps[steps.len() / 2];
@@ -433,7 +396,6 @@ fn a_touch_on_a_control_with_no_lane_yet_returns_to_where_the_control_rested() {
     );
 }
 
-/// The volume lane of `track` as the project holds it.
 fn volume_of(app: &lumen_app::App, track: Id) -> Vec<(Ticks, f32)> {
     app.project()
         .tracks
@@ -457,8 +419,6 @@ fn a_long_pass_is_kept_in_the_project_as_it_goes_and_is_still_one_undo_step() {
     lumen.wait_for("a part of the pass in the project", move |app| {
         volume_of(app, track) != before
     });
-    // Still under way: the lane is being written and not played against the
-    // hand, though the project already holds what was heard.
     assert!(lumen.app().recording_automation(track, Target::Volume));
     assert!(lumen.app().lane_taken_over(track, Target::Volume));
     let heard = peak(&mut lumen);
@@ -476,7 +436,6 @@ fn a_long_pass_is_kept_in_the_project_as_it_goes_and_is_still_one_undo_step() {
         !lumen.app().lane_taken_over(track, Target::Volume),
         "the finished pass hands the lane back"
     );
-    // However many parts were written, undo takes the pass back in one step.
     lumen.key(Modifiers::COMMAND, Key::Z);
     lumen.frames(3);
     assert_eq!(lane_points(&lumen, track), vec![(Ticks::ZERO, -20.0)]);
@@ -509,8 +468,6 @@ fn a_pass_under_way_when_the_app_stops_is_found_in_the_autosave() {
     lumen.frames(40);
     let autosaves = lumen.dir().join("autosave");
     play(&mut lumen);
-    // An autosave written while the pass is still under way holds its first
-    // part.
     lumen.wait_for("an autosave of the pass so far", |app| {
         app.playhead() > Ticks::quarters(1)
             && std::fs::read_dir(&autosaves).is_ok_and(|entries| {
@@ -525,7 +482,6 @@ fn a_pass_under_way_when_the_app_stops_is_found_in_the_autosave() {
     });
     assert!(lumen.app().recording_automation(track, Target::Volume));
 
-    // The app stops without closing: recovery offers the pass so far.
     let dir = lumen.crash();
     let mut again = Lumen::start_with(dir, |launch| launch);
     again.recover();
@@ -541,9 +497,6 @@ fn a_pass_under_way_when_the_app_stops_is_found_in_the_autosave() {
 
 #[test]
 fn opening_another_project_leaves_a_pass_under_way_behind() {
-    // The M7 review's H1: a pass under way, then another project opens. The
-    // pass belongs to the old project's track ids; the new project has a
-    // track with the same id and must not be given a lane it never had.
     let (mut lumen, track) = recording("record-open", "write");
     lumen.key(Modifiers::NONE, Key::A);
     lumen.frames(40);

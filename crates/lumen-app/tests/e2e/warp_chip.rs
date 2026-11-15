@@ -1,10 +1,3 @@
-//! The audio editor's Warp chip and detection (M9.5 S5a, ADR-0134): the file
-//! is listened to once and its transients and tempo are offered; the chip's
-//! popover turns warp on from the tempo found, doubles or halves it, sets the
-//! project tempo from the clip, and lines the sound at the edit cursor up
-//! with a bar. Each is one undo step. The detection itself is tested on
-//! synthetic audio in `lumen-media`; here a click track stands in for a loop.
-
 use std::path::{Path, PathBuf};
 
 use eframe::egui::{Key, Modifiers, Pos2, vec2};
@@ -18,16 +11,11 @@ use super::{Lumen, TempDir};
 
 const RATE: u32 = 48_000;
 
-/// A stereo WAV of `beats` clicks at `bpm`, the first at `lead` seconds, in a
-/// file `seconds` long. A click is a short decaying burst of noise, a louder
-/// one on every fourth beat.
 fn click_track(path: &Path, (bpm, beats): (f64, usize), lead: f64, seconds: f64) -> PathBuf {
     let onsets: Vec<f64> = (0..beats).map(|b| lead + b as f64 * 60.0 / bpm).collect();
     clicks_at(path, &onsets, seconds)
 }
 
-/// A stereo WAV `seconds` long with a click at each of `onsets` (seconds), as
-/// [`click_track`] makes them: for a loop with one hit played late.
 pub(super) fn clicks_at(path: &Path, onsets: &[f64], seconds: f64) -> PathBuf {
     let frames = (seconds * f64::from(RATE)) as usize;
     let mut mono = vec![0.0_f32; frames];
@@ -69,16 +57,12 @@ pub(super) fn clicks_at(path: &Path, onsets: &[f64], seconds: f64) -> PathBuf {
     path.to_path_buf()
 }
 
-/// Lumen with a click track at 100 BPM (sixteen beats, the first a quarter of
-/// a second in) dropped in and opened in the Clip tab, detection done.
 pub(super) fn opened_click_track(name: &str) -> (Lumen, Id) {
     let mut lumen = Lumen::start(name);
     let file = click_track(&lumen.dir().join("clicks.wav"), (100.0, 16), 0.25, 9.85);
     lumen.drop_files(&[file]);
     lumen.frames(40);
     let id = lumen.app().project().tracks[0].clips[0].id;
-    // Eight beats of it: at half the tempo the clip must still be inside the
-    // file.
     lumen
         .app_mut()
         .trim_clip_end_to(id, Ticks::quarters(8), false);
@@ -87,7 +71,6 @@ pub(super) fn opened_click_track(name: &str) -> (Lumen, Id) {
     (lumen, id)
 }
 
-/// The chip, opened.
 pub(super) fn open_chip(lumen: &mut Lumen) {
     let chip = lumen
         .harness
@@ -98,7 +81,6 @@ pub(super) fn open_chip(lumen: &mut Lumen) {
     lumen.frames(4);
 }
 
-/// The popover closed, so a key reaches the app.
 pub(super) fn close_chip(lumen: &mut Lumen) {
     lumen.key(Modifiers::NONE, Key::Escape);
     lumen.frames(3);
@@ -154,8 +136,6 @@ fn warp_starts_from_the_tempo_found_and_each_change_is_one_undo_step() {
         "the chip says it is on"
     );
 
-    // Twice and half the tempo the file was made at, each undone in one.
-    // How much of the file four beats play.
     let heard = |c: &Clip| {
         let w = c.warp.as_ref().expect("warped");
         w.source_at(Ticks::quarters(4)) - w.source_at(Ticks::ZERO)
@@ -177,7 +157,6 @@ fn warp_starts_from_the_tempo_found_and_each_change_is_one_undo_step() {
     lumen.frames(3);
     assert!((original_bpm(&warped(&lumen, id)) - found).abs() < 1e-9);
 
-    // The song takes the clip's tempo.
     open_chip(&mut lumen);
     lumen.click("Set project tempo from clip");
     let project = lumen.app().project();
@@ -187,7 +166,6 @@ fn warp_starts_from_the_tempo_found_and_each_change_is_one_undo_step() {
     lumen.frames(3);
     assert_eq!(bpm_at(&lumen.app().project().tempo, Ticks::ZERO), 120.0);
 
-    // Warp off: the clip plays at its own speed again.
     open_chip(&mut lumen);
     lumen.click("Warp clip");
     assert!(clip(&lumen, id).warp.is_none());
@@ -197,15 +175,9 @@ fn warp_starts_from_the_tempo_found_and_each_change_is_one_undo_step() {
     assert!(clip(&lumen, id).warp.is_some(), "one undo turns it back on");
 }
 
-/// MT-WARP-2 (owner): turning warp on for a file made at a slower tempo than
-/// the song left the clip as long as the file played unwarped, with silence
-/// after the sound. The clip now ends where the sound does, in the same undo
-/// step, and a clip the person made shorter is left alone.
 #[test]
 fn turning_warp_on_cuts_the_clip_to_where_the_sound_ends() {
     let mut lumen = Lumen::start("warp-fit");
-    // A 100 BPM loop of 9.85 s, dropped into a 120 BPM song: unwarped, the
-    // clip is 9.85 s long (19.7 beats).
     let file = click_track(&lumen.dir().join("clicks.wav"), (100.0, 16), 0.25, 9.85);
     lumen.drop_files(&[file]);
     lumen.frames(40);
@@ -217,8 +189,6 @@ fn turning_warp_on_cuts_the_clip_to_where_the_sound_ends() {
     open_chip(&mut lumen);
     lumen.click("Warp clip");
     let cut = warped(&lumen, id).length;
-    // Played at 100/120 of its length, the file lasts 9.85 s * 100 / 120 of
-    // the song: about 16.4 beats, give or take the clip's first fraction.
     let expected = whole.0 as f64 * 100.0 / 120.0;
     assert!(
         (cut.0 as f64 - expected).abs() < f64::from(PPQ as u32) / 4.0,
@@ -230,7 +200,6 @@ fn turning_warp_on_cuts_the_clip_to_where_the_sound_ends() {
     );
     close_chip(&mut lumen);
 
-    // One undo brings back the clip as it was, unwarped.
     lumen.key(Modifiers::COMMAND, Key::Z);
     lumen.frames(3);
     assert!(clip(&lumen, id).warp.is_none());
@@ -240,8 +209,6 @@ fn turning_warp_on_cuts_the_clip_to_where_the_sound_ends() {
 #[test]
 fn warp_from_here_puts_the_sound_at_the_cursor_on_the_bar_line() {
     let (mut lumen, id) = opened_click_track("warp-here");
-    // The first click is at 0.25 s, half a beat in at 120 BPM. A click on the
-    // wave places the cursor on the grid there.
     let s = shown(&lumen);
     let at = Pos2::new(x_of(&lumen, 0.5) + 2.0, s.body.center().y);
     lumen.harness.hover_at(at);
@@ -313,8 +280,6 @@ fn at_the_narrowest_window_warp_is_a_page_of_the_more_menu() {
 
 #[test]
 fn a_reversed_clip_is_listened_to_as_it_plays() {
-    // Review round 1: the transients were those of the forward file while the
-    // editor drew and played the reversed twin.
     let (mut lumen, id) = opened_click_track("warp-reversed");
     let forward = lumen.app().audio_detection();
     let first = forward.first.expect("a transient");
@@ -341,8 +306,6 @@ fn a_reversed_clip_is_listened_to_as_it_plays() {
 
 #[test]
 fn warp_from_here_uses_the_cursor_only_for_the_clip_the_editor_has_open() {
-    // Review round 1: the command used the open clip's cursor for whichever
-    // clip was selected.
     let (mut lumen, opened) = opened_click_track("warp-here-other");
     let s = shown(&lumen);
     let at = Pos2::new(x_of(&lumen, 0.5) + 2.0, s.body.center().y);
@@ -382,7 +345,6 @@ fn warp_from_here_uses_the_cursor_only_for_the_clip_the_editor_has_open() {
     );
 }
 
-/// The media a clip plays.
 fn media_of(lumen: &Lumen, id: Id) -> u64 {
     match clip(lumen, id).content {
         lumen_project::model::ClipContent::Audio { media, .. } => media.0,
@@ -390,8 +352,6 @@ fn media_of(lumen: &Lumen, id: Id) -> u64 {
     }
 }
 
-/// A project with a click track of whole bars (sixteen beats at 100 BPM) and
-/// no tempo in its name or tags, dropped in.
 fn dropped_loop(lumen: &mut Lumen) -> Id {
     let file = click_track(&lumen.dir().join("clicks.wav"), (100.0, 16), 0.0, 9.6);
     lumen.drop_files(&[file]);
@@ -431,7 +391,6 @@ fn an_untagged_loop_of_whole_bars_follows_the_song_once_it_is_listened_to() {
         lumen.app().note()
     );
 
-    // One undo step lets it play at its own speed; the import stays.
     lumen.key(Modifiers::COMMAND, Key::Z);
     lumen.frames(3);
     let plain = clip(&lumen, id);
@@ -459,8 +418,6 @@ fn a_loop_is_not_listened_to_when_the_setting_is_never() {
     assert!(clip(&lumen, id).warp.is_none());
 }
 
-/// Plays four seconds from the start and gives the seconds between the clicks
-/// heard.
 fn click_gaps(lumen: &mut Lumen) -> Vec<f64> {
     lumen.key(Modifiers::NONE, Key::Space);
     let heard = lumen.listen(std::time::Duration::from_millis(0), 4 * 48_000);
@@ -480,10 +437,6 @@ fn click_gaps(lumen: &mut Lumen) -> Vec<f64> {
 
 #[test]
 fn a_warped_loop_is_heard_on_the_songs_beat() {
-    // Sixteen clicks 0.6 s apart (100 BPM) in a song at 120 BPM: warped, they
-    // must be heard every 0.5 s.
-    // Warped clips play from the disk thread's streams, as the app does by
-    // default (the test harness turns "Play audio from disk" off otherwise).
     let mut lumen = Lumen::start_with(TempDir::new("e2e-warp-heard"), |launch| {
         launch.playing_from_disk()
     });
@@ -498,9 +451,6 @@ fn a_warped_loop_is_heard_on_the_songs_beat() {
     }
 }
 
-/// The owner's report (2026-11-08): the wave was drawn stretched and the clip
-/// was heard as recorded, because their settings kept "Play audio from disk"
-/// off. The popover says so, and one click makes the clip follow the song.
 #[test]
 fn without_disk_playback_a_warped_clip_is_heard_unwarped_until_it_is_turned_on() {
     let mut lumen = Lumen::start("warp-heard-without-disk");
@@ -532,10 +482,6 @@ fn without_disk_playback_a_warped_clip_is_heard_unwarped_until_it_is_turned_on()
     }
 }
 
-/// Renders the detected hits on an unwarped clip's wave with its Warp popover
-/// open, for a look by eye: `SHOTS=<folder> LOOK_SCALE=1.5 cargo test -p
-/// lumen-app --test e2e look_at_the_wave_hits -- --ignored` (the theme is the
-/// process's).
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn look_at_the_wave_hits() {
@@ -546,8 +492,6 @@ fn look_at_the_wave_hits() {
         .unwrap_or(1.0);
     lumen.harness.set_pixels_per_point(scale);
     lumen.frames(4);
-    // At a larger scale the strip may fold, and the chip become a page of the
-    // More menu.
     if lumen
         .harness
         .query_all_by_label_contains("Warp: ")

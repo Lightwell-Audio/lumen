@@ -1,29 +1,19 @@
-//! Which drawing a sound gets from its name (M8 D0): "kick" and "bd" are a
-//! kick, "hat" with "open" an open hat, "tom" with "floor" or "low" a floor
-//! tom, and so on. A name nothing matches is percussion. Every sound of the
-//! built-in maps goes through here, so a kit's names and its icons cannot
-//! drift apart (a test pins each preset's).
-
 use crate::model::DrumIcon;
 
-/// Whether `words` holds `word` as a word of its own.
 fn has(words: &[&str], word: &str) -> bool {
     words.contains(&word)
 }
 
-/// Whether `words` holds a word starting with `stem` ("tom" finds "tom1").
 fn starts(words: &[&str], stem: &str) -> bool {
     words.iter().any(|w| w.starts_with(stem))
 }
 
-/// The drawing `name` reads as.
 pub fn icon_for_name(name: &str) -> DrumIcon {
     let lower = name.to_lowercase();
     let words: Vec<&str> = lower
         .split(|c: char| !c.is_ascii_alphanumeric())
         .filter(|w| !w.is_empty())
         .collect();
-    // A hat first: "open hi-hat" holds "hi" and "hat" too.
     let hat = has(&words, "hh")
         || has(&words, "hat")
         || has(&words, "hats")
@@ -38,7 +28,6 @@ pub fn icon_for_name(name: &str) -> DrumIcon {
             DrumIcon::ClosedHat
         };
     }
-    // A ride before a crash: "ride cymbal" is a ride.
     if has(&words, "ride") {
         return DrumIcon::Ride;
     }

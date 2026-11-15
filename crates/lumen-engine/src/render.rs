@@ -1,15 +1,3 @@
-//! Rendering clips without a device (M7b slice E3).
-//!
-//! A stretch of the timeline is played through the same clip player the
-//! callback runs, block after block, as fast as the machine allows, and handed
-//! to a sink: consolidating clips into a new file, later bounce. Because it is
-//! the live player, a render sounds like playback: gain, polarity, reverse,
-//! fades, crossfades and clip envelopes are all applied as they are there.
-//!
-//! What is not applied is anything above the clips: a track's fader, pan,
-//! sends and devices. Every clip is summed onto one bus, whatever track it is
-//! on. Not real-time code: it allocates and takes as long as it takes.
-
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
@@ -20,41 +8,26 @@ use crate::mixer::{BUS_CHANNELS, Buses, CHUNK, TrackSource};
 use crate::source::{Jump, Mode, Output, RenderContext, Source};
 use crate::timeline::Timeline;
 
-/// The most frames a render handles at a time.
 pub const MOST_BLOCK: usize = CHUNK;
 
-/// The bus every clip is summed on.
 const BUS_ID: u64 = 0;
 
-/// A stretch of clips to render.
 pub struct ClipRender {
     pub clips: Vec<Clip>,
     pub timeline: Timeline,
     pub sample_rate: u32,
-    /// Timeline sample of the first frame rendered.
     pub from: i64,
-    /// Frames to render.
     pub frames: u64,
-    /// The first clip's start and the last clip's end of each track play
-    /// without the clip player's 2 ms edge fade (see
-    /// [`ClipsHandle::bare_ends`](crate::ClipsHandle::bare_ends)). The edges
-    /// between clips keep theirs.
     pub bare_ends: bool,
-    /// Frames rendered at a time, from 1 to 256 (anything else is clamped).
     pub block: usize,
 }
 
-/// How a render ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Finished {
     Done,
-    /// `cancel` was set; the sink holds the frames given so far.
     Cancelled,
 }
 
-/// Renders `job`, giving the sink each block as a left and a right slice of
-/// the same length (a mono clip is on both sides). `progress` receives 0.0
-/// to 1.0 after each block; `cancel` is looked at before each one.
 pub fn render_clips(
     job: ClipRender,
     cancel: &AtomicBool,
@@ -109,58 +82,29 @@ pub fn render_clips(
     Finished::Done
 }
 
-/// A [`Source`] (the mixer, with its tracks, devices and plugin hosts) to
-/// render without a device (M7b slice E4): bounce, later freeze.
 pub struct SourceRender<'a> {
     pub timeline: &'a Timeline,
     pub sample_rate: u32,
-    /// Timeline sample of the first frame handed to the sink.
     pub from: i64,
-    /// Frames of the span itself.
     pub frames: u64,
-    /// The most frames of tail to add after the span, while the source still
-    /// rings (0 for none). Trailing frames below [`QUIET_LEVEL`] are left off.
     pub most_tail: u64,
-    /// Frames rendered at a time, from 1 to 256 (anything else is clamped).
     pub block: usize,
-    /// How long a plugin host is waited for, per block (see
-    /// [`OFFLINE_WAIT`](crate::OFFLINE_WAIT)).
     pub wait: Duration,
 }
 
-/// How a [`render_source`] ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Ended {
     Done,
-    /// `cancel` was set.
     Cancelled,
-    /// `failed` answered yes: a plugin host did not answer a block, so what
-    /// follows would not be what playback plays.
     Failed,
 }
 
-/// The pre-roll: the source plays this long before `from` and the sink never
-/// sees it, so the fades a source makes when playback starts (a track coming
-/// in from silence, a clip first heard partway) are over before the span.
-///
-/// It is a whole number of `block`s, so the blocks the render cuts fall where
-/// playback's do: a device's parameter lanes then read the same points on the
-/// same frames, and a render is bit-identical to what playback plays rather
-/// than differing by the rounding of two different straight lines (M8 slice
-/// B0, review L9).
 fn lead_in(sample_rate: u32, block: u64) -> u64 {
     let block = block.max(1);
     let lead = u64::from(sample_rate / 10).max(1);
     block * lead.div_ceil(block)
 }
 
-/// Plays `source` from `job.from` as fast as it goes, giving the sink the
-/// audio as the left and right slices of each block. The source's own delay
-/// compensation is followed: the frames its latency adds at the start are not
-/// given. Nothing of the engine's is applied (play fade-in, metronome).
-///
-/// `failed` is asked after each block; `cancel` before it. `progress`
-/// receives 0.0 to 1.0 over the span. The sink gets the span, then the tail.
 pub fn render_source<S: Source + ?Sized>(
     source: &mut S,
     job: SourceRender<'_>,
@@ -182,7 +126,6 @@ pub fn render_source<S: Source + ?Sized>(
     let lead = lead_in(sample_rate, block);
     let begin = from - lead as i64;
     source.locate(timeline, sample_rate, begin, Jump::Play);
-    // Read after the locate, which takes up a waiting routing.
     let skip = lead + u64::from(source.latency());
     let total = skip + frames;
     let mut data = vec![0.0; BUS_CHANNELS * MOST_BLOCK];
@@ -212,7 +155,6 @@ pub fn render_source<S: Source + ?Sized>(
         part.fill(0.0);
         let cx = context(cursor, Mode::Play, source);
         source.render(&cx, &mut Output::new(part, n, 0, n, BUS_CHANNELS));
-        // Only the frames past the lead-in and the latency are the span.
         let first = skip.saturating_sub(done).min(n as u64) as usize;
         if first < n {
             sink(&part[first..n], &part[n + first..2 * n]);
@@ -229,8 +171,6 @@ pub fn render_source<S: Source + ?Sized>(
     if ended != Ended::Done || most_tail == 0 {
         return ended;
     }
-    // The tail: what rings on after the span, until it is quiet. Held back, so
-    // the quiet end can be left off.
     let (mut left, mut right) = (Vec::new(), Vec::new());
     while source.ringing() && (left.len() as u64) < most_tail {
         if cancel.load(Ordering::Relaxed) {
@@ -276,8 +216,6 @@ mod tests {
 
     const RATE: u32 = 48_000;
 
-    /// A stream of `PAGE` frames that an offline render fills from `loads`,
-    /// counted: the audio the player hears when it may load is 0.5 and -0.5.
     fn offline_stream(pool: &Arc<PagePool>, loads: &Arc<AtomicUsize>) -> StreamAudio {
         let counted = Arc::clone(loads);
         let loader = OfflineLoader::new(
@@ -307,12 +245,8 @@ mod tests {
         }
     }
 
-    /// The audio thread's player has no way to load a page: an offline stream
-    /// handed to it plays silence and its loader is never asked, while an
-    /// offline render of the same stream loads and plays it (sweep M16b).
     #[test]
     fn only_an_offline_render_loads_the_pages_it_reads() {
-        // A render may load what it reads, so it hears the file.
         let loads = Arc::new(AtomicUsize::new(0));
         let stream = offline_stream(&PagePool::new(4), &loads);
         let mut heard = Vec::new();
@@ -336,7 +270,6 @@ mod tests {
         assert!(loads.load(Ordering::Relaxed) > 0, "the render loads");
         assert!(heard.iter().any(|(l, _)| *l != 0.0), "and hears the file");
 
-        // The audio thread's player cannot, so it plays silence.
         let loads = Arc::new(AtomicUsize::new(0));
         let stream = offline_stream(&PagePool::new(4), &loads);
         let (mut handle, mut player) = clip_player();

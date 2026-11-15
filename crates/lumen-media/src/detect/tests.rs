@@ -2,7 +2,6 @@ use super::*;
 
 const RATE: u32 = 48_000;
 
-/// A click: a short burst of decaying noise from a fixed sequence.
 fn click(out: &mut [f32], at: usize, gain: f32) {
     let mut seed = 0x1234_5678_u32;
     for i in 0..2_400 {
@@ -15,8 +14,6 @@ fn click(out: &mut [f32], at: usize, gain: f32) {
     }
 }
 
-/// `beats` beats at `bpm`, a click on each (a louder one on every fourth),
-/// starting `lead` seconds in, in a buffer `seconds` long.
 fn beats(bpm: f64, beats: usize, lead: f64, seconds: f64) -> Vec<f32> {
     let mut out = vec![0.0; (seconds * f64::from(RATE)) as usize];
     for b in 0..beats {
@@ -26,7 +23,6 @@ fn beats(bpm: f64, beats: usize, lead: f64, seconds: f64) -> Vec<f32> {
     out
 }
 
-/// A quiet noise floor, so a soft click is a few dB above something.
 fn floor(frames: usize) -> Vec<f32> {
     let mut out = vec![0.0; frames];
     let mut seed = 99_u32;
@@ -47,8 +43,6 @@ fn detect(samples: &[f32]) -> Analysis {
 
 #[test]
 fn a_one_bar_loop_gets_its_tempo_at_any_speed() {
-    // Review round 2: a file under two seconds had no tempo, so the common
-    // one-bar loops above 120 BPM never followed the song.
     for bpm in [100.0, 120.0, 140.0, 160.0, 180.0] {
         let seconds = 4.0 * 60.0 / bpm;
         let found = detect(&beats(bpm, 4, 0.0, seconds));
@@ -80,8 +74,6 @@ fn an_empty_file_has_nothing_to_find() {
 
 #[test]
 fn a_sound_in_the_last_partial_hop_is_found() {
-    // A hop is 5 ms (240 frames). The file ends 100 frames into one: a
-    // sound that starts there used to be dropped with the unfinished hop.
     let hop = (f64::from(RATE) * HOP_SECONDS).round() as usize;
     let end = 40 * hop + 100;
     let mut samples = vec![0.0; end];
@@ -126,7 +118,6 @@ fn transients_are_found_where_the_sounds_start() {
 #[test]
 fn a_regular_beat_gives_its_tempo() {
     for bpm in [90.0, 120.0, 140.0] {
-        // Not a whole number of beats: the tempo comes from the rhythm alone.
         let samples = beats(bpm, 32, 0.1, 32.0 * 60.0 / bpm + 30.0 / bpm);
         let tempo = detect(&samples).tempo.expect("a tempo");
         assert!((tempo.bpm - bpm).abs() < 1.5, "{} for {bpm}", tempo.bpm);
@@ -137,7 +128,6 @@ fn a_regular_beat_gives_its_tempo() {
 
 #[test]
 fn a_loop_of_whole_bars_gets_the_exact_tempo() {
-    // Two bars at 100 bpm, cut to the sample: 4.8 s.
     let bpm = 100.0;
     let seconds = 8.0 * 60.0 / bpm;
     let samples = beats(bpm, 8, 0.0, seconds);
@@ -155,20 +145,17 @@ fn no_rhythm_gives_no_tempo() {
     assert!(found.transients.is_empty());
     assert_eq!(found.tempo, None);
 
-    // A held tone has no sounds starting in it after the first.
     let tone: Vec<f32> = (0..RATE as usize * 10)
         .map(|i| 0.5 * (i as f32 * 0.05).sin())
         .collect();
     assert_eq!(detect(&tone).tempo, None);
 
-    // Too few clicks to call a tempo.
     let three = beats(120.0, 3, 0.5, 6.0);
     assert_eq!(detect(&three).tempo, None);
 }
 
 #[test]
 fn sensitivity_chooses_among_the_same_transients() {
-    // Loud clicks with soft ones between.
     let mut samples = floor(RATE as usize * 4);
     for b in 0..8 {
         let at = (b as f64 * 0.5 * f64::from(RATE)) as usize;
@@ -201,7 +188,6 @@ fn stereo_is_averaged() {
     let mono = beats(120.0, 16, 0.25, 8.25);
     let other: Vec<f32> = mono.iter().map(|s| -s).collect();
     let mut d = Detector::new(RATE);
-    // A channel and its opposite cancel; the same on both is the mono file.
     d.add(&mono, Some(&other));
     assert!(d.finish().transients.is_empty());
     let mut d = Detector::new(RATE);

@@ -1,11 +1,3 @@
-//! Jumps and loop wraps do not pop (owner, MT-MIDI-2): a synth chord held
-//! across a jump or a loop wrap used to be cut to silence in one sample,
-//! because the 2 ms crossfade the engine makes at every jump had no
-//! instrument audio to fade out from. The test device's tap is the ear.
-//!
-//! A pop is a step in the sound far steeper than the sound makes by itself,
-//! so each run is compared with the same song played straight through.
-
 use eframe::egui::{Key, Modifiers};
 use lumen_core::time::Ticks;
 use lumen_project::model::{Id, Marker, Note, Project};
@@ -17,7 +9,6 @@ fn q(beats: i64) -> Ticks {
     Ticks::quarters(beats)
 }
 
-/// A three-note chord, `length` beats long.
 fn chord(start: i64, length: i64, pitches: [u8; 3]) -> Vec<Note> {
     pitches
         .into_iter()
@@ -25,10 +16,6 @@ fn chord(start: i64, length: i64, pitches: [u8; 3]) -> Vec<Note> {
         .collect()
 }
 
-/// Chords held for most of 64 beats, with locators to jump between. At
-/// 480 BPM a beat is 125 ms. The bass sound is the cruel one for a wrap:
-/// slow waves of large size, so a cut to silence is far steeper than the
-/// wave itself.
 fn song(preset: &str, pitches: [u8; 3]) -> Project {
     let mut notes = chord(0, 2, pitches);
     notes.extend(chord(3, 20, pitches));
@@ -70,9 +57,6 @@ fn launch(name: &str, project: &Project) -> Lumen {
     lumen
 }
 
-/// Plays, running `between` after each of `parts` stretches of `frames`
-/// frames of sound (the first from the very start); returns the left
-/// channel of everything the test device played.
 fn play_through(
     lumen: &mut Lumen,
     parts: usize,
@@ -108,7 +92,6 @@ fn steepest(x: &[f32]) -> f32 {
         .fold(0.0, f32::max)
 }
 
-/// What the song does by itself: played straight, attacks included.
 fn straight(name: &str, song: Project) -> f32 {
     let mut lumen = launch(name, &song);
     let heard = play_through(&mut lumen, 1, 48_000, |_| {});
@@ -121,13 +104,10 @@ fn straight(name: &str, song: Project) -> f32 {
 fn jumping_between_locators_while_a_chord_sounds_does_not_pop() {
     let straight = straight("pops-straight-jump", song("poly", [60, 64, 67]));
     let mut lumen = launch("pops-jump", &song("poly", [60, 64, 67]));
-    // Eight jumps, each into another place in the chords' waves.
     let heard = play_through(&mut lumen, 9, 5_000, |lumen| {
         lumen.key(Modifiers::COMMAND, Key::ArrowRight);
     });
     let worst = steepest(&heard[1_000..]);
-    // A chord let go of rings on under the next one, so it can be a little
-    // steeper than the song alone (0.084 against 0.074); a pop was 0.165.
     assert!(
         worst <= straight * 1.4,
         "a jump popped: steepest step {worst}, straight {straight}"
@@ -143,7 +123,6 @@ fn a_loop_wrap_while_a_chord_sounds_does_not_pop() {
     project.transport.loop_end = q(4);
     project.transport.loop_enabled = true;
     let mut lumen = launch("pops-loop", &project);
-    // Four beats are 24,000 frames: five wraps.
     let heard = play_through(&mut lumen, 1, 130_000, |_| {});
     let worst = steepest(&heard[1_000..]);
     assert!(

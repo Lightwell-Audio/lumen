@@ -1,6 +1,3 @@
-//! Importing audio and MIDI files: the system's file dialog, and where the
-//! chosen files land.
-
 use eframe::egui;
 use lumen_core::time::Ticks;
 use lumen_project::model::TrackKind;
@@ -11,13 +8,6 @@ use crate::midi::files as midi_files;
 use crate::{App, document, media};
 
 impl App {
-    /// Import audio or MIDI (M3 review H1, M5 slice 7): the system's file
-    /// dialog, then the chosen files load as dropped files do, at the
-    /// playhead, onto the selected track (or the track of the selected
-    /// clip) when it takes them, else onto new tracks after the selection.
-    /// Where imported files land: at the playhead, on the selected track
-    /// (or the track of the first selected clip) when it is of their kind,
-    /// else on new tracks.
     pub(crate) fn import_places(&self) -> (Ticks, Places) {
         let at = self.transport.state().ticks;
         let project = self.document.project();

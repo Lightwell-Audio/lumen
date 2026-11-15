@@ -1,6 +1,3 @@
-//! The editing grid: its keys, the grid menu, snapping on the ruler
-//! (and Alt to place freely), and the grid saved with the project.
-
 use eframe::egui::{Key, Modifiers};
 use egui_kittest::kittest::Queryable;
 use lumen_app::testing::project_file;
@@ -40,7 +37,6 @@ fn the_bottom_of_the_grid_menu_can_be_scrolled_into_a_small_window() {
 #[test]
 fn the_keys_change_the_grid_and_the_button_shows_it() {
     let mut lumen = Lumen::start("grid-keys");
-    // The default: adaptive, Narrow; eighths at the default zoom.
     assert!(lumen.shows("Grid: 1/8"));
     lumen.key(Modifiers::COMMAND, Key::Num1);
     assert!(lumen.shows("Grid: 1/16"), "Ctrl+1 narrower");
@@ -53,7 +49,6 @@ fn the_keys_change_the_grid_and_the_button_shows_it() {
     assert!(lumen.shows("Grid: 1/2T, snap off"), "Ctrl+4 snap off");
     lumen.key(Modifiers::COMMAND, Key::Num4);
 
-    // Ctrl+5 fixes the step showing now; zooming no longer changes it.
     lumen.key(Modifiers::COMMAND, Key::Num5);
     lumen.key(Modifiers::NONE, Key::Equals);
     lumen.frames(30);
@@ -77,7 +72,6 @@ fn the_ruler_snaps_to_the_grid_chosen_in_the_menu() {
     lumen.wait_for("the playhead to land", |app| app.playhead() > Ticks::ZERO);
     assert_eq!(lumen.app().playhead().0 % bar, 0, "on a bar line");
 
-    // Alt places it freely: the middle of the ruler is not on a bar line.
     lumen
         .harness
         .get_by_label(RULER)
@@ -104,8 +98,6 @@ fn the_grid_is_saved_with_the_project() {
     assert!(again.shows("Grid: 1/16T"));
 }
 
-/// Owner, after MT-APP-13 run 1: the magnet switches snapping with one
-/// click; the menu keeps its item too.
 #[test]
 fn the_magnet_turns_snapping_on_and_off() {
     let mut lumen = Lumen::start("grid-magnet");

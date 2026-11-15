@@ -1,10 +1,3 @@
-//! The song's tempo and time-signature maps (M7 slice A6, format v24): the
-//! changes the two lanes show, and the fields of the transport bar. Each is
-//! one undo step; a drag passes a merge key so a whole gesture is one.
-//!
-//! The pure rules (clamps, bar lines, what a meter edit does to the changes
-//! after it) are `lumen_project::edit::maps`.
-
 use lumen_core::meter::Meter;
 use lumen_core::time::Ticks;
 use lumen_project::edit::maps;
@@ -12,19 +5,12 @@ use lumen_project::edit::maps;
 use super::{Document, MAX_BEATS_PER_BAR};
 
 impl Document {
-    /// Sets the tempo of the segment `at` falls in, clamped to 20 to 999 BPM
-    /// (`merge` joins the changes of one drag into one step). With one tempo
-    /// in the song this is the song's tempo.
     pub fn set_tempo_at(&mut self, at: Ticks, bpm: f64, merge: Option<&str>) {
         self.history.apply("Change tempo", merge, |project| {
             maps::set_tempo_in(&mut project.tempo, at, bpm);
         });
     }
 
-    /// Sets the tempo a tap run measured (M9 R7) on the segment `at` falls
-    /// in: on a ramp, its start. A run is one undo step, "Tap tempo": its
-    /// taps merge until the app seals the run. False when nothing changed,
-    /// or when a frozen track refused it (`take_refused` says so).
     pub fn tap_tempo(&mut self, at: Ticks, bpm: f64) -> bool {
         self.history
             .apply("Tap tempo", Some("tap tempo"), |project| {
@@ -32,8 +18,6 @@ impl Document {
             })
     }
 
-    /// Puts a tempo at `at`: a new change there, or the value of the one
-    /// already there. False when the song holds as many as it may.
     pub fn put_tempo_change(&mut self, at: Ticks, bpm: f64, merge: Option<&str>) -> bool {
         let mut room = true;
         self.history.apply("Add tempo change", merge, |project| {
@@ -42,17 +26,12 @@ impl Document {
         room
     }
 
-    /// Moves tempo change `index` to `at` and `bpm`: the first stays at
-    /// zero, another stays between its neighbours.
     pub fn move_tempo_change(&mut self, index: usize, at: Ticks, bpm: f64, merge: Option<&str>) {
         self.history.apply("Move tempo change", merge, |project| {
             maps::move_tempo(&mut project.tempo, index, at, bpm);
         });
     }
 
-    /// Makes tempo change `index` glide to the next change's tempo (a ramp)
-    /// or hold its own until the next change (a step). Nothing happens for
-    /// the last change, which has no next one.
     pub fn set_tempo_ramp(&mut self, index: usize, ramp: bool) {
         let name = if ramp { "Ramp tempo" } else { "Step tempo" };
         self.history.apply(name, None, |project| {
@@ -60,19 +39,12 @@ impl Document {
         });
     }
 
-    /// Removes tempo change `index`; the first stays.
     pub fn remove_tempo_change(&mut self, index: usize) {
         self.history.apply("Remove tempo change", None, |project| {
             maps::remove_tempo(&mut project.tempo, index);
         });
     }
 
-    /// Sets the time signature of the segment `at` falls in (M3 review M2):
-    /// beats per bar clamped to 1 to 64 and a beat unit that is a power of
-    /// two up to 64, the range a project may hold (`lumen_project::validate`);
-    /// another unit keeps the current one. Changes after it move to the
-    /// nearest bar line of the new bars. `merge` joins the changes of one
-    /// drag.
     pub fn set_time_signature_at(
         &mut self,
         at: Ticks,
@@ -87,8 +59,6 @@ impl Document {
             });
     }
 
-    /// The meter `numerator` and `denominator` make in the segment at `at`,
-    /// as a project can hold it.
     fn fitted_meter(&self, at: Ticks, numerator: u32, denominator: u32) -> Meter {
         let current = self.project().meter_map().meter_at(at).denominator;
         let denominator = Some(denominator)
@@ -100,9 +70,6 @@ impl Document {
         }
     }
 
-    /// Puts a time signature on the bar line nearest `at`: a new change, or
-    /// the meter of the one there. False when the song holds as many as it
-    /// may.
     pub fn put_meter_change(&mut self, at: Ticks, numerator: u32, denominator: u32) -> bool {
         let meter = self.fitted_meter(at, numerator, denominator);
         let mut room = true;
@@ -112,7 +79,6 @@ impl Document {
         room
     }
 
-    /// Sets the time signature of change `index` (the first included).
     pub fn set_meter_change(
         &mut self,
         index: usize,
@@ -130,15 +96,12 @@ impl Document {
             });
     }
 
-    /// Moves time-signature change `index` to the bar line nearest `at`,
-    /// between its neighbours; the first stays at zero.
     pub fn move_meter_change(&mut self, index: usize, at: Ticks, merge: Option<&str>) {
         self.history.apply("Move time signature", merge, |project| {
             maps::move_meter(&mut project.meter, index, at);
         });
     }
 
-    /// Removes time-signature change `index`; the first stays.
     pub fn remove_meter_change(&mut self, index: usize) {
         self.history
             .apply("Remove time signature", None, |project| {
@@ -180,17 +143,13 @@ mod tests {
         let mut doc = doc();
         doc.put_tempo_change(Ticks::quarters(8), 90.0, None);
         doc.seal();
-        // The run started in the first segment: it stays there, wherever
-        // the playhead has gone since.
         for bpm in [100.0, 101.0, 102.0] {
             assert!(doc.tap_tempo(Ticks::quarters(2), bpm));
         }
         let bpm: Vec<f64> = doc.project().tempo.iter().map(|p| p.bpm).collect();
         assert_eq!(bpm, [102.0, 90.0]);
         assert_eq!(doc.history().steps().0.last(), Some(&"Tap tempo"));
-        // The same tempo again changes nothing and records nothing.
         assert!(!doc.tap_tempo(Ticks::quarters(2), 102.0));
-        // A sealed run is a step of its own.
         doc.seal();
         doc.tap_tempo(Ticks::quarters(9), 95.0);
         doc.undo();
@@ -284,7 +243,6 @@ mod tests {
         let mut doc = doc();
         doc.set_time_signature_at(Ticks::ZERO, 7, 8, None);
         assert_eq!(signature(&doc, Ticks::ZERO), (7, 8));
-        // Past what a project may hold, a saved song would not open again.
         doc.set_time_signature_at(Ticks::ZERO, 99, 4, Some("drag"));
         assert_eq!(signature(&doc, Ticks::ZERO), (64, 4));
         doc.set_time_signature_at(Ticks::ZERO, 0, 3, Some("drag"));
@@ -309,7 +267,6 @@ mod tests {
         assert_eq!(doc.project().meter[1].at, Ticks::quarters(8));
         assert_eq!(signature(&doc, Ticks::quarters(9)), (7, 8));
         assert_eq!(signature(&doc, Ticks::quarters(4)), (4, 4));
-        // The bar fields change the segment they are in.
         doc.set_time_signature_at(Ticks::quarters(9), 3, 4, None);
         assert_eq!(signature(&doc, Ticks::quarters(9)), (3, 4));
         assert_eq!(signature(&doc, Ticks::ZERO), (4, 4));
@@ -322,7 +279,6 @@ mod tests {
     fn changing_a_meter_moves_the_changes_after_it_in_the_same_step() {
         let mut doc = doc();
         doc.put_meter_change(Ticks::quarters(8), 3, 4);
-        // 5/4 bars: the change at 8 moves to the nearest bar line, 10.
         doc.set_meter_change(0, 5, 4, None);
         assert_eq!(doc.project().meter[1].at, Ticks::quarters(10));
         assert_eq!(lumen_project::validate(doc.project()), Ok(()));

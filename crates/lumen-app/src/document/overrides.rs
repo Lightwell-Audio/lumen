@@ -1,9 +1,3 @@
-//! Lanes the user has taken over (M7 slice A4a, D7). Moving a control whose
-//! lane is on sets an override for that target: the lane plays nothing and the
-//! control's own value is heard, until the lane is re-enabled. It is session
-//! state, not part of the project: it is not saved, not undone, and a project
-//! that is opened or made starts without any.
-
 use std::collections::{BTreeMap, BTreeSet};
 
 use lumen_project::automation::{AutomationLane, Target};
@@ -11,20 +5,16 @@ use lumen_project::model::{Id, Track};
 
 use super::Document;
 
-/// The most moves noted between two calls to [`Document::take_touched`].
 const MAX_TOUCHED: usize = 4096;
 
-/// The lanes taken over, by the track that holds them and the target.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Overrides(BTreeSet<(Id, Target)>);
 
 impl Overrides {
-    /// Whether `track`'s lane for `target` is taken over.
     pub fn contains(&self, track: Id, target: Target) -> bool {
         self.0.contains(&(track, target))
     }
 
-    /// Whether `entry`, a lane of `track`, plays: it is on and not taken over.
     pub fn plays(&self, track: &Track, entry: &AutomationLane) -> bool {
         entry.enabled && !self.contains(track.id, entry.target)
     }
@@ -35,19 +25,14 @@ impl Overrides {
 }
 
 impl Document {
-    /// The lanes taken over now.
     pub fn overrides(&self) -> &Overrides {
         &self.overrides
     }
 
-    /// A control was moved by the user (M7 slice A4b): noted for the recorder,
-    /// and its lane, if it plays, taken over.
     pub(crate) fn moved(&mut self, track: Id, target: Target) {
         if self.touched.len() < MAX_TOUCHED {
             self.touched.push((track, target));
         }
-        // The setters call this before they change the control, so the
-        // project still holds the value it was resting at.
         if !self.rests.contains_key(&(track, target)) {
             let rest = lumen_project::routing::all_tracks(self.project())
                 .find(|t| t.id == track)
@@ -59,18 +44,14 @@ impl Document {
         self.override_lane(track, target);
     }
 
-    /// What the controls moved since the last call held before they moved.
     pub fn take_rests(&mut self) -> BTreeMap<(Id, Target), f32> {
         std::mem::take(&mut self.rests)
     }
 
-    /// The controls moved since the last call, oldest first.
     pub fn take_touched(&mut self) -> Vec<(Id, Target)> {
         std::mem::take(&mut self.touched)
     }
 
-    /// Takes over `track`'s lane for `target`, if the track has one and it is
-    /// on: the user moved the control it drives. Returns whether it changed.
     pub fn override_lane(&mut self, track: Id, target: Target) -> bool {
         let on = super::mixer::find(self.project(), track)
             .and_then(|t| t.lane(target))
@@ -78,21 +59,16 @@ impl Document {
         on && self.overrides.0.insert((track, target))
     }
 
-    /// A plugin's own control, parameter `param` of `device`, was moved in
-    /// Lumen's window or the plugin's: [`Document::moved`].
     pub fn override_param(&mut self, device: Id, param: u32) {
         if let Some((track, _)) = super::find_device(self.project(), device) {
             self.moved(track, Target::Device { device, param });
         }
     }
 
-    /// Lets `track`'s lane for `target` play again. Returns whether it was
-    /// taken over.
     pub fn reenable_lane(&mut self, track: Id, target: Target) -> bool {
         self.overrides.0.remove(&(track, target))
     }
 
-    /// Lets every lane play again. Returns how many were taken over.
     pub fn reenable_all(&mut self) -> usize {
         let n = self.overrides.0.len();
         self.overrides.0.clear();

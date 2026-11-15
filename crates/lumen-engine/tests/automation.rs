@@ -1,8 +1,3 @@
-//! Golden renders of automation lanes (M7 slice A0): every automatable value
-//! of a node is played where its lane puts it, on the sample, at any block
-//! size, with delay compensation at work, and an edited lane glides in
-//! instead of clicking.
-
 use std::sync::Arc;
 
 use lumen_core::automation::Shape;
@@ -20,7 +15,6 @@ const RATE: u32 = 48_000;
 const MASTER: u64 = 100;
 const TRACK: u64 = 1;
 const RETURN: u64 = 2;
-/// The level of the steady audio on both sides.
 const LEVEL: f32 = 0.5;
 
 type Player = Engine<Mixer<ClipPlayer>>;
@@ -67,8 +61,6 @@ fn rig(clips: Vec<Clip>, routing: &Routing) -> Rig {
 }
 
 impl Rig {
-    /// Renders `frames` in blocks of `block`; returns the left and right
-    /// channels.
     fn run(&mut self, frames: usize, block: usize) -> [Vec<f32>; 2] {
         let mut data = vec![0.0; 2 * block];
         let mut out = [Vec::new(), Vec::new()];
@@ -97,7 +89,6 @@ fn lane(points: &[(i64, f32, Shape)]) -> Option<AutoLane> {
     AutoLane::new(points.iter().map(|&(a, v, s)| point(a, v, s)).collect())
 }
 
-/// A track straight to the master, with `lanes`.
 fn routing(lanes: NodeAutomation) -> Routing {
     Routing {
         nodes: vec![
@@ -117,7 +108,6 @@ fn play(lanes: NodeAutomation, frames: usize) -> [Vec<f32>; 2] {
     rig(vec![clip(TRACK, &audio)], &routing(lanes)).run(frames, 128)
 }
 
-/// The largest change from one frame to the next.
 fn steepest(out: &[f32]) -> f32 {
     out.windows(2)
         .map(|w| (w[1] - w[0]).abs())
@@ -140,7 +130,6 @@ fn a_fader_lane_plays_its_level_at_every_sample() {
         },
         100_000,
     );
-    // Past the play fade-in, every frame is the audio at the lane's level.
     for n in 3_000..100_000 {
         let want = LEVEL * db_gain(fader.value_at(n as i64));
         assert!(
@@ -182,7 +171,6 @@ fn a_pan_lane_balances_the_sides_as_the_law_does() {
     );
     for n in 3_000..60_000 {
         let [l, r] = PanLaw::Balance.gains(pan.value_at(n as i64));
-        // The balance law bends at the centre, between two knots.
         assert!((left[n] - LEVEL * l).abs() < 0.011, "left {n}");
         assert!((right[n] - LEVEL * r).abs() < 0.011, "right {n}");
     }
@@ -225,7 +213,6 @@ fn a_mute_lane_steps_on_its_sample_and_ramps_over_a_millisecond() {
     assert_eq!(left[29_999], 0.0);
     assert!(left[30_024] > 0.0 && left[30_024] < LEVEL);
     assert_eq!(left[30_048], LEVEL);
-    // The ramp is what stops the click: no step bigger than one frame of it.
     assert!(steepest(&left[3_000..]) < LEVEL / 40.0);
 }
 
@@ -237,7 +224,6 @@ fn a_send_lane_scales_what_reaches_the_return() {
             NodeSpec::unity(MASTER, Destination::Hardware(0)),
             NodeSpec::unity(RETURN, Destination::Node(MASTER)),
             NodeSpec {
-                // Heard through the return only.
                 audible: false,
                 sends: vec![SendSpec {
                     to: RETURN,
@@ -262,8 +248,6 @@ fn a_send_lane_scales_what_reaches_the_return() {
 
 #[test]
 fn the_same_frames_at_any_block_size() {
-    // Audio whose every sample differs, through the production-sized
-    // automated routing: groups, returns and sends.
     let ramp = Arc::new(ClipAudio::Memory {
         sample_rate: RATE,
         channels: vec![
@@ -313,9 +297,6 @@ fn a_latent_device_does_not_move_a_lane_in_time() {
     });
     let audio = steady(LEVEL, 400_000);
     let delayed = rig(vec![clip(TRACK, &audio)], &latent).run(70_000, 128);
-    // The device delays the node's sound by its 240 frames, and the lane
-    // acts on the audio of its own moment: the two renders are the same sound
-    // 240 frames apart, every step and ramp on the same sample of it.
     let worst = (4_000..69_000)
         .map(|n| (plain[0][n] - delayed[0][n + 240]).abs())
         .fold(0.0, f32::max);
@@ -344,7 +325,6 @@ fn a_lane_edited_while_playing_glides_instead_of_clicking() {
         (out[15_900] - LEVEL * db_gain(-20.0)).abs() < 1e-5,
         "ends on the edit"
     );
-    // 20 ms is 960 frames: the fall is gentle, never a step.
     assert!(
         steepest(&out[3_000..]) < 0.001,
         "{}",
@@ -371,7 +351,6 @@ fn switching_a_lane_on_crossfades_the_plan() {
     }));
     out.extend(rig.run(8_000, 128)[0].iter());
     assert!((out[15_900] - LEVEL * db_gain(-20.0)).abs() < 1e-5);
-    // A 5 ms crossfade of 240 frames across a 0.45 fall.
     assert!(
         steepest(&out[3_000..]) < 0.003,
         "{}",

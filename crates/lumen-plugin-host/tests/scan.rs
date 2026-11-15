@@ -1,6 +1,3 @@
-//! Scanning a module in a child process: what a good module reports and
-//! every way a bad one can end, none of which may reach the test process.
-
 mod support;
 
 use std::path::Path;
@@ -131,8 +128,6 @@ fn a_host_binary_that_is_missing_is_unstarted() {
     assert!(matches!(outcome, ScanOutcome::Unstarted(_)), "{outcome:?}");
 }
 
-/// A standard program such as `true`, wherever this system keeps it: macOS has
-/// no `/bin/true` or `/bin/false`, only `/usr/bin`.
 fn unix_program(name: &str) -> std::path::PathBuf {
     ["/usr/bin", "/bin"]
         .iter()
@@ -144,7 +139,6 @@ fn unix_program(name: &str) -> std::path::PathBuf {
 #[cfg(unix)]
 #[test]
 fn a_child_that_ends_without_a_reply_is_malformed() {
-    // `true` exits cleanly and says nothing.
     let outcome = run_scan(
         &unix_program("true"),
         plugin(),
@@ -181,8 +175,6 @@ fn scans_do_not_disturb_each_other_when_run_side_by_side() {
     assert_eq!(hang.join().unwrap(), ScanOutcome::TimedOut);
 }
 
-/// A program that exits cleanly and says nothing, like a build of the host
-/// from before it could scan.
 fn silent_program() -> std::path::PathBuf {
     if cfg!(windows) {
         std::env::var_os("ComSpec").map_or_else(|| "cmd.exe".into(), Into::into)
@@ -212,8 +204,6 @@ fn a_missing_program_fails_the_check() {
 
 #[test]
 fn many_scans_at_once_all_get_their_replies() {
-    // Four at a time is what a rescan does; each must still hear its own
-    // child's answer, whatever the others hold open.
     let scans: Vec<_> = (0..12)
         .map(|_| std::thread::spawn(|| scan("", DEADLINE)))
         .collect();

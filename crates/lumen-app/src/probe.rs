@@ -1,11 +1,3 @@
-//! Safe ASIO driver queries (M2 slice 8, risk R6). Asking an ASIO driver
-//! what it offers means loading its code into the process, and some drivers
-//! hang on a dialog or crash when their hardware is missing. So the app asks
-//! a helper: itself, started as `lumen --probe-asio <clsid>`, which loads
-//! the one driver, prints what it offers as JSON and exits. A helper that
-//! crashes or takes longer than the timeout is reported as an unresponsive
-//! driver; Lumen itself is never at risk.
-
 use std::time::{Duration, Instant};
 
 use lumen_audio::{BufferSizes, DeviceId, DeviceInfo, DriverKind};
@@ -13,10 +5,8 @@ use serde::{Deserialize, Serialize};
 
 pub const FLAG: &str = "--probe-asio";
 const TIMEOUT: Duration = Duration::from_secs(5);
-/// How often the helper is looked at while it runs.
 const POLL: Duration = Duration::from_millis(20);
 
-/// What the helper reports.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Probed {
     pub name: String,
@@ -24,12 +14,10 @@ pub struct Probed {
     pub outputs: Vec<String>,
     pub rates: Vec<u32>,
     pub current_rate: Option<u32>,
-    /// min, max, preferred, granularity (absent: powers of two).
     pub buffers: Option<(u32, u32, u32, Option<u32>)>,
 }
 
 impl Probed {
-    /// Used by the helper, which exists only on Windows.
     #[cfg(any(windows, test))]
     pub fn from_info(info: &DeviceInfo) -> Self {
         Self {
@@ -67,7 +55,6 @@ impl Probed {
     }
 }
 
-/// The helper's side: probe `clsid`, print JSON, return the exit code.
 #[cfg(windows)]
 pub fn run_helper(clsid: &str) -> i32 {
     use lumen_audio::asio::AsioBackend;
@@ -88,7 +75,6 @@ pub fn run_helper(clsid: &str) -> i32 {
     let info = match backend.probe(&id, name) {
         Ok(info) => info,
         Err(e) => {
-            // The reason goes to stdout so the app can show it.
             println!("{e}");
             return 5;
         }
@@ -111,8 +97,6 @@ pub fn run_helper(_clsid: &str) -> i32 {
     2
 }
 
-/// Asks a helper process about `clsid`. Blocks up to the timeout, so call
-/// it from a background thread.
 pub fn probe_asio(clsid: &str) -> Result<DeviceInfo, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let mut child = std::process::Command::new(exe)

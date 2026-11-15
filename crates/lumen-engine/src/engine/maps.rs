@@ -1,6 +1,3 @@
-//! The tempo, meter and sample-rate maps in use: swapping in a new timeline,
-//! and keeping the playhead and the regions on their musical positions.
-
 use lumen_core::time::Ticks;
 
 use crate::declick::fade_frames;
@@ -10,7 +7,6 @@ use super::{Engine, Region};
 
 impl<S: Source> Engine<S> {
     pub(super) fn swap_timeline(&mut self, channels: usize) {
-        // One swap per block, and only when the old timeline has a home.
         if self.stash.is_some() {
             return;
         }
@@ -19,9 +15,6 @@ impl<S: Source> Engine<S> {
         };
         let at = self.ticks_now();
         let ahead = self.timeline.ticks_at(self.ahead, self.sample_rate);
-        // If the render position moves (a tempo change before it),
-        // crossfade from what the old timeline would have played, as every
-        // jump does.
         let rate = self.sample_rate;
         if self.lookahead == 0 && incoming.sample_at(ahead, rate) != self.ahead {
             self.capture_tail(channels);
@@ -45,11 +38,6 @@ impl<S: Source> Engine<S> {
         }
     }
 
-    /// After a tempo or rate change: the playhead at `at` and the render
-    /// position at `ahead`, the same musical positions in new samples.
-    /// When the render position is the same sample (an unchanged timeline,
-    /// or a tempo change after it), the audio carries on untouched. Call
-    /// after `Playhead::reposition`.
     pub(super) fn reposition(&mut self, at: Ticks, ahead: Ticks) {
         self.position = self.sample_at(at);
         let ahead = self.sample_at(ahead);

@@ -1,8 +1,3 @@
-//! A start's first step (M9 R8): take the instance, or hand the request to
-//! the Lumen that holds it. A start that hands over never reads or writes
-//! settings, opens audio or starts autosave; when the holder refuses or
-//! does not answer, it shows a small window of its own and nothing else.
-
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver};
 
@@ -13,9 +8,6 @@ use super::{Attempt, Claim, Instance, Listener, PATIENCE, Place, Request, claim}
 use crate::widgets::raised;
 use crate::{Launch, brand, fonts, motion, settings, theme};
 
-/// Takes the instance and returns it, or ends the process: at once when
-/// the running Lumen took the request, after its small window otherwise.
-/// `None` runs alone (no settings folder, or one that cannot be made).
 pub(crate) fn start(args: &[String]) -> Option<Instance> {
     let settings = Launch::settings_path(args)?;
     let Some(place) = Place::for_settings(&settings) else {
@@ -56,15 +48,11 @@ pub(crate) fn start(args: &[String]) -> Option<Instance> {
     }))
 }
 
-/// The small window of a start the running Lumen did not take.
 struct Stuck {
     args: Vec<String>,
     place: Place,
     request: Request,
-    /// The running Lumen's reason, when it refused; `None` when it did not
-    /// answer.
     why: Option<String>,
-    /// Try again, under way.
     retry: Option<Receiver<Claim>>,
     settings: PathBuf,
 }
@@ -109,9 +97,6 @@ impl Stuck {
         self.retry = None;
         match got {
             Claim::Handed => std::process::exit(0),
-            // The old one is gone: start again as the instance, with the
-            // same arguments. The lock is let go first, and the new start
-            // takes it (or hands over to whoever took it meanwhile).
             Claim::Owner(instance) => {
                 drop(instance);
                 let restarted = std::env::current_exe().and_then(|exe| {
@@ -139,8 +124,6 @@ impl eframe::App for Stuck {
         let frame = egui::Frame::new()
             .fill(theme::p().app)
             .inner_margin(egui::Margin::same(theme::space::XL as i8));
-        // The actions stay at the foot, in reach, however long the reason
-        // is (a refusal can hold a whole path): the words scroll above.
         egui::Panel::bottom("stuck actions")
             .frame(frame)
             .show_separator_line(false)
@@ -181,7 +164,6 @@ impl eframe::App for Stuck {
     }
 }
 
-/// The fonts, theme, motion and size from the settings' appearance.
 fn dress(ctx: &egui::Context, look: &settings::Appearance) {
     fonts::install(ctx);
     motion::set_reduced(look.reduce_motion);
@@ -193,9 +175,6 @@ fn dress(ctx: &egui::Context, look: &settings::Appearance) {
     ctx.set_zoom_factor(look.scale());
 }
 
-/// The window as a later start shows it, for shots: refused with `why`, or
-/// not answering. Its buttons do nothing harmful here: Try again claims a
-/// key no Lumen uses.
 pub(crate) fn preview(
     ctx: &egui::Context,
     why: Option<String>,
@@ -217,8 +196,6 @@ pub(crate) fn preview(
     })
 }
 
-/// Shows the window until it ends the process; the exit code if the
-/// window could not be shown.
 fn stuck(stuck: Stuck) -> i32 {
     eprintln!("{}. {}", stuck.heading(), stuck.words());
     let look = settings::peek(&stuck.settings).appearance;

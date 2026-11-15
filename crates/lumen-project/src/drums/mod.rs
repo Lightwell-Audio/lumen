@@ -1,12 +1,3 @@
-//! Drum maps as the song plays them (M8 slice D0, ADR-0142).
-//!
-//! A clip stores the map's **input** notes; what is heard is worked out here:
-//! [`played`] gives the note, channel and length a sound answers with, or
-//! nothing for a muted sound (or one no solo lets through). [`presets`] holds
-//! the built-in kits as code tables, [`icon`] guesses a sound's drawing from
-//! its name, and [`convert`] rewrites a clip's notes from one map to another
-//! when the user asks for it (the one destructive drum edit).
-
 use lumen_core::time::Ticks;
 
 use crate::model::{DrumMap, Route, Sound};
@@ -18,49 +9,32 @@ pub mod presets;
 pub use convert::{Converted, convert_notes};
 pub use icon::icon_for_name;
 
-/// How a note sounds through a map: the note the instrument gets, the channel
-/// (none for the track's), a length override when the sound has one, and
-/// where the sound plays (M8 D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Played {
     pub key: u8,
     pub channel: Option<u8>,
     pub length: Option<Ticks>,
-    /// The track or output the sound's notes are heard on: the track's own
-    /// instrument by default, an output pair of it, or another instrument
-    /// track (§6.4). A note with no sound plays on the track's own.
     pub route: Route,
 }
 
 impl Played {
-    /// The length `note_length` plays with this sound's override.
     pub fn length_of(self, note_length: Ticks) -> Ticks {
         self.length.unwrap_or(note_length)
     }
 }
 
-/// How `input` sounds through `map`: nothing for a muted sound, or any
-/// unsoloed sound while one is soloed; a note with no sound plays as written.
-/// One note at a time: a clip reads the map once with [`Playing`].
 pub fn played(map: &DrumMap, input: u8) -> Option<Played> {
     Playing::new(map).played(input)
 }
 
-/// A map read for translating a whole clip: what each of the 128 input notes
-/// plays, and whether any sound is soloed, worked out once instead of for
-/// every note (M8 D0 review L7: a 100,000-note clip translates in O(notes)).
-/// Nothing is allocated: the table is 128 entries on the stack.
 #[derive(Clone, Copy)]
 pub struct Playing<'a> {
     map: &'a DrumMap,
     any_soloed: bool,
-    /// The index in the map's sounds of the first sound answering to each
-    /// input note (a map a file may hold can name one note twice).
     sounds: [Option<u16>; 128],
 }
 
 impl<'a> Playing<'a> {
-    /// Reads `map` once.
     pub fn new(map: &'a DrumMap) -> Self {
         let mut sounds = [None; 128];
         for (index, sound) in map.sounds.iter().enumerate() {
@@ -76,7 +50,6 @@ impl<'a> Playing<'a> {
         }
     }
 
-    /// How `input` sounds: as [`played`].
     pub fn played(&self, input: u8) -> Option<Played> {
         match self.sound(input) {
             Some(sound) if !self.heard(sound) => None,
@@ -99,16 +72,11 @@ impl<'a> Playing<'a> {
         self.sounds[usize::from(input)].and_then(|i| self.map.sounds.get(usize::from(i)))
     }
 
-    /// Whether a sound is heard, with "any soloed" read once.
     fn heard(&self, sound: &Sound) -> bool {
         !sound.mute && (sound.solo || !self.any_soloed)
     }
 }
 
-/// The key a recording keeps for a note that arrived as `key` (the owner's
-/// E4): the map's input note when `key` is one; otherwise the input note of
-/// the first sound that plays it, for a player whose pads send the notes the
-/// kit plays; otherwise `key` itself.
 pub fn store_key(map: &DrumMap, key: u8) -> u8 {
     if map.sound(key).is_some() {
         return key;
@@ -116,7 +84,6 @@ pub fn store_key(map: &DrumMap, key: u8) -> u8 {
     map.sound_playing(key).map_or(key, |sound| sound.input)
 }
 
-/// [`store_key`] for every note: what a recorder keeps of an incoming key.
 pub fn store_table(map: &DrumMap) -> [u8; 128] {
     let mut table = [0u8; 128];
     for (key, kept) in table.iter_mut().enumerate() {
@@ -125,8 +92,6 @@ pub fn store_table(map: &DrumMap) -> [u8; 128] {
     table
 }
 
-/// A sound of `name` on `input`, playing `output`, carrying the icon
-/// [`icon_for_name`] reads from the name.
 pub fn sound(name: impl Into<String>, input: u8, output: u8) -> Sound {
     let name = name.into();
     let icon = icon_for_name(&name);
@@ -167,8 +132,6 @@ mod tests {
 
     #[test]
     fn a_sound_carries_the_route_it_plays_on() {
-        // M8 D4: the translation says where a sound is heard, so the player
-        // can give the note to the right instrument.
         let mut kit = map(vec![
             Sound::new("Kick", 36, 40, DrumIcon::Kick),
             Sound::new("Snare", 38, 41, DrumIcon::Snare),
@@ -205,7 +168,6 @@ mod tests {
         kit.sounds[0].mute = true;
         assert!(played(&kit, 36).is_none(), "muted");
         assert!(played(&kit, 38).is_some());
-        // A muted sound that is also soloed stays silent.
         kit.sounds[0].solo = true;
         assert!(played(&kit, 36).is_none());
     }
@@ -218,7 +180,6 @@ mod tests {
         let heard = played(&kit, 36).expect("heard");
         assert_eq!(heard.channel, Some(9));
         assert_eq!(heard.length_of(Ticks(960)), Ticks(240));
-        // No override keeps the note's length.
         kit.sounds[0].length = None;
         let heard = played(&kit, 36).expect("heard");
         assert_eq!(heard.length_of(Ticks(960)), Ticks(960));
@@ -235,14 +196,11 @@ mod tests {
         assert_eq!(store_key(&kit, 60), 60, "anything else stays");
         let table = store_table(&kit);
         assert_eq!((table[40], table[60]), (36, 60));
-        // Two sounds playing one output note: the first wins.
         let both = map(vec![
             Sound::new("Snare", 38, 41, DrumIcon::Snare),
             Sound::new("Clap", 39, 41, DrumIcon::Clap),
         ]);
         assert_eq!(store_key(&both, 41), 38);
-        // A key that is an input note is kept, even when another sound plays
-        // it.
         let crossed = map(vec![
             Sound::new("Kick", 36, 40, DrumIcon::Kick),
             Sound::new("Snare", 40, 41, DrumIcon::Snare),

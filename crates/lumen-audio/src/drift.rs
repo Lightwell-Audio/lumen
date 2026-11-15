@@ -1,75 +1,35 @@
-//! Clock-drift correction for input that has its own clock (M9 slice R1,
-//! ADR-0100).
-//!
-//! WASAPI opens the input of a device as a stream apart from its output, and
-//! the two are not locked to each other: the input arrives in packets on the
-//! capture clock while the callback runs on the render clock. [`Corrected`]
-//! queues what arrives and hands the callback one block per render block. It
-//! keeps the queue near a target by slipping a frame now and then
-//! (rubato's `Slip`, with a short crossfade over each splice) instead of
-//! resampling, so there is no filter delay and no change to the sound
-//! between slips.
-//!
-//! Nothing here allocates after [`Corrected::new`], so it is safe to run
-//! next to the real-time callback.
-
 use rubato::audioadapter_buffers::direct::{InterleavedSlice, SequentialSlice};
 use rubato::{Adjustable, FixedAsync, Resampler, Slip};
 
-/// How many frames the queue can hold, in render blocks.
 const QUEUE_BLOCKS: usize = 16;
 
-/// Share of the distance to the queue level that each block's reading moves
-/// the smoothed level: about a second of memory at 100 blocks per second.
 const SMOOTHING: f64 = 0.01;
 
-/// Change in resample ratio per frame the smoothed level is below the
-/// target. Small on purpose: a real clock difference is tens of parts per
-/// million, and this settles it to a few dozen frames of offset.
 const GAIN: f64 = 4.0e-6;
 
-/// The most the correction may bend the rate, either way: half a percent,
-/// about a hundred times any difference between two real clocks, and inside
-/// what a slip can follow at every block size a queue is made for.
 const BEND: f64 = 0.005;
 
-/// The ratio to steer to for a smoothed level `smoothed` against `target`: a
-/// queue running low asks for a ratio above one, so fewer input frames are
-/// taken per output block. Clamped to [`BEND`], so a runaway estimate asks for
-/// no more than a slip can follow.
 fn ratio_for(target: f64, smoothed: f64) -> f64 {
     (1.0 + GAIN * (target - smoothed)).clamp(1.0 - BEND, 1.0 + BEND)
 }
 
-/// A queue between a capture clock and the render clock.
 pub struct Corrected {
     channels: usize,
     period: usize,
-    /// Frames to keep queued: the level at which delivery starts and the one
-    /// the correction steers to.
     target: usize,
     slip: Slip<f32>,
-    /// Interleaved frames waiting, oldest first.
     queue: Vec<f32>,
     queued: usize,
     smoothed: f64,
     primed: bool,
-    /// Scratch for a block that has to be padded with silence.
     padded: Vec<f32>,
     underruns: u64,
     overruns: u64,
-    /// The last ratio the slip took.
     ratio: f64,
-    /// Times the slip refused a ratio and the last good one was set again:
-    /// the capture clock is further from the render clock than a slip can
-    /// follow. Counted rather than dropped.
     ratio_failures: u64,
 }
 
 impl Corrected {
-    /// A queue for `channels` channels delivered `period` frames at a time,
-    /// which keeps `target` frames in hand (a block plus the most the device
-    /// hands over at once). `None` when `period` is too short to correct.
     pub fn new(channels: usize, period: usize, target: usize) -> Option<Self> {
         let slip = Slip::new(period, channels, FixedAsync::Output).ok()?;
         let target = target.max(period);
@@ -91,45 +51,35 @@ impl Corrected {
         })
     }
 
-    /// Frames kept in hand: the delay this adds to the input.
     pub fn target(&self) -> usize {
         self.target
     }
 
-    /// Frames waiting.
     #[cfg(test)]
     fn queued(&self) -> usize {
         self.queued
     }
 
-    /// Times the queue ran dry and delivery restarted.
     #[cfg(test)]
     fn underruns(&self) -> u64 {
         self.underruns
     }
 
-    /// Times the queue overflowed and the oldest frames were dropped.
     #[cfg(test)]
     fn overruns(&self) -> u64 {
         self.overruns
     }
 
-    /// The ratio the slip is running at.
     #[cfg(test)]
     fn ratio(&self) -> f64 {
         self.ratio
     }
 
-    /// Times the slip refused a ratio and the last good one was set again.
     #[cfg(test)]
     fn ratio_failures(&self) -> u64 {
         self.ratio_failures
     }
 
-    /// Steers the slip to `ratio`, keeping the last ratio that worked: a slip
-    /// that will not take it has already clamped to its own limit, so the
-    /// ratio it last took is set again, and the refusal is counted (sweep
-    /// M5g). Real-time safe: no allocation, no lock.
     fn steer(&mut self, ratio: f64) {
         match self.slip.set_resample_ratio(ratio, false) {
             Ok(()) => self.ratio = ratio,
@@ -140,15 +90,12 @@ impl Corrected {
         }
     }
 
-    /// Queues `samples`, interleaved. When the queue is full the oldest
-    /// frames are dropped to make room.
     pub fn push(&mut self, samples: &[f32]) {
         let channels = self.channels;
         let room = self.queue.len() / channels;
         let mut frames = samples.len() / channels;
         let mut samples = &samples[..frames * channels];
         if frames > room {
-            // More than the queue can ever hold: keep the newest.
             samples = &samples[(frames - room) * channels..];
             frames = room;
             self.overruns += 1;
@@ -165,9 +112,6 @@ impl Corrected {
         self.queued += frames;
     }
 
-    /// Fills `out` (`channels × period` samples, channel after channel) with
-    /// the next block. Silence until the queue has reached the target, and
-    /// again after it runs dry.
     pub fn pull(&mut self, out: &mut [f32]) {
         if !self.primed {
             if self.queued < self.target {
@@ -178,9 +122,6 @@ impl Corrected {
             self.smoothed = self.queued as f64;
         }
         self.smoothed += SMOOTHING * (self.queued as f64 - self.smoothed);
-        // A queue running low asks for a ratio above one: fewer input frames
-        // per output block. The ratio is clamped to what can be slipped, and a
-        // slip that still refuses it keeps the last one that worked.
         self.steer(ratio_for(self.target as f64, self.smoothed));
 
         let channels = self.channels;
@@ -190,8 +131,6 @@ impl Corrected {
             return;
         };
         if self.queued < need {
-            // Ran dry: play what there is, then silence, and wait for the
-            // queue to fill again.
             self.underruns += 1;
             let have = self.queued * channels;
             self.padded[..have].copy_from_slice(&self.queue[..have]);
@@ -221,19 +160,15 @@ mod tests {
     const PERIOD: usize = 480;
     const CHANNELS: usize = 2;
 
-    /// A capture that runs `ratio` times as fast as the render clock,
-    /// delivering `packet` frames at a time, for `seconds` of render time.
-    /// Returns what was heard (channel 0) and the queue.
     fn run(ratio: f64, packet: usize, seconds: usize) -> (Vec<f32>, Corrected) {
         let mut queue = Corrected::new(CHANNELS, PERIOD, PERIOD + packet).expect("queue");
         let blocks = seconds * 48_000 / PERIOD;
         let mut heard = Vec::with_capacity(blocks * PERIOD);
-        let mut produced = 0.0_f64; // capture frames made so far
-        let mut delivered = 0_usize; // capture frames handed to the queue
+        let mut produced = 0.0_f64;
+        let mut delivered = 0_usize;
         let mut out = vec![0.0; CHANNELS * PERIOD];
         for _ in 0..blocks {
             produced += PERIOD as f64 * ratio;
-            // The device hands over whole packets as they complete.
             while (delivered + packet) as f64 <= produced {
                 let mut samples = Vec::with_capacity(packet * CHANNELS);
                 for frame in delivered..delivered + packet {
@@ -282,7 +217,7 @@ mod tests {
         queue.pull(&mut out);
         assert_eq!(queue.underruns(), 1);
         assert!(out.iter().all(|&s| s == 0.0));
-        queue.pull(&mut out); // re-priming
+        queue.pull(&mut out);
         assert!(out.iter().all(|&s| s == 0.0));
         queue.push(&[0.25; 64]);
         queue.pull(&mut out);
@@ -291,8 +226,6 @@ mod tests {
 
     #[test]
     fn a_slip_leaves_no_click() {
-        // A pure tone through a clock that is 0.05% fast: the steepest step
-        // between neighbouring samples stays near the tone's own.
         let (heard, queue) = run(1.0005, 480, 20);
         assert_eq!(queue.underruns(), 0);
         let steepest = heard[PERIOD * 100..]
@@ -319,41 +252,31 @@ mod tests {
         assert!(Corrected::new(2, 2, 2).is_none());
     }
 
-    /// An estimate that has run away asks for no more than a slip can follow,
-    /// and a real clock difference is nowhere near the clamp (sweep M5g).
     #[test]
     fn an_extreme_estimate_is_clamped_to_what_a_slip_can_follow() {
         assert_eq!(ratio_for(1_000.0, -1.0e9), 1.0 + BEND);
         assert_eq!(ratio_for(1_000.0, 1.0e9), 1.0 - BEND);
         assert_eq!(ratio_for(1_000.0, 1_000.0), 1.0);
-        // A hundred frames short at 48 kHz: about two parts per thousand.
         let ratio = ratio_for(1_000.0, 900.0);
         assert!((ratio - (1.0 + 4.0e-4)).abs() < 1e-12, "{ratio}");
     }
 
-    /// A block run with a level nothing could explain still leaves the slip at
-    /// a ratio it can follow, and none of it is a refusal (sweep M5g).
     #[test]
     fn a_runaway_level_run_stays_inside_the_clamp() {
         let mut queue = Corrected::new(1, 64, 64).expect("queue");
         queue.push(&[0.0; 64]);
         let mut out = vec![0.0; 64];
         queue.pull(&mut out);
-        // What a broken estimate would leave behind.
         queue.smoothed = -1.0e9;
         queue.pull(&mut out);
         assert_eq!(queue.ratio(), 1.0 + BEND);
         assert_eq!(queue.ratio_failures(), 0, "the clamp kept it in range");
     }
 
-    /// A ratio the slip refuses is survived: the last good one is set again
-    /// and the refusal is counted, so playback does not stop steering (sweep
-    /// M5g).
     #[test]
     fn a_refused_ratio_keeps_the_last_one_and_is_counted() {
         let mut queue = Corrected::new(CHANNELS, PERIOD, PERIOD).expect("queue");
         assert_eq!(queue.ratio(), 1.0);
-        // Past what a slip follows: it clamps to its own limit and says so.
         queue.steer(1.5);
         assert_eq!(queue.ratio_failures(), 1);
         assert_eq!(queue.ratio(), 1.0, "the last ratio that worked is back");
@@ -364,7 +287,6 @@ mod tests {
             "an accepted change is no failure"
         );
         assert!((queue.ratio() - 1.001).abs() < 1e-12, "{}", queue.ratio());
-        // And the queue still plays after the refusal.
         let mut out = vec![0.0; CHANNELS * PERIOD];
         queue.push(&[0.5; CHANNELS * PERIOD]);
         queue.pull(&mut out);

@@ -1,6 +1,3 @@
-//! Horizon's card: where the line, the sun and the land stand, what the line's
-//! drag writes, and what the land keeps of what the device heard.
-
 use eframe::egui::{Rect, pos2};
 use lumen_devices::MeterReading;
 
@@ -62,7 +59,6 @@ fn the_card_has_three_dials_a_pill_and_one_handle() {
         ]
     );
     assert_eq!(DRAWING.handles[0].param, device::CEILING);
-    // The pill is right of the dials and above the "All n" link.
     let card = Rect::from_min_size(pos2(0.0, 0.0), WHOLE);
     let pill = (DRAWING.controls[3].place)(card);
     let last = (DRAWING.controls[2].place)(card);
@@ -79,7 +75,6 @@ fn the_specimens_ceiling_is_at_36_percent_down_and_the_scale_round_trips() {
         let back = level_at(y_of(db, rect), rect);
         assert!((back - db).abs() < 1e-3, "{db}: {back}");
     }
-    // A louder level is higher on the screen.
     assert!(y_of(-3.0, rect) < y_of(-12.0, rect));
 }
 
@@ -98,7 +93,6 @@ fn the_lines_drag_maps_its_place_back_to_the_ceiling() {
         );
         assert!(grab.contains(pos2(100.0, y_of(ceiling, rect))));
     }
-    // Lower on the screen is a lower ceiling.
     let slots = slots(&[]);
     let v = values(&slots);
     assert!(ceiling_at(&v, pos2(0.0, 200.0), rect) < ceiling_at(&v, pos2(0.0, 100.0), rect));
@@ -132,7 +126,6 @@ fn the_resting_land_stays_under_the_line() {
     }
 }
 
-/// A scene over `slots`, hearing `level`, with the meter's `reading`.
 fn scene<'a>(
     painter: &'a eframe::egui::Painter,
     slots: &'a [Slot],
@@ -170,12 +163,10 @@ fn the_land_keeps_what_the_device_heard_and_nothing_when_still_or_silent() {
         reduction_db: 2.0,
         input_db: -6.0,
     };
-    // Still (no reading) or silent (no level): nothing was heard, nothing kept.
     let (levels, flow) = heard(&scene(&painter, &slots, 0.0, None));
     assert!(levels.iter().all(|l| l.is_nan()) && flow == 0.0);
     let (levels, _) = heard(&scene(&painter, &slots, 0.0, Some(reading)));
     assert!(levels.iter().all(|l| l.is_nan()));
-    // Hearing something: the newest level is the last column.
     let (levels, _) = heard(&scene(&painter, &slots, 0.6, Some(reading)));
     assert_eq!(levels[COLUMNS - 1], -6.0);
     assert!(levels[COLUMNS - 2].is_nan());

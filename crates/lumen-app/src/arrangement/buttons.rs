@@ -1,10 +1,3 @@
-//! The M and S buttons (S is a headphone button on Cue), shared by track
-//! headers and mixer strips (M4 slice 5): pieces of one sunk well on
-//! headers and strips (M9 slice R1b, ADR-0101; the interface audit's X1);
-//! lit when set on that track, a hollow ring when the track is silenced by
-//! another's solo or a muted group (M), or heard through a soloed group (S)
-//! (the owner's choice, slice 4).
-
 use eframe::egui::{self, Align2, Id as EguiId, Rect, Sense, Stroke, Ui};
 use eframe::emath::GuiRounding as _;
 use lumen_project::automation::Target;
@@ -18,12 +11,9 @@ use crate::theme::{self, Tone};
 use crate::widgets::{raised, well};
 use crate::{fonts, motion};
 
-/// How strongly a hollow M and S fill with their colour (the design
-/// system's `.is-hollow-m` and `.is-hollow-s`).
 const HOLLOW_MUTE: f32 = 0.14;
 const HOLLOW_SOLO: f32 = 0.12;
 
-/// The M and S buttons; S is a headphone button on Cue.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Toggle {
     Mute,
@@ -32,10 +22,6 @@ enum Toggle {
 }
 
 impl Arrangement {
-    /// Draws `track`'s M and S buttons in `mute_rect` and `solo_rect` and
-    /// applies their clicks (to the selection when the track is in it).
-    /// `place` ends their accessible names ("" on headers, " in the mixer"
-    /// on strips), so each control has a name of its own.
     pub(super) fn mute_solo(
         &mut self,
         ui: &mut Ui,
@@ -47,15 +33,9 @@ impl Arrangement {
     ) {
         let palette = *theme::p();
         let modifiers = ui.input(|i| i.modifiers);
-        // M and S: lit when set on this track; a hollow ring when the
-        // track is silenced by another's solo or a muted group (M), or
-        // heard through a soloed group (S) (the owner's choice, slice 4).
         let additive = self.additive_solo;
-        // On Cue (the master's switch), the S button cues the track to
-        // the headphones instead (the owner's C1).
         let cueing = self.cue.cueing();
         let cued = self.cued.contains(&track.id);
-        // A mute lane that plays decides what M shows (M7 slice A4a).
         let muted = super::follow::muted(self.shown(
             doc,
             track,
@@ -64,8 +44,6 @@ impl Arrangement {
         ));
         let mute_over = self.taken_over(doc, track, Target::Mute);
         let toggle = |ui: &mut Ui, r: Rect, button: Toggle, tone: Tone| {
-            // The ring and letter of a hollow button: mute's grey for M, the
-            // accent for S and cue; its fill the same colour, faint.
             let (accent, faint) = match button {
                 Toggle::Mute => (palette.mute, HOLLOW_MUTE),
                 Toggle::Solo | Toggle::Cue => (palette.accent, HOLLOW_SOLO),
@@ -108,17 +86,12 @@ impl Arrangement {
                 )
             });
             let hover = motion::hover(ui.ctx(), id.with(what).with("hover"), response.hovered());
-            // Lighting up and going out cross-fade (`FAST`, M4.5).
             let lit = motion::hover(ui.ctx(), id.with(what).with("lit"), on);
-            // The design system's TrackButtons (ADR-0052): a lit M is
-            // `mute`, a lit S and the lit cue are filled accent.
             let face = raised::Face::new(look)
                 .hover(hover)
                 .pressed(response.is_pointer_button_down_on())
                 .lit(lit, tone);
             let r = r.round_to_pixels(ui.pixels_per_point());
-            // Pieces of one sunk well, on headers (ADR-0101) and mixer
-            // strips (the interface audit's X1–X4).
             let radius = well::PIECE_RADIUS;
             let ink = well::paint_piece(ui.painter(), r, &face);
             if mute_over && button == Toggle::Mute {
@@ -127,7 +100,6 @@ impl Arrangement {
             let p = ui.painter();
             let mut text = ink;
             if implied && !on {
-                // Hollow: the state's colour as a ring, the letter in it.
                 p.rect_filled(r, f32::from(radius), accent.gamma_multiply(faint));
                 p.rect_stroke(
                     r,
@@ -163,8 +135,6 @@ impl Arrangement {
             Target::Mute,
         );
         waiting_ring(ui, &self.auto, mute_rect, track.id, Target::Mute);
-        // Exclusive by default: a click solos (or cues) this track
-        // alone, Ctrl+click adds it; the additive preference swaps them.
         let exclusive = modifiers.command == additive;
         if cueing {
             if toggle(ui, solo_rect, Toggle::Cue, Tone::Accent) {

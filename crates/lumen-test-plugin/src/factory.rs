@@ -1,6 +1,3 @@
-//! The module's class factory: four classes, an instrument and an effect,
-//! each an audio component with its own controller.
-
 use std::ffi::c_void;
 
 use vst3::Steinberg::{
@@ -65,7 +62,6 @@ impl Class for Factory {
 
 impl IPluginFactoryTrait for Factory {
     unsafe fn getFactoryInfo(&self, info: *mut PFactoryInfo) -> tresult {
-        // SAFETY: the host passes a valid out pointer.
         let info = unsafe { &mut *info };
         copy_cstring(VENDOR, &mut info.vendor);
         copy_cstring("", &mut info.url);
@@ -82,7 +78,6 @@ impl IPluginFactoryTrait for Factory {
         let Some(class) = usize::try_from(index).ok().and_then(|i| CLASSES.get(i)) else {
             return kInvalidArgument;
         };
-        // SAFETY: the host passes a valid out pointer.
         let info = unsafe { &mut *info };
         info.cid = class.cid;
         info.cardinality = PClassInfo_::ClassCardinality_::kManyInstances as int32;
@@ -100,7 +95,6 @@ impl IPluginFactoryTrait for Factory {
         if cid.is_null() || iid.is_null() || obj.is_null() {
             return kInvalidArgument;
         }
-        // SAFETY: both ids are 16-byte TUIDs per the VST3 ABI.
         let cid = unsafe { *cid.cast::<TUID>() };
         let faults = Faults::from_env();
         let instance = if cid == INSTRUMENT {
@@ -118,7 +112,6 @@ impl IPluginFactoryTrait for Factory {
             return kInvalidArgument;
         };
         let raw = instance.as_ptr();
-        // SAFETY: a live object; the vtable's `queryInterface` fills `obj`.
         unsafe { ((*(*raw).vtbl).queryInterface)(raw, iid.cast_mut().cast::<TUID>(), obj) }
     }
 }
@@ -128,7 +121,6 @@ impl IPluginFactory2Trait for Factory {
         let Some(class) = usize::try_from(index).ok().and_then(|i| CLASSES.get(i)) else {
             return kInvalidArgument;
         };
-        // SAFETY: the host passes a valid out pointer.
         let info = unsafe { &mut *info };
         info.cid = class.cid;
         info.cardinality = PClassInfo_::ClassCardinality_::kManyInstances as int32;
@@ -143,8 +135,6 @@ impl IPluginFactory2Trait for Factory {
     }
 }
 
-/// An audio component with the given faults, for in-process tests. A host
-/// gets the same object from the factory, with the environment's faults.
 pub fn component(kind: Kind, faults: Faults) -> ComWrapper<Processor> {
     let paired = match kind {
         Kind::Instrument => INSTRUMENT_CONTROLLER,
@@ -153,20 +143,16 @@ pub fn component(kind: Kind, faults: Faults) -> ComWrapper<Processor> {
     ComWrapper::new(Processor::new(kind, paired, faults))
 }
 
-/// An edit controller with the given faults, for in-process tests.
 pub fn controller(kind: Kind, faults: Faults) -> ComWrapper<Controller> {
     ComWrapper::new(Controller::new(kind, faults))
 }
 
-/// An owned factory, for in-process tests.
 pub fn factory() -> vst3::ComPtr<IPluginFactory> {
     ComWrapper::new(Factory)
         .to_com_ptr::<IPluginFactory>()
         .expect("Factory implements IPluginFactory")
 }
 
-/// What `GetPluginFactory` returns: a new reference, or null or a crash or
-/// a hang when the environment asks for one of those faults.
 pub fn plugin_factory() -> *mut IPluginFactory {
     let faults = Faults::from_env();
     if faults.has(Fault::FactoryCrash) {

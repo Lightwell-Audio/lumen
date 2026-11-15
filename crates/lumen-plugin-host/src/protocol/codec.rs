@@ -1,5 +1,3 @@
-//! The wire form of every request and response (a tag, then fields in order).
-
 use super::*;
 use crate::shm::{Layout, Waiting, Wake};
 use crate::wire::{Reader, WireError, Writer};
@@ -29,7 +27,6 @@ fn read_bounds(r: &mut Reader<'_>) -> Result<Option<EditorBounds>, WireError> {
         height: r.u32()?,
         dpi: r.u32()?,
     };
-    // A size a window could never have is a message that lies.
     if bounds.width > MAX_EDITOR_SIDE || bounds.height > MAX_EDITOR_SIDE || bounds.dpi > 2_000 {
         return Err(WireError::Invalid("editor bounds"));
     }
@@ -97,7 +94,6 @@ fn get_audio(r: &mut Reader<'_>, what: &'static str) -> Result<Vec<Vec<f32>>, Wi
         }
         out.push(channel);
     }
-    // A block is rectangular: every channel is the same length.
     if out.windows(2).any(|w| w[0].len() != w[1].len()) {
         return Err(WireError::Invalid("channel lengths"));
     }

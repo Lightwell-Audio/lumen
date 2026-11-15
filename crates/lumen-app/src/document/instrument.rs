@@ -1,9 +1,3 @@
-//! What plays a MIDI track (M5 slice 1, format v12): its built-in
-//! instrument and its MIDI output. Each is one undo step. A track plays its
-//! instrument or a MIDI output port, one or the other (the owner's T1):
-//! choosing a port keeps the instrument on the track for switching back,
-//! and choosing an instrument switches the track back to it.
-
 use std::sync::Arc;
 
 use lumen_devices::Preset;
@@ -13,20 +7,14 @@ use lumen_project::model::{
 
 use super::Document;
 
-/// The sound new MIDI tracks get (the owner's S1).
 pub const DEFAULT_PRESET: Preset = Preset::Poly;
 
-/// The synth's device on `preset`: its stable name in the project and the
-/// values that make the sound (M8 slice B4). The preset's name stays in the
-/// device's state as the record of where the sound started; what plays is
-/// always the values.
 pub fn synth_device(id: Id, preset: Preset) -> Device {
     let mut device = Device::synth(id, preset.id());
     device.params = synth_values(preset);
     device
 }
 
-/// A preset as the values a project saves for a device's parameters.
 pub fn synth_values(preset: Preset) -> std::collections::BTreeMap<u32, f64> {
     preset
         .values()
@@ -35,12 +23,6 @@ pub fn synth_values(preset: Preset) -> std::collections::BTreeMap<u32, f64> {
         .collect()
 }
 
-/// Gives every synth in `project` the values its sound is made of, where it
-/// holds none: a file from before format v36 is migrated when it is read, so
-/// this is the safeguard for a device a test or a tool made without them (and
-/// it keeps what is shown and what is heard the same). The values are the
-/// preset's — the sound it would play — and the preset's name stays as the
-/// record. Returns whether anything was filled.
 pub fn fill_synth_values(project: &mut Project) -> bool {
     fn fill(track: &mut Track) -> bool {
         let mut filled = false;
@@ -66,9 +48,6 @@ pub fn fill_synth_values(project: &mut Project) -> bool {
 }
 
 impl Document {
-    /// Gives MIDI tracks among `ids` the synth on `preset`, or takes the
-    /// instrument away (`None`). A track that was playing to a MIDI output
-    /// plays its instrument again.
     pub fn set_instrument(&mut self, ids: &[Id], preset: Option<Preset>) {
         let tracks: Vec<(Id, Id)> = self
             .project()
@@ -94,13 +73,8 @@ impl Document {
             match preset {
                 Some(p) => {
                     track.midi_to = None;
-                    // One instrument a track: choosing the synth replaces a
-                    // plugin instrument (the owner's D4).
                     track.devices.retain(|d| d.is_synth() || !d.is_instrument());
                     match track.devices.iter_mut().find(|d| d.is_synth()) {
-                        // Another preset is another set of values (M8 slice
-                        // B4): the name stays as the record, the values are
-                        // the sound.
                         Some(synth) => {
                             synth.state = p.id().as_bytes().to_vec();
                             synth.params = synth_values(p);
@@ -114,8 +88,6 @@ impl Document {
         });
     }
 
-    /// Sends the notes of MIDI tracks among `ids` to a MIDI output
-    /// (`Some`), or back to their instrument (`None`).
     pub fn set_midi_to(&mut self, ids: &[Id], to: Option<MidiTo>) {
         let label = match &to {
             Some(out) => format!("MIDI To: {} {}", out.port, out.channel + 1),
@@ -138,7 +110,6 @@ impl Document {
         self.edit_tracks(&label, &midi, |track| track.midi_to = to.clone());
     }
 
-    /// Chooses which inputs MIDI tracks among `ids` listen to (format v13).
     pub fn set_midi_from(&mut self, ids: &[Id], from: MidiFrom) {
         let midi: Vec<Id> = self
             .project()
@@ -165,8 +136,6 @@ impl Document {
         self.edit_tracks(&label, &midi, |track| track.midi_from = from.clone());
     }
 
-    /// Chooses the device inputs audio tracks among `ids` record from and
-    /// monitor (format v30, M9 slice R1), or takes the input away (`None`).
     pub fn set_audio_input(&mut self, ids: &[Id], input: Option<AudioInput>) {
         let audio: Vec<Id> = self
             .project()
@@ -188,7 +157,6 @@ impl Document {
         self.edit_tracks(&label, &audio, |track| track.input = input);
     }
 
-    /// Sets when tracks among `ids` monitor their input (format v13).
     pub fn set_monitor(&mut self, ids: &[Id], monitor: Monitor) {
         let label = format!(
             "Monitor: {}",
@@ -231,7 +199,6 @@ mod tests {
         let synth = track(&doc, id).instrument().expect("an instrument");
         assert_eq!(synth.preset(), Some("poly"));
         assert!(track(&doc, id).midi_to.is_none());
-        // Audio tracks have none.
         let mut doc = Document::new(crate::empty_project());
         let audio = doc.add_track(TrackKind::Audio, None);
         assert!(track(&doc, audio).devices.is_empty());
@@ -259,7 +226,6 @@ mod tests {
         doc.set_instrument(&[id], Some(Preset::Bass));
         let t = track(&doc, id);
         assert_eq!(t.instrument().unwrap().preset(), Some("bass"));
-        // The new device has an id of its own.
         let ids: std::collections::HashSet<_> = lumen_project::routing::all_tracks(doc.project())
             .flat_map(|t| t.devices.iter().map(|d| d.id))
             .collect();
@@ -333,7 +299,6 @@ mod tests {
         doc.set_midi_from(&[midi], from(FromSource::All, Some(16)));
         doc.set_midi_from(&[midi], from(FromSource::Port(String::new()), None));
         assert_eq!(doc.state(), state);
-        // Monitor is kept on every kind of track.
         doc.set_monitor(&[audio], Monitor::Off);
         assert_eq!(track(&doc, audio).monitor, Monitor::Off);
     }
@@ -367,7 +332,6 @@ mod tests {
         doc.redo();
         doc.set_audio_input(&[a], None);
         assert_eq!(track(&doc, a).input, None);
-        // Beyond the most inputs a project routes is ignored, not stored.
         let before = doc.state();
         doc.set_audio_input(
             &[a],
@@ -383,11 +347,9 @@ mod tests {
         doc.set_audio_input(&[a], Some(AudioInput::mono(0)));
         doc.set_armed(&[b], true);
         assert_eq!(track(&doc, b).input, Some(AudioInput::mono(1)));
-        // One undo takes the arm and the input back together.
         doc.undo();
         assert!(!track(&doc, b).armed);
         assert_eq!(track(&doc, b).input, None);
-        // A track that already has an input keeps it.
         doc.set_audio_input(&[b], Some(AudioInput::mono(0)));
         doc.set_armed(&[b], true);
         assert_eq!(track(&doc, b).input, Some(AudioInput::mono(0)));

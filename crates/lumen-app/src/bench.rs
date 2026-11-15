@@ -1,38 +1,14 @@
-//! The arrangement's frame-time benchmark (M3 slice 4b; the quality bar's
-//! "60 fps minimum, 120 target with 200 tracks and 20,000 clips").
-//!
-//! `--stress` opens the generated quality-bar project. `--bench-frames
-//! <out.json>` then runs with vsync off and drives the view: a warm-up,
-//! then horizontal scrolling, vertical scrolling and zooming, recording the
-//! time between frames in each phase. Last it sits idle for three seconds
-//! and counts repaints (near-zero idle CPU). It writes the report, prints
-//! it, and exits with status 3 if any phase misses 60 fps at the 99th
-//! percentile. CI has no GPU, so this runs on the development machine
-//! (ADR-0011); results are recorded in `docs/PROGRESS.md`.
-
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-/// Frames per measured phase.
 const FRAMES: usize = 600;
-/// Frames rendered before measuring (pipelines, caches, text layout).
 const WARM_UP: usize = 120;
-/// How long the idle phase measures.
 const IDLE: Duration = Duration::from_secs(3);
-/// Idle is measured from this long after the last driven frame: once what
-/// the scrolling started has finished (M4.5: the scroll bar lingers 0.8 s,
-/// then fades; with vsync off its fade alone was 30 to 140 frames).
 const SETTLE: Duration = Duration::from_millis(1500);
-/// The floor: 60 fps.
 const FLOOR_MS: f64 = 1000.0 / 60.0;
 
-/// Notes in the stress project's dense clip (the quality bar's 100,000
-/// notes, M5 slice 3b).
 pub const DENSE_NOTES: usize = 100_000;
 
-/// Gives every track of the stress project a volume lane of 200 points
-/// (`--bench-lanes`), a slow wave across 400 beats, for the lanes' drawing
-/// to be measured with all 200 tracks showing one.
 pub fn add_lanes(project: &mut lumen_project::model::Project) {
     use lumen_core::automation::{Lane, Point};
     use lumen_core::time::Ticks;
@@ -53,9 +29,6 @@ pub fn add_lanes(project: &mut lumen_project::model::Project) {
     }
 }
 
-/// Adds the stress project's dense MIDI track: one clip of
-/// [`DENSE_NOTES`] notes across 400 beats over a six-octave range, for the
-/// arrangement's mini notes and the piano roll to be measured on.
 pub fn add_dense_midi(project: &mut lumen_project::model::Project) {
     use lumen_core::time::{PPQ, Ticks};
     use lumen_project::model::{Clip, ClipContent, Id, Note};
@@ -112,9 +85,6 @@ pub fn add_dense_midi(project: &mut lumen_project::model::Project) {
     project.tracks.push(Arc::new(track));
 }
 
-/// Ten seconds of drum-like stereo audio at `rate` for the stress
-/// project's files: a kick on every beat at 120 BPM, a hat between, and a
-/// slow swell, so its waveforms have real detail at every zoom.
 pub fn stress_audio(rate: u32) -> Vec<Vec<f32>> {
     let rate_f = rate as f32;
     let mut noise = 0x2545_F491_u32;
@@ -140,7 +110,6 @@ pub fn stress_audio(rate: u32) -> Vec<Vec<f32>> {
     vec![left, right]
 }
 
-/// What a measured phase does to the view.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Phase {
     WarmUp,
@@ -174,22 +143,16 @@ impl Phase {
     }
 }
 
-/// Where the benchmark puts the view this frame.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct View {
     pub left_beat: f32,
     pub px_per_beat: f32,
-    /// Vertical scroll as a fraction of the scrollable height.
     pub top: f32,
 }
 
-/// What the app does this frame.
 pub enum Step {
-    /// Show this view and draw the next frame at once.
     Drive(View),
-    /// Leave the view alone and do not ask for frames.
     Idle,
-    /// Finished: the report, and whether every phase met the floor.
     Done(String, bool),
 }
 
@@ -198,17 +161,11 @@ pub struct Bench {
     phase: Phase,
     frame: usize,
     last: Option<Instant>,
-    /// Milliseconds between frames, per measured phase.
     times: Vec<(Phase, Vec<f64>)>,
     idle_since: Option<Instant>,
     idle_frames: u32,
-    /// The current frame is a counted idle repaint.
     counting: bool,
-    /// What asked for each idle repaint ("file:line reason"), with counts.
     idle_causes: std::collections::BTreeMap<String, u32>,
-    /// `--bench-editor`: the dense clip is open in the clip editor, which
-    /// is driven to the arrangement's scroll and zoom and scrolls its pitches
-    /// with the tracks (M5 slice 3; the roll has its own view, ADR-0048).
     editor: bool,
 }
 
@@ -231,18 +188,15 @@ impl Bench {
         }
     }
 
-    /// Measures with the dense clip open in the clip editor.
     pub fn with_editor(mut self, editor: bool) -> Self {
         self.editor = editor;
         self
     }
 
-    /// The dense clip is to be open in the clip editor.
     pub fn editor(&self) -> bool {
         self.editor
     }
 
-    /// Notes what caused an idle repaint (egui's repaint causes).
     pub fn idle_cause(&mut self, cause: String) {
         if !self.counting {
             return;
@@ -254,7 +208,6 @@ impl Bench {
         &self.out
     }
 
-    /// Call once at the start of every frame.
     pub fn step(&mut self, now: Instant) -> Step {
         let length = match self.phase {
             Phase::WarmUp => WARM_UP,
@@ -267,7 +220,6 @@ impl Bench {
             self.phase = next;
             self.frame = 0;
         }
-        // The time since the previous frame belongs to this frame's phase.
         if let Some(last) = self.last.replace(now)
             && let Some((_, times)) = self.times.iter_mut().find(|(p, _)| *p == self.phase)
         {
@@ -279,8 +231,6 @@ impl Bench {
             if at >= SETTLE + IDLE {
                 return self.finish();
             }
-            // The frames just after the last driven one settle it (egui
-            // lays out twice after a change); idle is measured after that.
             self.counting = at >= SETTLE;
             if self.counting {
                 self.idle_frames += 1;
@@ -292,9 +242,6 @@ impl Bench {
         Step::Drive(view(self.phase, t))
     }
 
-    /// When to wake for the frame that ends the idle phase: once, a little
-    /// late, since timers can fire early and a wake that is too early
-    /// would schedule another (and be counted).
     pub fn idle_left(&self, now: Instant) -> Duration {
         let end = SETTLE + IDLE + Duration::from_millis(20);
         self.idle_since
@@ -355,11 +302,9 @@ impl Bench {
     }
 }
 
-/// The view at fraction `t` of a phase.
 fn view(phase: Phase, t: f32) -> View {
     let wave = 0.5 - 0.5 * (t * std::f32::consts::TAU).cos();
     match phase {
-        // The project spans 400 beats; sweep across most of it and back.
         Phase::ScrollTime => View {
             left_beat: 340.0 * wave,
             px_per_beat: 24.0,
@@ -370,7 +315,6 @@ fn view(phase: Phase, t: f32) -> View {
             px_per_beat: 24.0,
             top: wave,
         },
-        // From the closest zoom out to the whole project and back.
         Phase::Zoom => View {
             left_beat: 0.0,
             px_per_beat: 400.0 * (2.0_f32 / 400.0).powf(wave),
@@ -445,7 +389,6 @@ mod tests {
                 Phase::Idle
             ]
         );
-        // Every measured phase recorded a frame time for each frame.
         for (phase, times) in &bench.times {
             assert_eq!(times.len(), FRAMES, "{phase:?}");
         }

@@ -1,14 +1,8 @@
-//! The edge between the track headers and the lanes: drag to size them.
-
 use eframe::egui::{self, Sense};
 
 use crate::{App, arrangement, motion, widgets};
 
 impl App {
-    /// The edge between the track headers and the lanes (MT-MIX-3 run 1):
-    /// drag to widen the headers, double-click to go back to the default
-    /// width. It glows in the accent while hovered or dragged, as a track's
-    /// bottom edge does. Not an edit: saved with the project's view.
     pub(super) fn header_divider(&mut self, ui: &mut egui::Ui, edge: egui::Rect, line: f32) {
         let id = ui.id().with("header divider");
         let response = ui

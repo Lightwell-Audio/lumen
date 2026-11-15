@@ -1,7 +1,3 @@
-//! MIDI devices (M5 slice 0): ports appear and disappear with hot-plug in
-//! the settings' MIDI page, the switches open them, are saved, and come
-//! back with the device; a port that will not open says so.
-
 use lumen_midi::Direction;
 use lumen_midi::fake::FakeControl;
 
@@ -19,23 +15,18 @@ fn open_midi_page(lumen: &mut Lumen) {
     lumen.open_midi_settings();
 }
 
-/// Runs frames until the page shows (or no longer shows) `label`.
 #[track_caller]
 fn until_shown(lumen: &mut Lumen, label: &str, shown: bool) {
     let what = format!("{label:?} {}", if shown { "appearing" } else { "leaving" });
     lumen.run_until(&what, |l| l.shows(label) == shown);
 }
 
-/// Runs frames until the switch named `label` is (or is no longer) on. A
-/// switch shows the MIDI worker's published state, which follows a click
-/// only after a round trip to that thread: never read it straight after one.
 #[track_caller]
 fn until_on(lumen: &mut Lumen, label: &str, on: bool) {
     let what = format!("{label:?} turning {}", if on { "on" } else { "off" });
     lumen.run_until(&what, |l| l.is_on(label) == on);
 }
 
-/// Runs frames until `open` input ports are open on the fake system.
 #[track_caller]
 fn until_open_inputs(lumen: &mut Lumen, fake: &FakeControl, open: usize) {
     lumen.run_until("the input ports opening", |_| fake.open_inputs() == open);
@@ -82,7 +73,6 @@ fn a_switch_opens_the_port_and_is_remembered_with_the_device() {
         [("input".to_owned(), "Keystation".to_owned(), true, false)]
     );
 
-    // Unplugged and plugged back: it opens again without another click.
     fake.unplug(Direction::Input, "Keystation");
     until_shown(&mut lumen, "Track Keystation input", false);
     assert_eq!(fake.open_inputs(), 0);
@@ -107,7 +97,6 @@ fn remote_and_track_are_separate_switches() {
         lumen.app().saved_midi_ports(),
         [("input".to_owned(), "Pad".to_owned(), false, true)]
     );
-    // The second click reads the switch as shown, so it must show on first.
     lumen.click("Remote Pad input");
     until_on(&mut lumen, "Remote Pad input", false);
     assert!(

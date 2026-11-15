@@ -1,11 +1,6 @@
-//! What one host said, and what became of its device (M6 slice 2c): its
-//! link, a failure, keys and text from its window, the state it read back,
-//! values that moved, and the edits it made inside itself.
-
 use super::*;
 
 impl Hosting {
-    /// What one host said.
     pub(super) fn hear(
         &mut self,
         event: lumen_hosting::Event,
@@ -35,17 +30,12 @@ impl Hosting {
                 t.aux = linked.aux;
                 if !t.params.linked_before {
                     t.params.linked_before = true;
-                    // A fresh host has no window; a new link of the same
-                    // host (the buffer size changed) keeps its own.
                     t.editor = EditorState::Closed;
                     t.editor_hidden = false;
                     t.params.base = linked.params.iter().map(|p| (p.id, p.value)).collect();
                     t.params.values = t.params.base.clone();
                     for (&id, &v) in &t.params.started_with {
                         t.params.values.insert(id, v);
-                        // A value recovered from before a failure is the
-                        // plugin's now, not the project's: it is not
-                        // something to put back.
                         if !t.params.held.contains_key(&id) {
                             t.params.base.insert(id, v);
                         }
@@ -80,8 +70,6 @@ impl Hosting {
             }
             Happened::Key { code, down } => self.keys.push((code, down)),
             Happened::Text { id, value, text } => {
-                // A value that is a step of a stepped parameter is also
-                // one of its choices' words.
                 if let Some(steps) = t
                     .params
                     .list
@@ -110,7 +98,6 @@ impl Hosting {
                         t.editor = EditorState::Open;
                     }
                     if matches!(news, EditorEvent::Opened(_)) {
-                        // A window comes up shown.
                         t.editor_hidden = false;
                     }
                     self.places.push((t.class.clone(), b));
@@ -148,7 +135,6 @@ impl Hosting {
                         }
                     }
                     Err(_) => {
-                        // The state read before stays the last good one.
                         p.capturing_values = None;
                         p.capture_failed = true;
                     }
@@ -156,10 +142,6 @@ impl Hosting {
             }
             Happened::Values(all) => {
                 let p = &mut t.params;
-                // What the plugin calls its parameters now: a patch may name
-                // its controls anew (`kParamTitlesChanged`). Its words for
-                // values and steps may have changed with them: they are
-                // asked for again.
                 if p.forget_texts_if_renamed(&all) {
                     self.texts_forgotten += 1;
                 }
@@ -173,9 +155,6 @@ impl Hosting {
                         known.unit = now.unit;
                     }
                 }
-                // What the plugin holds now: a value that moved without a
-                // word (a program chosen in its window, a patch) is an edit
-                // of the project, as if the plugin had said so.
                 for (id, value) in all.into_iter().map(|p| (p.id, p.value)) {
                     let moves = p
                         .list
@@ -185,8 +164,6 @@ impl Hosting {
                     let Some(&old) = p.values.get(&id) else {
                         return;
                     };
-                    // A parameter a lane drives moves by itself: that is not
-                    // an edit of the project.
                     if p.driven.contains(&id) {
                         continue;
                     }
@@ -213,8 +190,6 @@ impl Hosting {
                 };
                 match answer {
                     Ok(values) => {
-                        // The plugin's values are the state's own now: the
-                        // baseline an undone change goes back to.
                         let values: BTreeMap<u32, f64> = values.into_iter().collect();
                         p.base = values.clone();
                         p.values = values;
@@ -238,7 +213,6 @@ impl Hosting {
                     }
                     Err(why) => {
                         if load.preset.is_some() && load.tries < PRESET_RETRIES {
-                            // Try again in a moment before giving up.
                             p.retry = Some((
                                 std::time::Instant::now() + PRESET_RETRY_WAIT,
                                 Load {
@@ -292,24 +266,15 @@ impl Hosting {
                             p.open = None;
                             p.edits.push((edit, true));
                         }
-                        // What the processor reports is the plugin's to
-                        // show, not an edit of the project.
                         EditKind::Output => {
                             p.values.insert(edit.id, edit.value);
                         }
-                        // The plugin changed inside, where no parameter
-                        // shows it: its state is ahead of the project's
-                        // (read once it rests), and the project has
-                        // unsaved changes. A plugin says as much while it
-                        // loads, which is not the user's change.
                         EditKind::Dirty => {
                             if t.linked_at.is_some_and(|at| at.elapsed() >= SETTLE) {
                                 p.touch();
                                 self.inside_changes = true;
                             }
                         }
-                        // Its controls were named anew (a patch): the list
-                        // is read again, and the card and panel follow.
                         EditKind::Retitled => {
                             if let Some(manager) = self.manager.as_ref() {
                                 p.retitled = true;

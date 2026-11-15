@@ -1,5 +1,3 @@
-//! The bridge's tests.
-
 use super::*;
 use crate::document::{Document, Slot};
 
@@ -12,14 +10,11 @@ fn plugins_are_promised_the_devices_block_at_most_the_engines() {
 }
 use lumen_project::model::PluginRef;
 
-/// A plugin with a stereo main output and fifteen stereo ones, and a track
-/// playing each (the owner's orchestra with every output on).
 fn orchestra() -> (Project, Vec<BusInfo>) {
     use lumen_project::model::{Color, PluginOutput};
     let bus = |n: usize| BusInfo {
         name: format!("St.{}", n + 1),
         channels: 2,
-        // Every bus is flagged main, as a real orchestra plugin does.
         main: true,
         default_active: n == 0,
     };
@@ -48,8 +43,6 @@ fn every_output_of_a_sixteen_output_plugin_is_turned_on_and_a_wide_main_leaves_l
         mask, 0xFFFE,
         "fifteen pairs and the main pair are 32 channels"
     );
-    // Past the block's room the lowest buses come first: a main bus of 40
-    // channels leaves 24, twelve stereo pairs.
     outputs[0].channels = 40;
     let mask = super::output_mask(&outputs);
     assert_eq!(mask, 0b1_1111_1111_1110, "the lowest twelve");
@@ -78,19 +71,14 @@ fn a_value_the_project_holds_and_the_plugin_lacks_is_sent() {
 
 #[test]
 fn a_value_the_project_let_go_of_goes_back_to_what_it_was() {
-    // The project held 0.9 for parameter 1, over a saved 0.5; an undo
-    // takes the entry away: the plugin must go back to 0.5.
     let p = known(&[(1, 0.9)], &[(1, 0.5)]);
     assert_eq!(p.differences(&held(&[])), [(1, 0.5)]);
-    // Already back: nothing to send.
     let p = known(&[(1, 0.5)], &[(1, 0.5)]);
     assert!(p.differences(&held(&[])).is_empty());
 }
 
 #[test]
 fn a_value_set_inside_the_plugin_is_not_sent_back() {
-    // The plugin reported 0.7 itself (known), then the document recorded
-    // it: the project holds the same value, so nothing goes back.
     let p = known(&[(4, 0.7)], &[(4, 0.2)]);
     assert!(p.differences(&held(&[(4, 0.7)])).is_empty());
 }
@@ -122,7 +110,6 @@ fn mixer_handle() -> MixerHandle {
 #[test]
 fn a_plugin_that_cannot_be_found_is_missing_and_an_effect_keeps_its_saved_time() {
     let (mut doc, _, effect) = project_with(DeviceKind::Effect, TrackKind::Audio);
-    // The plugin reported 512 frames at 48 kHz when the project was saved.
     doc.apply("report", None, |p| {
         let track = Arc::make_mut(&mut p.tracks[0]);
         track.devices[0].reported = Some(Reported {
@@ -191,7 +178,6 @@ fn a_device_that_leaves_the_project_is_forgotten() {
 fn a_frozen_track_has_no_plugin_and_unfreezing_wants_it_again() {
     use lumen_project::edit::freeze::{Baked, plan};
     let (mut doc, track, device) = project_with(DeviceKind::Effect, TrackKind::Audio);
-    // A clip to render, then freeze the track.
     doc.apply("clip", None, |p| {
         let mut clip = lumen_project::testing::small_project(1).tracks[2].clips[0].clone();
         Arc::make_mut(&mut clip).start = lumen_core::time::Ticks::ZERO;
@@ -245,10 +231,6 @@ fn a_frozen_track_has_no_plugin_and_unfreezing_wants_it_again() {
     assert!(hosting.state(device).is_some(), "it starts again");
 }
 
-/// One failure told twice (the engine gives up, then the host's end is seen)
-/// counts once however far apart the two come; a failure after a reload
-/// counts again. A slow macOS runner once heard the two more than a second
-/// apart and showed "keeps stopping" a failure early.
 #[test]
 fn a_failure_told_twice_counts_once_and_one_after_a_reload_counts_again() {
     let mut failures = Vec::new();
@@ -275,7 +257,6 @@ fn info(id: u32, title: &str, units: &str, steps: i32) -> ParamInfo {
     }
 }
 
-/// Parameters that know the words for a value and the steps of a chooser.
 fn worded() -> Parameters {
     let mut p = Parameters {
         list: vec![info(1, "Cutoff", "Hz", 0), info(2, "Mode", "", 2)],
@@ -290,8 +271,6 @@ fn worded() -> Parameters {
 
 #[test]
 fn a_list_read_again_with_new_names_units_or_steps_forgets_the_plugins_words() {
-    // A patch that names its controls anew may also say their values
-    // otherwise, at the same value (review of ADR-0125).
     for now in [
         vec![info(1, "Tone", "Hz", 0), info(2, "Mode", "", 2)],
         vec![info(1, "Cutoff", "%", 0), info(2, "Mode", "", 2)],
@@ -306,14 +285,11 @@ fn a_list_read_again_with_new_names_units_or_steps_forgets_the_plugins_words() {
 
 #[test]
 fn a_list_read_again_unchanged_keeps_the_words_unless_the_plugin_said_it_renamed() {
-    // A checkpoint reads every value again: nothing renamed, nothing lost.
     let same = vec![info(1, "Cutoff", "Hz", 0), info(2, "Mode", "", 2)];
     let mut p = worded();
     assert!(!p.forget_texts_if_renamed(&same));
     assert_eq!(p.texts[&1], vec![(0.5, "1.2 kHz".to_owned())]);
     assert_eq!(p.choices[&2].len(), 3);
-    // The plugin said its titles changed, though the list looks the same:
-    // its words may have, and are asked for again.
     p.retitled = true;
     assert!(p.forget_texts_if_renamed(&same));
     assert!(p.texts.is_empty() && p.choices.is_empty());
