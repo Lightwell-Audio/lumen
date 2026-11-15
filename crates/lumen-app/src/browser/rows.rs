@@ -383,7 +383,7 @@ mod tests {
                 "!Bad",
             ]
         );
-        assert_eq!((r.matching, r.total), (12, 12));
+        assert_eq!((r.matching, r.total), (13, 13));
     }
 
     #[test]
@@ -443,7 +443,7 @@ mod tests {
                 "Prism",
             ]
         );
-        assert_eq!(r.matching, 7);
+        assert_eq!(r.matching, 8);
         assert!(
             !r.list.iter().any(|row| matches!(
                 row,
