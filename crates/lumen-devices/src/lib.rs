@@ -1,11 +1,3 @@
-//! Lumen's built-in devices (ADR-0045). Pure, real-time-safe DSP that
-//! depends on `lumen-core` alone: the engine runs it, the app builds it.
-//! Instruments first (M5 slice 1); the effects of M8 join them (ADR-0145).
-//!
-//! Everything here follows the audio thread's rules: no allocation, locks
-//! or blocking while rendering. Devices allocate in their constructors,
-//! which run on the UI side.
-
 pub mod analyzer;
 pub mod delay;
 pub mod dynamics;
@@ -35,18 +27,11 @@ pub use sampler::Sampler;
 pub use synth::{Preset, Synth};
 pub use utility::Utility;
 
-/// Every built-in instrument this build knows, in the order they were added:
-/// its stable saved name and its parameter table. Each one has a personality
-/// in the interface (`lumen-app`'s `builtin::identity`), which a test keeps
-/// in step with this list.
 pub static INSTRUMENTS: &[(&str, &[ParamInfo])] = &[
-    // The synth's stable name, as `lumen_project::model::SYNTH` saves it.
     ("synth", synth::params::TABLE),
     (sampler::NAME, sampler::TABLE),
 ];
 
-/// The parameters of the built-in instrument called `name`, or `None` when no
-/// instrument has that name.
 pub fn instrument_params(name: &str) -> Option<&'static [ParamInfo]> {
     INSTRUMENTS
         .iter()
@@ -54,9 +39,6 @@ pub fn instrument_params(name: &str) -> Option<&'static [ParamInfo]> {
         .map(|(_, table)| *table)
 }
 
-/// Every built-in effect this build knows, in the order they were added.
-/// Each one has a personality in the interface (`lumen-app`'s
-/// `builtin::identity`), which a test keeps in step with this list.
 pub static EFFECTS: &[&Description] = &[
     &utility::DESCRIPTION,
     &eq::DESCRIPTION,
@@ -66,38 +48,20 @@ pub static EFFECTS: &[&Description] = &[
     &dynamics::limiter::DESCRIPTION,
 ];
 
-/// The built-in effects whose track can key them: a device with a sidechain
-/// input, which the card offers a source for (M8 slice B2). A device not named
-/// here takes no key and is handed none it reads.
 pub static SIDECHAINED: &[&str] = &[dynamics::compressor::NAME];
 
-/// Whether the built-in effect called `name` has a sidechain input.
 pub fn takes_sidechain(name: &str) -> bool {
     SIDECHAINED.contains(&name)
 }
 
-/// The parameters of built-in devices that change the device's *timing* rather
-/// than its sound (M8 slice B2): the limiter's lookahead, which is its latency.
-///
-/// Such a parameter is **not automatable** — a lane would change the delay from
-/// block to block while the routing is compensated with the value the project
-/// holds — and the interface applies a change to it when a drag ends rather than
-/// every frame, so the routing is re-timed once. `lumen-app` reads this through
-/// `builtin::describe` (the flag that hides Automate and Learn) and through
-/// `chain::apply_strip` (the deferred edit).
 pub fn timing_parameter(name: &str, id: u32) -> bool {
     (name, id) == (dynamics::limiter::NAME, dynamics::limiter::LOOK)
 }
 
-/// Whether `id` of the built-in effect called `name` may be driven by an
-/// automation lane.
 pub fn automatable(name: &str, id: u32) -> bool {
     !timing_parameter(name, id)
 }
 
-/// The description of the built-in effect called `name`, or `None` when no
-/// device has that name: the one table the card, the lanes and the engine's
-/// values all read, and the one place its latency and tail are worked out.
 pub fn effect_description(name: &str) -> Option<&'static Description> {
     EFFECTS
         .iter()
@@ -105,64 +69,39 @@ pub fn effect_description(name: &str) -> Option<&'static Description> {
         .find(|description| description.name == name)
 }
 
-/// The parameters of the built-in effect called `name`, or `None` when no
-/// device has that name.
 pub fn effect_params(name: &str) -> Option<&'static [ParamInfo]> {
     effect_description(name).map(|description| description.table)
 }
 
-/// Frames the effect called `name` holds its output back by at `values`, or
-/// `None` when no device has that name. A pure function of the values, so the
-/// routing and the running device agree and an export needs no device built.
 pub fn effect_latency(name: &str, values: Values<'_>) -> Option<u32> {
     effect_description(name).map(|description| (description.latency)(values))
 }
 
-/// Frames the effect called `name` rings on after its input stops at
-/// `values`, or `None` when no device has that name.
 pub fn effect_tail(name: &str, values: Values<'_>) -> Option<u32> {
     effect_description(name).map(|description| (description.tail)(values))
 }
 
-/// Frames the effect called `name` rings on after its input stops at `values`,
-/// at a tempo of `bpm` and a rate of `rate`, or `None` when no device has that
-/// name. A device whose tail is a number of seconds (a delay whose time is in
-/// notes follows the tempo) needs both; a device whose tail does not look at
-/// them gives what [`effect_tail`] gives.
 pub fn effect_tail_at(name: &str, values: Values<'_>, bpm: f32, rate: u32) -> Option<u32> {
     match name {
         delay::NAME => Some(delay::tail_frames(values, bpm, rate)),
         reverb::NAME => Some(reverb::tail_frames(values, rate)),
         _ => effect_tail(name, values)
-            // A device that reports frames at the reference rate (48 kHz, the
-            // contract `effect_tail` documents) is put on the rate in hand.
             .map(|frames| (u64::from(frames) * u64::from(rate) / 48_000) as u32),
     }
 }
 
-/// A built-in effect by the name a project saves. The constructor allocates:
-/// call it on the interface side, then hand the device to the audio thread.
 pub fn effect(name: &str) -> Option<Box<dyn Effect>> {
     effect_built(name, None).map(|(effect, _)| effect)
 }
 
-/// A built-in effect by the name a project saves, with the handle its
-/// interface reads its gain-reduction meter through (M8 slice B2): `None` for
-/// a device with no meter. The constructor allocates, and so does the handle:
-/// call it on the interface side, then hand the device to the audio thread and
-/// keep the handle.
 pub fn effect_with_meter(name: &str) -> Option<(Box<dyn Effect>, Option<Reduction>)> {
     effect_built(name, None)
 }
 
-/// As [`effect`], with the spectrum tap a device that analyses its own audio
-/// writes into (M8 slice B1). A device that has no analyser ignores it.
 pub fn effect_tapped(name: &str, tap: Option<Tap>) -> Option<Box<dyn Effect>> {
     effect_built(name, tap).map(|(effect, _)| effect)
 }
 
-/// A built-in effect with both of its optional handles: the spectrum tap it
-/// writes into (B1) and the gain-reduction meter it hands back (B2).
 pub fn effect_built(name: &str, tap: Option<Tap>) -> Option<(Box<dyn Effect>, Option<Reduction>)> {
     match name {
         utility::NAME => Some((Box::new(Utility::new()), None)),
@@ -181,7 +120,6 @@ pub fn effect_built(name: &str, tap: Option<Tap>) -> Option<(Box<dyn Effect>, Op
     }
 }
 
-/// Whether the built-in effect called `name` fills a spectrum tap it is given.
 pub fn watches_spectrum(name: &str) -> bool {
     name == eq::NAME
 }
@@ -221,8 +159,6 @@ mod tests {
         assert!(effect("nothing").is_none());
     }
 
-    /// A device with a meter hands the interface the handle it reads, and the
-    /// handle is written by the audio side only when the device runs.
     #[test]
     fn a_device_with_a_meter_hands_out_its_handle() {
         for name in [dynamics::compressor::NAME, dynamics::limiter::NAME] {
@@ -231,7 +167,7 @@ mod tests {
             assert_eq!(meter.take().reduction_db, 0.0);
             drop(effect);
         }
-        // Only the compressor takes a key.
+
         assert!(takes_sidechain(dynamics::compressor::NAME));
         assert!(!takes_sidechain(dynamics::limiter::NAME));
         assert!(!takes_sidechain(utility::NAME));
@@ -247,16 +183,13 @@ mod tests {
             let name = description.name;
             assert_eq!(effect_description(name).map(|d| d.name), Some(name));
             assert_eq!(description.table.len(), effect_params(name).unwrap().len());
-            // The default values: what a device nothing has set plays.
+
             let defaults: Vec<(u32, f32)> = description
                 .table
                 .iter()
                 .map(|p| (p.id, p.normalised(p.default)))
                 .collect();
-            // A fresh device holds its defaults, and its running instance
-            // reports what its description works out for them (re-check N2):
-            // the routing reads the one, the mixer's fallback and the tail
-            // after Stop the other.
+
             let fresh = effect(name).unwrap();
             assert_eq!(effect_latency(name, &defaults), Some(fresh.latency()));
             assert_eq!(effect_tail(name, &defaults), Some(fresh.tail()));
@@ -265,10 +198,6 @@ mod tests {
         assert_eq!(effect_tail("nothing", &[]), None);
     }
 
-    /// L6: a device's own table fits the room one block holds, so opening a
-    /// queue for each of its parameters cannot fail. (A device's table and the
-    /// lanes that drive it share that room; a device with as many parameters as
-    /// lanes would not fit — see the ADR.)
     #[test]
     fn every_built_in_s_table_fits_one_block() {
         for description in EFFECTS {

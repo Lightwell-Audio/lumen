@@ -364,8 +364,7 @@ impl App {
             | Command::AddReverb
             | Command::AddCompressor
             | Command::AddLimiter => Ok(()),
-            // Shutter goes on a MIDI track or a new one, as Prism does
-            // (M8 slice B5); its own commands need its card chosen.
+
             Command::AddSampler => Ok(()),
             Command::SamplerLoadSample
             | Command::SamplerClearSamples

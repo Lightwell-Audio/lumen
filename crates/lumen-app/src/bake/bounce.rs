@@ -46,9 +46,7 @@ pub struct Job {
     pub file: PathBuf,
     pub media: Id,
     pub unread: Unread,
-    /// The samples this render's samplers play, decoded at the render's rate
-    /// (M8 slice B5): a render hears what playback did, with no interface
-    /// behind it.
+
     pub samples: Vec<(Id, crate::builtin::samples::Source)>,
 }
 

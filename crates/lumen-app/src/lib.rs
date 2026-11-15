@@ -1,44 +1,3 @@
-//! The Lumen application: the single-window layout from the specification
-//! (transport bar, browser, arrangement, detail panel) on egui, with the
-//! arrangement canvas drawn by `lumen-render` and audio from `lumen-engine`.
-//! Features arrive milestone by milestone; controls that do not work yet are
-//! shown disabled and say when they arrive.
-//!
-//! ```text
-//! lumen                          run the application
-//! lumen --audio asio:"Focusrite USB ASIO"
-//!                                use this device (driver: asio, wasapi,
-//!                                exclusive; cpal on macOS and Linux)
-//! lumen --open-audio drums.wav   add an audio file at bar 1 (or drag files
-//!                                from Explorer onto the arrangement)
-//! lumen --scale 1.5              UI scale
-//! lumen --audio-settings         open the audio settings window at start
-//! lumen --probe-asio <clsid>     (helper) report one ASIO driver as JSON
-//! lumen --stress                 open the generated quality-bar project
-//!                                (200 tracks, 20,000 clips)
-//! lumen --bench-callback out.json [--bench-seconds 30] song.lumen
-//!                                the callback benchmark: plays the project
-//!                                and reports the audio callback's time
-//!                                against the block (callback_bench.rs)
-//! lumen --stress --bench-frames out.json
-//!                                frame-time benchmark: scroll and zoom it with
-//!                                vsync off, report, exit (status 3 below 60 fps);
-//!                                --bench-size 3440x1400 sets the window;
-//!                                --bench-editor opens the 100,000-note clip
-//!                                in the clip editor while it runs;
-//!                                --bench-lanes shows a 200-point volume lane
-//!                                over every track
-//! lumen --test-latency 12.4      the engine's synthetic latent device on the
-//!                                first track, to try delay compensation
-//! lumen --smoke-test            render a few frames, report start-up time, exit
-//! lumen --screenshot out.png     render, save a screenshot, exit
-//! lumen --audio test:fake --settings s.json --autosave-dir dir
-//!                                isolated from the user (tests): the silent
-//!                                test device, its own settings and autosaves
-//! ```
-//!
-//! More test flags are in `launch.rs` and `docs/DEVELOPMENT.md`.
-
 mod app;
 mod arrangement;
 mod association;
@@ -98,8 +57,6 @@ pub(crate) use project_files::{autosave, files, relink};
 pub(crate) use system::{brand, crash, launch, owner, trace};
 pub(crate) use timeline::{canvas, playhead, position, ruler, timefmt, timeview};
 
-// The first-run window's state and rules, kept as `crate::welcome` while they
-// live in `app/welcome/` with the window that draws them (audit M11).
 pub(crate) use app::welcome;
 
 use std::path::PathBuf;
@@ -114,312 +71,265 @@ use lumen_project::model::{Project, TimeSignature};
 use app::projects::{FileDialog, Next};
 use transport::Transport;
 
-/// The application: one window, one project.
 pub struct App {
-    /// The open project with its undo history (M3 slice 3).
     document: document::Document,
-    /// The document state the transport's timeline was built from.
+
     synced: Option<u64>,
-    /// The undo history window is open.
+
     show_history: bool,
-    /// A pointer button was down in a pop-out editor's window on the last frame it
-    /// drew: its pointer is not the main window's, so the history reads it here to
-    /// know a drag is still open.
+
     popped_pointer_down: bool,
-    /// The tap tempo run (M9 R7).
+
     tap: app::tap_tempo::TapRun,
-    /// Track headers, heights, folding and selection (M3 slice 4).
+
     arrangement: arrangement::Arrangement,
-    /// MIDI learn and the controllers that move controls (M7 slice A5).
+
     controllers: app::controllers::Controllers,
-    /// The lane passes being recorded (M7 slice A4b).
+
     recorder: recording::auto_record::Recorder,
-    /// The passes written into the project in parts as they go (M7 review M1).
+
     lane_commits: app::auto_recording::Commits,
-    /// The plugin gestures that are open: a control held in a plugin's own
-    /// window, by track and parameter (A4b).
+
     gestures_open:
         std::collections::BTreeSet<(lumen_project::model::Id, lumen_project::automation::Target)>,
-    /// The note shown after undo, redo or save, and since when.
+
     toast: Option<(String, Instant)>,
-    /// File work in progress (slice 3c): a dialog, a save or an open.
+
     dialog: Option<std::sync::mpsc::Receiver<FileDialog>>,
-    /// In tests, the answers file dialogs give instead of showing (`None`:
-    /// real dialogs).
+
     dialog_answers: Option<std::collections::VecDeque<Vec<PathBuf>>>,
     saving: Option<std::sync::mpsc::Receiver<Result<files::Saved, String>>>,
     opening: Option<std::sync::mpsc::Receiver<Result<files::Opened, String>>>,
-    /// The project's change mark when the file being read was asked for:
-    /// what changed since is not covered by the choice that asked for it.
+
     opening_mark: u64,
-    /// Handed-over and dropped files checked on workers (M9 R8).
+
     checks: Option<(
         std::sync::mpsc::Sender<app::handover::Checked>,
         std::sync::mpsc::Receiver<app::handover::Checked>,
     )>,
-    /// What to do once unsaved changes are dealt with.
+
     prompt: Option<Next>,
-    /// Enter answered the save question this frame: taken before the keymap
-    /// and the main window's other windows read the key (the interface
-    /// audit's W1).
+
     prompt_enter: bool,
-    /// What to do after the save in progress succeeds.
+
     after_save: Option<Next>,
-    /// A save, copy or collect waiting for the running plugins' states to be
-    /// read: what for, where to, whether to normalize the path, since when.
+
     save_waiting: Option<app::copies::Waiting>,
-    /// A Save As or Save a copy dialog is open: the save that follows
-    /// writes this project (M9 R8).
+
     save_dialog: bool,
-    /// A copy of the project or a collect under way (M9 slice R4).
+
     collecting: Option<app::copies::Running>,
-    /// The templates folder's listing and the naming window (M9 slice R4).
+
     templates: app::templates::Templates,
-    /// Revert to saved: its prompt, the reload and the changes it kept (M9
-    /// slice R4).
+
     revert: app::revert::Revert,
-    /// The drum map chooser, while it is open (M8 D0).
+
     drum_choice: Option<app::drum_choice::Choice>,
-    /// The drum map editor (M8 D1).
+
     drum_map: app::drum_map_window::State,
-    /// The Project settings window (M9 slice R4).
+
     project_settings: app::project_settings::ProjectSettings,
     export: app::audio_export::Export,
-    /// The single instance: requests from later starts (M9 R8). `None`
-    /// when the start could not take it (it then runs alone).
+
     instance: Option<instance::Instance>,
-    /// New, Open or a template waiting for a recording or an export.
+
     holding: Option<app::handover::Holding>,
-    /// Opening `.lumen` files with this copy (M9 R8).
+
     association: association::Association,
-    /// Who opens them, as a worker last read it (sweep M4b).
+
     association_status: app::association::Reported,
-    /// The project a drop opened and how many files of the drop were left
-    /// out, said again when that project opens.
+
     left_out: Option<(PathBuf, usize)>,
-    /// A problem with saving or opening, shown until dismissed.
+
     file_notice: Option<String>,
-    /// Closing for real, after the unsaved-changes prompt.
+
     quitting: bool,
-    /// The main window, to own file dialogs.
+
     owner: Option<owner::Owner>,
-    /// Autosave of unsaved changes (slice 3d). An `Option` only so it can
-    /// be taken out while the app builds the save request.
+
     autosave: Option<autosave::Autosave>,
-    /// An autosave left by a crash, offered for recovery.
+
     leftover: Option<autosave::Leftover>,
-    /// The scan for those autosaves, on a worker (sweep M4a).
+
     leftovers: app::recovery::Leftovers,
-    /// A crash report from an earlier run not shown yet, and `--crash-test`.
+
     crash_report: Option<PathBuf>,
     crash_test: Option<crash::Test>,
-    /// Where crash reports are written (`--crash-dir`), shown from the
-    /// Files page of Preferences.
+
     crash_dir: Option<PathBuf>,
-    /// The leftover being recovered (its open is in progress).
+
     recovering: Option<autosave::Leftover>,
     transport: Transport,
-    /// MIDI ports and the user's switches for them (M5 slice 0).
+
     midi: midi::Midi,
-    /// Times MIDI to hardware outputs; starts with the first one a track names.
+
     midi_out: Option<midi::out::Output>,
-    /// Sends the computer keyboard's notes into the engine, once the live
-    /// feed is handed over (slice 2).
+
     live_keys: Option<live::LiveKeys>,
-    /// Recording MIDI (M5 slice 6).
+
     record: app::record::Record,
-    /// The piano roll's note preview (M5 slice 3d).
+
     audition: audition::Audition,
-    /// Counts changes to the MIDI ports, and what the used outputs were last
-    /// checked against (document, its state, port changes).
+
     midi_ports_seen: u64,
-    /// The computer keyboard as a MIDI keyboard (M5 slice 2): a mode, not saved.
+
     keyboard: app::keyboard::ComputerKeyboard,
     midi_checked: Option<(u64, u64, u64)>,
-    /// Audio clips on the simple timeline (M2 slice 6).
+
     lanes: lanes::Lanes,
-    /// Where dropped files go: under the pointer, snapped, or the playhead.
+
     drop_target: Ticks,
-    /// Where dropped files go: new tracks, or the track under the pointer
-    /// (slice 6e), for audio files and for MIDI files (M5 slice 7).
+
     drop_into: document::Places,
-    /// Files from the browser's file tabs let go over the arrangement (M9
-    /// R7c), added like files dropped from the system.
+
     file_drop: Option<Vec<PathBuf>>,
-    /// MIDI files being read in the background (M5 slice 7).
+
     midi_reader: midi::files::Reader,
-    /// The browser's own state (M6 slice 1).
+
     browser: browser::Browser,
-    /// The Project media tab and the relink and purge under way (M9 slice
-    /// R4b).
+
     media_pool: app::media_pool::MediaPool,
-    /// Installed plugins: the scan thread and the catalog the browser
-    /// shows (M6 slice 1).
+
     plugins: plugins::Plugins,
-    /// The host processes of the project's plugin devices (M6 slice 2c).
+
     hosting: hosting::Hosting,
-    /// The built-in effects on the project's tracks, and their parameter
-    /// tables (M8 slice B0).
+
     builtin: builtin::Builtins,
-    /// The sample files a person asked for, on their way into a sampler (M8
-    /// slice B5).
+
     sampler_load: builtin::samples::Loading,
-    /// Safe mode (M6 slice 5e): no plugin is loaded until it is left.
+
     safe: app::safe_mode::SafeMode,
-    /// The Devices tab's own state (M6 slice 2d).
+
     chain: chain::Chain,
-    /// An exported MIDI file being made, before the dialog asks where it
-    /// goes (M5 slice 7).
+
     midi_exporting: Option<std::sync::mpsc::Receiver<Result<midi::files::Exported, String>>>,
-    /// The peak scan behind Normalize, while it runs (M7b slice E1).
+
     normalizing: Option<app::clip_normalize::Running>,
     consolidating: Option<app::clip_consolidate::Running>,
-    /// A bounce reading the plugins, then rendering (M7b slice E4), and the
-    /// popover that starts one.
+
     bounce_waiting: Option<app::clip_bounce::Waiting>,
     bouncing: Option<app::clip_bounce::Running>,
     show_bounce: bool,
-    /// A freeze reading the plugins, then rendering (M7b slice E5).
+
     freeze_waiting: Option<app::track_freeze::Waiting>,
     freezing: Option<app::track_freeze::Running>,
-    /// An exported MIDI file being written (M5 slice 7).
+
     midi_writing: Option<std::sync::mpsc::Receiver<Result<PathBuf, String>>>,
-    /// A MIDI file's tempo and meter, offered in a banner (M5 slice 7, F2).
+
     tempo_offer: Option<app::midi_files::TempoOffer>,
-    /// The tempo and meter lanes under the bar ruler (M7 slice A6).
+
     song: song_lanes::SongLanes,
-    /// Where the pointer is while files are dragged in from the system.
-    /// egui does not know: on Windows the window gets no pointer moves
-    /// during the drag, and the window integration drops the position the
-    /// system reports, so it is read from the system (owner, MT-APP-14
-    /// run 3: drops between tracks were never offered).
+
     drag_pointer: Option<egui::Pos2>,
-    /// Stands in for the system's cursor in tests (`testing`).
+
     system_cursor: Option<egui::Pos2>,
     settings: settings::Settings,
     settings_path: Option<PathBuf>,
-    /// Where projects and templates are kept (`Launch::user_dir`).
+
     user_dir: Option<PathBuf>,
-    /// Settings changed at this time and are not saved yet (saved once
-    /// changes stop for half a second, so dragging a slider is one write).
+
     settings_changed: Option<Instant>,
-    /// What the disk thread's scene was last built from (M9 slice R6).
+
     disk_scene: Option<app::streaming::SceneKey>,
-    /// Tests: the disk thread waits this long before each page it reads.
+
     slow_disk: Option<std::time::Duration>,
-    /// The cache's folder, size and Clear (M9 R7).
+
     cache: app::cache_folder::CacheFolder,
-    /// Writes settings on a background thread (audit H1).
+
     settings_writer: settings::Writer,
     show_browser: bool,
     show_detail: bool,
-    /// Which tab of the detail panel shows (M5 slice 3c).
+
     detail_tab: app::detail::DetailTab,
-    /// What the detail panel's tab row follows (DP1).
+
     detail: app::detail::DetailState,
-    /// The MIDI note editor: in the Clip tab, or popped out (slice 3c).
+
     note_editor: note_editor::NoteEditor,
-    /// Which sounds are sounding on each kit track, kept for the frame (M8
-    /// D4): every header asks, and a kit's notes are read once for all of
-    /// them (`app/drum_routing.rs`).
+
     drum_sounding: std::cell::RefCell<app::drum_routing::Sounding>,
-    /// The audio clip editor in the Clip tab (M9.5 S1).
+
     audio_editor: audio_editor::AudioEditor,
-    /// Imported files being listened to for a loop's tempo (M9.5 S5a).
+
     follow_jobs: app::follow_detect::Jobs,
-    /// Full panel sizes, for sliding (kept while the panels are open).
+
     browser_size: f32,
     detail_size: f32,
-    /// Set by the raw-input hook when Shift+Tab is pressed.
+
     toggle_detail_requested: bool,
-    /// Which keys run which commands (slice 7).
+
     keymap: commands::Keymap,
-    /// The command palette (Ctrl+K).
+
     palette: app::palette::Palette,
-    /// The Keyboard shortcuts window.
+
     shortcuts: app::shortcuts::Shortcuts,
-    /// The Preferences window (M9 R7).
+
     preferences: preferences::Window,
-    /// The first-run window (M9 R7b).
+
     welcome: welcome::Welcome,
-    /// A chord being recorded for a command (the window or the palette).
+
     rebind: Option<app::shortcuts::Rebind>,
-    /// Where the keyboard is among the panes (F6).
+
     panes: app::panes::Panes,
-    /// Where the arrangement looks (zoom, scroll, fit, back): slice 4d.
+
     nav: app::navigate::Nav,
-    /// The editing grid and snapping (slice 5a); saved with the project.
+
     grid: lumen_core::grid::Grid,
-    /// The selected locator and the one being renamed (slice 5d).
+
     locators: app::locators::Locators,
-    /// The drag hint drawn this frame, if any (MT-APP-13 run 1); the
-    /// end-to-end tests read it.
+
     hint: Option<String>,
-    /// What the info line shows (M4 slice 0): set by hovers this frame,
-    /// drawn from the frame before.
+
     info: Option<app::info::Info>,
     info_shown: Option<app::info::Info>,
-    /// Where the lanes were drawn last frame.
+
     canvas: egui::Rect,
-    /// What Copy and Cut put aside (slice 6b), for Paste.
+
     clipboard: Option<lumen_project::edit::Clipboard>,
-    /// A text field had the keyboard at the end of the last frame. egui
-    /// takes its focus away on Esc before the app's keys run, so that Esc
-    /// is the field's (it cancels), not a clip or track key (slice 6e).
+
     typing: bool,
-    /// Clipboard chords egui-winit turned into events, being put back as
-    /// keys (`app/clipboard_keys.rs`).
+
     clipboard_keys: app::clipboard_keys::Pending,
-    /// When the meters last moved on (M4 slice 5), in egui's input time.
+
     meters_at: Option<f64>,
-    /// What the engine knows of the tracks' audio inputs (M9 slice R1).
+
     inputs: app::audio_inputs::InputSync,
-    /// How the transport's mark was last lit (ADR-0043).
+
     mark: widgets::mark::Look,
-    /// What the lanes' right-click menu is for (owner's A, MT-APP-14 run 2).
+
     menu_for: app::editing::MenuFor,
-    /// The clip being renamed and the pinned properties card (slice 6e).
+
     clip_props: app::clip_card::ClipProps,
     smoke_test_frames: Option<u32>,
-    /// `--quit-after-ms`: when a test run closes by itself.
+
     quit_at: Option<Instant>,
-    /// Where `--screenshot` saves, once the frames have rendered.
+
     screenshot: Option<PathBuf>,
     started: Instant,
-    /// `--autoplay-ms`: toggle play and stop this often (latency tests).
+
     autoplay: Option<Duration>,
     autoplay_count: u32,
-    /// `--test-latency <ms>`: the synthetic latent device on the first
-    /// track.
+
     test_latency: Option<f64>,
-    /// `--save-as <path>` (tests): save once imports are done, then close.
+
     save_as: Option<PathBuf>,
-    /// Playing or not, as last traced, to log only changes.
+
     traced: Option<bool>,
-    /// `--scale` or `--appearance` given: a one-off, not saved; the file
-    /// keeps `saved_appearance` until the user changes it in the menu.
+
     appearance_override: bool,
     saved_appearance: settings::Appearance,
-    /// The window's least inner size last sent, in UI points (F5); `None`
-    /// before the first one.
+
     min_window: Option<egui::Vec2>,
-    /// The monitor's size (UI points) that size was worked out for. When
-    /// egui reports another (the monitor became known, the window moved to
-    /// another screen, the zoom changed) the frame loop works it out again.
+
     min_window_monitor: Option<egui::Vec2>,
-    /// The pixels per point the last least-size command was sent with (F5).
-    /// The command is converted to native points when egui-winit processes it,
-    /// at the zoom of the pass that sent it, so the same value is sent again
-    /// after a zoom change (ADR-0139; `app/window_size.rs::must_send`).
+
     min_window_ppp: Option<f32>,
-    /// The OS theme when the appearance was last applied ("Match system").
+
     system_theme: Option<egui::Theme>,
-    /// The device banner's last message, kept while it slides away.
+
     banner: Option<(String, bool)>,
-    /// `--bench-frames`: the frame-time benchmark in progress.
+
     bench: Option<bench::Bench>,
-    /// `--bench-callback`: the callback benchmark in progress, and its report
-    /// once it has finished (M6 slice 7c).
+
     callback_bench: Option<callback_bench::Callback>,
     callback_report: Option<Result<callback_bench::Report, String>>,
 }
@@ -436,8 +346,7 @@ pub(crate) fn empty_project() -> Project {
         }],
         meter: lumen_project::model::constant_meter(TimeSignature::FOUR_FOUR),
         tracks: Vec::new(),
-        // Id 0: a new project's other ids count on from 1 (`fresh_id`);
-        // older projects got the next free id when they were migrated.
+
         master: std::sync::Arc::new(lumen_project::model::Track::master(
             lumen_project::model::Id(0),
         )),
@@ -453,10 +362,6 @@ pub(crate) fn empty_project() -> Project {
     }
 }
 
-/// A new project at the audio device's rate when it is known and one the
-/// model accepts (8 to 384 kHz), else at 48 kHz: what the project's files
-/// are rendered at (M9 R4, D6), so a project made on a 44.1 kHz interface
-/// starts there.
 pub(crate) fn empty_project_at(device_rate: Option<u32>) -> Project {
     let mut project = empty_project();
     if let Some(rate) = device_rate.filter(|r| (8_000..=384_000).contains(r)) {
@@ -466,29 +371,19 @@ pub(crate) fn empty_project_at(device_rate: Option<u32>) -> Project {
 }
 
 impl eframe::App for App {
-    /// A normal close: nothing is left to recover (the user saved, or chose
-    /// not to).
     fn on_exit(&mut self) {
-        // A change still settling is saved now; the writer finishes its
-        // queue when it is dropped with the app.
         if self.settings_changed.is_some() {
             self.write_settings();
         }
         if let Some(autosave) = &mut self.autosave {
             autosave.clear();
         }
-        // Nothing is left to recover, so no take's sidecar either; Lumen is
-        // exiting, so this waits for the disk.
+
         self.close_take_notes();
         self.safe.closing();
         self.hosting.shutdown();
     }
 
-    /// The detail panel's key (Shift+Tab, spec §5) is taken here, before
-    /// egui sees it, so it does not also move keyboard focus backwards.
-    /// Except where moving back is what Shift+Tab is for (the owner's
-    /// choice, ADR-0015): typing in a field, or with the keyboard in an
-    /// open window, it is left to egui.
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
         for event in &raw_input.events {
             if let egui::Event::PointerButton { pos, pressed, .. } = event {
@@ -508,7 +403,7 @@ impl eframe::App for App {
                 trace::log(|| format!("input: key {key:?}"));
             }
         }
-        // While a chord is recorded, it may be the panel's own.
+
         if self.rebind.is_some() {
             return;
         }
@@ -534,7 +429,7 @@ impl eframe::App for App {
                 return true;
             }
             toggle |= pressed;
-            // Drop the release too, so egui never sees half of the shortcut.
+
             false
         });
         self.toggle_detail_requested |= toggle;
@@ -545,7 +440,7 @@ impl eframe::App for App {
             self.owner = owner::Owner::of(frame);
         }
         let ctx = ui.ctx().clone();
-        // Before anything scrolls: whose this frame's wheel is (M4 slice 5).
+
         widgets::wheel::route(&ctx);
         self.transport.advance_playhead(ctx.input(|i| i.time));
         self.follow_file_drag(&ctx);
@@ -601,8 +496,7 @@ impl eframe::App for App {
                     self.drop_into
                 )
             });
-            // A drop holding a project opens the first one and adds
-            // nothing else: a project is never imported as media (M9 R8).
+
             if let Some(project) = dropped.iter().position(|p| files::is_project(p)) {
                 let left = dropped.len() - 1;
                 let project = dropped.swap_remove(project);
@@ -637,7 +531,7 @@ impl eframe::App for App {
             .info
             .as_ref()
             .map_or(0, |info| info.buffer_frames);
-        // The controls whose lanes play follow the playhead (M7 slice A4a).
+
         self.arrangement.auto.at = self.transport.position();
         self.document
             .set_lock_envelopes(self.settings.editing.lock_envelopes);
@@ -659,9 +553,7 @@ impl eframe::App for App {
             &mut self.transport.audio.mixer,
             &mut self.lanes.devices.hosted,
         );
-        // A still project does nothing here (M8 slice B0, review L7): the
-        // devices, their values and their latencies are read again only when
-        // what the project holds of them changes.
+
         if self
             .builtin
             .update(self.document.project(), &mut self.transport.audio.mixer)
@@ -690,8 +582,7 @@ impl eframe::App for App {
                 latent.insert(first.id, frames);
             }
         }
-        // Before the library loads anything, so files load the way the
-        // switch says from the first frame (M9 slice R6).
+
         self.update_streaming();
         let cue = self.cue();
         let inputs = self.listen_inputs();
@@ -725,11 +616,7 @@ impl eframe::App for App {
         if ctx.system_theme() != self.system_theme {
             self.apply_appearance(&ctx);
         }
-        // The monitor is not known while the app is built, and its size in
-        // UI points moves with the zoom, so the window's least size takes
-        // the monitor's cap from the first frame that has it and again when
-        // it changes (F5). It sends only when the size or the zoom the
-        // command is converted with changes (`window_size::must_send`).
+
         if self.window_minimum_stale(&ctx) {
             self.apply_window_minimum(&ctx);
         }
@@ -738,9 +625,6 @@ impl eframe::App for App {
             self.show_detail = !self.show_detail;
         }
 
-        // The transport bar (the Transport card, ADR-0052): 44 pt on `app`
-        // with a 1 pt `edge_light` along its top inside edge; the panel's
-        // separator line is the `border` hairline under it.
         let bar_fill = theme::p().app;
         let edge_light = theme::edge_light();
         egui::Panel::top("transport")
@@ -752,8 +636,6 @@ impl eframe::App for App {
                     .inner_margin(egui::Margin::symmetric(theme::space::M as i8, 0)),
             )
             .show(ui, |ui| {
-                // Edge to edge: the content sits inside the bar's margins,
-                // the light does not.
                 let bar = ui.max_rect();
                 ui.painter().hline(
                     bar.x_range().expand(theme::space::M),
@@ -798,9 +680,6 @@ impl eframe::App for App {
         self.shortcuts_window(&ctx);
         self.palette_window(&ctx);
 
-        // A focused control must not vanish with its panel: AccessKit
-        // rejects focus on a node that no longer exists. Release focus
-        // whenever a panel is hidden, whatever hid it.
         let hid_a_panel =
             (panels_before.0 && !self.show_browser) || (panels_before.1 && !self.show_detail);
         if hid_a_panel {
@@ -810,10 +689,9 @@ impl eframe::App for App {
                 }
             });
         }
-        // Full width under everything else, so declared before the panels.
+
         self.draw_info_line(ui);
-        // Panels slide open and closed (motion: GLIDE, panels.rs). The size
-        // is taken out while the browser draws, which borrows the whole app.
+
         let mut browser_size = self.browser_size;
         panels::sliding(
             ui,
@@ -829,13 +707,7 @@ impl eframe::App for App {
             },
         );
         self.browser_size = browser_size;
-        // The detail panel: the Mixer tab (M4 slice 5); Devices and Clip
-        // arrive with their milestones. Never shorter than a strip. Its
-        // content is drawn after the arrangement, so Tab reaches it in
-        // reading order.
-        // Picking Devices grows the panel back to the height last chosen
-        // for it, never to a whole card (D2): its compact cards fit the
-        // least height.
+
         if std::mem::take(&mut self.chain.grow)
             && let Some(height) = self.chain.height
         {
@@ -843,15 +715,14 @@ impl eframe::App for App {
         }
         let mut detail_size = self.detail_size;
         let mut detail_content = None;
-        // The Devices tab is never so short that its compact cards leave
-        // the tray.
+
         let devices = self.detail_tab == app::detail::DetailTab::Devices;
         let detail_min = if devices {
             self.chain.least_panel()
         } else {
             arrangement::strips::min_height() + DETAIL_CHROME
         };
-        // Never so tall that the arrangement loses its rulers and a track.
+
         let detail_max = ui.available_rect_before_wrap().height() - ARRANGEMENT_MIN;
         panels::sliding(
             ui,
@@ -865,12 +736,9 @@ impl eframe::App for App {
             |ui| {
                 let rect = ui.max_rect();
                 self.panes.anchor(ui, app::panes::Pane::Detail, rect);
-                // Tabs as words over a sliding underline (the interface
-                // audit's T4); Devices arrive with Milestone 6.
+
                 self.detail_tabs(ui);
-                // Claimed without interaction: egui sizes the panel by what
-                // its contents take, so an unclaimed area snapped it back to
-                // its smallest after every change.
+
                 let content = ui.available_rect_before_wrap();
                 ui.advance_cursor_after_rect(content);
                 detail_content = Some(content);
@@ -886,15 +754,10 @@ impl eframe::App for App {
         }
         self.note_editor_window(&ctx);
         self.audio_editor_window(&ctx);
-        // Windows that closed fade out (M4.5).
+
         widgets::paint_gone(&ctx);
         self.typing = ctx.text_edit_focused();
 
-        // Scheduled after drawing, because buttons are clicked while drawing.
-        // Every frame while playing or settling after a command; otherwise
-        // once a second for device events, so idle CPU stays near zero.
-        // Meters draw until they come to rest (risk R5).
-        // After the controls were drawn: what moved in them is this frame's.
         self.update_controllers(&ctx);
         self.answer_map_requests();
         self.keep_learning_note(&ctx);
@@ -904,7 +767,6 @@ impl eframe::App for App {
         } else if inputs_watched {
             ctx.request_repaint_after(app::audio_inputs::WATCH_EVERY);
         } else if self.transport.audio.waiting() {
-            // A device change answers on its worker (ADR-0113).
             ctx.request_repaint_after(crate::motion::WAIT_FRAME);
         } else {
             ctx.request_repaint_after(crate::motion::IDLE_TICK);
@@ -914,18 +776,13 @@ impl eframe::App for App {
     }
 }
 
-/// The browser's least width: its list shows names and the filter chips
-/// whole (narrower, only icons were left).
 pub(crate) const BROWSER_MIN: f32 = 220.0;
-/// The detail panel's tab row and margins, above and around its content.
+
 pub(crate) const DETAIL_CHROME: f32 = 48.0;
-/// The arrangement's least height beside the detail panel: its rulers, a
-/// folded track and the master's row.
+
 const ARRANGEMENT_MIN: f32 = 180.0;
 
-/// Runs Lumen as the command line says (the `lumen` binary).
 pub fn run() -> eframe::Result {
-    // The helper mode for safe ASIO queries (probe.rs): no window.
     let args: Vec<String> = std::env::args().collect();
     if let Some(clsid) = args
         .iter()
@@ -934,9 +791,7 @@ pub fn run() -> eframe::Result {
     {
         std::process::exit(probe::run_helper(clsid));
     }
-    // One Lumen per settings file (M9 R8): taken before settings are read
-    // or written, audio opens or autosave starts. A later start hands its
-    // request over and ends here.
+
     let instance = instance::start(&args);
     let mut launch = Launch::from_args();
     launch.instance = instance;
@@ -944,24 +799,15 @@ pub fn run() -> eframe::Result {
         crash::install(dir.clone());
     }
     let mut options = eframe::NativeOptions {
-        // Use eframe's terminating desktop loop on macOS. Returning through
-        // another AppKit display cycle after window/accessibility teardown
-        // triggers a Touch Bar KVO exception on affected systems (ADR-0085).
-        // eframe saves, calls on_exit and drops App before ending the process.
         run_and_return: !cfg!(target_os = "macos"),
         viewport: egui::ViewportBuilder::default()
             .with_title(display_name())
             .with_inner_size([1600.0, 900.0])
-            // UI points (egui-winit multiplies builder sizes by the zoom
-            // factor when it creates the window). The zoom is still 1 here,
-            // so the app re-sends the scaled minimum once the saved UI scale
-            // is applied (`app::window_size`, F5).
             .with_min_inner_size([960.0, 540.0])
             .with_icon(brand::window_icon()),
         ..Default::default()
     };
-    // The benchmark measures how fast frames can be drawn, not the display's
-    // refresh rate; `--bench-size 3440x1400` sets its window.
+
     if launch.bench.is_some() {
         options.wgpu_options.surface.present_mode = eframe::wgpu::PresentMode::AutoNoVsync;
         if let Some((w, h)) = launch.bench_size {
@@ -971,7 +817,7 @@ pub fn run() -> eframe::Result {
                 .with_position([0.0, 0.0]);
         }
     }
-    // Compiled GPU pipelines are cached between launches (ADR-0002).
+
     if let eframe::egui_wgpu::WgpuSetup::CreateNew(setup) = &mut options.wgpu_options.wgpu_setup {
         let base = setup.device_descriptor.clone();
         setup.device_descriptor = Arc::new(move |adapter| {
@@ -1012,6 +858,5 @@ mod tests {
     }
 }
 
-// The unit tests that check the audio thread's code count heap use in it.
 #[cfg(test)]
 lumen_rt::install_guarded_allocator!();

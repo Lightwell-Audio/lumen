@@ -1,27 +1,3 @@
-//! MIDI on the timeline (M5 slice 1, ADR-0045).
-//!
-//! A [`MidiTrack`] holds a track's MIDI clips, the instrument that plays
-//! them (or the hardware port they go to) and a note tracker. The
-//! [`MidiPlayer`] reads the clips a block at a time: notes and controllers
-//! become events at their exact frame, an instrument turns them into audio
-//! that is added to the track's bus (so volume, pan, sends, groups, solo,
-//! meters and delay compensation apply as they do to audio clips), and a
-//! hardware track's events leave through a lock-free queue stamped with the
-//! device frame at which they should be heard.
-//!
-//! Notes never hang: the tracker (`hold`) knows every sounding note, and
-//! stop, a jump, a loop wrap, an edit, a change of instrument or port and
-//! Panic all release them. Play and every jump **chase**: notes already
-//! sounding at the new position start at once, and the latest controllers
-//! before it are applied first.
-//!
-//! Tracks that listen also play live input (`live`, slice 2): a
-//! [`LiveInput`] from the app gives each part its messages at their frame.
-//!
-//! Like clip lists, track lists are replaced whole through a queue; the
-//! old list goes back to be freed on the UI side. Tracker, instrument and
-//! voices carry across by track id, as pointers swap.
-
 mod capture;
 mod clock;
 mod hold;
@@ -38,8 +14,6 @@ pub use kit::{DrumKit, KitKey};
 pub use live::{AUDITION, INPUT_SLOTS, KEYBOARD, Listen, LiveIn, LiveInput, SOURCES};
 pub use player::{MidiHandle, MidiPlayer, midi_player};
 
-/// Timing metadata shared with the recorder while an armed MIDI take is
-/// active. Positions are in project ticks; latency is in output samples.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RecordTiming {
     pub start: Ticks,
@@ -58,63 +32,47 @@ use crate::mixer::ParamLane;
 
 use hold::TrackState;
 
-/// A note, in ticks from the start of its clip.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MidiNote {
     pub start: Ticks,
     pub length: Ticks,
     pub pitch: u8,
     pub velocity: u8,
-    /// The channel it goes out on; the track's own when none. A drum map's
-    /// sound may name one (format v35, M8 D0).
+
     pub channel: Option<u8>,
 }
 
-/// A controller, pitch bend, pressure or program message, in ticks from the
-/// start of its clip. The channel in `msg` is ignored: the track's is used.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MidiControl {
     pub at: Ticks,
     pub msg: Msg,
 }
 
-/// Sorts notes into the order the player reads them (shared, so edits that
-/// leave a clip alone can keep its list).
 pub fn note_list(mut notes: Vec<MidiNote>) -> Arc<[MidiNote]> {
     notes.sort_by_key(|n| (n.start, n.pitch));
     notes.into()
 }
 
-/// Sorts controls by time (equal times keep their order).
 pub fn control_list(mut controls: Vec<MidiControl>) -> Arc<[MidiControl]> {
     controls.sort_by_key(|c| c.at);
     controls.into()
 }
 
-/// A MIDI clip. `notes` and `controls` must be sorted ([`note_list`],
-/// [`control_list`]).
 #[derive(Debug, Clone)]
 pub struct MidiClip {
-    /// The project's clip id, to tell an edited clip from a new one.
     pub id: u64,
     pub start: Ticks,
-    /// How long it lasts on the timeline, repeats included.
+
     pub length: Ticks,
-    /// The content repeats every `period` from the start.
+
     pub period: Option<Ticks>,
     pub notes: Arc<[MidiNote]>,
     pub controls: Arc<[MidiControl]>,
-    /// Where the clips after the first begin, in ticks from `start`, when
-    /// this is a run of touching clips played as one (the app joins clips
-    /// that meet, so a note carries on across where they meet). Sorted;
-    /// empty for a single clip. A chase starts only the notes that began in
-    /// the clip the position is in: a note carried on from the clip before
-    /// is not struck at the next one's start.
+
     pub seams: Arc<[Ticks]>,
 }
 
 impl MidiClip {
-    /// Whether `other` is the same clip with the same content.
     fn same_as(&self, other: &MidiClip) -> bool {
         self.id == other.id
             && self.start == other.start
@@ -126,93 +84,60 @@ impl MidiClip {
     }
 }
 
-/// Where a track's events go.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Target {
-    /// The track's instrument.
     Instrument,
-    /// A hardware output port, by the number the app's sender knows it by,
-    /// on a channel (0 to 15).
+
     Port { port: u16, channel: u8 },
 }
 
-/// An instrument and the sound it plays.
 pub struct InstrumentSpec {
-    /// Which instrument: tracks keep their voices while it stays the same.
     pub kind: u32,
-    /// Which sound of it (a preset), chosen with
-    /// [`Instrument::configure`].
+
     pub preset: u32,
-    /// The values the project holds for a built-in instrument's parameters
-    /// (normalised, by id; M8 slice B4). The app fills them when the track
-    /// list is built; the engine hands them to the instrument it keeps
-    /// playing ([`Instrument::configure_values`]), so a knob moved while a
-    /// note sounds glides rather than cutting it. Empty for a hosted
-    /// instrument, which keeps its parameters its own way.
+
     pub values: Vec<(u32, f32)>,
     pub instrument: Box<dyn Instrument>,
 }
 
-/// One track's MIDI: built on the UI side, played on the audio thread.
 pub struct MidiTrack {
-    /// The track's id: its node in the routing.
     pub id: u64,
-    /// In start order. Empty for a track that plays nothing (a hardware
-    /// track that is muted).
+
     pub clips: Vec<MidiClip>,
     pub instrument: Option<InstrumentSpec>,
     pub target: Target,
-    /// The instrument's other outputs and the tracks that play them: the
-    /// instrument's output pair (1 and up, as [`lumen_devices::Instrument::output`]
-    /// numbers them) and the track's id. Empty for most tracks.
+
     pub outputs: Vec<(u32, u64)>,
-    /// The live input it plays ([`Listen::OFF`] for none).
+
     pub listen: Listen,
-    /// The live input it keeps while the transport records
-    /// ([`Listen::OFF`] for none): a recording track need not listen.
+
     pub record: Listen,
-    /// Where the take shows what is recorded, in ticks (the punch and loop
-    /// range): only there does a key played win its pitch over the clips'
-    /// notes. Unbounded unless [`MidiTrack::recording_within`] sets it.
+
     pub record_window: (Ticks, Ticks),
-    /// The take's latency and original recording bounds, when recording.
+
     pub record_timing: Option<RecordTiming>,
-    /// The lanes that drive parameters of the track's plugin instrument (M7
-    /// slice A3), on the device's sample clock.
+
     pub automation: Vec<ParamLane>,
-    /// The values the project holds for the track's built-in instrument's
-    /// parameters, normalised (M8 slice B5): what its card's knobs say, which
-    /// the device reads through [`Instrument::automate`] with the block.
+
     pub values: Vec<(u32, f32)>,
-    /// A sound for a built-in sampler to play, handed to the instrument when
-    /// the list arrives and never kept here (M8 slice B5): the one it played
-    /// before goes back with the list that is freed off the audio thread.
+
     pub sound: Option<Arc<lumen_devices::sampler::Sound>>,
-    /// The parameters those lanes change in the block being played; made with
-    /// the lanes, so none for a track without any.
+
     params: Option<Box<ParamBlock>>,
     state: Box<TrackState>,
-    /// What the chase searches instead of reading every note, one per clip
-    /// ([`index::ClipIndex`]); made with the track.
+
     index: Vec<index::ClipIndex>,
-    /// Set when the list arrives: the track differs from the one it replaces,
-    /// so its notes are brought in line with the position.
+
     dirty: bool,
-    /// The hosted instrument began this part's block early and is collected
-    /// when the track plays.
+
     begun: bool,
-    /// A built-in instrument the track no longer has (taken away, or another
-    /// kind in its place): it was told to let go of its notes and plays its
-    /// release out into the track's bus, rather than being cut. Freed with
-    /// the list that holds it.
+
     leaving: Option<InstrumentSpec>,
-    /// The track's drum map as live input plays it, and the groups that choke
-    /// (M8 D0). Made on the UI side; a track with no map has none.
+
     pub(super) kit: Option<Box<kit::DrumKit>>,
 }
 
 impl MidiTrack {
-    /// Allocates; call off the audio thread. Sorts `clips` by start.
     pub fn new(
         id: u64,
         target: Target,
@@ -244,89 +169,63 @@ impl MidiTrack {
         }
     }
 
-    /// The same track, playing `kit`'s notes live and choking its groups
-    /// (M8 D0). Allocates nothing here: the kit is made on the UI side.
     pub fn playing_drums(mut self, kit: Option<Box<kit::DrumKit>>) -> Self {
         self.kit = kit;
         self
     }
 
-    /// The same track, whose instrument's other outputs play on the tracks
-    /// named: `(output pair, track id)`.
     pub fn with_outputs(mut self, outputs: Vec<(u32, u64)>) -> Self {
         self.outputs = outputs;
         self
     }
 
-    /// The same track, playing the live input `listen` takes.
     pub fn listening(mut self, listen: Listen) -> Self {
         self.listen = listen;
         self
     }
 
-    /// The same track, keeping the live input `record` takes while the
-    /// transport records (M5 slice 6).
     pub fn recording(mut self, record: Listen) -> Self {
         self.record = record;
         self
     }
 
-    /// The same track, whose take shows only what is played in `window`
-    /// (start and end ticks; `None` for no bounds). Keys played outside it
-    /// are kept hidden, so they do not cut or hold back the clips' notes.
     pub fn recording_within(mut self, window: Option<(Ticks, Ticks)>) -> Self {
         self.record_window = window.unwrap_or(hold::ALWAYS);
         self
     }
 
-    /// Supplies the timing used by the app's capture path so live playback
-    /// suppression follows the same compensated position as the take.
     pub fn recording_timing(mut self, timing: Option<RecordTiming>) -> Self {
         self.record_timing = timing;
         self
     }
 
-    /// The same track, whose plugin instrument's parameters follow `lanes`.
-    /// Allocates the block they fill; call off the audio thread.
     pub fn with_automation(mut self, lanes: Vec<ParamLane>) -> Self {
         self.set_automation(lanes);
         self
     }
 
-    /// Gives the track's plugin instrument `lanes` to follow, as
-    /// [`MidiTrack::with_automation`] does. Allocates the block they fill;
-    /// call off the audio thread.
     pub fn set_automation(&mut self, lanes: Vec<ParamLane>) {
         self.params =
             (!lanes.is_empty() || !self.values.is_empty()).then(|| Box::new(ParamBlock::new()));
         self.automation = lanes;
     }
 
-    /// The same track, whose built-in instrument's parameters hold `values`
-    /// (normalised, by id) until a lane moves them (M8 slice B5). Allocates
-    /// the block they arrive in; call off the audio thread.
     pub fn with_values(mut self, values: Vec<(u32, f32)>) -> Self {
         self.set_values(values);
         self
     }
 
-    /// Gives the track's built-in instrument its parameters' values, as
-    /// [`MidiTrack::with_values`] does.
     pub fn set_values(&mut self, values: Vec<(u32, f32)>) {
         self.params = (!values.is_empty() || !self.automation.is_empty())
             .then(|| Box::new(ParamBlock::new()));
         self.values = values;
     }
 
-    /// The same track, whose built-in sampler is handed `sound` when the list
-    /// arrives (M8 slice B5). The handle the interface built is shared with
-    /// the device; nothing is decoded here.
     pub fn playing_sound(mut self, sound: Option<Arc<lumen_devices::sampler::Sound>>) -> Self {
         self.sound = sound;
         self
     }
 
-    /// The channel its events carry.
     fn channel(&self) -> u8 {
         match self.target {
             Target::Instrument => 0,
@@ -334,7 +233,6 @@ impl MidiTrack {
         }
     }
 
-    /// Whether `other` plays the same notes the same way to the same place.
     fn same_as(&self, other: &MidiTrack) -> bool {
         self.target == other.target
             && self.outputs == other.outputs
@@ -350,13 +248,9 @@ impl MidiTrack {
     }
 }
 
-/// What the engine sends toward hardware.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MidiOut {
-    /// A message for `port`, to be heard at device frame `frame` (see
-    /// `RenderContext::stream`); one already past goes at once.
     At { frame: u64, port: u16, msg: Msg },
-    /// Playback stopped or panicked: forget messages not sent yet. The
-    /// note-offs follow.
+
     Flush,
 }

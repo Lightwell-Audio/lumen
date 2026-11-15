@@ -448,14 +448,9 @@ pub mod personality {
 
     pub const REVERB_CORE: Color32 = Color32::from_rgb(0xFF, 0xF1, 0xD6);
     pub const REVERB_WARM: Color32 = Color32::from_rgb(0xFF, 0xC0, 0x8A);
-    /// Shutter, the sampler (M8 slice B5): the blue of a film strip held to
-    /// the light (round 2's specimen).
+
     pub const SHUTTER: Color32 = Color32::from_rgb(0x6F, 0xA8, 0xFF);
 
-    /// The deep shade under Shutter's hue, for its face's screen edge (the
-    /// round-2 specimen's `hue2`). Kept beside the hue so the face that is
-    /// built next (M8, the drawn sampler) takes it from here rather than from a
-    /// literal.
     #[allow(dead_code, reason = "read by Shutter's face when it is built")]
     pub const SHUTTER_DEEP: Color32 = Color32::from_rgb(0x1F, 0x6F, 0xD1);
 

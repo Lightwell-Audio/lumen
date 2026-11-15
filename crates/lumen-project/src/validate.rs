@@ -1,7 +1,3 @@
-//! Semantic checks after deserialization. A file that parses but describes
-//! an impossible project is rejected with a precise message; loading never
-//! panics.
-
 use std::collections::{HashMap, HashSet};
 
 use lumen_core::meter::MeterMap;
@@ -13,38 +9,25 @@ use crate::model::{
     Note, Output, Pass, PluginRef, Project, Route, Takes, Track, TrackKind,
 };
 
-/// The furthest a position or length may reach: about 3 billion beats, past
-/// any song, and far enough from `i64`'s limit that sums of a few never
-/// overflow. A crafted file past it is refused rather than wrapping.
 pub(crate) const LONGEST: Ticks = Ticks(1 << 52);
 
-/// Whether `t` lies within [`LONGEST`] of the start, either side of it.
 pub(crate) fn within(t: Ticks) -> bool {
     t.0.unsigned_abs() <= LONGEST.0.unsigned_abs()
 }
 
-/// The most audio output buses of a plugin an output track can play (the
-/// host's own limit, less the main one). A drum sound's output pair is
-/// numbered the same way, so an editor offers 1 to this (M8 D4).
 pub const MOST_BUSES: u32 = 31;
-/// Device inputs a track can name: far more than any interface has.
+
 pub const MAX_INPUT_CHANNELS: u16 = 256;
 
-/// The most parameters a plugin may list, and so the most a device holds
-/// values for (the host's own limit).
 const MOST_PARAMS: usize = 16_384;
-/// The most parameters a card's strip may name for one device.
+
 const MOST_SHOWN: usize = 256;
-/// The most devices the view may hold a fold or a strip for.
+
 const MOST_VIEWED: usize = 65_536;
-/// The most drum maps a project may hold, and the most sounds in one: far
-/// more than any kit needs.
+
 const MOST_DRUM_MAPS: usize = 256;
 const MOST_SOUNDS: usize = 256;
 
-/// What a device may hold: bounded state, and the VST3-only data only on a
-/// VST3 device (format v17). Everything here comes from a file a person may
-/// have damaged or crafted.
 fn device_data(device: &Device) -> Result<(), String> {
     if device.state.len() > MAX_DEVICE_STATE || device.controller_state.len() > MAX_DEVICE_STATE {
         return Err("a device's saved state is too large".into());
@@ -80,14 +63,6 @@ fn device_data(device: &Device) -> Result<(), String> {
             }
         }
         PluginRef::Builtin { .. } => {
-            // A built-in has no plugin state of its own: no controller state,
-            // no version, no reported latency. Its values are the ones its
-            // table names, saved by id (M8 slice B0), so they are held to the
-            // same bounds as a plugin's — a file that says otherwise is damaged
-            // or crafted. It may be keyed from another track (Gravity, M8
-            // slice B2): which built-ins take a key is the app's to say (it
-            // refuses to set one on the rest), and the source is checked with
-            // every device's, below.
             if !device.controller_state.is_empty()
                 || !device.plugin_version.is_empty()
                 || device.reported.is_some()
@@ -104,9 +79,6 @@ fn device_data(device: &Device) -> Result<(), String> {
     Ok(())
 }
 
-/// What a sampler may hold (format v37): its regions in order and inside the
-/// files they name, its ranges inside the note range, and its pads at levels,
-/// pans, tunes and fades a person could have set. Only a sampler holds one.
 fn sampler_data(device: &Device, project: &Project) -> Result<(), &'static str> {
     let Some(sampler) = &device.sampler else {
         return Ok(());
@@ -267,8 +239,7 @@ pub fn validate(project: &Project) -> Result<(), String> {
                     map.name
                 ));
             }
-            // A sound sent to another track (D4): that track must be there and
-            // play an instrument.
+
             if let Route::Track(to) = sound.route {
                 match kinds.get(&to) {
                     Some(TrackKind::Midi) => {}
@@ -301,7 +272,7 @@ pub fn validate(project: &Project) -> Result<(), String> {
     }
     for track in crate::routing::all_tracks(project) {
         let at = || format!("track {:?}", track.name);
-        // JSON cannot represent NaN or infinity; they must never reach a file.
+
         if !track.gain_db.is_finite()
             || !track.pan.is_finite()
             || !(-1.0..=1.0).contains(&track.pan)
@@ -393,9 +364,7 @@ pub fn validate(project: &Project) -> Result<(), String> {
                 if track.kind != TrackKind::Midi {
                     return Err(format!("{}: a synth on a track that is not MIDI", at()));
                 }
-                // Its sound is the values it holds (format v37); the preset's
-                // name in `state` is only the record of where it started, and
-                // a file may hold none.
+
                 if !device.state.is_empty()
                     && !device
                         .preset()
@@ -404,9 +373,7 @@ pub fn validate(project: &Project) -> Result<(), String> {
                     return Err(format!("{}: the synth's preset is unreadable", at()));
                 }
             }
-            // Where the instrument sits is an edit-time rule, not checked
-            // here: a file written before v17 may hold a plugin before the
-            // synth, and every older file must open.
+
             if device.is_instrument() {
                 if track.kind != TrackKind::Midi {
                     return Err(format!(
@@ -421,8 +388,7 @@ pub fn validate(project: &Project) -> Result<(), String> {
             }
             device_data(device).map_err(|why| format!("{}: {why}", at()))?;
             sampler_data(device, project).map_err(|why| format!("{}: {why}", at()))?;
-            // A source that was deleted stays named: the row says so and the
-            // engine plays no sidechain, so undoing the delete brings it back.
+
             if device.sidechain.is_some_and(|s| s.from == track.id) {
                 return Err(format!("{}: its sidechain is its own track", at()));
             }
@@ -541,7 +507,6 @@ pub fn validate(project: &Project) -> Result<(), String> {
         }
     }
 
-    // Group nesting must be a forest: walking up from any track terminates.
     let parents: HashMap<Id, Id> = project
         .tracks
         .iter()
@@ -569,11 +534,8 @@ pub fn validate(project: &Project) -> Result<(), String> {
     Ok(())
 }
 
-/// Most passes a clip keeps.
 const MOST_TAKES: u32 = 1_024;
 
-/// Notes and events may lie outside the clip's window, before its start or
-/// past its end (format v15), but inside the song's range.
 fn midi_content(notes: &[Note], events: &[ClipEvent]) -> Result<(), String> {
     for (n, event) in events.iter().enumerate() {
         if !event.kind.in_range() || !within(event.at) {
@@ -593,8 +555,6 @@ fn midi_content(notes: &[Note], events: &[ClipEvent]) -> Result<(), String> {
     Ok(())
 }
 
-/// A clip's other passes: the numbers make a set, each pass is of the
-/// clip's kind and holds what a clip of that kind may.
 fn clip_takes(clip: &Clip, takes: &Takes, project: &Project) -> Result<(), String> {
     if takes.count < 2 || takes.count > MOST_TAKES || !takes.is_sound() {
         return Err("its takes are not a set of passes".into());
@@ -635,9 +595,6 @@ fn clip_takes(clip: &Clip, takes: &Takes, project: &Project) -> Result<(), Strin
     Ok(())
 }
 
-/// A track's output and sends go to tracks that can take them.
-/// A frozen track's file: only an audio or MIDI track is frozen, its file is
-/// in the media and it lies within the song.
 fn frozen(track: &Track, media: &HashSet<Id>) -> Result<(), &'static str> {
     let Some(frozen) = &track.frozen else {
         return Ok(());
@@ -691,10 +648,6 @@ mod tests {
     use crate::model::{Level, PluginRef, Send};
     use crate::testing::small_project;
 
-    /// A built-in device saves the values its table names, by id (M8 slice
-    /// B0), so a project holding them is valid; a value outside 0 to 1, or
-    /// plugin-only data, is not. A save of a project with a built-in was
-    /// refused before M8 slice B1 found it.
     #[test]
     fn a_built_in_may_hold_its_parameter_values_and_nothing_else() {
         let project = small_project(3);
@@ -720,7 +673,7 @@ mod tests {
             }),
             Ok(())
         );
-        // A value a file may have damaged: refused as a plugin's would be.
+
         assert!(
             check(&|d: &mut Device| {
                 d.params.insert(1, 1.5);
@@ -728,7 +681,7 @@ mod tests {
             .unwrap_err()
             .contains("out of range")
         );
-        // Data only a plugin has: refused.
+
         assert!(
             check(&|d: &mut Device| {
                 d.plugin_version = "1.0".to_owned();
@@ -736,8 +689,7 @@ mod tests {
             .unwrap_err()
             .contains("plugin-only data")
         );
-        // A key from another track is a built-in's own (Gravity's), so a keyed
-        // one saves; keyed from its own track it is refused as any device is.
+
         assert_eq!(
             check(&|d: &mut Device| {
                 d.sidechain = Some(crate::model::Sidechain {
@@ -775,7 +727,7 @@ mod tests {
                 .unwrap_err()
                 .contains("does not exist")
         );
-        // A track in the group routed back into its own group's output loop.
+
         assert!(
             check(&set(0, Output::Track(group)))
                 .unwrap_err()
@@ -811,8 +763,6 @@ mod tests {
         validate(&project)
     }
 
-    /// Review M5 M3: positions near `i64`'s limit are refused, never added
-    /// up into an overflow.
     #[test]
     fn positions_past_the_longest_song_are_refused() {
         let far = Ticks(i64::MAX - 1);

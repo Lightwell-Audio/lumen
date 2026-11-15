@@ -189,8 +189,7 @@ impl Document {
         };
         let id = self.fresh_id();
         let mut device = with_values(fresh_device(id, plugin), values);
-        // A sampler arriving on a new track has its own sixteen pads, ready
-        // for the files they will be given (M8 slice B5).
+
         if device.is_sampler() {
             device.sampler = Some(lumen_project::model::Sampler::empty(None));
         }
@@ -221,9 +220,7 @@ impl Document {
         let index = place_in(current, kind, slot)?;
         let id = self.fresh_id();
         let mut device = with_values(fresh_device(id, plugin), values);
-        // A sampler arrives with its sound: the faces it has, and a pad for
-        // every sound of the track's drum map (M8 slice B5). Its pads answer
-        // the map the track names, the sixteen of its own when it names none.
+
         if device.is_sampler() {
             let map = drum_map.and_then(|map| self.drum_map(map)).cloned();
             device.sampler = Some(lumen_project::model::Sampler::empty(map.as_ref()));

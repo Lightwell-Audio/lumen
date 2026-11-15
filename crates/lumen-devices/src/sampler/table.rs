@@ -1,40 +1,32 @@
-//! Shutter's parameters (M8 slice B5): the table the card, All parameters,
-//! the lanes and the engine read, and the words each value is shown and typed
-//! in.
-
 use crate::params::{ParamInfo, Taper};
 use crate::sampler::FILTER_TOP_HZ;
 
-/// Level, in decibels.
 pub const LEVEL: u32 = 1;
-/// Pitch, in semitones.
+
 pub const PITCH: u32 = 2;
-/// Fine pitch, in hundredths of a semitone.
+
 pub const FINE: u32 = 3;
-/// Attack, in seconds.
+
 pub const ATTACK: u32 = 4;
-/// Decay, in seconds.
+
 pub const DECAY: u32 = 5;
-/// Sustain, as a share of the note's own level.
+
 pub const SUSTAIN: u32 = 6;
-/// Release, in seconds.
+
 pub const RELEASE: u32 = 7;
-/// The filter: off, low pass or high pass.
+
 pub const FILTER: u32 = 8;
-/// The filter's cutoff, in Hz.
+
 pub const CUTOFF: u32 = 9;
-/// The filter's resonance, as a share.
+
 pub const RESONANCE: u32 = 10;
-/// How much a note's velocity sets its level.
+
 pub const VELOCITY: u32 = 11;
 
-/// How many parameters the table holds.
 pub(crate) const PARAMS: usize = 11;
 
-/// The lowest level: under it, silence.
 pub(crate) const FLOOR_DB: f32 = -60.0;
 
-/// What the columns of the table are for, so a reader sees the shape of a row.
 #[allow(clippy::too_many_arguments)]
 const fn param(
     id: u32,
@@ -64,9 +56,6 @@ const fn param(
     }
 }
 
-/// Shutter's parameters, in the order the card and All parameters show them.
-/// Ids are stable and never reused. They hold what every face shares; the
-/// regions, zones and pads are the sound's own ([`Sound`]), not parameters.
 pub static TABLE: &[ParamInfo] = &[
     param(
         LEVEL,
@@ -316,7 +305,6 @@ fn cutoff_parse(text: &str) -> Option<f32> {
     number_in(&t, &["hz"])
 }
 
-/// A number in `text`, with any of `units` after it and either minus.
 fn number_in(text: &str, units: &[&str]) -> Option<f32> {
     let mut t = text.trim().replace('\u{2212}', "-").to_lowercase();
     for unit in units {

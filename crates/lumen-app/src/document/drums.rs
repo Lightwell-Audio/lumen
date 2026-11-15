@@ -42,8 +42,7 @@ impl Document {
                 if let Some(slot) = project.tracks.iter_mut().find(|t| t.id == *track) {
                     let track = Arc::make_mut(slot);
                     track.drum_map = Some(id);
-                    // A sampler on the track gives its pads the map's sounds,
-                    // in this same step (M8 slice B5, review M1).
+
                     super::sampler::follow_drum_map(track, Some(&map));
                 }
             }
@@ -79,7 +78,7 @@ impl Document {
                 if let Some(slot) = project.tracks.iter_mut().find(|t| t.id == *track) {
                     let track = Arc::make_mut(slot);
                     track.drum_map = Some(map);
-                    // Its sampler's pads follow the map (M8 slice B5, M1).
+
                     super::sampler::follow_drum_map(track, held.as_ref());
                 }
             }
@@ -110,8 +109,7 @@ impl Document {
                 if let Some(slot) = project.tracks.iter_mut().find(|t| t.id == *track) {
                     let track = Arc::make_mut(slot);
                     track.drum_map = None;
-                    // Its sampler's pads go back to the sixteen of a track with
-                    // no map (M8 slice B5, M1).
+
                     super::sampler::follow_drum_map(track, None);
                 }
             }

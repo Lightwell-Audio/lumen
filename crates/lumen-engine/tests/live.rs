@@ -1045,14 +1045,8 @@ fn a_live_pad_ends_on_the_channel_it_played_on_even_after_an_edit() {
     assert_eq!(rig.held_live(A), 0);
 }
 
-/// A knob turned while the transport is stopped reaches the instrument with
-/// the next block (M8 slice B5, review H3): a sampler pad played live at
-/// −20 dB is a tenth as loud as at unity. Only the lanes are gated on Play;
-/// the values the project holds are given in every mode.
 #[test]
 fn a_samplers_level_is_heard_on_a_note_played_while_stopped() {
-    /// One sampler, one one-shot pad of a constant sample, its Level at
-    /// `db`, listening to the test's live input.
     fn sampler_at(db: f32) -> MidiTrack {
         let value = lumen_devices::params::find(
             lumen_devices::sampler::TABLE,
@@ -1084,11 +1078,10 @@ fn a_samplers_level_is_heard_on_a_note_played_while_stopped() {
         .listening(keys_on(None))
     }
 
-    /// The loudest frame of the last block, after the level's glide.
     fn played(db: f32) -> f32 {
         let log = Log::default();
         let mut rig = rig(vec![sampler_at(db)], &log);
-        // A live note, the transport never started.
+
         rig.live.send(64, KEYS, Msg::note_on(0, 60, 127));
         let heard = rig.run(2_048, 128);
         heard[1_792..]

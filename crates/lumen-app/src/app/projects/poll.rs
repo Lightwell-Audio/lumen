@@ -1,6 +1,3 @@
-//! The results of dialogs, saves and opens, and the banner that says a
-//! file could not be saved or opened.
-
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -17,7 +14,6 @@ use crate::widgets::raised;
 use crate::{arrangement, document, files};
 
 impl App {
-    /// Results of dialogs, saves and opens; and the window's close button.
     pub(crate) fn poll_files(&mut self, ctx: &egui::Context) {
         if let Some(waiting) = &self.save_waiting {
             if !self.hosting.captures_pending() || waiting.since.elapsed() >= PLUGIN_READ_WAIT {
@@ -76,7 +72,7 @@ impl App {
                         self.load_sample_files(device, paths);
                     }
                 }
-                // Cancelled: whatever was waiting on it is off too.
+
                 FileDialog::SaveAs(None) | FileDialog::Open(None) => self.after_save = None,
                 FileDialog::PluginFolder(None)
                 | FileDialog::SaveCopy(None)
@@ -105,9 +101,7 @@ impl App {
                         1 => " (1 audio file copied in)".into(),
                         n => format!(" ({n} audio files copied in)"),
                     };
-                    // A plugin that changed and could not be read is saved
-                    // with the state it was loaded with and the parameter
-                    // values changed since: say so.
+
                     let unread = match self.hosting.unread() {
                         0 => String::new(),
                         1 => ". A plugin could not be read: only its parameter values are current"
@@ -121,8 +115,7 @@ impl App {
                         Instant::now(),
                     ));
                     self.file_notice = None;
-                    // The save committed, but the previous version could not
-                    // be kept: say what is safe (sweep M1).
+
                     if let Some(why) = &saved.backup_error {
                         self.file_notice =
                             Some(format!("Saved, but {why}. Your project itself was saved."));
@@ -141,8 +134,7 @@ impl App {
             self.opening = None;
             let template = std::mem::take(&mut self.templates.opening);
             let reverting = self.revert.reloading.take();
-            // A recording or an export that began, or an edit made, while
-            // the file was read: nothing is replaced (M9 R8, ADR-0117).
+
             let busy = self.busy_for_open();
             let changed = self.document.change_mark() != self.opening_mark;
             match result {
@@ -164,8 +156,7 @@ impl App {
                         when_done(busy),
                     ));
                 }
-                // An open or a template waits again while the work goes on,
-                // and asks again if the project changed.
+
                 Ok(opened) if busy.is_some() || changed => {
                     let next = if template {
                         Next::Template(opened.path)
@@ -182,14 +173,12 @@ impl App {
                 Ok(opened) => {
                     let view = opened.project.view.clone();
                     let file = opened.path.clone();
-                    // A template is a way to start, not a project to come
-                    // back to: it is not remembered.
+
                     if !template {
                         files::remember(&mut self.settings.projects.recent, &opened.path);
                         self.settings_changed = Some(Instant::now());
                     }
-                    // Missing audio is answered by its own banner, which
-                    // opens the Project media tab (M9 slice R4b).
+
                     self.file_notice = None;
                     let recovered = self.recovering.is_some();
                     match self.recovering.take() {
@@ -228,7 +217,6 @@ impl App {
                     if template {
                         self.said_new_from(&file);
                     } else if let Some(kept) = reverting {
-                        // The message that offers the dropped changes.
                         self.revert.kept = Some(kept);
                         self.say(format!("Reverted to the saved {}", self.document.name()));
                     } else {
@@ -263,7 +251,7 @@ impl App {
                 }
             }
         }
-        // The window's close button: offer to save first.
+
         if ctx.input(|i| i.viewport().close_requested())
             && !self.quitting
             && self.document.is_dirty()
@@ -273,7 +261,6 @@ impl App {
         }
     }
 
-    /// A problem saving or opening, with a way forward.
     pub(crate) fn file_banner(&mut self, ui: &mut egui::Ui) {
         let Some(message) = self.file_notice.clone() else {
             return;
@@ -283,8 +270,6 @@ impl App {
             .frame(notice_panel_frame())
             .show(ui, |ui| {
                 notice_card(ui, |ui| {
-                    // A notice is read in full: it wraps rather than being cut
-                    // short or widening the window.
                     ui.add(egui::Label::new(&message).wrap());
                     if message.starts_with("Not saved")
                         && raised::primary_button(ui, "Save as\u{2026}").clicked()

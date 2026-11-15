@@ -31,7 +31,7 @@ pub(crate) enum FileDialog {
     Place(Option<PathBuf>),
     DrumMapExport(Option<PathBuf>),
     DrumMapImport(Option<PathBuf>),
-    /// Audio files for the chosen Shutter (none when cancelled; M8 slice B5).
+
     SamplerFiles {
         paths: Vec<PathBuf>,
         device: lumen_project::model::Id,

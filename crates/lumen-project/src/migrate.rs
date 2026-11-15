@@ -1,23 +1,9 @@
-//! Format migrations: pure functions over untyped JSON.
-//!
-//! Only the newest format has typed structs. A file of version N is parsed
-//! into a `serde_json::Value`, upgraded one version at a time, then
-//! deserialized. Rules:
-//! - every change to what is persisted bumps [`CURRENT_VERSION`] and appends
-//!   exactly one migration to [`MIGRATIONS`];
-//! - migrations are never edited or removed once released;
-//! - every version keeps a golden fixture under `tests/fixtures/vN/`, loaded
-//!   by the tests forever.
-
 use serde_json::Value;
 
-/// Upgrades a document from version `n` to `n + 1`.
 pub type Migration = fn(Value) -> Result<Value, String>;
 
-/// The oldest version Lumen has ever written.
 pub const FIRST_VERSION: u64 = 1;
 
-/// `MIGRATIONS[i]` upgrades version `FIRST_VERSION + i` to the next one.
 pub const MIGRATIONS: &[Migration] = &[
     v1_to_v2,
     v2_to_v3,
@@ -57,17 +43,12 @@ pub const MIGRATIONS: &[Migration] = &[
     add_sampler_samples,
 ];
 
-/// Version 2 (M3 slice 3) adds the saved loop region (`transport`) and view
-/// state (`view`). Version 1 files get the defaults of the day written out.
-/// They are frozen here as literals: a migration never follows a later change
-/// to a default, so a v1 project always opens as it did in version 2.
 fn v1_to_v2(mut document: Value) -> Result<Value, String> {
     let project = document
         .get_mut("project")
         .and_then(Value::as_object_mut)
         .ok_or("missing project")?;
-    // Version 2's own words, frozen: four bars of 4/4 with the loop off, and
-    // the default view state as version 2 wrote it.
+
     project.insert(
         "transport".into(),
         serde_json::json!({
@@ -105,9 +86,6 @@ fn v1_to_v2(mut document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// Version 3 (M3 slice 4) adds record arm per track, and the arrangement's
-/// vertical scroll, track heights and unfolded tracks to the view. The defaults are written
-/// out.
 fn v2_to_v3(mut document: Value) -> Result<Value, String> {
     let project = document
         .get_mut("project")
@@ -129,9 +107,6 @@ fn v2_to_v3(mut document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// Version 4 (M3 slice 5) adds named locators (`markers`), the punch
-/// switches to the transport, and the grid to the view. The defaults are
-/// written out.
 fn v3_to_v4(mut document: Value) -> Result<Value, String> {
     let project = document
         .get_mut("project")
@@ -145,7 +120,7 @@ fn v3_to_v4(mut document: Value) -> Result<Value, String> {
     }
     if let Some(view) = project.get_mut("view").and_then(Value::as_object_mut) {
         view.entry("grid").or_insert(serde_json::json!({
-            // Version 4's own words, frozen (the default grid of the day).
+
             "fixed": false,
             "width": "narrow",
             "size": { "note": 16 },
@@ -156,11 +131,7 @@ fn v3_to_v4(mut document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// Version 5 (M3 slice 6) gives clips a colour, a lock, fades and a loop.
-/// The defaults are written out on every clip here; saving writes them
-/// only when set.
 fn v4_to_v5(mut document: Value) -> Result<Value, String> {
-    // Version 5's own words, frozen: later versions change fades.
     let fade = serde_json::json!({ "length": 0, "shape": "linear" });
     let tracks = document
         .get_mut("project")
@@ -182,10 +153,6 @@ fn v4_to_v5(mut document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// Version 6 (M3 slice 6d, owner's choice C3) bends fades freely: a fade's
-/// `shape` (one of four names) becomes a `curve`, four numbers for a cubic
-/// Bézier, written only when it is not straight. Each named shape is an
-/// exact curve, so old fades sound the same.
 fn v5_to_v6(mut document: Value) -> Result<Value, String> {
     const THIRD: f64 = 1.0 / 3.0;
     let curve = |shape: &str| -> Result<Option<Value>, String> {
@@ -222,13 +189,6 @@ fn v5_to_v6(mut document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// Version 7 (M4 slice 2) routes tracks: a master track in every project
-/// (kept apart from `tracks`), each track's output, sends, polarity and
-/// input trim, and the project's pan law. A master track already among the
-/// tracks moves out to `master`; otherwise one is made with the next free
-/// id. The defaults are written out on every track. The pan law is −3 dB
-/// constant power (owner, M4): projects from before play 3 dB quieter at
-/// the centre.
 fn v6_to_v7(mut document: Value) -> Result<Value, String> {
     let next_id = highest_id(&document)?
         .checked_add(1)
@@ -247,7 +207,7 @@ fn v6_to_v7(mut document: Value) -> Result<Value, String> {
         .position(|t| t.get("kind").and_then(Value::as_str) == Some("master"));
     let mut master = match found {
         Some(index) => tracks.remove(index),
-        // Version 7's own words, frozen.
+
         None => serde_json::json!({
             "id": format!("{next_id:016x}"),
             "name": "Master",
@@ -278,10 +238,6 @@ fn v6_to_v7(mut document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// Version 8 (M4 slice 3) keeps a group's tracks right under it, nested
-/// ones inside theirs, and saves which groups are folded (`collapsed`, none
-/// at first). Tracks are put in that order, keeping the order of tracks
-/// that share a group; returns leave their groups.
 fn v7_to_v8(mut document: Value) -> Result<Value, String> {
     let project = document
         .get_mut("project")
@@ -308,7 +264,7 @@ fn v7_to_v8(mut document: Value) -> Result<Value, String> {
         .filter(|t| text(t, "kind").as_deref() == Some("group"))
         .filter_map(|t| text(t, "id"))
         .collect();
-    // Each track's group, when that is a group in this project.
+
     let parents: Vec<Option<String>> = tracks
         .iter()
         .map(|t| text(t, "parent").filter(|p| groups.contains(p)))
@@ -331,15 +287,13 @@ fn v7_to_v8(mut document: Value) -> Result<Value, String> {
                 .filter(|&j| parents[j].is_some() && parents[j] == id),
         );
     }
-    // Tracks in a nesting cycle stay at the end, for validation to reject.
+
     order.extend((0..tracks.len()).filter(|&i| !placed[i]));
     let mut old: Vec<Option<Value>> = tracks.drain(..).map(Some).collect();
     tracks.extend(order.into_iter().filter_map(|i| old[i].take()));
     Ok(document)
 }
 
-/// Version 9 (M4 slice 3, MT-MIX-3 run 1) saves the width of the track
-/// header column, 204 points before.
 fn v8_to_v9(mut document: Value) -> Result<Value, String> {
     let view = document
         .get_mut("project")
@@ -351,9 +305,6 @@ fn v8_to_v9(mut document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// v10 (M4 slice 4): returns and the master pinned at the bottom of the
-/// arrangement, the area's height (absent: its natural size) and whether
-/// the returns are folded away.
 fn v9_to_v10(mut document: Value) -> Result<Value, String> {
     let view = document
         .get_mut("project")
@@ -365,115 +316,58 @@ fn v9_to_v10(mut document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// v11 (M5 slice 0): MIDI clips may carry controller, pitch-bend,
-/// pressure and program events beside their notes. They are written only
-/// when present, so nothing in an older file changes.
 fn v10_to_v11(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// v12 (M5 slice 1): a MIDI track may play its notes to a MIDI output
-/// (`midi_to`) instead of its instrument, and the instrument is a built-in
-/// device on the track (`{"format": "builtin", "name": "synth"}`, its preset
-/// in `state`). Both are written only when set. MIDI tracks in older files
-/// have no instrument and stay silent until one is chosen: they could hold
-/// no notes before v11, so nothing that sounded goes quiet.
 fn v11_to_v12(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// v13 (M5 slice 2): a MIDI track says which inputs it listens to
-/// (`midi_from`) and every track says when it monitors (`monitor`). Both are
-/// written only when not the default (all inputs, all channels; Auto), which
-/// is what an older file means.
 fn v12_to_v13(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// v14 (M5 slice 3): a note may be muted. A muted note is written with a
-/// fifth element, `true`; every other note keeps its four, which is what an
-/// older file holds, so nothing changes.
 fn v13_to_v14(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// v15 (M5, after MT-MIDI-7): a MIDI clip is a window onto its notes.
-/// Trimming, covering and splitting no longer delete notes, so a
-/// note may start before its clip (a negative start) or at or past its end,
-/// kept but hidden. An older file has none such, and means the same.
 fn v14_to_v15(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// v16 records whether a note may carry a sounding note through a seam.
-/// Existing notes default to eligible, preserving split and Overdub behavior.
 fn v15_to_v16(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// v17 (M6 slice 2): a VST3 device keeps its edit controller's state apart
-/// from the component's (`controller_state`), the plugin's version at capture
-/// (`plugin_version`) and its last reported latency and tail (`reported`), and
-/// a VST3 plugin says whether it is an instrument or an effect (`kind`). All
-/// four are written only when set. A device in an older file holds its whole
-/// state in `state`, which is now the component's, and means an effect with
-/// nothing reported, so nothing that played changes.
 fn v16_to_v17(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// v18 (M6 slice 3): the view may list device cards folded in the Devices tab
-/// (`folded_devices`), written only when there are some. A file without it
-/// has none folded, which is what every older project showed.
 fn v17_to_v18(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// v19 (M6 slice 4): a VST3 device may hold parameter values over its saved
-/// state (`params`, by parameter id) and the view may list which parameters a
-/// device card's strip shows (`shown_params`). Both are written only when
-/// set. A file without them holds no overrides and lets the card choose, which
-/// is what every older project did.
 fn v18_to_v19(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// v20 (M6 slice 6): a VST3 effect may take a sidechain (`sidechain`: the
-/// track it is keyed from and where on that track the signal is taken),
-/// written only when set. A file without it has none, which is what every
-/// older project had.
 fn v19_to_v20(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// v21 (M6 slice 6): an audio track may play an output of a plugin
-/// instrument (`plugin_output`: the device and its output bus), written only
-/// when set. A file without it has none, which is what every older project
-/// had.
 fn v20_to_v21(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// v22 (M7 slice A0): a track may hold automation lanes (`automation`: a
-/// list of the parameter each drives, its points and whether it plays),
-/// written only when there are some. A file without it has none, which is
-/// what every older project had.
 fn v21_to_v22(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// v23 (M7 slice A5): a project may hold controller mappings (`mappings`:
-/// the channel and controller number, and the track and value each moves),
-/// written only when there are some. A file without it has none, which is
-/// what every older project had.
 fn v22_to_v23(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// v24 (M7 slice A6): the time signature may change along the song. The
-/// project's one `time_signature` becomes `meter`, a list of changes with
-/// the old signature as the first, at zero (4/4 when a document names none,
-/// as the smallest documents in the migration tests do).
 fn v23_to_v24(mut document: Value) -> Result<Value, String> {
     let project = document
         .get_mut("project")
@@ -489,28 +383,18 @@ fn v23_to_v24(mut document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// v25 (M7 slice A7): an audio clip may carry gain and pan envelopes
-/// (`envelopes`: the points of each, measured from the clip's start),
-/// written only when there are some. A file without it has none, which is
-/// what every older project had.
 fn v24_to_v25(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// v26 (M7b E0) adds source phase to clips and a window into a fade curve for
-/// slices. The phases and fade windows default to legacy zero/full behavior.
 fn v25_to_v26(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// v27 (M7b E1) adds `reversed` and `inverted` to audio clips, written only
-/// when set. A file without them has neither, as every older project had.
 fn v26_to_v27(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// v28 adds crossfade markers and the automatic crossfade setting. Existing
-/// projects keep their prior playback until the user opts in.
 fn v27_to_v28(mut document: Value) -> Result<Value, String> {
     let project = document
         .get_mut("project")
@@ -533,71 +417,40 @@ fn v27_to_v28(mut document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// v29 (M7b E5) adds `frozen` to tracks, written only when a track is frozen.
-/// A file without it has no frozen track, as every older project had.
 fn v28_to_v29(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// v30 (M9 R1) adds `input` to tracks, written only when an audio track has
-/// an input route. A file without it has none, as every older project had.
 fn v29_to_v30(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// v31 (M9 R3) adds `takes` to clips, written only when a clip keeps the
-/// other passes of a loop recording. A file without it has none, as every
-/// older project had.
 fn v30_to_v31(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// v32 (M9 R4) adds the project's `notes` and the colour new tracks take
-/// (`new_track_color`), each written only when set. A file without them has
-/// no notes and cycles the palette, as every older project did.
 fn v31_to_v32(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// v33 (M9.5 S4a) adds `warp` to audio clips, and to the passes of their
-/// takes, written only when a clip follows the tempo. A file without it has
-/// none, as every older project had: every clip plays its file as made.
 fn v32_to_v33(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// v34 (M9.5 S6) adds `pitch` to a clip's envelopes (`envelopes.pitch`, a
-/// lane of semitones), written only when a clip has one. A file without it
-/// has none, as every older project had: no clip changes pitch over time.
 fn v33_to_v34(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// v35 (M8 D0) adds the project's drum maps and the map a track reads its
-/// notes through, each written only when set. A file without them has no
-/// maps and every track plays its notes as written, as every older project
-/// did.
 fn add_drum_maps(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// v36 (M8 slice B4) gives every synth device the parameter values its sound
-/// is made of. Before it, a synth's sound was the *name* of one of five
-/// presets, saved as text in the device's `state`; from it, the sound is the
-/// values, and the name is only the record of where it started (it stays in
-/// `state`, and nothing reads it to make sound).
-///
-/// The five presets, frozen as v35's synth made them: the numbers below are
-/// what this version computed for each preset's parameters, normalised, by
-/// parameter id. They are literals on purpose — a later change to the
-/// synth's defaults or to a preset's sound must not change what an old
-/// project opens as.
 fn add_synth_parameters(mut document: Value) -> Result<Value, String> {
     let values_of = synth_values_of;
     let Some(project) = document.get_mut("project").and_then(Value::as_object_mut) else {
         return Ok(document);
     };
-    /// Gives every synth device in one track its values.
+
     fn track_values(track: &mut Value, values_of: fn(&str) -> &'static [(u32, f64)]) {
         let Some(devices) = track.get_mut("devices").and_then(Value::as_array_mut) else {
             return;
@@ -606,8 +459,7 @@ fn add_synth_parameters(mut document: Value) -> Result<Value, String> {
             let Some(device) = device.as_object_mut() else {
                 continue;
             };
-            // Only a *built-in*: a hosted plugin may be called "synth" too,
-            // and its state is not a preset name (review L4).
+
             let is_synth = device.get("plugin").is_some_and(|plugin| {
                 plugin.get("format").and_then(Value::as_str) == Some("builtin")
                     && plugin.get("name").and_then(Value::as_str) == Some(SYNTH)
@@ -652,10 +504,6 @@ fn add_synth_parameters(mut document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// The values a synth that played `preset` (its stable name, as v35 wrote it)
-/// holds at format v36: the frozen numbers the migration writes. A name this
-/// build does not know is Poly, which is what the old loader played. Read by
-/// the demo projects, so the files this build ships are real v36 ones.
 pub fn synth_values_of(preset: &str) -> &'static [(u32, f64)] {
     match preset {
         "keys" => &KEYS,
@@ -666,13 +514,8 @@ pub fn synth_values_of(preset: &str) -> &'static [(u32, f64)] {
     }
 }
 
-/// The synth's stable name in a device's `plugin` (the same text
-/// `lumen_project::model::SYNTH` holds; written here so a migration never
-/// follows a later change to it).
 const SYNTH: &str = "synth";
 
-/// Poly, as v35 played it: two saws detuned ±7 cents, low-pass at 2.4 kHz
-/// with a little velocity to cutoff, A 5 ms, D 300 ms, S 70 %, R 250 ms.
 const POLY: [(u32, f64); 34] = [
     (1, 0.666_666_687),
     (2, 0.500_000_000),
@@ -710,7 +553,6 @@ const POLY: [(u32, f64); 34] = [
     (34, 0.159_999_996),
 ];
 
-/// Keys: a triangle and its octave, brighter and shorter.
 const KEYS: [(u32, f64); 34] = [
     (1, 0.333_333_343),
     (2, 0.500_000_000),
@@ -748,7 +590,6 @@ const KEYS: [(u32, f64); 34] = [
     (34, 0.239_999_995),
 ];
 
-/// Bass: a saw with a square an octave under it, a low resonant corner.
 const BASS: [(u32, f64); 34] = [
     (1, 0.666_666_687),
     (2, 0.500_000_000),
@@ -786,7 +627,6 @@ const BASS: [(u32, f64); 34] = [
     (34, 0.219_999_999),
 ];
 
-/// Pluck: two saws a little apart, no sustain.
 const PLUCK: [(u32, f64); 34] = [
     (1, 0.666_666_687),
     (2, 0.500_000_000),
@@ -824,7 +664,6 @@ const PLUCK: [(u32, f64); 34] = [
     (34, 0.200_000_003),
 ];
 
-/// Pad: two saws twelve cents either side, a dark corner, a slow attack.
 const PAD: [(u32, f64); 34] = [
     (1, 0.666_666_687),
     (2, 0.500_000_000),
@@ -862,15 +701,10 @@ const PAD: [(u32, f64); 34] = [
     (34, 0.140_000_001),
 ];
 
-/// v37 (M8 B5) adds the built-in sampler's sound, `sampler`, to a device,
-/// written only when a device is one. A file without it holds no sample, and
-/// the sampler a later project has plays nothing until one is loaded, as a
-/// device of an older build could not have.
 fn add_sampler_samples(document: Value) -> Result<Value, String> {
     Ok(document)
 }
 
-/// The highest id written anywhere in `document` (every `"id"` field).
 fn highest_id(document: &Value) -> Result<u64, String> {
     fn walk(value: &Value, highest: &mut u64) -> Result<(), String> {
         match value {
@@ -900,11 +734,8 @@ fn highest_id(document: &Value) -> Result<u64, String> {
     Ok(highest)
 }
 
-/// The version this build writes.
 pub const CURRENT_VERSION: u64 = FIRST_VERSION + MIGRATIONS.len() as u64;
 
-/// Applies `migrations` to bring `document` from `from` to the latest
-/// version they describe, updating the `version` field after each step.
 pub fn upgrade(
     mut document: Value,
     from: u64,
@@ -930,8 +761,6 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    // A synthetic history used only to test the mechanism. Version 1 had a
-    // single `bpm`; version 2 a tempo list; version 3 renamed `title`.
     fn v1_to_v2(mut doc: Value) -> Result<Value, String> {
         let project = doc["project"].as_object_mut().ok_or("missing project")?;
         let bpm = project.remove("bpm").ok_or("missing bpm")?;
@@ -1083,9 +912,6 @@ mod tests {
 
     #[test]
     fn v1_and_v3_migrations_write_their_own_literals_not_live_defaults() {
-        // A later change to `TransportState::default`, `ViewState::default`
-        // or `Grid::default` must not change how an old file opens. This
-        // fails only if one of these migrations is edited.
         let v1 = json!({ "format": "lumen-project", "version": 1, "project": { "name": "x" } });
         let v2 = upgrade(v1, 1, FIRST_VERSION, &MIGRATIONS[..1]).unwrap();
         assert_eq!(

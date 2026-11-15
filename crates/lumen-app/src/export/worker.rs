@@ -30,7 +30,7 @@ pub struct Job {
     pub protected: Vec<PathBuf>,
     pub unread: Unread,
     pub _warps: Option<Arc<crate::media::warped::WarpedStreams>>,
-    /// The samples this render's samplers play (M8 slice B5).
+
     pub samples: Vec<(Id, crate::builtin::samples::Source)>,
 }
 

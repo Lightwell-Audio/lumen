@@ -1,11 +1,3 @@
-//! The built-in sampler in the model (format v37, M8 slice B5).
-//!
-//! The format ones: a golden file that loads forever, an older project that
-//! opens with no sample, a project with none that writes none, and the checks
-//! that refuse a sound a project may not hold. The rules ones: which pad and
-//! zone answer a note, that a map never loses a pad, and that the media pool
-//! counts what the sampler plays as used.
-
 use std::sync::Arc;
 
 use lumen_core::time::Ticks;
@@ -51,7 +43,6 @@ fn midi_clip(id: u64) -> Arc<Clip> {
     })
 }
 
-/// A media entry of `frames` frames at 48 kHz.
 fn file(id: u64, name: &str, frames: u64) -> Media {
     Media {
         id: Id(id),
@@ -64,7 +55,6 @@ fn file(id: u64, name: &str, frames: u64) -> Media {
     }
 }
 
-/// A MIDI track with the built-in sampler holding `sampler`.
 fn sampled(id: u64, sampler: Sampler, media: Vec<Media>) -> Project {
     let mut track = Track::new(Id(id), "Drums", TrackKind::Midi, Color(0x5E8C6A));
     let mut device = Device::new(
@@ -83,9 +73,6 @@ fn sampled(id: u64, sampler: Sampler, media: Vec<Media>) -> Project {
     project
 }
 
-/// The model the v37 golden file must always load as: a sampler with every
-/// field a sound may hold, so the fixture records how each is written. Never
-/// change it.
 fn golden_v37_expected() -> Project {
     let mut sampler = Sampler {
         face: Face::Pads,
@@ -136,7 +123,7 @@ fn golden_v37_expected() -> Project {
 fn golden_v37_loads_and_round_trips() {
     let project = common::golden("v37", golden_v37_expected);
     assert_eq!(from_bytes(&to_bytes(&project).unwrap()).unwrap(), project);
-    // Every field survives the file.
+
     let sampler = project.tracks[0].devices[0]
         .sampler
         .as_ref()
@@ -152,7 +139,7 @@ fn golden_v37_loads_and_round_trips() {
     let pad = sampler.pad(38).expect("the snare pad");
     assert_eq!(pad.output, 2);
     assert_eq!(pad.root, Some(40));
-    // The device is an instrument, so it takes a MIDI track's notes.
+
     assert!(project.tracks[0].devices[0].is_instrument());
     assert!(project.tracks[0].devices[0].is_sampler());
 }
@@ -174,13 +161,12 @@ fn a_project_before_the_sampler_opens_with_no_sound() {
 fn a_project_with_no_sampler_writes_none() {
     let project = sampled(1, Sampler::default(), Vec::new());
     let text = String::from_utf8(to_bytes(&project).unwrap()).unwrap();
-    // An empty sound is written (its face and no samples), and nothing else.
+
     assert!(text.contains("\"sampler\""), "{text}");
     assert!(!text.contains("\"zones\""), "{text}");
     assert!(!text.contains("\"pads\""), "{text}");
     assert!(!text.contains("\"region\""), "{text}");
 
-    // A device that is not the sampler writes no sound at all.
     let mut project = sampled(1, Sampler::default(), Vec::new());
     let track = Arc::make_mut(&mut project.tracks[0]);
     track.devices[0].plugin = PluginRef::Builtin {
@@ -220,8 +206,6 @@ fn a_sampler_a_project_may_not_hold_is_refused() {
             .expect("the sound")
     }
     for operation in [
-        // A region past the end of its file, and one that ends before it
-        // starts.
         &(|p: &mut Project| {
             device(p).one_shot.region = Some(Region {
                 start: 900,
@@ -236,14 +220,11 @@ fn a_sampler_a_project_may_not_hold_is_refused() {
                 ..Region::whole(Id(20), 60)
             });
         },
-        // A sample that is not in the media, a zone that is not, and a pad
-        // that names one.
         &|p: &mut Project| {
             device(p).one_shot.region = Some(Region::whole(Id(99), 60));
         },
         &|p: &mut Project| device(p).zones.push(Zone::single(Id(99), 36, 36)),
         &|p: &mut Project| device(p).pads.push(Pad::playing(36, Id(99))),
-        // Ranges out of order, outside the note range, and with no velocity.
         &|p: &mut Project| {
             device(p).zones.push(Zone {
                 low: 60,
@@ -263,14 +244,11 @@ fn a_sampler_a_project_may_not_hold_is_refused() {
                 ..Zone::single(Id(20), 60, 60)
             });
         },
-        // A pad at a level, a pan, a tune, an output pair or a fade no person
-        // could have set.
         &|p: &mut Project| device(p).pad_mut(36).level_db = 40.0,
         &|p: &mut Project| device(p).pad_mut(36).pan = 2.0,
         &|p: &mut Project| device(p).pad_mut(36).tune = 40.0,
         &|p: &mut Project| device(p).pad_mut(36).output = 9,
         &|p: &mut Project| device(p).pad_mut(36).choke_fade = 0.0,
-        // A sound on a device that is not a sampler.
         &|p: &mut Project| {
             Arc::make_mut(&mut p.tracks[0]).devices[0].plugin = PluginRef::Builtin {
                 name: "utility".to_owned(),
@@ -302,9 +280,6 @@ fn the_pads_are_the_maps_sounds_or_sixteen_of_its_own() {
     assert!(notes.contains(&36) && notes.contains(&46), "{notes:?}");
 }
 
-/// Attaching, swapping and detaching a map never loses a pad's sample or its
-/// settings: a pad that the new map also offers keeps everything, and one it
-/// does not is dropped with the sound it belonged to.
 #[test]
 fn a_pad_keeps_its_sample_when_the_map_changes() {
     let mut sampler = Sampler {
@@ -318,14 +293,13 @@ fn a_pad_keeps_its_sample_when_the_map_changes() {
     sampler.pad_mut(36).tune = 5.0;
     sampler.pad_mut(99).media = Some(Id(8));
     sampler.keep_pads(&Sampler::pads_for(Some(&general)));
-    // The kick is in both kits and keeps its sample and its tune.
+
     let kick = sampler.pad(36).expect("the kick");
     assert_eq!((kick.media, kick.tune), (Some(Id(7)), 5.0));
-    // The pad the new map does not offer is gone; the map's own sounds are
-    // all there.
+
     assert!(sampler.pad(99).is_none());
     assert_eq!(sampler.pads.len(), general.sounds.len());
-    // And the sixteen of its own come back when no map is named.
+
     sampler.keep_pads(&Sampler::pads_for(None));
     assert_eq!(sampler.pads.len(), 16);
     assert_eq!(sampler.pad(36).and_then(|p| p.media), Some(Id(7)));
@@ -361,7 +335,7 @@ fn the_media_pool_counts_what_the_sampler_plays_as_used() {
     for id in [0x3603, 0x3604, 0x3605] {
         assert!(counts.contains_key(&Id(id)), "{id:x} is played");
     }
-    // A file no face plays is unused, and a purge keeps the played ones.
+
     let mut project = project;
     project.media.push(file(0x3609, "spare", 100));
     let unused = media::unused(&project);
@@ -385,8 +359,6 @@ fn the_faces_cycle_and_say_what_they_are() {
     }
 }
 
-/// A drum map's sounds name the notes a clip stores; a pad answers the note,
-/// so a pad's sample follows the note rather than the sound's name.
 #[test]
 fn a_pad_answers_the_maps_input_note() {
     let mut map: DrumMap = Preset::EIGHT_OH_EIGHT.map(Id(1));
@@ -396,7 +368,7 @@ fn a_pad_answers_the_maps_input_note() {
     sampler.keep_pads(&Sampler::pads_for(Some(&map)));
     sampler.pad_mut(99).media = Some(Id(4));
     assert_eq!(sampler.pad(99).map(|p| p.media), Some(Some(Id(4))));
-    // Attaching a map with the same sounds keeps the sample.
+
     let mut again = map.clone();
     again.name = "Copy".to_owned();
     sampler.keep_pads(&Sampler::pads_for(Some(&again)));

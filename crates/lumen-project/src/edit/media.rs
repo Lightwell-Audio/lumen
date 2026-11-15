@@ -27,8 +27,7 @@ fn users(track: &Track, used: &mut HashMap<Id, usize>) {
             ClipContent::Midi { .. } => {}
         }
     }
-    // A built-in sampler plays its samples from the project's media, so the
-    // pool lists them as used and a purge keeps them (M8 slice B5).
+
     for device in &track.devices {
         if let Some(sampler) = device.sampler() {
             for media in sampler.media() {

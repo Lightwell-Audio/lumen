@@ -1,30 +1,15 @@
-//! A sampler's sound (M8 slice B5): loading files into it, choosing the face,
-//! moving a region, a zone or a pad, and clearing it. Every one is a named
-//! method that applies through the history as one undo step, so the face that
-//! is built next calls these and nothing else.
-//!
-//! The files are decoded by `crate::builtin::samples` before they arrive here
-//! (off the audio thread); a method here only records which media file the
-//! project holds and what the sampler plays of it, never the audio itself.
-
 use lumen_project::model::{DrumMap, Face, Id, OneShot, Pad, Region, Sampler, Track, Zone};
 
 use crate::builtin::samples::{self, Loaded};
 
 use super::{Document, Refusal};
 
-/// The note a one-shot's sample plays at its own speed when it is loaded:
-/// the middle of the keyboard, where a melodic sample is played.
 pub const ONE_SHOT_ROOT: u8 = 60;
 
-/// The most zones a drop makes from files at once.
 const MOST_LOADED: usize = lumen_project::model::MOST_ZONES;
 
-// The zone and pad edits below are what the drawn face calls when it is built
-// (M8, the face after this slice); the palette reaches the rest.
 #[allow(dead_code, reason = "the drawn face calls these when it is built")]
 impl Document {
-    /// The track and device of the sampler `device`, if it is one.
     fn sampler(&self, device: Id) -> Option<(usize, usize)> {
         self.project()
             .tracks
@@ -36,22 +21,17 @@ impl Document {
             })
     }
 
-    /// The drum map of the track the sampler `device` is on: its pads answer
-    /// the map's sounds (M8 slice B5).
     pub fn sampler_map(&self, device: Id) -> Option<&DrumMap> {
         let (t, _) = self.sampler(device)?;
         self.project().drum_map_of(&self.project().tracks[t])
     }
 
-    /// Which face `device` shows, and plays (SP A's One shot, Zones, Pads).
     pub fn set_sampler_face(&mut self, device: Id, face: Face) -> Result<(), Refusal> {
         self.edit_sampler(device, format!("Sampler: {}", face.name()), |held| {
             held.face = face;
         })
     }
 
-    /// Cycles the face: what the one command in the palette does, so the
-    /// behaviour is reachable before the drawn face exists.
     pub fn next_sampler_face(&mut self, device: Id) -> Result<Face, Refusal> {
         let held = self.sampler_sound(device).ok_or(Refusal::NoDevice)?;
         let next = held.face.next();
@@ -59,28 +39,23 @@ impl Document {
         Ok(next)
     }
 
-    /// The sound `device` holds now, if it is a sampler.
     pub fn sampler_sound(&self, device: Id) -> Option<&Sampler> {
         let (t, d) = self.sampler(device)?;
         self.project().tracks[t].devices[d].sampler.as_ref()
     }
 
-    /// Whether One shot loops, and whether it plays backwards.
     pub fn set_sampler_loop(&mut self, device: Id, looping: bool) -> Result<(), Refusal> {
         self.edit_sampler(device, "Loop the sample".to_owned(), |held| {
             held.one_shot.looping = looping;
         })
     }
 
-    /// The same for reverse.
     pub fn set_sampler_reverse(&mut self, device: Id, reversed: bool) -> Result<(), Refusal> {
         self.edit_sampler(device, "Reverse the sample".to_owned(), |held| {
             held.one_shot.reversed = reversed;
         })
     }
 
-    /// The part of its file One shot plays, in frames of the file, and the key
-    /// it plays at its own speed.
     pub fn set_sampler_region(
         &mut self,
         device: Id,
@@ -94,8 +69,6 @@ impl Document {
                 region.end = end;
                 region.root = root;
             } else if let Some(media) = held.pads.iter().find_map(|p| p.media) {
-                // A device with no one-shot region yet: the first sample it
-                // holds becomes one.
                 held.one_shot.region = Some(Region {
                     media,
                     start,
@@ -106,8 +79,6 @@ impl Document {
         })
     }
 
-    /// A zone: its key and velocity ranges, and the key its file plays at its
-    /// own speed. `index` past the end adds one.
     pub fn set_sampler_zone(
         &mut self,
         device: Id,
@@ -123,7 +94,6 @@ impl Document {
         })
     }
 
-    /// Takes zone `index` away.
     pub fn remove_sampler_zone(&mut self, device: Id, index: usize) -> Result<(), Refusal> {
         self.edit_sampler(device, "Remove a zone".to_owned(), |held| {
             if index < held.zones.len() {
@@ -132,7 +102,6 @@ impl Document {
         })
     }
 
-    /// A pad: its sample, level, pan, tune, output pair and choke fade.
     pub fn set_sampler_pad(&mut self, device: Id, pad: Pad) -> Result<(), Refusal> {
         self.edit_sampler(device, format!("Set pad {}", pad.note), |held| {
             let existing = held.pad_mut(pad.note);
@@ -140,8 +109,6 @@ impl Document {
         })
     }
 
-    /// Empties every face of `device`, keeping the file list: the samples stay
-    /// in the media pool until they are unused and purged.
     pub fn clear_sampler(&mut self, device: Id) -> Result<(), Refusal> {
         self.edit_sampler(device, "Clear the sampler".to_owned(), |held| {
             held.one_shot = OneShot::default();
@@ -152,10 +119,6 @@ impl Document {
         })
     }
 
-    /// Joins `files`, just decoded, to the sampler `device` as its face's
-    /// sound (M8 slice B5): one undo step that adds the media entries and what
-    /// the face plays of them. Answers what became of each file, for a word to
-    /// the person.
     pub fn add_samples(&mut self, device: Id, files: &[Loaded]) -> Result<usize, Refusal> {
         let (t, d) = self.sampler(device).ok_or(Refusal::NoDevice)?;
         if files.is_empty() {
@@ -174,11 +137,7 @@ impl Document {
             many => format!("Load {} samples", many.len()),
         };
         let fresh: Vec<(Id, &Loaded)> = files.iter().map(|file| (file.media, file)).collect();
-        // Which files this face uses. One shot plays one sample, so a drop of
-        // several there keeps the first and leaves the rest out of the project
-        // entirely: no media entry, nothing in the pool, and the person is
-        // told how many were skipped and offered Zones (M8 slice B5, review
-        // M5).
+
         let used = match face {
             Face::OneShot => fresh.len().min(1),
             Face::Zones => fresh.len().min(MOST_LOADED),
@@ -202,9 +161,6 @@ impl Document {
             }
             match face {
                 Face::OneShot => {
-                    // The one shot plays the first file; any others in the
-                    // choice are not part of the project (the notice says how
-                    // many, and that Zones spreads them across the keyboard).
                     if let Some((_, file)) = fresh.first() {
                         held.one_shot.region = Some(Region {
                             media: file.media,
@@ -249,7 +205,6 @@ impl Document {
         Ok(used)
     }
 
-    /// Applies `edit` to the sampler `device` as one undo step named `label`.
     fn edit_sampler(
         &mut self,
         device: Id,
@@ -274,11 +229,6 @@ impl Document {
     }
 }
 
-/// Makes the pads of every sampler on `track` follow the drum map the track
-/// names (M8 slice B5, review M1): a map attached, swapped or detached after
-/// the device gives the pads its sounds, and a pad the map no longer offers
-/// goes with its sound. Called inside the edit that changes the map, so the
-/// two are one undo step. `map` is the map the track now names, or none.
 pub(crate) fn follow_drum_map(track: &mut Track, map: Option<&DrumMap>) {
     let pads = Sampler::pads_for(map);
     for device in &mut track.devices {
@@ -289,8 +239,6 @@ pub(crate) fn follow_drum_map(track: &mut Track, map: Option<&DrumMap>) {
     }
 }
 
-/// Lays `files` across the keyboard as zones, in order: each takes an equal
-/// share of the keys and plays at its own speed from the middle of it.
 fn add_zones(held: &mut Sampler, files: &[(Id, u64)]) {
     let count = files.len().max(1);
     let share = 128 / count;
@@ -322,7 +270,6 @@ mod tests {
     use lumen_project::model::{PluginRef, SAMPLER, TrackKind};
     use std::sync::Arc;
 
-    /// A file that finished decoding, `frames` long at 48 kHz.
     fn loaded(id: u64, name: &str, frames: u64) -> Loaded {
         Loaded {
             media: Id(id),
@@ -337,7 +284,6 @@ mod tests {
         }
     }
 
-    /// A MIDI track with the sampler on it.
     fn with_sampler() -> (Document, Id, Id) {
         let mut doc = Document::new(crate::empty_project());
         let track = doc.add_track(TrackKind::Midi, None);
@@ -373,9 +319,6 @@ mod tests {
         assert!(doc.sampler_sound(device).unwrap().one_shot.region.is_none());
     }
 
-    /// M5: the One shot face plays one sample, so a choice of several keeps
-    /// the first: the others are not made media of the project at all, and
-    /// the count says how many were used.
     #[test]
     fn one_shot_keeps_the_first_file_and_leaves_the_rest_out_of_the_project() {
         let (mut doc, _, device) = with_sampler();
@@ -396,7 +339,7 @@ mod tests {
     #[test]
     fn a_face_decides_what_a_drop_becomes() {
         let (mut doc, _, device) = with_sampler();
-        // Zones: several files are laid across the keyboard in order.
+
         doc.set_sampler_face(device, Face::Zones).unwrap();
         let n = doc
             .add_samples(device, &[loaded(1, "low", 100), loaded(2, "high", 100)])
@@ -408,7 +351,6 @@ mod tests {
         assert_eq!((held.zones[1].low, held.zones[1].high), (64, 127));
         assert_eq!(held.zones[1].root, 95);
 
-        // Pads: the sixteen of a track with no map, in order.
         doc.set_sampler_face(device, Face::Pads).unwrap();
         doc.add_samples(device, &[loaded(3, "a", 100), loaded(4, "b", 100)])
             .unwrap();
@@ -420,9 +362,6 @@ mod tests {
         assert_eq!(lumen_project::validate(doc.project()), Ok(()));
     }
 
-    /// L4: the zones a drop of several files makes split the keyboard in
-    /// equal shares, in order, each playing at its own speed from the middle
-    /// of its share; one file takes the whole keyboard.
     #[test]
     fn zones_share_the_keyboard_and_play_from_their_middles() {
         let (mut doc, _, device) = with_sampler();
@@ -437,7 +376,7 @@ mod tests {
             .iter()
             .map(|zone| (zone.low, zone.high, zone.root, zone.media))
             .collect();
-        // 128 keys in three: 42, 42 and 44, each rooted in its middle.
+
         assert_eq!(
             ranges,
             [
@@ -446,7 +385,7 @@ mod tests {
                 (84, 127, 105, Id(12)),
             ]
         );
-        // Every key answers through exactly one zone.
+
         for key in 0..=127u8 {
             assert_eq!(
                 held.zones.iter().filter(|z| z.holds(key, 100)).count(),
@@ -454,7 +393,7 @@ mod tests {
                 "key {key}"
             );
         }
-        // Two files, and one: each share, and the last takes the rest.
+
         for (count, want) in [
             (2usize, vec![(0u8, 63u8, 31u8), (64, 127, 95)]),
             (1, vec![(0, 127, 63)]),
@@ -475,8 +414,6 @@ mod tests {
         }
     }
 
-    /// M1: a drum map attached after the sampler gives its pads the map's
-    /// sounds, in the same undo step, and a pad the map offers keeps its file.
     #[test]
     fn a_map_attached_after_the_sampler_gives_it_its_pads() {
         let (mut doc, track, device) = with_sampler();
@@ -493,14 +430,13 @@ mod tests {
             .expect("the track takes the map");
         assert_eq!(doc.history().steps().0.len(), steps + 1, "one undo step");
         let held = doc.sampler_sound(device).unwrap();
-        // General MIDI's kit is 47 sounds, and the kick's file is still on 36.
+
         assert_eq!(held.pads.len(), 47);
         assert_eq!(held.pad(36).and_then(|p| p.media), Some(Id(1)));
-        // The pads the map does not offer are gone; the ones it adds are here.
+
         assert!(held.pad(99).is_none());
         assert!(held.pad(42).is_some(), "the closed hat's note");
 
-        // Detached, the sixteen pads of a track with no map come back.
         doc.detach_drum_map(track);
         let held = doc.sampler_sound(device).unwrap();
         assert_eq!(held.pads.len(), 16);
@@ -574,7 +510,7 @@ mod tests {
         assert_eq!(doc.sampler_sound(device).unwrap().zones[0].low, 10);
         doc.remove_sampler_zone(device, 0).unwrap();
         assert!(doc.sampler_sound(device).unwrap().zones.is_empty());
-        // Removing a zone that is not there changes nothing.
+
         let before = doc.project().clone();
         doc.remove_sampler_zone(device, 3).unwrap();
         assert_eq!(doc.project(), &before);

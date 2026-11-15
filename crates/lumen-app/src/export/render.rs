@@ -32,8 +32,7 @@ pub struct Job {
     pub tail: bool,
     pub file: PathBuf,
     pub stem: Option<Id>,
-    /// The samples this render's samplers play, decoded at the render's rate
-    /// (M8 slice B5), so an export hears what playback did.
+
     pub samples: Vec<(Id, crate::builtin::samples::Source)>,
 }
 
