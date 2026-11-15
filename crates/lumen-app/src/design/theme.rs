@@ -559,19 +559,16 @@ pub mod personality {
         Color32::from_rgb(0xE9, 0xD4, 0xFF),
     ];
 
-    pub const HORIZON_SKY: [Color32; 4] = [
-        Color32::from_rgb(0x1A, 0x0F, 0x2A),
-        Color32::from_rgb(0x5A, 0x24, 0x40),
-        Color32::from_rgb(0xE0, 0x60, 0x3A),
-        Color32::from_rgb(0xFF, 0xB8, 0x6B),
+    pub const HORIZON_DEEP: Color32 = Color32::from_rgb(0x0E, 0x08, 0x10);
+    pub const HORIZON_LINE: Color32 = Color32::from_rgb(0xFF, 0xC4, 0x9C);
+    pub const HORIZON_WORDS: Color32 = Color32::from_rgb(0xFF, 0xD9, 0xBF);
+    pub const HORIZON_GAP: [Color32; 2] = [
+        Color32::from_rgb(0xFF, 0xEE, 0xDC),
+        Color32::from_rgb(0xFF, 0xAA, 0x6E),
     ];
-    pub const HORIZON_SKY_AT: [f32; 4] = [0.0, 0.55, 0.78, 1.0];
-
-    pub const HORIZON_GLOW: Color32 = Color32::from_rgb(0xFF, 0xD2, 0x7A);
-    pub const HORIZON_GROUND: Color32 = Color32::from_rgb(0x12, 0x0A, 0x16);
-    pub const HORIZON_LAND: Color32 = Color32::from_rgb(0x0E, 0x08, 0x10);
-
-    pub const HORIZON_LIGHT: Color32 = Color32::from_rgb(0xFF, 0xE3, 0xA8);
+    pub const HORIZON_GAP_ALPHA: [f32; 2] = [0.85, 0.35];
+    pub const HORIZON_PLATE: Color32 = Color32::from_rgb(0x08, 0x05, 0x03);
+    pub const HORIZON_PLATE_ALPHA: f32 = 0.42;
 
     pub const SCREEN: Color32 = Color32::from_rgb(0x0C, 0x0E, 0x12);
 

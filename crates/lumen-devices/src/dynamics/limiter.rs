@@ -384,6 +384,7 @@ impl Effect for Limiter {
         let mut back = self.back;
         let mut most_reduction = 0.0f32;
         let mut input_db = FLOOR_DB;
+        let mut output_peak = 0.0f32;
 
         for frame in 0..frames {
             let ceiling = gain_of(value(TABLE, CEILING, curves.ceiling[frame]));
@@ -424,6 +425,7 @@ impl Effect for Limiter {
             most_reduction = most_reduction.max(-db_of(gain.max(1e-6)));
             left[frame] = delayed_l * gain;
             right[frame] = delayed_r * gain;
+            output_peak = output_peak.max(left[frame].abs()).max(right[frame].abs());
         }
         self.at = at;
         self.clock = clock;
@@ -431,6 +433,7 @@ impl Effect for Limiter {
         self.back = back;
         self.gain = gain;
         self.meter.record(most_reduction, input_db);
+        self.meter.record_output(db_of(output_peak));
     }
 
     fn latency(&self) -> u32 {

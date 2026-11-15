@@ -139,7 +139,10 @@ impl App {
         let level = if motion::reduced() {
             0.0
         } else {
-            card::level_of(self.arrangement.meters.reading(track_id.0).peak)
+            card::level_of(self.chain.pretend_level.map_or_else(
+                || self.arrangement.meters.reading(track_id.0).peak,
+                |db| [db; 2],
+            ))
         };
         let compact = geometry::compact(self.chain.compact, tray.height(), extra);
         self.chain.compact = compact;
