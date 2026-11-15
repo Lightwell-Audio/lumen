@@ -79,6 +79,7 @@ pub enum Colour {
     Reverb,
     Gravity,
     Horizon,
+    Shutter,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -104,6 +105,17 @@ pub const BUILTINS: &[Builtin] = &[
         tip: "A warm polysynth: two oscillators, a filter and up to 16 voices. \
               Five factory presets.",
         colour: Colour::Synth,
+    },
+    Builtin {
+        id: "builtin:sampler",
+        name: "Shutter",
+        kind: Kind::Instrument,
+        group: Group::Instruments,
+        tag: "Sampler",
+        blurb: "One sample, zones, or drum pads",
+        tip: "A sampler: one sample across the keys, key and velocity zones, \
+              or a pad per sound of the track's drum map.",
+        colour: Colour::Shutter,
     },
     Builtin {
         id: "builtin:compressor",
@@ -522,9 +534,12 @@ mod tests {
             assert!(d.colour.is_some(), "{} has no colour", d.name);
             assert_eq!(d.categories, [d.group.unwrap().name()]);
         }
-        assert_eq!(builtins.len(), 7);
+        assert_eq!(builtins.len(), 8);
         let found = |name: &str| builtins.iter().find(|d| d.name == name).unwrap();
         assert_eq!(found("Flare").kind, Kind::Instrument);
+        assert_eq!(found("Shutter").kind, Kind::Instrument);
+        assert_eq!(found("Shutter").group, Some(Group::Instruments));
+        assert_eq!(found("Shutter").tag, "Sampler");
         assert_eq!(found("Flare").group, Some(Group::Instruments));
         assert_eq!(found("Gravity").tag, "Compressor");
         assert_eq!(found("Gravity").group, Some(Group::Dynamics));
@@ -671,7 +686,7 @@ mod tests {
                 ..Query::default()
             }))
         };
-        assert_eq!(source(Source::Builtin).len(), 7);
+        assert_eq!(source(Source::Builtin).len(), 8);
         assert_eq!(
             source(Source::Vst3),
             ["Bus Compressor", "Plate Reverb", "Warm Synth"]

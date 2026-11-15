@@ -32,17 +32,27 @@ pub(super) fn gather_track(
         );
     }
     hold::sort_events(&mut track.state.events);
+
     if let Some(spec) = track.instrument.as_mut() {
         let bpm = cx
             .timeline
             .tempo
             .bpm_at(cx.timeline.ticks_at(cx.start, cx.sample_rate));
         spec.instrument.set_tempo(bpm as f32);
+        let playing = cx.mode == Mode::Play;
+        let has_lanes = playing && !track.automation.is_empty();
         match track.params.as_deref_mut() {
-            Some(block) if cx.mode == Mode::Play => {
+            Some(block) if !track.values.is_empty() || has_lanes => {
                 block.start(frames);
-                for lane in &track.automation {
-                    fill_param_lane(block, lane, cx.start, frames);
+                for &(id, value) in &track.values {
+                    if block.open(id) {
+                        block.point(0, f64::from(value));
+                    }
+                }
+                if playing {
+                    for lane in &track.automation {
+                        fill_param_lane(block, lane, cx.start, frames);
+                    }
                 }
                 spec.instrument.automate(block);
             }

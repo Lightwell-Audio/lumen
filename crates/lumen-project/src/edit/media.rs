@@ -27,6 +27,14 @@ fn users(track: &Track, used: &mut HashMap<Id, usize>) {
             ClipContent::Midi { .. } => {}
         }
     }
+
+    for device in &track.devices {
+        if let Some(sampler) = device.sampler() {
+            for media in sampler.media() {
+                *used.entry(media).or_default() += 1;
+            }
+        }
+    }
     if let Some(Frozen {
         id: _,
         media,

@@ -4,12 +4,12 @@ use eframe::egui::{
 use eframe::epaint::Mesh;
 use lumen_devices::reverb as device;
 
-use super::{Control, Drawing, Handle, Scene, Values};
+use super::{Control, Drawing, Handle, Scene, Values, cadence};
 use crate::chain::geometry::Step;
+use crate::fonts;
 use crate::theme::personality as p;
 use crate::theme::personality::card;
 use crate::theme::stroke;
-use crate::{fonts, motion};
 
 const WHOLE: Vec2 = Vec2::new(300.0, 330.0);
 const SPECIMEN: Vec2 = Vec2::new(272.0, 176.0);
@@ -176,7 +176,7 @@ fn swell(scene: &Scene<'_>, decay: f32) -> f32 {
     let kept = if now_swell < AT_REST { 0.0 } else { now_swell };
     ctx.data_mut(|d| d.insert_temp(key, (kept, now)));
     if kept > 0.0 {
-        ctx.request_repaint_after(motion::METER_FRAME);
+        cadence::again(ctx, scene.still);
     }
     kept
 }
