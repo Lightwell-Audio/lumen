@@ -1,6 +1,3 @@
-//! The palette's state and rows: opening and closing it, the rows for its
-//! query, and running one.
-
 use eframe::egui;
 
 use super::search::{self, trim_number};
@@ -10,7 +7,6 @@ use crate::app::navigate::ViewStep;
 use crate::commands::ALL;
 
 impl App {
-    /// Opens the palette, or closes it when open (Ctrl+K).
     pub(crate) fn toggle_palette(&mut self) {
         if self.palette.open {
             self.close_palette();
@@ -30,9 +26,6 @@ impl App {
         };
     }
 
-    /// The palette's rows for its query: values first, then commands and
-    /// names by how well they match (the table's order on ties); with no
-    /// query, recent commands first, then every command.
     pub(crate) fn palette_rows(&self, ctx: &egui::Context) -> Vec<Row> {
         let query = self.palette.query.trim();
         let project = self.document.project();
@@ -56,8 +49,6 @@ impl App {
         let mut found: Vec<Row> = Vec::new();
         for info in ALL {
             let label = self.command_label(info.command);
-            // The name finds it even when the label says more ("Properties
-            // of “kick”" is found by "clip prop").
             let hit = search::fuzzy(query, &label).or_else(|| {
                 search::fuzzy(query, info.name).map(|(score, _)| (score - 1, Vec::new()))
             });
@@ -110,7 +101,6 @@ impl App {
             }
         }
         if query.is_empty() {
-            // Recent first, in the order they were run.
             let rank = |row: &Row| match row.entry {
                 Entry::Command(c) => self
                     .palette
@@ -128,7 +118,6 @@ impl App {
         rows
     }
 
-    /// How many of the empty palette's first rows are recent commands.
     pub(super) fn recent_shown(&self) -> usize {
         if self.palette.query.trim().is_empty() {
             self.palette.recent.len()
@@ -137,8 +126,6 @@ impl App {
         }
     }
 
-    /// Runs a row: a command that can run, a value, or a name. A command
-    /// that cannot run leaves the palette open and says why.
     pub(super) fn run_row(&mut self, ctx: &egui::Context, row: &Row) {
         if let Err(why) = row.ready {
             self.palette.notice = Some(why);

@@ -1,7 +1,3 @@
-//! M7b E4: Bounce renders a track with its own sound into a new file and puts
-//! it on the track or on a new one, as one undo step, with a popover that
-//! remembers its choices.
-
 use std::sync::atomic::AtomicBool;
 
 use eframe::egui::{Key, Modifiers};
@@ -100,7 +96,6 @@ fn replace_puts_the_file_on_the_track_and_the_choice_is_remembered() {
     assert_eq!(after.tracks[0].clips[0].start, source.start);
     assert!(after.media.len() > before.media.len(), "the original stays");
 
-    // The next bounce opens with Replace chosen.
     let clip = after.tracks[0].clips[0].id;
     lumen.app_mut().select_clip(clip);
     command(&mut lumen, "Bounce");
@@ -115,7 +110,6 @@ fn replace_puts_the_file_on_the_track_and_the_choice_is_remembered() {
 fn with_nothing_selected_there_is_nothing_to_bounce_and_no_popover() {
     let mut lumen = audio("bounce-nothing");
     let before = lumen.app().project().clone();
-    // The command is not available: the palette keeps it, and Esc leaves.
     lumen.key(Modifiers::COMMAND, Key::K);
     lumen
         .harness
@@ -129,8 +123,6 @@ fn with_nothing_selected_there_is_nothing_to_bounce_and_no_popover() {
     assert_eq!(lumen.app().undo_label(), Some("Import take"));
 }
 
-/// A MIDI track's notes go through its synth into a file on a new audio
-/// track, and the notes keep playing (the default is a new track).
 #[test]
 fn a_midi_track_bounces_to_an_audio_track_and_its_notes_are_left_playing() {
     let dir = TempDir::new("e2e-bounce-midi");
@@ -160,9 +152,6 @@ fn a_midi_track_bounces_to_an_audio_track_and_its_notes_are_left_playing() {
     assert_eq!(lumen.app().project(), &before);
 }
 
-/// The test plugin's instrument, started in a host of the bounce's own: its
-/// note rings on for seconds after the clip ends, and the tail switch decides
-/// whether that is in the file.
 #[test]
 fn a_plugin_instrument_bounces_in_its_own_host_with_its_ring_as_the_tail() {
     let _turn = timing_sensitive();
@@ -185,8 +174,6 @@ fn a_plugin_instrument_bounces_in_its_own_host_with_its_ring_as_the_tail() {
     bounce_with_popover(&mut lumen);
     let with_tail = media_of(&lumen, 1, 0);
     let rate = u64::from(with_tail.sample_rate);
-    // The clip is two quarters, a second at 120 BPM; the release is four
-    // seconds from the note's end at half a second.
     assert!(
         with_tail.frames > rate + rate,
         "the ring is in the file: {} frames",
@@ -202,7 +189,6 @@ fn a_plugin_instrument_bounces_in_its_own_host_with_its_ring_as_the_tail() {
         "the track's own plugin is untouched"
     );
 
-    // Tail off: the file ends with the clip.
     lumen.key(Modifiers::COMMAND, Key::Z);
     lumen.app_mut().select_tracks(&[track]);
     command(&mut lumen, "Bounce");

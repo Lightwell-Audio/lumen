@@ -1,8 +1,3 @@
-//! Recording MIDI into the document (M5 slice 6b). A recording is one undo
-//! step however many takes it commits: every [`Document::record_take`] of it
-//! merges into the same step. The placing is `lumen_project::edit::record`,
-//! whose documentation says what a take becomes.
-
 use std::collections::HashMap;
 
 use lumen_core::time::Ticks;
@@ -12,32 +7,21 @@ use lumen_project::model::{Id, Project};
 use super::Document;
 use super::clips::fresh_ids;
 
-/// A recording in progress: the project as it was when it began, the merge
-/// key that makes its takes one undo step, and the clip each track's take
-/// goes into.
 #[derive(Debug)]
 pub struct Recording {
     base: Project,
     key: String,
     take_clips: HashMap<Id, Id>,
-    /// The ids each track's takes gave to the pieces of clips they cut, so
-    /// the next commit gives the same pieces the same ids: a clip that a
-    /// take only shortens stays the clip it was.
     pieces: HashMap<Id, Vec<Id>>,
 }
 
 impl Recording {
-    /// The clip a Replace take of `track` is, once it has been placed.
     pub fn take_clip(&self, track: Id) -> Option<Id> {
         self.take_clips.get(&track).copied()
     }
 }
 
 impl Document {
-    /// Starts a recording on the project as it is now, on `tracks`. Every
-    /// take of it is placed from this snapshot, and they are all one undo
-    /// step. Each track's take clip has its id from the start, so the take
-    /// drawn before the first commit is already that clip.
     pub fn begin_recording(&mut self, tracks: &[Id]) -> Recording {
         let key = format!("record-{}", self.fresh_id().0);
         let take_clips = tracks.iter().map(|&t| (t, self.fresh_id())).collect();
@@ -49,12 +33,6 @@ impl Document {
         }
     }
 
-    /// The project as it will be once `takes` (a take per track) are
-    /// committed as part of `rec`: what the arrangement draws on every
-    /// frame of a recording, between the commits. Nothing changes and no
-    /// step is made. Pieces the commits have not cut yet are given ids past
-    /// the document's counter, which are not used by anything. A track whose
-    /// take a locked clip blocks is drawn as it was.
     pub fn preview_takes(
         &self,
         rec: &Recording,
@@ -83,8 +61,6 @@ impl Document {
                 take_clip,
             };
             if record::place(&mut next, &rec.base, *track, take, placement, &mut fresh).is_err() {
-                // Blocked: `place` left the track as the recording began;
-                // draw it as the document has it.
                 if let (Some(slot), Some(now)) = (
                     next.tracks.iter_mut().find(|t| t.id == *track),
                     self.project().tracks.iter().find(|t| t.id == *track),
@@ -96,10 +72,6 @@ impl Document {
         next
     }
 
-    /// Places `take` on the MIDI track `track` as part of `rec`, merged into
-    /// the recording's undo step. Returns the ids of the clips made or
-    /// changed. A locked clip in the way gives `Blocked`, and then nothing
-    /// changes and no step is made.
     pub fn record_take(
         &mut self,
         rec: &mut Recording,
@@ -112,11 +84,7 @@ impl Document {
             .take_clips
             .entry(track)
             .or_insert_with(|| self.fresh_id());
-        // Placed on a copy first: a blocked take must not reach the history,
-        // and an unchanged one makes no step.
         let mut next = self.project().clone();
-        // Ids for the pieces a take cuts: the ones the last commit used, in
-        // order, then new ones.
         let pieces = rec.pieces.entry(track).or_default();
         let mut used = 0;
         let mut minted = fresh_ids(&mut self.next_id);
@@ -150,11 +118,6 @@ impl Document {
 }
 
 impl Document {
-    /// Places the phrase `take` captured on the MIDI track `track` as one
-    /// clip, one undo step (Capture MIDI, M9 slice R3). It is placed as an
-    /// Overdub, so what the track plays under it is kept in the clip.
-    /// Returns the id of the clip; a locked clip in the way gives `Blocked`
-    /// and nothing changes.
     pub fn capture_midi(&mut self, track: Id, take: &Take) -> Result<Id, Blocked> {
         let take_clip = self.fresh_id();
         let base = self.project().clone();
@@ -215,7 +178,6 @@ mod tests {
         }
     }
 
-    /// The notes of clip `clip`, wherever it is.
     fn notes_of(doc: &Document, clip: Id) -> Vec<Note> {
         let found = doc
             .project()
@@ -341,7 +303,6 @@ mod tests {
             doc.record_take(&mut rec, track, &early, mode, None)
                 .unwrap();
             let state = doc.state();
-            // Between commits: the take has grown.
             let grown = take(2, 5, vec![tn(2, 1, 60), tn(4, 1, 64)]);
             let preview = doc.preview_takes(&rec, &[(track, grown.clone())], mode, None);
             assert_eq!(doc.state(), state, "{mode:?}: no step");
@@ -353,7 +314,6 @@ mod tests {
 
     #[test]
     fn an_empty_overdub_over_an_empty_lane_is_an_empty_clip_at_once() {
-        // The clip shows from the start of recording, before any note.
         let mut doc = Document::new(crate::empty_project());
         let track = doc.add_track(TrackKind::Midi, None);
         let mut rec = doc.begin_recording(&[track]);
@@ -385,7 +345,6 @@ mod tests {
         assert_eq!(doc.state(), state, "nothing changed");
         assert_eq!(doc.history().undo_label(), label.as_deref());
 
-        // Beside the locked clip the take goes in, as one step.
         let placed = doc.record_take(
             &mut rec,
             track,

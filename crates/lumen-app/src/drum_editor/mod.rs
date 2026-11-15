@@ -1,22 +1,7 @@
-//! The drum editor's lanes (M8 slice D2, the owner's DV A and DE A): a clip on
-//! a track with a drum map, shown as one lane per sound.
-//!
-//! - [`geometry`]: where the lanes and their hits are on the screen, and only
-//!   the hits in view, gathered per pixel so a clip of a hundred thousand
-//!   notes costs what its picture costs;
-//! - [`paint`]: how a lane, a hit and the names read (the specimen's diamond,
-//!   filled from the foot up to the velocity);
-//! - [`arrangement`]: the same picture at clip size, on the arrangement (DV
-//!   A's rows in place of the mini piano roll).
-//!
-//! The editing itself is the piano roll's: the same selection, snapping, zoom
-//! and gesture code, given a different row set (E5). This module is what is
-//! different about drums — the rows are a map's sounds in its own order, the
-//! hits are diamonds, and a vertical drag on a hit sets its velocity.
-
 pub(crate) mod arrangement;
 pub(crate) mod geometry;
 pub(crate) mod paint;
+pub(crate) mod steps;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -31,49 +16,38 @@ use crate::timeview::TimeView;
 
 use geometry::Cell;
 
-/// Which view of a drum clip the Clip tab shows (the owner's DV A): the lanes,
-/// or the piano roll, whose key column D1 made the kit's (Keys).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum View {
     #[default]
     Lanes,
+    Steps,
     Keys,
 }
 
-/// One lane: a sound of the map, and what the clip and the view say about it.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Lane {
-    /// The note a clip stores for this sound (the lane's row).
     pub input: u8,
     pub name: String,
     pub icon: DrumGlyph,
     pub color: Color32,
-    /// Muted in the map.
+
     pub mute: bool,
-    /// Soloed in the map.
+
     pub solo: bool,
-    /// Muted in the map, or silenced by another sound's solo.
+
     pub silent: bool,
-    /// A hit in the clip is this sound.
+
     pub used: bool,
-    /// How long the sound plays, whatever a note says (the map's override).
+
     pub length: Option<Ticks>,
-    /// The sound's own quantize grid.
+
     pub quantize: Option<Quantize>,
-    /// The map's place of the sound, for a reorder.
+
     pub index: usize,
-    /// How many hits of this sound the clip holds (its whole content, outside
-    /// its window too): the name column's accessible name, counted once with
-    /// the lanes (H2).
+
     pub hits: usize,
 }
 
-/// The lanes the open clip shows: the map's sounds in the map's order, less
-/// the unused ones while `hide_unused` is on (a sound with no hit in the
-/// clip's notes, outside its window too, so a trimmed-away hit is not
-/// forgotten and then found). One pass over the notes counts each sound's
-/// hits. `light` is the theme the colours are for, so a theme switch rebuilds
-/// the lanes in the new palette (review round 2, M3).
 pub(crate) fn lanes(map: &DrumMap, notes: &[Note], hide_unused: bool, light: bool) -> Vec<Lane> {
     let mut used = [0_usize; 128];
     for note in notes {
@@ -104,8 +78,6 @@ pub(crate) fn lanes(map: &DrumMap, notes: &[Note], hide_unused: bool, light: boo
         .collect()
 }
 
-/// A lane being dragged to another place: the map it belongs to, the place it
-/// came from and where it would land (itself until the pointer moves it).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Reorder {
     pub map: Id,
@@ -113,40 +85,34 @@ pub(crate) struct Reorder {
     pub to: usize,
 }
 
-/// The drum editor's state: which view a track's clips open in, which tracks
-/// hide their unused lanes, which lanes show their sounds' lengths, and a
-/// reorder in progress. None of it is saved: it is a view, like the lane's
-/// shown state and Hide unmapped keys (D2's ADR), and it lasts while the app
-/// runs.
 #[derive(Debug, Default)]
 pub(crate) struct State {
     views: BTreeMap<Id, View>,
+
+    chosen: BTreeSet<Id>,
+
+    pub steps: steps::State,
     hiding: BTreeSet<Id>,
-    /// The lanes set to show their length, by the map they belong to.
+
     lengths: BTreeSet<u8>,
     lengths_map: Option<Id>,
     pub reorder: Option<Reorder>,
-    /// The lanes last built, with what they were built from: a frame that
-    /// changes none of it draws them again from here, so nothing scans the
-    /// clip's notes twice (H2).
+
     lanes: Option<LanesCache>,
-    /// The hits last gathered for the lanes, with what they were gathered
-    /// from.
+
     cells: Option<CellsCache>,
 }
 
-/// The lanes and the sound counts they were made from.
 #[derive(Debug)]
 struct LanesCache {
     map: DrumMap,
     clip: Arc<Clip>,
     hide: bool,
-    /// The theme the colours were baked for (review round 2, M3).
+
     light: bool,
     lanes: Arc<Vec<Lane>>,
 }
 
-/// The gathered hits and what they were gathered from.
 #[derive(Debug)]
 struct CellsCache {
     clip: Arc<Clip>,
@@ -157,15 +123,12 @@ struct CellsCache {
     time: TimeView,
     scroll: f32,
     cells: Arc<Vec<Cell>>,
-    /// Reused between rebuilds: a rebuild allocates the cells' `Arc` (the UI
-    /// still holds the last frame's) but not this search buffer (H2).
+
     seen: Vec<Option<Cell>>,
     scratch: Vec<Cell>,
 }
 
 impl State {
-    /// The lanes for `clip`, rebuilt only when the map, the clip, Hide unused
-    /// or the theme changed.
     pub fn lanes_for(
         &mut self,
         map: &DrumMap,
@@ -193,9 +156,6 @@ impl State {
         cache.lanes.clone()
     }
 
-    /// The hits of `clip` in `view`, with the `picked` and `hidden` ones
-    /// marked; gathered again only when the clip, the rows, the picks, a
-    /// gesture's hidden notes or the view changed.
     pub fn cells_for(
         &mut self,
         view: &EditorView,
@@ -250,25 +210,33 @@ impl State {
         cache.cells.clone()
     }
 
-    /// The view a track's drum clips open in (Lanes unless Keys was chosen).
     pub fn view(&self, track: Id) -> View {
         self.views.get(&track).copied().unwrap_or_default()
     }
 
     pub fn set_view(&mut self, track: Id, view: View) {
-        if view == View::Lanes {
-            self.views.remove(&track);
-        } else {
-            self.views.insert(track, view);
-        }
+        self.views.insert(track, view);
+        self.chosen.insert(track);
     }
 
-    /// Whether `track` hides its unused lanes.
+    pub fn open_view(&mut self, track: Id, fits: bool) -> bool {
+        if self.chosen.contains(&track) {
+            return false;
+        }
+        let want = if fits { View::Steps } else { View::Lanes };
+        let before = self.view(track);
+        if want == View::Lanes {
+            self.views.remove(&track);
+        } else {
+            self.views.insert(track, want);
+        }
+        before != want
+    }
+
     pub fn hides_unused(&self, track: Id) -> bool {
         self.hiding.contains(&track)
     }
 
-    /// Turns Hide unused on or off for `track`; answers the new state.
     pub fn toggle_unused(&mut self, track: Id) -> bool {
         if self.hiding.remove(&track) {
             false
@@ -278,20 +246,14 @@ impl State {
         }
     }
 
-    /// Whether the lane of `input` shows its length (the sound has no length
-    /// override, and its lane was set to show it). The set belongs to one map:
-    /// another map's lanes start with their lengths hidden.
     pub fn shows_length(&self, map: Id, input: u8) -> bool {
         self.lengths_map == Some(map) && self.lengths.contains(&input)
     }
 
-    /// Whether the open map's lane of `input` shows its length, without
-    /// naming the map (the pointer, for a box over the bars).
     pub fn shows_length_own(&self, input: u8) -> bool {
         self.lengths_map.is_some() && self.lengths.contains(&input)
     }
 
-    /// Turns a lane's length on or off; answers the new state.
     pub fn toggle_length(&mut self, map: Id, input: u8) -> bool {
         if self.lengths_map != Some(map) {
             self.lengths.clear();
@@ -305,8 +267,6 @@ impl State {
         }
     }
 
-    /// The map whose lanes are open: another map's length settings are
-    /// dropped, so they never leak from one kit to another.
     pub fn open_map(&mut self, map: Id) {
         if self.lengths_map != Some(map) {
             self.lengths.clear();
@@ -315,8 +275,6 @@ impl State {
     }
 }
 
-/// The drum editor's empty states (M8 D2 review M6): a map with no sounds, and
-/// Hide unused with nothing used.
 pub(crate) const NO_SOUNDS: &str = "This drum map has no sounds: add them in the map editor";
 pub(crate) const UNUSED: &str = "This clip plays none of the map's sounds. Hide unused is on.";
 
@@ -349,20 +307,15 @@ mod tests {
         let few = lanes(&map, &notes, true, false);
         assert_eq!(few.len(), 2);
         assert_eq!(few.iter().map(|l| l.input).collect::<Vec<_>>(), [kick, hat]);
-        // A note outside the clip's window still counts: trimming over a hit
-        // must not lose its lane.
+
         let outside = vec![Note::new(Ticks(90_000), Ticks(60), kick, 100)];
         assert_eq!(lanes(&map, &outside, true, false).len(), 1);
-        // Nothing played: no lanes at all when hiding the unused.
+
         assert!(lanes(&map, &[], true, false).is_empty());
     }
 
     #[test]
     fn a_theme_switch_rebuilds_the_lanes_in_the_new_palette() {
-        // Review round 2, M3: the lanes' colours are baked from the theme, so
-        // the cache is keyed by it and a switch rebuilds them. The flag is the
-        // one `theme::is_light()` answers, passed in so the test does not flip
-        // the global under other tests.
         let map = map();
         let clip = Arc::new(Clip {
             id: Id(2),
@@ -411,9 +364,6 @@ mod tests {
 
     #[test]
     fn a_random_run_of_lane_edits_is_the_edit_the_piano_roll_makes() {
-        // The lanes commit through the same named document methods the roll
-        // does (E5): the same edits in the same order leave bit-identical
-        // notes and the same undo steps, whichever editor asked.
         use crate::document::Document;
         use lumen_project::edit::quantize::{Mode, Settings};
         use lumen_project::model::{Clip, ClipContent, Color, Track, TrackKind};
@@ -554,7 +504,7 @@ mod tests {
         assert!(state.toggle_unused(a));
         assert!(state.hides_unused(a) && !state.hides_unused(b));
         assert!(!state.toggle_unused(a));
-        // The length of a lane belongs to its map.
+
         assert!(!state.shows_length(Id(1), 36));
         assert!(state.toggle_length(Id(1), 36));
         assert!(state.shows_length(Id(1), 36));
@@ -562,5 +512,26 @@ mod tests {
         state.toggle_length(Id(2), 38);
         assert!(!state.shows_length(Id(1), 36), "the new map took over");
         assert!(state.shows_length(Id(2), 38));
+    }
+
+    #[test]
+    fn a_clip_opens_by_its_fit_until_the_user_chooses_a_view_for_the_track() {
+        let mut state = State::default();
+        let (a, b) = (Id(10), Id(11));
+        assert!(state.open_view(a, true), "a fitting clip opens in Steps");
+        assert_eq!(state.view(a), View::Steps);
+        assert!(!state.open_view(a, true), "nothing changed the second time");
+        assert!(state.open_view(a, false), "a long clip goes back to Lanes");
+        assert_eq!(state.view(a), View::Lanes);
+
+        state.set_view(a, View::Lanes);
+        assert!(!state.open_view(a, true));
+        assert_eq!(state.view(a), View::Lanes);
+        state.set_view(a, View::Keys);
+        assert!(!state.open_view(a, true));
+        assert_eq!(state.view(a), View::Keys);
+
+        assert!(state.open_view(b, true));
+        assert_eq!(state.view(b), View::Steps);
     }
 }

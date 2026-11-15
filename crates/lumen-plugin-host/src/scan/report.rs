@@ -1,55 +1,38 @@
-//! What a scan child tells Lumen about one module, and how it is carried.
-//!
-//! The reply is one buffer on the child's real stdout: a magic, a version, a
-//! kind and a body. Everything read from it is bounded, like the protocol's
-//! messages, because a module that has been loaded may have damaged
-//! anything. A reply of any other shape is "malformed", never trusted.
-
 use crate::protocol::{ClassId, MAX_CLASSES, MAX_TEXT};
 use crate::wire::{Reader, WireError, Writer};
 
-/// First four bytes of a scan reply.
-pub const SCAN_MAGIC: u32 = 0x4e43_534c; // "LSCN"
-/// Bumped when the reply changes shape.
+pub const SCAN_MAGIC: u32 = 0x4e43_534c;
 pub const SCAN_VERSION: u16 = 1;
-/// The most bytes a reply may take: every class at its text limits, with room.
 pub const MAX_REPLY: usize = 2 << 20;
 
 const KIND_REPORT: u8 = 1;
 const KIND_FAILED: u8 = 2;
 
-/// One class a factory offers, with the details a browser needs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScanClass {
     pub id: ClassId,
     pub name: String,
     pub category: String,
     pub vendor: String,
-    /// The factory's own sub-categories text, `|`-separated (`Instrument|Synth`).
     pub subcategories: String,
     pub version: String,
     pub sdk_version: String,
 }
 
-/// A module that loaded and answered.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScanReport {
     pub vendor: String,
     pub url: String,
     pub classes: Vec<ScanClass>,
-    /// How long loading and enumerating took, in milliseconds.
     pub load_ms: u32,
 }
 
-/// What the child says: a report, or why it could not make one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ScanReply {
     Report(ScanReport),
     Failed(String),
 }
 
-/// Cuts `text` to at most `max` bytes on a character boundary, so a module
-/// with long names cannot make its own report malformed.
 pub fn clip(text: &str, max: usize) -> &str {
     if text.len() <= max {
         return text;
@@ -116,7 +99,6 @@ impl ScanReply {
                 let vendor = r.str("vendor", MAX_TEXT)?;
                 let url = r.str("url", MAX_TEXT)?;
                 let load_ms = r.u32()?;
-                // A class takes at least its id and six lengths.
                 let n = r.count("classes", MAX_CLASSES, 16 + 6 * 4)?;
                 let mut classes = Vec::with_capacity(n);
                 for _ in 0..n {
@@ -241,7 +223,7 @@ mod tests {
 
     #[test]
     fn long_text_is_cut_on_a_character_boundary_and_still_decodes() {
-        let long = "é".repeat(MAX_TEXT); // two bytes each
+        let long = "é".repeat(MAX_TEXT);
         let mut c = class(1);
         c.name = long;
         let ScanReply::Report(back) = ScanReply::decode(&report(vec![c]).encode()).unwrap() else {

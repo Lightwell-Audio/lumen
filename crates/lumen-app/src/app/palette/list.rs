@@ -1,13 +1,9 @@
-//! The palette's list: the rows with their matched letters and keycaps, the
-//! sliding highlight, and the strip under them.
-
 use eframe::egui::{self, Color32, FontId, RichText, Sense, text::LayoutJob, vec2};
 
 use super::{CHROME, Entry, ROW, ROWS, Row, StripRoom, TOP};
 use crate::{App, motion, theme, widgets};
 
 impl App {
-    /// The rows; the index of one clicked.
     pub(super) fn palette_list(
         &mut self,
         ui: &mut egui::Ui,
@@ -17,8 +13,6 @@ impl App {
         let palette = *theme::p();
         let recent = self.recent_shown().min(rows.len());
         let mut picked = None;
-        // Short windows show fewer rows, so the palette never runs over
-        // the transport bar or off the bottom.
         let room = ui.ctx().content_rect().height() - TOP - CHROME;
         egui::ScrollArea::vertical()
             .max_height(room.clamp(ROW * 3.0, ROW * ROWS))
@@ -35,8 +29,6 @@ impl App {
                     );
                     ui.add_space(theme::space::S);
                 }
-                // The chosen row's fill, drawn under the rows once they are
-                // laid out, slides from row to row (M4.5, M5).
                 let highlight = ui.painter().add(egui::Shape::Noop);
                 let list_top = ui.min_rect().top();
                 let mut chosen_rect = None;
@@ -60,8 +52,6 @@ impl App {
                     if i == self.palette.chosen && moved {
                         response.scroll_to_me(None);
                     }
-                    // Hover picks a row only when the pointer moves, so a
-                    // resting pointer does not fight the arrow keys.
                     if response.hovered() && ui.input(|i| i.pointer.delta() != egui::Vec2::ZERO) {
                         self.palette.chosen = i;
                     }
@@ -91,10 +81,6 @@ impl App {
         picked
     }
 
-    /// A row; with the chord slot whose keycaps were clicked, to record
-    /// new keys for it. The `chosen` row is under the list's sliding
-    /// highlight, so its keycaps step up; a hovered row that is not chosen
-    /// (the pointer rests while the arrow keys move) is Ember.
     fn palette_row(
         &self,
         ui: &mut egui::Ui,
@@ -120,7 +106,6 @@ impl App {
         if !ui.is_rect_visible(rect) {
             return (response, None);
         }
-        // The chosen row's fill is drawn by the list, sliding (M4.5).
         if response.hovered() && !chosen {
             ui.painter()
                 .rect_filled(rect, theme::radius::MEDIUM, palette.ember);
@@ -168,10 +153,6 @@ impl App {
         (response, rekey)
     }
 
-    /// What the chosen row does, or why it cannot run, then the list's keys
-    /// with every chord that runs it. The text keeps the room of the
-    /// longest a row can say, so the palette never changes height as the
-    /// chosen row changes.
     pub(super) fn palette_strip(&mut self, ui: &mut egui::Ui, row: Option<&Row>) {
         let palette = *theme::p();
         let rebind = match row.map(|r| &r.entry) {
@@ -234,11 +215,7 @@ impl App {
         }
         ui.painter().galley(rect.left_top(), galley, colour);
 
-        // As tall as keycaps whether the row has a shortcut or not, so the
-        // palette's height does not change with the chosen row.
         let footer = widgets::caps_height(ui);
-        // The palette's own keys, which are not remappable; Ctrl is Cmd on
-        // macOS, as the keys it reads.
         let command_key = crate::commands::keys::modifier_names(true, false, false)[0];
         ui.horizontal(|ui| {
             ui.set_min_height(footer);
@@ -279,7 +256,6 @@ impl App {
     }
 }
 
-/// `label` with the characters at `matched` in `accent`.
 fn highlighted(label: &str, matched: &[usize], text: Color32, accent: Color32) -> LayoutJob {
     let mut job = LayoutJob::default();
     let font = FontId::proportional(theme::size::BODY);

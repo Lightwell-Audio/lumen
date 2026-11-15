@@ -1,7 +1,3 @@
-//! Group tracks (M4 slice 3): grouping and ungrouping by key, nesting,
-//! folding, dragging tracks in and out, arming, deleting, files dropped on
-//! a group, and what is heard through nested groups.
-
 use std::time::Duration;
 
 use eframe::egui::{Key, Modifiers, pos2, vec2};
@@ -11,7 +7,6 @@ use lumen_project::model::{Id, TrackKind};
 
 use super::{Lumen, wav};
 
-/// A project with three audio tracks, the first two selected.
 fn three_tracks(name: &str) -> Lumen {
     let mut lumen = Lumen::start(name);
     for _ in 0..3 {
@@ -19,7 +14,6 @@ fn three_tracks(name: &str) -> Lumen {
     }
     lumen.key(Modifiers::NONE, Key::ArrowUp);
     lumen.key(Modifiers::SHIFT, Key::ArrowUp);
-    // New tracks grow in and moved rows glide (M4.5): let them settle.
     lumen.frames(30);
     lumen
 }
@@ -37,7 +31,6 @@ fn parent_of(lumen: &Lumen, name: &str) -> Option<String> {
         .map(|t| t.name.clone())
 }
 
-/// The header of track `name`, on screen.
 fn header(lumen: &Lumen, name: &str) -> eframe::egui::Rect {
     lumen
         .harness
@@ -61,14 +54,11 @@ fn ctrl_g_groups_the_selection_and_ctrl_shift_g_ungroups_it() {
     assert_eq!(lumen.app().undo_label(), Some("Group tracks"));
     assert!(lumen.shows("Fold group Group 1"));
 
-    // One undo step each way.
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert_eq!(lumen.track_names(), ["Audio 1", "Audio 2", "Audio 3"]);
     lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z);
     assert_eq!(lumen.track_names()[0], "Group 1");
 
-    // Ctrl+Shift+G with the group selected: its tracks stay, a level up,
-    // and become the selection.
     lumen
         .harness
         .get_by_label("Group 1: double-click to rename")
@@ -86,7 +76,6 @@ fn ctrl_g_groups_the_selection_and_ctrl_shift_g_ungroups_it() {
 fn groups_nest_and_a_track_comes_out_of_its_group() {
     let mut lumen = three_tracks("group-nest");
     lumen.key(Modifiers::COMMAND, Key::G);
-    // The second track alone, grouped again: a group inside the group.
     lumen
         .harness
         .get_by_label("Audio 2: double-click to rename")
@@ -100,7 +89,6 @@ fn groups_nest_and_a_track_comes_out_of_its_group() {
     assert_eq!(parent_of(&lumen, "Group 2").as_deref(), Some("Group 1"));
     assert_eq!(parent_of(&lumen, "Audio 2").as_deref(), Some("Group 2"));
 
-    // Ctrl+Shift+G on a track inside: it comes out, after its group.
     lumen
         .harness
         .get_by_label("Audio 1: double-click to rename")
@@ -122,18 +110,15 @@ fn a_folded_group_hides_its_tracks_and_stays_folded_when_saved() {
     assert!(lumen.shows("Mute Audio 1"));
     lumen.click("Fold group Group 1");
     assert!(lumen.is_on("Fold group Group 1"));
-    // Its tracks glide shut, then go (M4.5).
     lumen.frames(30);
     assert!(!lumen.shows("Mute Audio 1") && !lumen.shows("Mute Audio 2"));
     assert!(lumen.shows("Mute Audio 3"));
-    // The header says what it hides.
     assert!(
         lumen
             .harness
             .query_by_label_contains("2 tracks inside, folded")
             .is_some()
     );
-    // Folding is a view change, not an edit; it is saved with the project.
     assert_eq!(lumen.app().undo_label(), Some("Group tracks"));
     let group = ids(&lumen)[0];
     assert!(
@@ -145,16 +130,13 @@ fn a_folded_group_hides_its_tracks_and_stays_folded_when_saved() {
             .contains(&group)
     );
 
-    // Right, with the group selected, shows its tracks again; Left hides.
     lumen.key(Modifiers::NONE, Key::ArrowRight);
     assert!(lumen.shows("Mute Audio 1"));
     lumen.key(Modifiers::NONE, Key::ArrowLeft);
     lumen.frames(30);
     assert!(!lumen.shows("Mute Audio 1"));
-    // Up and Down step over hidden tracks.
     lumen.key(Modifiers::NONE, Key::ArrowDown);
     assert_eq!(lumen.app().selected_tracks(), [ids(&lumen)[3]]);
-    // Unfold all groups, from the palette's table of commands.
     lumen.key(Modifiers::COMMAND, Key::K);
     lumen
         .harness
@@ -167,7 +149,6 @@ fn a_folded_group_hides_its_tracks_and_stays_folded_when_saved() {
 #[test]
 fn tracks_dragged_onto_a_group_go_in_and_dragged_below_it_come_out() {
     let mut lumen = three_tracks("group-drag");
-    // Group only the first track, so Audio 2 and Audio 3 are outside.
     lumen
         .harness
         .get_by_label("Audio 1: double-click to rename")
@@ -176,7 +157,6 @@ fn tracks_dragged_onto_a_group_go_in_and_dragged_below_it_come_out() {
     lumen.key(Modifiers::COMMAND, Key::G);
     assert_eq!(parent_of(&lumen, "Audio 3"), None);
 
-    // Onto the middle of the group's header: in, at its end.
     let from = header(&lumen, "Audio 3").left_center() + vec2(60.0, 0.0);
     let onto = header(&lumen, "Group 1").left_center() + vec2(60.0, 0.0);
     lumen.drag(from, onto, Modifiers::NONE);
@@ -186,10 +166,8 @@ fn tracks_dragged_onto_a_group_go_in_and_dragged_below_it_come_out() {
     );
     assert_eq!(parent_of(&lumen, "Audio 3").as_deref(), Some("Group 1"));
     assert_eq!(lumen.app().undo_label(), Some("Move track"));
-    // New tracks grow in and moved rows glide (M4.5): let them settle.
     lumen.frames(30);
 
-    // Below the last track: out of the group, at the end.
     let from = header(&lumen, "Audio 3").left_center() + vec2(60.0, 0.0);
     let below = header(&lumen, "Audio 2").left_bottom() + vec2(60.0, -4.0);
     lumen.drag(from, below, Modifiers::NONE);
@@ -200,7 +178,6 @@ fn tracks_dragged_onto_a_group_go_in_and_dragged_below_it_come_out() {
     assert_eq!(parent_of(&lumen, "Audio 3"), None);
     lumen.frames(30);
 
-    // The group dragged below Audio 3 takes its track along.
     let from = header(&lumen, "Group 1").left_top() + vec2(60.0, 6.0);
     let below = header(&lumen, "Audio 3").left_bottom() + vec2(60.0, -4.0);
     lumen.drag(from, below, Modifiers::NONE);
@@ -225,13 +202,11 @@ fn arming_a_group_arms_its_tracks_and_deleting_it_takes_them() {
         .collect();
     assert_eq!(armed, [false, true, true, false], "inside, not the group");
     assert!(lumen.is_on("Arm Group 1"));
-    // One disarmed inside: the group reads partly armed (not on).
     lumen.click("Arm Audio 1");
     assert!(!lumen.is_on("Arm Group 1"));
     lumen.click("Arm Group 1");
     assert!(lumen.app().project().tracks[1].armed);
 
-    // Delete with the group selected: its tracks go too, in one step.
     lumen
         .harness
         .get_by_label("Group 1: double-click to rename")
@@ -272,7 +247,6 @@ fn a_track_in_nested_groups_is_heard_through_them_and_the_outer_mute_silences_it
     let file = wav(&lumen.dir().join("tone.wav"), 20.0);
     lumen.drop_files(&[file]);
     lumen.frames(5);
-    // The tone's track, grouped twice.
     lumen.key(Modifiers::NONE, Key::ArrowDown);
     lumen.key(Modifiers::COMMAND, Key::G);
     lumen.key(Modifiers::COMMAND, Key::G);
@@ -290,17 +264,12 @@ fn a_track_in_nested_groups_is_heard_through_them_and_the_outer_mute_silences_it
         let heard = lumen.listen(Duration::from_millis(150), 1_000);
         heard.iter().fold(0.0f32, |m, f| m.max(f[0].abs()))
     };
-    // As loud as the track alone (a stereo track at the centre keeps its
-    // level) and nothing more from the groups, which stay at unity (owner,
-    // after MT-MIX-3 run 1: grouped tracks played quieter, 3 dB a level).
     let alone = 3_000.0 / 32_768.0;
     let level = loudest(&mut lumen);
     assert!(
         (level - alone).abs() < alone * 0.05,
         "heard through both groups at {level}, alone {alone}"
     );
-    // Soloing the track keeps its groups open (MT-MIX-3 run 1: it went
-    // silent).
     let name = lumen.track_names()[2].clone();
     lumen.click(&format!("Solo {name}"));
     assert!(loudest(&mut lumen) > 0.01, "soloed inside its groups");
@@ -312,7 +281,6 @@ fn a_track_in_nested_groups_is_heard_through_them_and_the_outer_mute_silences_it
 
 #[test]
 fn groups_go_three_deep_and_ctrl_g_says_so() {
-    // MT-MIX-3 run 1 (owner): no fourth level.
     let mut lumen = Lumen::start("group-depth");
     lumen.key(Modifiers::COMMAND, Key::T);
     for _ in 0..3 {
@@ -327,7 +295,6 @@ fn groups_go_three_deep_and_ctrl_g_says_so() {
 
 #[test]
 fn the_header_column_is_dragged_wider_and_double_clicked_back() {
-    // MT-MIX-3 run 1 (owner): names were cut short.
     let mut lumen = Lumen::start("header-width");
     lumen.key(Modifiers::COMMAND, Key::T);
     let edge = lumen
@@ -344,7 +311,6 @@ fn the_header_column_is_dragged_wider_and_double_clicked_back() {
     assert_eq!(width(&lumen), 304.0, "saved with the project's view");
     let wider = header(&lumen, "Audio 1");
     assert_eq!(wider.width(), 304.0, "the headers follow");
-    // Not an edit: nothing to undo for it.
     assert_eq!(lumen.app().undo_label(), Some("Add audio track"));
     lumen.drag(
         edge.center() + vec2(100.0, 0.0),

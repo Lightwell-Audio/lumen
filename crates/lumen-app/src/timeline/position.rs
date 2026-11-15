@@ -1,13 +1,8 @@
-//! The transport position as the user reads and types it: bars, beats and
-//! sixteenths ("3.2.1", one-based), or minutes and seconds
-//! ("1:05.250").
-
 use lumen_core::time::{PPQ, Ticks};
 use lumen_engine::Timeline;
 
 const SIXTEENTH: i64 = PPQ / 4;
 
-/// "bar.beat.sixteenth", one-based.
 pub fn format_bbt(timeline: &Timeline, t: Ticks) -> String {
     let bbt = timeline.meter.bbt_at(t);
     format!(
@@ -18,7 +13,6 @@ pub fn format_bbt(timeline: &Timeline, t: Ticks) -> String {
     )
 }
 
-/// "m:ss.mmm".
 pub fn format_time(seconds: f64) -> String {
     let millis = (seconds.max(0.0) * 1000.0).round() as u64;
     format!(
@@ -29,8 +23,6 @@ pub fn format_time(seconds: f64) -> String {
     )
 }
 
-/// Parses "3", "3.2", "3.2.4" (bars, beats, sixteenths, one-based) or
-/// "1:05" / "1:05.25" (minutes and seconds).
 pub fn parse(input: &str, timeline: &Timeline) -> Result<Ticks, String> {
     let input = input.trim();
     if let Some((minutes, seconds)) = input.split_once(':') {

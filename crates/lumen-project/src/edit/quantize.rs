@@ -1,73 +1,23 @@
-//! Quantize (M5 slice 5a): snapping notes to a grid, as a pure function over
-//! a clip's note list. The piano roll wraps it in one undo step, so it is
-//! tested here without a window.
-//!
-//! # The grid
-//!
-//! Grid line `i` sits at `i * step`. With swing, every odd line is delayed by
-//! `swing * step / 2`, so the grid stays in order for any swing up to 1.
-//! A position's target is its nearest line, with ties going to the later
-//! line (a note exactly halfway moves forward). A position is pulled toward its target by `strength` only when the
-//! distance to it is within `window * step / 2` (plus one tick, for rounding).
-//! A window of 1.0 is off: every position is pulled.
-//!
-//! # Modes
-//!
-//! - `Start`: the start is pulled; the length stays.
-//! - `End`: the end is pulled; the start stays, so the length changes. If the
-//!   nearest line is at or before the start, the end goes to the first line
-//!   after the start, so a note never collapses.
-//! - `StartAndEnd`: the start is pulled first (the length
-//!   stays), then the end of the note as it now is is pulled to its nearest
-//!   line. Two adjacent notes therefore stay adjacent.
-//! - `Length`: the length moves toward the nearest whole number of steps
-//!   (halves round up, at least one step). The start stays; swing and the
-//!   window do not apply.
-//!
-//! # Keeping notes whole
-//!
-//! A note keeps its pitch, velocity and mute. Its start stays in
-//! `[0, length - MIN_NOTE]` and its end at most at the clip's content length
-//! `length` (or its old end, when it already ran past it). Its length is at
-//! least [`MIN_NOTE`].
-//!
-//! Only the picked notes change, and the selection contract of `notes.rs`
-//! applies: the result is the picked notes' indices afterwards, moved or not,
-//! as [`super::notes::legato`] returns them. A step of zero or less changes
-//! nothing. Controller events are not touched.
-
 use lumen_core::time::{PPQ, Ticks};
 
 use super::notes::{MIN_NOTE, finish, picked, tag};
 use crate::model::Note;
 
-/// Which part of a note quantize moves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Mode {
-    /// The start moves; the length stays.
     #[default]
     Start,
-    /// The end moves; the start stays, so the length changes.
     End,
-    /// Both edges move, each to its own nearest line.
     StartAndEnd,
-    /// The length moves toward a whole number of steps.
     Length,
 }
 
-/// What quantize snaps to and how hard.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Settings {
-    /// The grid's spacing: a 1/16 is `PPQ / 4`.
     pub step: Ticks,
-    /// Which part of a note moves.
     pub mode: Mode,
-    /// How far a note moves toward its line, 0 to 1 (clamped).
     pub strength: f32,
-    /// How far every odd grid line is delayed, 0 to 1 of half a step (clamped).
     pub swing: f32,
-    /// How far from a line a note may be to be pulled, 0 to 1 of half a
-    /// step (clamped). 1.0 is off.
     pub window: f32,
 }
 
@@ -83,9 +33,6 @@ impl Default for Settings {
     }
 }
 
-/// Quantizes the picked notes of `notes` (a clip of content `length`) to the
-/// grid in `s`. Returns the picked notes' indices in the list as it is after
-/// the edit.
 pub fn quantize(
     notes: &mut Vec<Note>,
     selection: &[usize],
@@ -109,10 +56,6 @@ pub fn quantize(
     finish(notes, tagged)
 }
 
-/// Quantizes the picked notes of `notes` (a clip of content `length`) each to
-/// its own grid: `step_of` gives a note's own step (a drum sound's quantize,
-/// M8 D2), or `None` for `s`'s. One pass exactly as [`quantize`], so the notes
-/// keep the indices the selection means and one edit is one undo step.
 pub fn quantize_each(
     notes: &mut Vec<Note>,
     selection: &[usize],
@@ -148,12 +91,9 @@ pub fn quantize_each(
     finish(notes, tagged)
 }
 
-/// The settings as the arithmetic uses them, in ticks.
 struct Grid {
     step: i64,
-    /// How far an odd line is delayed.
     delay: i64,
-    /// The pull range in ticks, or `None` when the window is off.
     range: Option<f64>,
     strength: f64,
 }
@@ -171,12 +111,10 @@ impl Grid {
         }
     }
 
-    /// Where grid line `k` sits.
     fn line(&self, k: i64) -> i64 {
         k * self.step + if k.rem_euclid(2) == 1 { self.delay } else { 0 }
     }
 
-    /// The nearest line to `p`; a tie goes to the later line.
     fn nearest(&self, p: i64) -> i64 {
         let cell = (2 * p + self.step).div_euclid(2 * self.step);
         (cell - 1..=cell + 1)
@@ -185,10 +123,7 @@ impl Grid {
             .unwrap_or(p)
     }
 
-    /// The first line after `p`.
     fn line_after(&self, p: i64) -> i64 {
-        // Lines only ever move forward (a swing delay is at most half a
-        // step), so the search ends within a few lines.
         let mut k = p.div_euclid(self.step) - 1;
         while self.line(k) <= p {
             k += 1;
@@ -196,8 +131,6 @@ impl Grid {
         self.line(k)
     }
 
-    /// The line `p` is pulled toward, or `None` when it is outside the
-    /// window.
     fn target(&self, p: i64) -> Option<i64> {
         let line = self.nearest(p);
         match self.range {
@@ -206,15 +139,10 @@ impl Grid {
         }
     }
 
-    /// `p` pulled toward its nearest line, or `p` itself when it is outside
-    /// the window.
     fn pull(&self, p: i64) -> i64 {
         toward(p, self.target(p).unwrap_or(p), self.strength)
     }
 
-    /// A note end pulled toward its line, for a note that starts at `start`.
-    /// A line at or before the start would collapse the note, so the end goes
-    /// to the first line after the start instead.
     fn pull_end(&self, end: i64, start: i64) -> i64 {
         let Some(line) = self.target(end) else {
             return end;
@@ -228,7 +156,6 @@ impl Grid {
     }
 }
 
-/// A setting clamped to 0 to 1; `nan` stands in for a NaN.
 fn unit(value: f32, nan: f64) -> f64 {
     if value.is_nan() {
         nan
@@ -237,22 +164,15 @@ fn unit(value: f32, nan: f64) -> f64 {
     }
 }
 
-/// `from` moved `strength` of the way to `to`, in whole ticks (halves away
-/// from zero).
 fn toward(from: i64, to: i64, strength: f64) -> i64 {
     (from as f64 + (to - from) as f64 * strength).round() as i64
 }
 
-/// The nearest whole number of steps to `len` (halves round up), and at
-/// least one step.
 fn whole_steps(len: i64, step: i64) -> i64 {
     let n = (2 * len.max(0) + step) / (2 * step);
     (n * step).max(step)
 }
 
-/// Keeps a note inside the content: start in `[0, length - MIN_NOTE]`, end at
-/// most `length` (or `old_end`, when the note already ran past it), length at
-/// least `MIN_NOTE`. Returns the start and the length.
 fn place(start: i64, end: i64, length: Ticks, old_end: Ticks) -> (Ticks, Ticks) {
     let min = MIN_NOTE.0;
     let start = start.clamp(0, (length.0 - min).max(0));
@@ -261,7 +181,6 @@ fn place(start: i64, end: i64, length: Ticks, old_end: Ticks) -> (Ticks, Ticks) 
     (Ticks(start), Ticks(end - start))
 }
 
-/// One note moved by `mode`.
 fn quantized(note: Note, length: Ticks, grid: &Grid, mode: Mode) -> Note {
     let (start, end, len) = (note.start().0, note.end().0, note.length().0);
     let (start, end) = match mode {
@@ -271,7 +190,6 @@ fn quantized(note: Note, length: Ticks, grid: &Grid, mode: Mode) -> Note {
         }
         Mode::End => (start, grid.pull_end(end, start)),
         Mode::StartAndEnd => {
-            // Start first, keeping the length; then the end as it now is.
             let start = grid.pull(start);
             (start, grid.pull_end(start + len, start))
         }
@@ -295,7 +213,6 @@ fn quantized(note: Note, length: Ticks, grid: &Grid, mode: Mode) -> Note {
 mod tests {
     use super::*;
 
-    /// A sixteenth note in ticks.
     const S: i64 = PPQ / 4;
     const LEN: Ticks = Ticks(PPQ * 16);
 
@@ -314,7 +231,6 @@ mod tests {
         }
     }
 
-    /// Quantizes one note in a clip of `LEN` and returns it.
     fn one(note: Note, s: &Settings) -> Note {
         let mut notes = vec![note];
         quantize(&mut notes, &[0], LEN, s);
@@ -323,21 +239,18 @@ mod tests {
 
     #[test]
     fn start_mode_moves_the_start_and_keeps_the_length() {
-        // 30000 ticks after beat 2 is nearest the line at beat 2.
         let n = one(note(beat(2) + 30_000, beat(1), 60), &mode(Mode::Start));
         assert_eq!(n, note(beat(2), beat(1), 60));
     }
 
     #[test]
     fn end_mode_moves_the_end_and_changes_the_length() {
-        // The end is at beat 2 + 30000, so it snaps to beat 2.
         let n = one(note(beat(1), beat(1) + 30_000, 60), &mode(Mode::End));
         assert_eq!(n, note(beat(1), beat(1), 60));
     }
 
     #[test]
     fn start_and_end_mode_moves_both_edges() {
-        // Start 1 + 40000 snaps to beat 1, end 3 - 50000 to beat 3.
         let n = one(
             note(beat(1) + 40_000, 2 * beat(1) - 90_000, 60),
             &mode(Mode::StartAndEnd),
@@ -347,10 +260,8 @@ mod tests {
 
     #[test]
     fn length_mode_snaps_the_length_and_keeps_the_start() {
-        // 1.3 beats is 5.2 sixteenths: five sixteenths, which is 1.25 beats.
         let n = one(note(beat(1), 1_834_560, 60), &mode(Mode::Length));
         assert_eq!(n, note(beat(1), 5 * PPQ / 4, 60));
-        // Half a step rounds up to a whole step.
         let n = one(note(0, S / 2, 60), &mode(Mode::Length));
         assert_eq!(n, note(0, S, 60));
     }
@@ -369,7 +280,6 @@ mod tests {
 
     #[test]
     fn strength_is_the_fraction_of_the_way_to_the_line() {
-        // 40000 ticks away, half strength: 20000 ticks away.
         let s = Settings {
             strength: 0.5,
             ..Settings::default()
@@ -420,25 +330,21 @@ mod tests {
             swing: 1.0,
             ..Settings::default()
         };
-        // Line 5 (1.25 beats) is odd: at full swing it sits at 1.25 + 1/8
-        // beats, so a note on it moves by half a step.
         let n = one(note(5 * S, PPQ / 8, 60), &swing);
         assert_eq!(n, note(5 * S + S / 2, PPQ / 8, 60));
         assert_eq!(n.start(), Ticks(1_940_400));
-        // Even lines do not move.
         let n = one(note(beat(2), PPQ / 8, 60), &swing);
         assert_eq!(n.start(), Ticks(beat(2)));
     }
 
     #[test]
     fn window_leaves_far_notes_and_pulls_near_ones() {
-        // The window is half of a half step: 0.5 of a step / 2 = 88200 ticks.
         let s = Settings {
             window: 0.5,
             ..Settings::default()
         };
-        let far = note(beat(2) + 141_120, PPQ / 8, 60); // 0.4 steps from beat 2
-        let near = note(beat(3) + 70_560, PPQ / 8, 62); // 0.2 steps from beat 3
+        let far = note(beat(2) + 141_120, PPQ / 8, 60);
+        let near = note(beat(3) + 70_560, PPQ / 8, 62);
         let mut notes = vec![far, near];
         assert_eq!(quantize(&mut notes, &[0, 1], LEN, &s), [0, 1]);
         assert_eq!(notes[0], far);
@@ -447,7 +353,6 @@ mod tests {
 
     #[test]
     fn the_window_has_one_tick_of_tolerance() {
-        // Its range is 88200 ticks, plus one: 88201 is pulled, 88202 is not.
         let s = Settings {
             window: 0.5,
             ..Settings::default()
@@ -464,18 +369,14 @@ mod tests {
 
     #[test]
     fn a_triplet_grid_snaps_to_triplet_lines() {
-        // An eighth-note triplet is a third of a beat: 470400 ticks.
         let triplet = Settings {
             step: Ticks::whole_note_fraction(1, 12).unwrap(),
             ..Settings::default()
         };
         let t = PPQ / 3;
         assert_eq!(t, 470_400);
-        // 1000 ticks after the first triplet line.
         let n = one(note(t + 1_000, PPQ / 10, 60), &triplet);
         assert_eq!(n.start(), Ticks(t));
-        // A straight eighth (half a beat) is equally near the first and
-        // second triplet lines: the later one wins.
         let n = one(note(PPQ / 2, PPQ / 10, 60), &triplet);
         assert_eq!(n.start(), Ticks(2 * t));
     }
@@ -495,8 +396,6 @@ mod tests {
 
     #[test]
     fn a_note_near_the_end_stays_inside_the_clip() {
-        // 50000 ticks before the end of a 4-beat clip, the nearest line is the
-        // end itself: the start stops one minimum note short of it.
         let length = Ticks(beat(4));
         let min = MIN_NOTE.0;
         let mut notes = vec![note(beat(4) - 50_000, 50_000, 60)];
@@ -530,9 +429,6 @@ mod tests {
 
     #[test]
     fn returned_indices_follow_notes_that_cross() {
-        // A (pitch 72) moves later onto the line at S, B (pitch 48) moves
-        // earlier onto it: B now sorts before A. D (pitch 50) is unpicked and
-        // already on the line.
         let mut notes = vec![
             note(S - 100, PPQ / 8, 72),
             note(S, PPQ / 8, 50),
@@ -546,9 +442,6 @@ mod tests {
         assert!(notes.iter().all(|n| n.start() == Ticks(S)));
     }
 
-    // The owner's comparison test (two adjacent eighth notes, grid 1/4): the
-    // first starts on beat 3 (1.3), the second half a beat later (1.3.3),
-    // exactly between lines 3 and 4. Positions are in beats from the start.
     fn pair() -> Vec<Note> {
         vec![
             Note::new(Ticks(beat(2)), Ticks(PPQ / 2), 60, 100),
@@ -577,7 +470,6 @@ mod tests {
     fn pair_end_stretches_the_first_note_and_leaves_the_second() {
         let mut notes = pair();
         quantize(&mut notes, &[0, 1], LEN, &quarters(Mode::End));
-        // 1.3 to 1.4, and the second note already ends on the grid.
         assert_eq!(notes[0].start(), Ticks(beat(2)));
         assert_eq!(notes[0].end(), Ticks(beat(3)));
         assert_eq!(notes[1].start(), Ticks(beat(2) + PPQ / 2));
@@ -588,8 +480,6 @@ mod tests {
     fn pair_both_does_start_then_end_and_the_notes_stay_adjacent() {
         let mut notes = pair();
         quantize(&mut notes, &[0, 1], LEN, &quarters(Mode::StartAndEnd));
-        // First 1.3 to 1.4; second starts on 1.4 (start step, length kept)
-        // then its end, now half a beat past 1.4, goes up to 2.1.
         assert_eq!(
             (notes[0].start(), notes[0].end()),
             (Ticks(beat(2)), Ticks(beat(3)))
@@ -600,8 +490,6 @@ mod tests {
         );
     }
 
-    // A note shorter than the grid, played loose: start a little after
-    // line 1 (S), its end 50 ticks later.
     fn short() -> Note {
         note(S + 100, 50, 60)
     }
@@ -610,8 +498,6 @@ mod tests {
     fn an_end_that_would_land_before_the_start_goes_to_the_next_line() {
         let mut notes = vec![short()];
         quantize(&mut notes, &[0], LEN, &mode(Mode::End));
-        // Its nearest line (S) is before the start: the end takes 2S instead
-        // of leaving a hairline.
         assert_eq!(notes[0], note(S + 100, S - 100, 60));
     }
 
@@ -626,8 +512,6 @@ mod tests {
     fn both_mode_turns_a_short_note_into_one_step_on_the_grid() {
         let mut notes = vec![short()];
         quantize(&mut notes, &[0], LEN, &mode(Mode::StartAndEnd));
-        // Start to S (length 50 kept, end S+50 would snap back to S), so the
-        // end takes the next line: 2S.
         assert_eq!(notes[0], note(S, S, 60));
     }
 
@@ -640,8 +524,6 @@ mod tests {
             ..Settings::default()
         };
         quantize(&mut notes, &[0], LEN, &half);
-        // Start halfway from S+100 to S; the end (S+100 after that) halfway
-        // to 2S, the line after the start.
         assert_eq!(notes[0].start(), Ticks(S + 50));
         assert_eq!(notes[0].end(), Ticks((S + 100 + 2 * S) / 2));
     }
@@ -654,15 +536,12 @@ mod tests {
             window: 0.2,
             ..Settings::default()
         };
-        // Its end (S + S/2 + 90) is far from any line: untouched.
         quantize(&mut notes, &[0], LEN, &narrow);
         assert_eq!(notes[0], note(S + 100, S / 2 - 10, 60));
     }
 
     #[test]
     fn each_note_takes_its_own_step_where_it_has_one() {
-        // M8 D2's per-lane quantize: the kick (36) on a quarter grid, the hat
-        // (42) on a sixteenth, both in one pass.
         let quarter = Settings {
             step: Ticks(4 * S),
             ..Settings::default()
@@ -689,7 +568,6 @@ mod tests {
         assert_eq!(start_of(36), Ticks(0), "the kick to the quarter");
         assert_eq!(start_of(42), Ticks(S), "the hat to the sixteenth");
         assert_eq!(start_of(38), Ticks(0), "the rest to the options' grid");
-        // One step with no per-note grid is `quantize` itself.
         let mut alone = vec![note(S + 30, S / 2, 36)];
         let mut same = alone.clone();
         quantize_each(&mut alone, &[0], LEN, &quarter, &|_| None);

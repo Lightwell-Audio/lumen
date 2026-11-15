@@ -1,26 +1,11 @@
-//! Smoke tests of the real binary (ADR-0029): `lumen` starts with its window
-//! and GPU, draws, imports, saves, opens and closes, as a user would run
-//! it. Each run uses its own settings file and autosave folder and the
-//! silent test device, so it never touches the user's settings, autosaves
-//! or sound card (ASIO devices are often exclusive).
-//!
-//! They need a desktop and a GPU, so they are ignored in CI and run at the
-//! end of every slice (DEVELOPMENT.md, "End-to-end tests"):
-//! `cargo test -p lumen-app --test smoke -- --ignored` (a debug build, so it
-//! never clashes with a release Lumen that is running).
-//! A window flashes up for each.
-
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
 use lumen_project::testing::TempDir;
 
-/// The longest a run may take before it counts as hung.
 const LIMIT: Duration = Duration::from_secs(90);
 
-/// Runs `lumen` with `args`, isolated in `dir`, and returns its output once
-/// it exits. Panics if it hangs or fails.
 fn lumen(dir: &Path, args: &[&str]) -> String {
     let settings = dir.join("settings.json");
     let autosave = dir.join("autosave");
@@ -60,7 +45,6 @@ fn lumen(dir: &Path, args: &[&str]) -> String {
     stdout
 }
 
-/// A stereo WAV of `seconds` of a quiet tone at 48 kHz.
 fn wav(path: &Path, seconds: f32) -> PathBuf {
     let rate = 48_000_u32;
     let frames = (seconds * rate as f32) as usize;
@@ -88,7 +72,6 @@ fn wav(path: &Path, seconds: f32) -> PathBuf {
     path.to_path_buf()
 }
 
-/// How many distinct colours a PNG has (a blank window has one or two).
 fn colours(png: &Path) -> usize {
     let decoder = png::Decoder::new(std::io::BufReader::new(
         std::fs::File::open(png).expect("open the screenshot"),
@@ -141,7 +124,6 @@ fn imports_saves_opens_and_draws_a_project() {
     assert_eq!(project.tracks.len(), 1);
     assert_eq!(project.tracks[0].clips.len(), 1);
 
-    // Opened again, it draws its clip and waveform.
     let shot = dir.path().join("song.png");
     let out = lumen(
         dir.path(),
@@ -183,8 +165,6 @@ fn the_light_theme_at_200_percent_draws() {
     assert!(colours(&shot) > 20, "the window looks blank");
 }
 
-/// The first-run window draws on the real binary when asked (M9 R7b); a
-/// screenshot alone never opens it.
 #[test]
 #[ignore = "needs a desktop and a GPU: run at the end of every slice"]
 fn the_first_run_window_draws() {
@@ -202,8 +182,6 @@ fn the_first_run_window_draws() {
     assert!(colours(&shot) > 20, "the window looks blank");
 }
 
-/// A panic leaves a crash report naming what failed and where, and the
-/// next start offers it (owner, M3 slice 6c).
 #[test]
 #[ignore = "runs the real binary; needs a desktop and a GPU"]
 fn a_panic_leaves_a_crash_report() {
@@ -216,8 +194,6 @@ fn a_panic_leaves_a_crash_report() {
     assert!(report.contains("Backtrace:"), "{report}");
 }
 
-/// A failed allocation is not a panic, yet it leaves a report too, with
-/// the backtrace that says where (owner: the deep-zoom crash left none).
 #[test]
 #[ignore = "runs the real binary; needs a desktop and a GPU"]
 fn a_failed_allocation_leaves_a_crash_report() {
@@ -235,7 +211,6 @@ fn a_failed_allocation_leaves_a_crash_report() {
     );
 }
 
-/// Runs `lumen` with a deliberate failure (`flag`) and returns its report.
 fn crash_report(flag: &str) -> String {
     let dir = TempDir::new("smoke-crash");
     let crashes = dir.path().join("crashes");
@@ -271,10 +246,6 @@ fn crash_report(flag: &str) -> String {
     std::fs::read_to_string(&reports[0]).unwrap()
 }
 
-// ── One Lumen per settings file (M9 R8, ADR-0117) ────────────────────────
-
-/// Starts `lumen` isolated in `dir` (the same settings file for each run in
-/// one `dir`), without waiting.
 fn spawn(dir: &Path, args: &[&str]) -> std::process::Child {
     Command::new(env!("CARGO_BIN_EXE_lumen"))
         .args(["--audio", "test:fake"])
@@ -291,8 +262,6 @@ fn spawn(dir: &Path, args: &[&str]) -> std::process::Child {
         .expect("start lumen")
 }
 
-/// Waits for `child` (at most `limit`, then kills it) and returns whether it
-/// exited 0 by itself, with its stdout and stderr.
 fn finish(mut child: std::process::Child, limit: Duration) -> (bool, String, String) {
     let started = Instant::now();
     let mut killed = false;

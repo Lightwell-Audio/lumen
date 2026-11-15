@@ -1,52 +1,15 @@
-//! Note editing (M5 slice 3a): the piano roll's operations as pure functions
-//! over a clip's note list. The app wraps each in one undo step
-//! (`Document::move_notes` and the others), so everything here is tested
-//! without a window.
-//!
-//! # The selection contract
-//!
-//! Notes are picked by **index** into the clip's `notes`. Every function
-//! takes the picked indices and returns the indices of the notes it made or
-//! changed, in the list as it is *after* the edit, so a UI keeps its
-//! selection through the edit by storing what comes back (a duplicate
-//! returns the copies, a glue the merged notes, a delete nothing).
-//!
-//! - Indices that are out of range or repeated are ignored; order does not
-//!   matter.
-//! - The list is kept sorted by start, then pitch, with ties left in their
-//!   old order, so indices move after an edit that changes the order. An
-//!   index is therefore only meaningful against the list it was made for:
-//!   that is what a gesture's *base* is (the project as the gesture found
-//!   it), and why a selection that outlives an undo or another edit must be
-//!   checked with [`super::NoteSelection`] before use.
-//! - Group edits keep relative offsets: a move is clamped as a whole, so no
-//!   note is squeezed against a limit while the others go on.
-//! - Overlaps between notes are never removed or created by an edit unless
-//!   the edit is about joining them (glue).
-//! - Only notes change; the clip's controller, bend, pressure and program
-//!   events are not touched.
-//!
-//! `length` is the clip's content length (see `super::content_length`):
-//! edits keep notes inside `[0, length]`, or no further outside it than
-//! they already are. A note outside the clip's window (kept, hidden in the
-//! arrangement, ADR-0056) is shown by the clip editor (ADR-0059): it can be
-//! moved and resized there, and back into the clip, but not further out.
-
 use lumen_core::time::{PPQ, Ticks};
 
 use crate::model::Note;
 
-/// The shortest a note can be made: a 1/128 note.
 pub const MIN_NOTE: Ticks = Ticks(PPQ / 32);
 
-/// Which end of a note a resize drags.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum End {
     Start,
     End,
 }
 
-/// The picked indices, sorted, without repeats or indices past the list.
 pub fn picked(selection: &[usize], len: usize) -> Vec<usize> {
     let mut v: Vec<usize> = selection.iter().copied().filter(|&i| i < len).collect();
     v.sort_unstable();
@@ -54,12 +17,10 @@ pub fn picked(selection: &[usize], len: usize) -> Vec<usize> {
     v
 }
 
-/// Every index, for "select all".
 pub fn all(notes: &[Note]) -> Vec<usize> {
     (0..notes.len()).collect()
 }
 
-/// Notes tagged with whether they are part of the result.
 pub(super) type Tagged = Vec<(Note, bool)>;
 
 pub(super) fn tag(notes: &[Note], picked: &[usize]) -> Tagged {
@@ -70,7 +31,6 @@ pub(super) fn tag(notes: &[Note], picked: &[usize]) -> Tagged {
     tagged
 }
 
-/// Writes `tagged` back, in order, and returns where the tagged notes are.
 pub(super) fn finish(notes: &mut Vec<Note>, mut tagged: Tagged) -> Vec<usize> {
     if !tagged.is_sorted_by_key(|(n, _)| (n.start(), n.pitch())) {
         tagged.sort_by_key(|(n, _)| (n.start(), n.pitch()));
@@ -87,10 +47,6 @@ pub(super) fn finish(notes: &mut Vec<Note>, mut tagged: Tagged) -> Vec<usize> {
     result
 }
 
-/// Adds `note`, kept inside the clip: pitch to 127, velocity to 1 to 127,
-/// the start inside `[0, length)` and the length at least [`MIN_NOTE`], cut
-/// where the content ends. Returns the new note's index, or nothing when
-/// the start is outside the clip.
 pub fn add(notes: &mut Vec<Note>, note: Note, length: Ticks) -> Vec<usize> {
     if note.start() < Ticks::ZERO || note.start() >= length {
         return Vec::new();
@@ -113,7 +69,6 @@ pub fn add(notes: &mut Vec<Note>, note: Note, length: Ticks) -> Vec<usize> {
     finish(notes, tagged)
 }
 
-/// Removes the picked notes. Nothing remains selected.
 pub fn delete(notes: &mut Vec<Note>, selection: &[usize]) -> Vec<usize> {
     let picked = picked(selection, notes.len());
     let mut at = 0;
@@ -125,10 +80,6 @@ pub fn delete(notes: &mut Vec<Note>, selection: &[usize]) -> Vec<usize> {
     Vec::new()
 }
 
-/// How far a group may move in time: the whole group stays inside
-/// `[0, length]`, or no further out than it is. A note that already runs
-/// past the end can still move earlier, but not later; one before the start
-/// later, but not earlier.
 fn time_room(notes: &[Note], picked: &[usize], length: Ticks) -> (Ticks, Ticks) {
     let first = picked.iter().map(|&i| notes[i].start()).min();
     let last = picked.iter().map(|&i| notes[i].end()).max();
@@ -150,8 +101,6 @@ fn pitch_room(notes: &[Note], picked: &[usize]) -> (i32, i32) {
     }
 }
 
-/// What a move by `(time, pitch)` really is for this group: each part is
-/// brought inside the limits as a whole.
 pub fn clamp_move(
     notes: &[Note],
     selection: &[usize],
@@ -168,8 +117,6 @@ pub fn clamp_move(
     )
 }
 
-/// Moves the picked notes by `time` and `pitch` (semitones), the whole
-/// group clamped at the limits ([`clamp_move`]).
 pub fn move_notes(
     notes: &mut Vec<Note>,
     selection: &[usize],
@@ -199,11 +146,6 @@ fn shifted(n: Note, time: Ticks, pitch: i32) -> Note {
     )
 }
 
-/// Moves the picked notes by `time`, each to its own pitch (`pitches`, in the
-/// order of `selection`), as one group clamped in time ([`clamp_move`]). The
-/// drum editor's lanes use it: a lane up is the next sound, not a semitone
-/// (M8 D2 review H3). With `copy`, the originals stay and the copies are
-/// returned.
 pub fn move_to_pitches(
     notes: &mut Vec<Note>,
     selection: &[usize],
@@ -238,8 +180,6 @@ pub fn move_to_pitches(
     finish(notes, tagged)
 }
 
-/// Copies the picked notes, moved by `time` and `pitch` as a group
-/// ([`clamp_move`]), leaving the originals. Returns the copies.
 pub fn copy_moved(
     notes: &mut Vec<Note>,
     selection: &[usize],
@@ -258,13 +198,10 @@ pub fn copy_moved(
     finish(notes, tagged)
 }
 
-/// Moves the picked notes `by` in time (arrow keys), clamped as a group.
 pub fn nudge(notes: &mut Vec<Note>, selection: &[usize], by: Ticks, length: Ticks) -> Vec<usize> {
     move_notes(notes, selection, by, 0, length)
 }
 
-/// Moves the picked notes by `semitones` (12 is an octave), clamped as a
-/// group: a chord at the top of the range stays a chord.
 pub fn transpose(notes: &mut Vec<Note>, selection: &[usize], semitones: i32) -> Vec<usize> {
     move_notes(
         notes,
@@ -275,12 +212,6 @@ pub fn transpose(notes: &mut Vec<Note>, selection: &[usize], semitones: i32) -> 
     )
 }
 
-/// Drags one edge of the picked notes by `by`: the end edge changes their
-/// lengths, the start edge their starts and lengths (the ends stay). As a
-/// group, so every note keeps at least `min` and none runs past `length`
-/// or before zero (no further than it already is, for a note outside the
-/// clip's window); the notes keep their differences while the edge is
-/// within those limits.
 pub fn resize(
     notes: &mut Vec<Note>,
     selection: &[usize],
@@ -342,9 +273,6 @@ pub fn resize(
     finish(notes, tagged)
 }
 
-/// Splits the picked notes that sound at `at` (start before it, end after
-/// it) in two, there. Returns both halves of each; picked notes `at` does
-/// not cut stay picked.
 pub fn split(notes: &mut Vec<Note>, selection: &[usize], at: Ticks) -> Vec<usize> {
     let picked = picked(selection, notes.len());
     let mut tagged = tag(notes, &[]);
@@ -382,10 +310,6 @@ pub fn split(notes: &mut Vec<Note>, selection: &[usize], at: Ticks) -> Vec<usize
     finish(notes, tagged)
 }
 
-/// Joins the picked notes of one pitch that touch or overlap into single
-/// notes (from the earliest start to the latest end, with the first one's
-/// velocity; muted only when all were). Other picked notes stay as they
-/// are. Returns the joined and the untouched picked notes.
 pub fn glue(notes: &mut Vec<Note>, selection: &[usize]) -> Vec<usize> {
     let picked = picked(selection, notes.len());
     let mut by_pitch = picked.clone();
@@ -426,8 +350,6 @@ pub fn glue(notes: &mut Vec<Note>, selection: &[usize]) -> Vec<usize> {
     finish(notes, tagged)
 }
 
-/// Mutes the picked notes, unmutes them, or (with `None`) toggles: they
-/// are all unmuted if every one was muted, otherwise all muted.
 pub fn mute(notes: &mut [Note], selection: &[usize], muted: Option<bool>) -> Vec<usize> {
     let picked = picked(selection, notes.len());
     let to = muted.unwrap_or_else(|| !picked.iter().all(|&i| notes[i].muted()));
@@ -437,10 +359,6 @@ pub fn mute(notes: &mut [Note], selection: &[usize], muted: Option<bool>) -> Vec
     picked
 }
 
-/// Copies the picked notes after themselves: the copies sit one selection
-/// span (earliest start to latest end) later. Copies that would start past
-/// `length` are left out and the rest are cut at it. Returns the copies, or
-/// the picked notes themselves if none fit.
 pub fn duplicate(notes: &mut Vec<Note>, selection: &[usize], length: Ticks) -> Vec<usize> {
     let picked = picked(selection, notes.len());
     let (Some(first), Some(last)) = (
@@ -475,9 +393,6 @@ pub fn duplicate(notes: &mut Vec<Note>, selection: &[usize], length: Ticks) -> V
     finish(notes, tagged)
 }
 
-/// Lengthens each picked note to the next note onset after its own start
-/// (any pitch), or to the end of the content for the last. Notes are only
-/// ever lengthened: one already past that onset keeps its overlap.
 pub fn legato(notes: &mut Vec<Note>, selection: &[usize], length: Ticks) -> Vec<usize> {
     let picked = picked(selection, notes.len());
     let mut onsets: Vec<Ticks> = notes.iter().map(|n| n.start()).collect();
@@ -523,13 +438,11 @@ mod tests {
         let mut notes = vec![n(0, 1, 60), n(4, 1, 60)];
         assert_eq!(add(&mut notes, n(2, 1, 64), LEN), [1]);
         assert_eq!(notes[1], n(2, 1, 64));
-        // Cut at the end, at least the shortest, pitch and velocity clamped.
         let last = Note::new(q(15), q(5), 200, 0);
         let at = add(&mut notes, last, LEN);
         assert_eq!(notes[at[0]], Note::new(q(15), q(1), 127, 1));
         let tiny = add(&mut notes, Note::new(q(8), Ticks(1), 60, 90), LEN);
         assert_eq!(notes[tiny[0]].length(), MIN_NOTE);
-        // Outside the clip: refused.
         assert!(add(&mut notes, n(16, 1, 60), LEN).is_empty());
         assert!(add(&mut notes, Note::new(Ticks(-1), Q, 60, 90), LEN).is_empty());
         assert_eq!(notes.len(), 5);
@@ -544,7 +457,6 @@ mod tests {
 
     #[test]
     fn a_note_outside_the_clip_moves_back_in_but_no_further_out() {
-        // Hidden before the clip's start, and past its end (ADR-0059).
         let mut notes = vec![n(-3, 2, 60), n(LEN.0 / q(1).0 + 1, 1, 62)];
         move_notes(&mut notes, &[0], q(-5), 0, LEN);
         assert_eq!(notes[0], n(-3, 2, 60), "no further out");
@@ -555,7 +467,6 @@ mod tests {
         assert_eq!(notes[1].start(), past, "no later past the end");
         move_notes(&mut notes, &[1], q(-3), 0, LEN);
         assert_eq!(notes[1].start(), past - q(3));
-        // Its edges move too, the start no earlier than it is.
         let mut notes = vec![n(-3, 2, 60)];
         resize(&mut notes, &[0], End::Start, q(-1), q(1), LEN);
         assert_eq!(notes[0], n(-3, 2, 60));
@@ -566,17 +477,13 @@ mod tests {
     #[test]
     fn a_group_moves_together_and_clamps_as_a_whole() {
         let mut notes = vec![n(1, 1, 60), n(2, 2, 72), n(9, 1, 40)];
-        // Earlier than the earliest note allows: the group stops at 0 and
-        // keeps its offsets.
         let sel = move_notes(&mut notes, &[0, 1], q(-5), 0, LEN);
         assert_eq!(sel, [0, 1]);
         assert_eq!(notes[0], n(0, 1, 60));
         assert_eq!(notes[1], n(1, 2, 72));
-        // Later than the clip: the group's end stops at the content's.
         move_notes(&mut notes, &[0, 1], q(100), 0, LEN);
         assert_eq!((notes[1].start(), notes[2].start()), (q(13), q(14)));
         assert_eq!(notes[2].end(), LEN);
-        // Pitch: 72 may rise 55 and 60 is the lowest at 60, so +60 stops at +55.
         let mut notes = vec![n(0, 1, 60), n(0, 1, 72)];
         move_notes(&mut notes, &[0, 1], Ticks::ZERO, 60, LEN);
         assert_eq!((notes[0].pitch(), notes[1].pitch()), (115, 127));
@@ -617,7 +524,6 @@ mod tests {
         nudge(&mut notes, &[0, 1], q(1), LEN);
         assert_eq!((notes[0].start(), notes[1].start()), (q(1), q(2)));
         assert_eq!(notes[0].pitch(), 60);
-        // The chord stays a chord at the top of the range.
         transpose(&mut notes, &[0, 1], 12);
         assert_eq!((notes[0].pitch(), notes[1].pitch()), (62, 127));
         transpose(&mut notes, &[0, 1], -12);
@@ -631,7 +537,6 @@ mod tests {
         assert_eq!(notes[0].length(), MIN_NOTE);
         resize(&mut notes, &[1], End::End, q(9), MIN_NOTE, LEN);
         assert_eq!(notes[1].end(), LEN);
-        // A group: the shorter note sets the limit for both.
         let mut notes = vec![n(0, 1, 60), n(2, 4, 62)];
         resize(&mut notes, &[0, 1], End::End, q(-3), MIN_NOTE, LEN);
         assert_eq!(notes[0].length(), MIN_NOTE);
@@ -658,7 +563,6 @@ mod tests {
         assert_eq!(notes[0], n(0, 2, 60));
         assert_eq!(notes[2], n(2, 2, 60));
         assert_eq!(sel.len(), 4, "both halves and the notes it did not cut");
-        // On a boundary nothing is cut.
         let mut notes = vec![n(0, 4, 60)];
         split(&mut notes, &[0], q(4));
         split(&mut notes, &[0], Ticks::ZERO);
@@ -692,7 +596,6 @@ mod tests {
         assert!(notes.contains(&n(8, 1, 60)));
         assert!(notes.contains(&n(0, 2, 64)));
         assert_eq!(sel.len(), 3);
-        // A note outside the selection is not swallowed.
         let mut notes = vec![n(0, 2, 60), n(2, 2, 60)];
         glue(&mut notes, &[0]);
         assert_eq!(notes.len(), 2);
@@ -727,7 +630,6 @@ mod tests {
     fn duplicating_puts_the_copies_one_selection_after() {
         let mut notes = vec![n(0, 1, 60), n(2, 1, 64), n(10, 1, 70)];
         let sel = duplicate(&mut notes, &[0, 1], LEN);
-        // Span is 0..3 so the copies start at 3 and 5.
         assert_eq!(notes.len(), 5);
         let copies: Vec<_> = sel.iter().map(|&i| notes[i]).collect();
         assert_eq!(copies, [n(3, 1, 60), n(5, 1, 64)]);
@@ -736,13 +638,10 @@ mod tests {
     #[test]
     fn duplicating_near_the_end_drops_and_cuts_what_does_not_fit() {
         let mut notes = vec![n(12, 2, 60), n(14, 2, 62)];
-        // Span 4, copies at 16 (outside) and 18 (outside): none fit.
         let sel = duplicate(&mut notes, &[0, 1], LEN);
         assert_eq!((notes.len(), sel), (2, vec![0, 1]));
         let mut notes = vec![n(10, 4, 60), n(12, 6, 62)];
-        // Span 8: copies at 18 and 20, outside.
         duplicate(&mut notes, &[0], LEN);
-        // Span 4: copy at 14 is cut to 2.
         assert_eq!(notes.len(), 3);
         assert_eq!(notes[2], n(14, 2, 60));
     }
@@ -775,7 +674,6 @@ mod tests {
             LEN,
             "the last runs to the end of the content"
         );
-        // Unpicked notes stay.
         let mut notes = vec![n(0, 1, 60), n(2, 1, 62)];
         legato(&mut notes, &[1], LEN);
         assert_eq!(notes[0].length(), q(1));
@@ -816,9 +714,6 @@ mod tests {
 
     #[test]
     fn a_lane_move_shifts_the_time_and_sets_each_hits_own_pitch() {
-        // M8 D2 review H3: the drum editor's lanes move a block by rows, so
-        // each hit takes the pitch of the row it lands on, and the whole block
-        // is clamped in time as a group.
         let mut notes = vec![n(1, 1, 36), n(1, 1, 38), n(4, 1, 42)];
         let copied = move_to_pitches(&mut notes, &[0, 1], q(1), &[38, 42], true, LEN);
         assert_eq!(copied.len(), 2, "the copies come back");
@@ -832,7 +727,6 @@ mod tests {
                 .any(|note| note.start() == q(2) && note.pitch() == 38),
             "a copy at beat 3, the next lane"
         );
-        // A move: the originals go, in time and pitch.
         let mut notes = vec![n(1, 1, 36), n(1, 1, 38)];
         move_to_pitches(&mut notes, &[0, 1], q(1), &[38, 42], false, LEN);
         assert_eq!(notes.len(), 2);
@@ -843,7 +737,6 @@ mod tests {
                 .collect::<Vec<_>>(),
             [(q(2), 38), (q(2), 42)]
         );
-        // A selection with the wrong number of pitches changes nothing.
         let mut notes = vec![n(1, 1, 36)];
         assert!(move_to_pitches(&mut notes, &[0], q(1), &[38, 40], false, LEN).is_empty());
         assert_eq!(notes, vec![n(1, 1, 36)]);

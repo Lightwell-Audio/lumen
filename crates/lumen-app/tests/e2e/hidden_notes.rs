@@ -1,7 +1,3 @@
-//! Notes outside a clip's window (ADR-0059): the arrangement hides them and
-//! does not play them (ADR-0056), but the clip editor shows them, in the
-//! dimmed time past the clip, to be picked and edited.
-
 use eframe::egui::{Key, Modifiers};
 use lumen_app::TimeView;
 use lumen_core::time::Ticks;
@@ -16,9 +12,6 @@ fn q(n: i64) -> Ticks {
     Ticks::quarters(n)
 }
 
-/// A clip from beat 0 to 4 with one note inside it and one past its end
-/// (hidden), and the loop brace out to beat 16 so the editor can zoom out
-/// that far.
 fn launch(name: &str) -> Lumen {
     let notes = vec![
         Note::new(q(1), q(1), 60, 100),
@@ -51,7 +44,6 @@ fn notes(lumen: &Lumen) -> Vec<Note> {
     }
 }
 
-/// Opens the clip and zooms the editor out until beat 7 is in view.
 fn open_wide(lumen: &mut Lumen) {
     let ctx = lumen.harness.ctx.clone();
     let r = lumen
@@ -87,12 +79,10 @@ fn a_note_past_the_clips_end_is_shown_picked_and_moved_back_in_the_editor() {
         .unwrap();
     assert!(body.contains(hidden), "beat 6 is in view: {hidden:?}");
 
-    // A click on it picks it: it is there to be edited.
     lumen.drag(hidden, hidden, Modifiers::NONE);
     lumen.frames(3);
     assert_eq!(lumen.app().editor_picked(), [1]);
 
-    // Dragged back inside the clip, it plays again.
     let to = lumen
         .app()
         .editor_point(q(2) + Ticks(q(1).0 / 4), 64)
@@ -104,7 +94,6 @@ fn a_note_past_the_clips_end_is_shown_picked_and_moved_back_in_the_editor() {
     let clip = &lumen.app().project().tracks[0].clips[0];
     assert_eq!(lumen_project::edit::shown_notes(clip), [0, 1]);
 
-    // Ctrl+A picks every note the editor shows, outside the window too.
     lumen.key(Modifiers::COMMAND, Key::Z);
     lumen.frames(3);
     assert_eq!(notes(&lumen)[1].start(), q(6), "undone");

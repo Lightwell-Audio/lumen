@@ -1,7 +1,3 @@
-//! The audio editor's view: how far it zooms and scrolls, Follow, the zoom
-//! keys and the wheel, fitting the clip or the file, and the ruler's info
-//! line.
-
 use eframe::egui::{self, Pos2, Rect};
 use lumen_core::time::Ticks;
 
@@ -14,12 +10,9 @@ use crate::audio_editor::{AudioEditor, Fit};
 use crate::note_editor::EditorZoom;
 use crate::timeview::{Limits, TimeView};
 
-/// Room kept past the file's ends when fitting it (a fraction of its span).
 const FIT_ROOM: f64 = 0.02;
 
 impl App {
-    /// How far the editor zooms and scrolls: out to the whole file (or the
-    /// song, if longer) with room after it, in to the arrangement's deepest.
     pub(super) fn file_limits(&self, file: &WholeFile, width: f32) -> Limits {
         let song = self.zoom_limits_at(width, file.played.first.0);
         let end = (file.to + (file.to - file.from) * 0.1).max(song.end);
@@ -30,10 +23,6 @@ impl App {
         }
     }
 
-    /// The view follows the playhead while playing, as the arrangement's
-    /// does (`navigate::follow_view`: Page turns a page at the right edge,
-    /// Continuous scrolls under a playhead that stays in place), unless
-    /// looking around paused it.
     pub(super) fn audio_follow(&self, ed: &mut AudioEditor, body: Rect) {
         if !self.transport.state().playing || self.transport.follow_paused {
             return;
@@ -49,7 +38,6 @@ impl App {
         }
     }
 
-    /// What the info line says over the ruler.
     pub(super) fn audio_ruler_info(
         &mut self,
         file: &WholeFile,
@@ -76,12 +64,10 @@ impl App {
     }
 }
 
-/// The tick at `x` of a view whose left edge is at `origin`.
 pub(super) fn ticks_at(time: TimeView, origin: f32, x: f32) -> Ticks {
     Ticks((time.beat_at(origin, x) * lumen_core::time::PPQ as f64).round() as i64)
 }
 
-/// The view for `fit` across `width` points.
 pub(super) fn fitted(file: &WholeFile, fit: Fit, width: f32, limits: Limits) -> TimeView {
     let (from, to) = match fit {
         Fit::Clip | Fit::Back => file.played.extent(),
@@ -96,8 +82,6 @@ pub(super) fn fitted(file: &WholeFile, fit: Fit, width: f32, limits: Limits) -> 
     }
 }
 
-/// The zoom keys: around the pointer over the wave, else the playhead when
-/// it is in view, else the middle.
 pub(super) fn audio_zoom_keys(
     ed: &mut AudioEditor,
     body: Rect,
@@ -129,9 +113,6 @@ pub(super) fn audio_zoom_keys(
     true
 }
 
-/// The wheel over the editor: Ctrl+wheel (or a pinch) zooms around the
-/// pointer, the wheel or a sideways swipe scrolls time. The view is the
-/// editor's own: the arrangement does not move.
 pub(super) fn audio_wheel(
     ctx: &egui::Context,
     over: Option<Pos2>,

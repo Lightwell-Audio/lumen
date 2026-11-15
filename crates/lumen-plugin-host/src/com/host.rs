@@ -1,9 +1,5 @@
-//! The host context a plugin is given: the application object, attribute
-//! lists and messages.
-
 use super::*;
 
-/// An attribute's name in a list.
 type AttrID = *const c_char;
 
 pub struct HostApplication;
@@ -17,7 +13,6 @@ impl IHostApplicationTrait for HostApplication {
         if name.is_null() {
             return kInvalidArgument;
         }
-        // SAFETY: the plugin passes a String128 buffer; "Lumen\0" fits.
         unsafe {
             for (i, unit) in "Lumen".encode_utf16().chain(Some(0)).enumerate() {
                 (*name)[i] = unit;
@@ -26,9 +21,6 @@ impl IHostApplicationTrait for HostApplication {
         kResultOk
     }
 
-    /// Plugins with a separate controller ask the host for a message and an
-    /// attribute list to talk to it with, and not all of them look at what
-    /// they get back. These two are the only objects a host has to make.
     unsafe fn createInstance(
         &self,
         cid: *mut TUID,
@@ -38,7 +30,6 @@ impl IHostApplicationTrait for HostApplication {
         if obj.is_null() || cid.is_null() || iid.is_null() {
             return kInvalidArgument;
         }
-        // SAFETY: valid out pointer, and valid ids from the caller.
         let (cid, iid) = unsafe {
             *obj = std::ptr::null_mut();
             (*cid, *iid)
@@ -57,8 +48,6 @@ impl IHostApplicationTrait for HostApplication {
         };
         match made {
             Some(raw) => {
-                // SAFETY: the out pointer is valid; the plugin owns the
-                // reference `into_raw` handed over.
                 unsafe { *obj = raw };
                 kResultOk
             }
@@ -67,16 +56,13 @@ impl IHostApplicationTrait for HostApplication {
     }
 }
 
-/// A value in an attribute list.
 enum Attribute {
     Int(i64),
     Float(f64),
-    /// UTF-16 units, without the terminator.
     Text(Vec<u16>),
     Binary(Vec<u8>),
 }
 
-/// An attribute list: what a message carries.
 #[derive(Default)]
 pub struct HostAttributes {
     values: Mutex<HashMap<String, Attribute>>,
@@ -87,7 +73,6 @@ impl HostAttributes {
         if id.is_null() {
             return kInvalidArgument;
         }
-        // SAFETY: a NUL-terminated id from the plugin.
         let id = unsafe { CStr::from_ptr(id) }.to_string_lossy().into_owned();
         self.values
             .lock()
@@ -100,7 +85,6 @@ impl HostAttributes {
         if id.is_null() {
             return None;
         }
-        // SAFETY: a NUL-terminated id from the plugin.
         let id = unsafe { CStr::from_ptr(id) }.to_string_lossy();
         let values = self.values.lock().unwrap_or_else(|e| e.into_inner());
         values.get(id.as_ref()).and_then(read)
@@ -125,7 +109,6 @@ impl IAttributeListTrait for HostAttributes {
             _ => None,
         }) {
             Some(v) => {
-                // SAFETY: a valid out pointer.
                 unsafe { *value = v };
                 kResultOk
             }
@@ -146,7 +129,6 @@ impl IAttributeListTrait for HostAttributes {
             _ => None,
         }) {
             Some(v) => {
-                // SAFETY: a valid out pointer.
                 unsafe { *value = v };
                 kResultOk
             }
@@ -163,7 +145,6 @@ impl IAttributeListTrait for HostAttributes {
             return kInvalidArgument;
         }
         let mut units = Vec::new();
-        // SAFETY: a NUL-terminated UTF-16 string from the plugin.
         unsafe {
             let mut at = string;
             while *at != 0 {
@@ -185,7 +166,6 @@ impl IAttributeListTrait for HostAttributes {
             return kResultFalse;
         };
         let room = (size_in_bytes as usize / 2).saturating_sub(1);
-        // SAFETY: the caller's buffer holds `size_in_bytes` bytes.
         unsafe {
             for (i, unit) in units.iter().take(room).enumerate() {
                 *string.add(i) = *unit as TChar;
@@ -202,7 +182,6 @@ impl IAttributeListTrait for HostAttributes {
         let bytes = if size_in_bytes == 0 {
             Vec::new()
         } else {
-            // SAFETY: the plugin vouches for `size_in_bytes` readable bytes.
             unsafe { std::slice::from_raw_parts(data.cast::<u8>(), size_in_bytes as usize) }
                 .to_vec()
         };
@@ -218,14 +197,10 @@ impl IAttributeListTrait for HostAttributes {
         if data.is_null() || size_in_bytes.is_null() || id.is_null() {
             return kInvalidArgument;
         }
-        // SAFETY: a NUL-terminated id from the plugin.
         let id = unsafe { CStr::from_ptr(id) }.to_string_lossy();
         let values = self.values.lock().unwrap_or_else(|e| e.into_inner());
         match values.get(id.as_ref()) {
             Some(Attribute::Binary(bytes)) => {
-                // SAFETY: valid out pointers; the bytes live as long as the
-                // list holds the value, which is how long the plugin may use
-                // them.
                 unsafe {
                     *data = bytes.as_ptr().cast();
                     *size_in_bytes = bytes.len() as u32;
@@ -237,11 +212,9 @@ impl IAttributeListTrait for HostAttributes {
     }
 }
 
-/// A message: an id and an attribute list.
 pub struct HostMessage {
     id: Mutex<CString>,
     attributes: ComPtr<IAttributeList>,
-    // Keeps the list's object alive; the message hands out its pointer.
     _list: ComWrapper<HostAttributes>,
 }
 
@@ -265,8 +238,6 @@ impl Class for HostMessage {
 
 impl IMessageTrait for HostMessage {
     unsafe fn getMessageID(&self) -> *const c_char {
-        // The string lives in the message; the plugin reads it before the id
-        // is set again, as with any host.
         self.id.lock().unwrap_or_else(|e| e.into_inner()).as_ptr()
     }
 
@@ -274,7 +245,6 @@ impl IMessageTrait for HostMessage {
         if id.is_null() {
             return;
         }
-        // SAFETY: a NUL-terminated id from the plugin.
         let id = unsafe { CStr::from_ptr(id) }.to_owned();
         *self.id.lock().unwrap_or_else(|e| e.into_inner()) = id;
     }

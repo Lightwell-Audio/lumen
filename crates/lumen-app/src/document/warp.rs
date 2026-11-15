@@ -1,8 +1,3 @@
-//! Warp (M9.5 slice S4a): the document's edits of a clip's warp. Each is one
-//! undo step; one that changes nothing adds none; a locked clip is left as it
-//! is. The audio editor's Warp chip (S5a) is their control; the engine plays
-//! a warped clip in Repitch or a stretch mode (ADR-0131, ADR-0132).
-
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -13,25 +8,18 @@ use lumen_project::model::{Clip, Id, Project};
 
 use super::Document;
 
-/// What a warp edit did to the clips it was asked about.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Warped {
-    /// Clips changed.
     pub changed: usize,
-    /// Unlocked clips that could not take it: MIDI, a file that is not in
-    /// the project, or a setting out of range.
     pub refused: usize,
 }
 
-/// What a marker edit did: the marker added, moved or slid by its place in
-/// time now, and whether a move or slide stopped at a speed limit.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct MarkerDone {
     pub index: Option<usize>,
     pub held: bool,
 }
 
-/// The unlocked clip `id` of `project` with `change` made to its markers.
 fn marker_edited(project: &Project, id: Id, change: MarkerEdit) -> Result<Edited, Refused> {
     let clip = project
         .tracks
@@ -42,9 +30,6 @@ fn marker_edited(project: &Project, id: Id, change: MarkerEdit) -> Result<Edited
     edit_marker(project, clip, change)
 }
 
-/// `project` with `change` made to the markers of clip `id`, and the place of
-/// the marker it made: where a drag that first makes a marker begins, without
-/// a step in the history. `None` when the change does nothing.
 pub fn with_marker_edit(
     project: &Project,
     id: Id,
@@ -56,7 +41,6 @@ pub fn with_marker_edit(
     Some((out, edited.index))
 }
 
-/// Applies `make` to each unlocked clip of `ids`, as one step named `label`.
 fn each(
     project: &mut Project,
     ids: &[Id],
@@ -84,7 +68,6 @@ fn each(
     out
 }
 
-/// Clip `id` in `project`.
 fn clip_in(project: &Project, id: Id) -> Option<&Clip> {
     project
         .tracks
@@ -95,18 +78,11 @@ fn clip_in(project: &Project, id: Id) -> Option<&Clip> {
 }
 
 impl Document {
-    /// Turns warp on for the selected audio clips, for files made at
-    /// `original_bpm`. A clip at the file's own tempo plays as it did; any other
-    /// tempo plays it faster or slower, the pitch moving with it (Repitch). A
-    /// clip the sound now ends before is cut back to where its file ends, in
-    /// the same step (`edit::fit_to_file`); it is never made longer.
     #[cfg(test)]
     pub fn warp_clips(&mut self, ids: &[Id], original_bpm: f64) -> Warped {
         self.warp_clips_by(ids, &|_| original_bpm)
     }
 
-    /// [`Document::warp_clips`] with the tempo each clip's file was made at
-    /// chosen by `original_bpm` (clips of different files differ).
     pub fn warp_clips_by(&mut self, ids: &[Id], original_bpm: &dyn Fn(&Clip) -> f64) -> Warped {
         let mut out = Warped::default();
         self.history.apply("Warp clips", None, |project| {
@@ -118,8 +94,6 @@ impl Document {
         out
     }
 
-    /// Turns warp off: each clip plays from where it stands at the file's own
-    /// speed.
     pub fn unwarp_clips(&mut self, ids: &[Id]) -> Warped {
         let mut out = Warped::default();
         self.history.apply("Turn warp off", None, |project| {
@@ -128,9 +102,6 @@ impl Document {
         out
     }
 
-    /// Changes a warp setting of the selected warped clips (mode, the tempo
-    /// the file was made at, transpose). A drag passes a `merge` key, so the
-    /// whole drag is one undo step.
     pub fn set_warp(&mut self, ids: &[Id], change: &Change, merge: Option<&str>) -> Warped {
         let label = match change {
             Change::Mode(_) => "Set warp mode",
@@ -144,9 +115,6 @@ impl Document {
         out
     }
 
-    /// Moves the transpose of each selected warped clip by `cents`, from the
-    /// transpose it has (clips with different ones keep the difference), as
-    /// one step. The result is held to the widest transpose a clip takes.
     pub fn transpose_warp(&mut self, ids: &[Id], cents: i32) -> Warped {
         use lumen_project::model::MAX_TRANSPOSE_CENTS;
         let mut out = Warped::default();
@@ -162,9 +130,6 @@ impl Document {
         out
     }
 
-    /// Multiplies the tempo each selected warped clip's file was made at by
-    /// `factor` (2 and ½ correct a detection that found half or double), as
-    /// one step.
     pub fn scale_warp_tempo(&mut self, ids: &[Id], factor: f64) -> Warped {
         let label = if factor > 1.0 {
             "Double clip tempo"
@@ -181,10 +146,6 @@ impl Document {
         out
     }
 
-    /// "Warp from here": moves the audio that plays at `here` to the bar line
-    /// `bar` in `ids`' first clip, warping it first (for a file made at
-    /// `original_bpm`) if it is not, as one step. `snap` may move the second
-    /// heard at `here` to a transient beside it.
     pub fn warp_from_here(
         &mut self,
         id: Id,
@@ -201,12 +162,6 @@ impl Document {
         out
     }
 
-    /// One change to the warp markers of clip `id`, made from `base` (the
-    /// warp strip, M9.5 S5b): a drag passes the project it began on and a
-    /// merge key, so the whole gesture is one undo step. Only the clip is
-    /// replaced, on the project as it is now.
-    /// Says what was made, or why nothing was (a locked clip is
-    /// [`Refused::Unchanged`]).
     pub fn edit_warp_marker(
         &mut self,
         base: &Project,
@@ -223,11 +178,6 @@ impl Document {
         };
         let edited = match marker_edited(base, id, change) {
             Ok(edited) => edited,
-            // A drag brought back to where it began: the clip goes back to
-            // what it was when the gesture began (the change would be a no-op
-            // against `base`, but not against what the drag has made since).
-            // Only this clip is put back: whatever else changed meanwhile (a
-            // mapped controller moving a fader) stays.
             Err(Refused::Unchanged) if merge.is_some() => {
                 let (Some(began), Some(now)) = (clip_in(base, id), clip_in(self.project(), id))
                 else {
@@ -252,21 +202,12 @@ impl Document {
             index: edited.index,
             held: edited.held,
         };
-        // The clip alone is replaced, on the project as it is now, so what
-        // changed elsewhere during the drag is kept.
         self.history.apply(label, merge, |project| {
             super::clips::replace_clip(project, id, |_| edited.clip.clone());
         });
         Ok(done)
     }
 
-    /// "Fix this hit" (M9.5 review M2, the owner's C): a marker on the hit
-    /// whose second of the file is `hit`, and on the transients either side of
-    /// it (`sides`), in one step. Each goes where the clip's map plays its
-    /// second, so nothing is heard differently; the hit's marker is then the
-    /// only one a drag moves. A side a marker already holds is left alone.
-    /// Refused for a locked clip, one that is not warped, or when nothing
-    /// would be added.
     pub fn fix_warp_hit(
         &mut self,
         id: Id,
@@ -291,8 +232,6 @@ impl Document {
         Ok(MarkerDone { index, held: false })
     }
 
-    /// Replaces a warped clip's markers whole (tests of the map's limits).
-    /// Returns whether the clip changed.
     #[cfg(test)]
     pub fn set_warp_markers(&mut self, id: Id, markers: Vec<Marker>) -> bool {
         let mut out = Warped::default();
@@ -343,26 +282,19 @@ mod tests {
 
     #[test]
     fn warping_to_a_faster_tempo_than_the_file_cuts_the_clip_in_the_same_step() {
-        // MT-WARP-2 (owner): the clip kept its length and carried silence.
         let (mut doc, id) = doc_with_clip();
         let plain = doc.project().clone();
         let length = plain.tracks[0].clips[0].length;
-        // Made at 30 BPM in the 120 BPM song, the file is heard four times as
-        // fast, and ends long before the clip does.
         assert_eq!(doc.warp_clips(&[id], 30.0).changed, 1);
         let cut = doc.project().tracks[0].clips[0].length;
         assert!(
             cut < length,
             "the clip follows the sound: {cut:?} < {length:?}"
         );
-        // One undo brings back the whole clip and no warp.
         doc.undo();
         assert_eq!(doc.project(), &plain);
-        // A clip the owner already made shorter than the sound is not changed.
         assert_eq!(doc.warp_clips(&[id], 240.0).changed, 1);
         assert_eq!(doc.project().tracks[0].clips[0].length, length);
-        // A tempo change that makes the file faster again cuts the clip, and
-        // is not refused (it used to be).
         assert_eq!(doc.scale_warp_tempo(&[id], 0.25).changed, 1);
         assert!(doc.project().tracks[0].clips[0].length < length);
         lumen_project::validate(doc.project()).unwrap();
@@ -384,8 +316,6 @@ mod tests {
         let (mut doc, id) = doc_with_clip();
         doc.warp_clips(&[id], 120.0);
         let before = doc.project().clone();
-        // A drag that makes its marker first: the base it is redone from has
-        // the marker, and the history has no step for that.
         let (base, index) =
             with_marker_edit(&before, id, MarkerEdit::Add(Ticks::quarters(2))).expect("a marker");
         let index = index.expect("its place");
@@ -409,7 +339,6 @@ mod tests {
         assert_eq!(markers[1].at, Ticks::quarters(1));
         doc.undo();
         assert_eq!(doc.project(), &before, "one undo takes the whole drag back");
-        // A locked clip takes no marker.
         doc.set_clips_locked(&[id], true);
         let locked = doc.project().clone();
         assert_eq!(
@@ -478,13 +407,11 @@ mod tests {
         };
         doc.edit_warp_marker(&base, id, move_to(3), Some("warp marker"))
             .unwrap();
-        // A mapped controller moves a fader in the middle of the drag.
         doc.set_volume(track, -6.0);
         doc.edit_warp_marker(&base, id, move_to(4), Some("warp marker"))
             .unwrap();
         assert_eq!(doc.project().tracks[0].gain_db, -6.0, "an ordinary update");
         assert_eq!(warp_of(&doc).unwrap().markers[index].at, Ticks::quarters(4));
-        // And a return to the start puts back the clip, not the fader.
         doc.edit_warp_marker(&base, id, move_to(2), Some("warp marker"))
             .unwrap();
         assert_eq!(doc.project().tracks[0].gain_db, -6.0, "the return");
@@ -495,7 +422,6 @@ mod tests {
         );
     }
 
-    /// A drag of the transpose passes one merge key, so it is one undo step.
     #[test]
     fn a_drag_of_the_transpose_is_one_undo_step() {
         let (mut doc, id) = doc_with_clip();
@@ -510,8 +436,6 @@ mod tests {
         assert_eq!(warp_of(&doc).unwrap().mode, WarpMode::Melodic);
     }
 
-    /// M9.5 review M2: a late hit and the hits either side get their markers
-    /// in one step, and one undo puts the map back exactly.
     #[test]
     fn fixing_a_hit_makes_its_three_markers_in_one_step_and_undo_restores_the_map() {
         let (mut doc, id) = doc_with_clip();
@@ -537,7 +461,6 @@ mod tests {
         assert_eq!(fixed.len(), 5, "the hit, both sides and the two there were");
         assert_eq!(beats(&fixed, &[0.4, 0.7, 1.2]), was, "no hit moved");
         assert_eq!(doc.history().undo_label(), Some("Fix this hit"));
-        // Fixing it again has nothing to add, and makes no step.
         assert_eq!(
             doc.fix_warp_hit(id, 0.7, (Some(0.4), Some(1.2))),
             Err(Refused::Unchanged)
@@ -545,7 +468,6 @@ mod tests {
         assert_eq!(doc.history().undo_label(), Some("Fix this hit"));
         doc.undo();
         assert_eq!(doc.project(), &before, "one undo puts the whole map back");
-        // A locked clip is left as it is.
         doc.set_clips_locked(&[id], true);
         assert_eq!(
             doc.fix_warp_hit(id, 0.7, (Some(0.4), Some(1.2))),
@@ -553,14 +475,10 @@ mod tests {
         );
     }
 
-    /// Moving the transpose keeps what is there: it adds to each clip's own,
-    /// stops at four octaves, and leaves a clip that cannot take one.
     #[test]
     fn transposing_by_a_step_adds_to_the_clips_own_and_stops_at_four_octaves() {
         let (mut doc, id) = doc_with_clip();
         doc.warp_clips(&[id], 120.0);
-        // Repitch cannot transpose: nothing changes and nothing is refused
-        // (it is the same as before), so no step is made.
         let last = doc.history().undo_label().map(str::to_owned);
         assert_eq!(doc.transpose_warp(&[id], 100).changed, 0);
         assert_eq!(
@@ -598,7 +516,6 @@ mod tests {
             1
         );
         assert_eq!(warp_of(&doc).unwrap().transpose_cents, 300);
-        // Repitch cannot transpose; a range out of bounds is refused.
         assert_eq!(
             doc.set_warp(&[id], &Change::OriginalBpm(5.0), None).refused,
             1
@@ -609,8 +526,6 @@ mod tests {
             doc.set_warp(&[id], &Change::Transpose(100), None).refused,
             1
         );
-        // Markers: the same map changes nothing; a slowed one is made, and one
-        // that would run the clip past its file is refused.
         let map = warp_of(&doc).unwrap().markers;
         assert!(!doc.set_warp_markers(id, map.clone()));
         let mut stretched = map.clone();

@@ -1,6 +1,3 @@
-//! The file-side scenarios: the disk thread's plan, tick and sample
-//! conversions, and a quality-bar project's serialization.
-
 use std::sync::Arc;
 
 use lumen_core::time::{TempoMap, TempoPoint, Ticks};
@@ -11,8 +8,6 @@ use lumen_project::testing::synthetic;
 
 use super::RATE;
 
-/// The disk thread's scene: 64 streamed files of a minute each, one per
-/// track, with a loop and two markers.
 pub(crate) fn streamed_scene() -> Scene {
     let pool = PagePool::new(1);
     let frames = 60 * u64::from(RATE);
@@ -35,7 +30,6 @@ pub(crate) fn streamed_scene() -> Scene {
             shape: Default::default(),
         })
         .collect();
-    // A loop of two seconds from 8 s; markers at 20 s and 40 s.
     let rate = i64::from(RATE);
     Scene::new(
         &clips,

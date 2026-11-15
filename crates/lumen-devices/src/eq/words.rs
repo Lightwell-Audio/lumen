@@ -1,13 +1,5 @@
-//! How a parameter's value reads as words, and how what a person types is read
-//! back (M8 slice B1, ADR-0146): one pair of functions a parameter, so the
-//! face, the card and All parameters say the same thing.
-//!
-//! The words are short enough for a card's strip ("24/oct", "1.20 kHz") and the
-//! full meaning is the name and the unit beside them.
-
 use super::{Kind, MOST_DB, SIDES};
 
-/// "40 Hz", "1.20 kHz", "20.0 kHz".
 pub fn hz_text(hz: f32) -> String {
     if hz < 999.5 {
         if hz < 99.95 {
@@ -22,7 +14,6 @@ pub fn hz_text(hz: f32) -> String {
     }
 }
 
-/// "40", "40 Hz", "1.2 kHz", "1200": a frequency in hertz.
 pub fn hz_parse(text: &str) -> Option<f32> {
     let t = text.trim().replace('\u{2212}', "-").to_lowercase();
     let (body, scale) = if let Some(rest) = t.strip_suffix("khz") {
@@ -42,7 +33,6 @@ pub fn hz_parse(text: &str) -> Option<f32> {
         .filter(|hz| *hz > 0.0)
 }
 
-/// "0.0 dB", "âˆ’6.0 dB".
 pub fn db_text(db: f32) -> String {
     if db.abs() < 0.05 {
         "0.0 dB".to_owned()
@@ -51,7 +41,6 @@ pub fn db_text(db: f32) -> String {
     }
 }
 
-/// "âˆ’6", "âˆ’6.0 dB": decibels, either minus, with or without the unit.
 pub(super) fn db_parse(text: &str) -> Option<f32> {
     let t = text.trim().replace('\u{2212}', "-");
     let t = t
@@ -64,7 +53,6 @@ pub(super) fn db_parse(text: &str) -> Option<f32> {
         .filter(|db| db.is_finite() && db.abs() <= MOST_DB * 2.0)
 }
 
-/// "1.00", "0.71", "12.0".
 pub fn q_text(q: f32) -> String {
     if q < 9.995 {
         format!("{q:.2}")
@@ -73,7 +61,6 @@ pub fn q_text(q: f32) -> String {
     }
 }
 
-/// "1.4", "4": a Q.
 pub(super) fn q_parse(text: &str) -> Option<f32> {
     let t = text.trim();
     let t = t
@@ -84,13 +71,10 @@ pub(super) fn q_parse(text: &str) -> Option<f32> {
     t.parse::<f32>().ok().filter(|q| q.is_finite() && *q > 0.0)
 }
 
-/// "24/oct": short enough for a strip's value line; All parameters shows the
-/// choice's own words.
 pub fn slope_text(slope: f32) -> String {
     format!("{slope:.0}/oct")
 }
 
-/// "24", "24 dB/oct", "24/oct".
 pub(super) fn slope_parse(text: &str) -> Option<f32> {
     let t = text.trim().to_lowercase();
     let t = t
@@ -102,7 +86,6 @@ pub(super) fn slope_parse(text: &str) -> Option<f32> {
     t.parse::<f32>().ok().filter(|s| s.is_finite() && *s > 0.0)
 }
 
-/// The band type's word.
 pub(super) fn kind_text(index: f32) -> String {
     let index = index.round().max(0.0) as usize;
     Kind::CHOICES
@@ -112,7 +95,6 @@ pub(super) fn kind_text(index: f32) -> String {
         .to_owned()
 }
 
-/// "Bell", "notch", "shelf high".
 pub(super) fn kind_parse(text: &str) -> Option<f32> {
     let t = text.trim().to_lowercase();
     Kind::CHOICES

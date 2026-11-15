@@ -68,6 +68,5 @@ fn violations_on_other_threads_reach_the_global_count() {
     .join()
     .unwrap();
     assert!(seen_on_thread >= 1);
-    // Other tests run concurrently, so only a lower bound is reliable here.
     assert!(total_violations() >= seen_on_thread);
 }

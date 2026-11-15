@@ -1,8 +1,3 @@
-//! The audio editor's header (M9.5 D24): the clip editors' shared strip, in
-//! the first of five layouts that fits. A control that gives up its word
-//! keeps it in its tooltip and accessible name; what moves into the ⋯ menu is
-//! still there, with its keys.
-
 use eframe::egui::{self, Color32, Rect, Ui, vec2};
 use lumen_core::time::Ticks;
 use lumen_project::envelope::Kind;
@@ -19,13 +14,10 @@ use crate::icons::{self, Icon};
 use crate::theme;
 use crate::widgets::{self, raised};
 
-/// An icon on a view button.
 const VIEW_ICON: f32 = 14.0;
-/// The ⋯ button's dots: their radius and how far apart.
 const DOT: f32 = 1.25;
 const DOT_GAP: f32 = 4.0;
 
-/// The view buttons: what each says, its command and what it asks for.
 const VIEWS: [View; 2] = [
     View {
         label: "Zoom to clip",
@@ -43,13 +35,10 @@ const VIEWS: [View; 2] = [
     },
 ];
 
-/// The Zero crossings toggle's word.
 const ZERO_CROSSINGS: &str = "Zero crossings";
 
-/// The Loop clip toggle's word.
 const LOOP_CLIP: &str = "Loop clip";
 
-/// The envelope pills, Gain, Pan then Pitch (`Kind::ALL`'s order).
 const PILLS: [EnvelopePill; 3] = [
     EnvelopePill {
         label: "Gain",
@@ -76,7 +65,6 @@ const PILLS: [EnvelopePill; 3] = [
 
 struct EnvelopePill {
     label: &'static str,
-    /// Its accessible name, and its row in the ⋯ menu.
     name: &'static str,
     menu: &'static str,
     command: Command,
@@ -91,7 +79,6 @@ fn pill_of(kind: Kind) -> &'static EnvelopePill {
     }
 }
 
-/// Loop clip as an icon: a rounded track with an arrow head, going round.
 fn loop_glyph(painter: &egui::Painter, centre: egui::Pos2, ink: Color32) {
     let body = Rect::from_center_size(centre, vec2(13.0, 8.0));
     painter.rect_stroke(
@@ -112,8 +99,6 @@ fn loop_glyph(painter: &egui::Painter, centre: egui::Pos2, ink: Color32) {
     ));
 }
 
-/// Zero crossings as an icon: a wave crossing its middle line, the crossing
-/// marked.
 fn crossing_glyph(painter: &egui::Painter, centre: egui::Pos2, ink: Color32) {
     let half = 6.0;
     let line = egui::Stroke::new(
@@ -145,8 +130,6 @@ struct View {
 }
 
 impl App {
-    /// The header: the clip's title and the file's length, the grid chip, and
-    /// at the right the view buttons and the ⋯ menu.
     pub(super) fn audio_header(
         &mut self,
         ui: &mut Ui,
@@ -202,7 +185,6 @@ impl App {
                         }
                     }
                     if !shows_views {
-                        // Left to right as they are in the strip.
                         for view in VIEWS.iter().rev() {
                             let keys = self.keymap.keys(view.command);
                             if widgets::menu_item(ui, view.label, keys.as_ref(), ready).clicked() {
@@ -244,7 +226,6 @@ impl App {
                         ed.fit = Some(view.fit);
                     }
                 }
-                // Pop out is an icon at every width, as the note editor's.
                 let keys = self.keymap.keys(Command::PopOutEditor);
                 let (name, tip, glyph): (&str, &str, fn(&egui::Painter, egui::Pos2, Color32)) =
                     if popped {
@@ -266,7 +247,6 @@ impl App {
                 }
             }
             if layout.shows_pills() {
-                // Right to left: Pitch, Pan, then Gain at its left.
                 for kind in Kind::ALL.into_iter().rev() {
                     let pill = pill_of(kind);
                     let on = ed.pill == Some(kind);
@@ -313,7 +293,6 @@ impl App {
             editing.zero_crossings = !editing.zero_crossings;
             self.settings_changed = Some(std::time::Instant::now());
         }
-        // Run after the strip is drawn: the toggles act on the app.
         if flip_loop {
             self.audio_editor.loop_clip = ed.loop_clip;
             self.toggle_loop_clip();
@@ -324,7 +303,6 @@ impl App {
         }
     }
 
-    /// The Loop clip toggle, with its word or as an icon. True when clicked.
     fn loop_clip_toggle(&self, row: &mut Ui, words: bool, on: bool) -> bool {
         let response = if words {
             let mut shown = on;
@@ -342,8 +320,6 @@ impl App {
         .clicked()
     }
 
-    /// The Zero crossings toggle, with its word or as an icon. True when
-    /// clicked.
     fn zero_crossings_toggle(&self, row: &mut Ui, words: bool) -> bool {
         let on = self.settings.editing.zero_crossings;
         let response = if words {
@@ -362,7 +338,6 @@ impl App {
         .clicked()
     }
 
-    /// What the header's parts measure this frame.
     fn header_widths(
         &self,
         ui: &Ui,
@@ -400,7 +375,6 @@ impl App {
             toggles_icons: 2.0 * theme::size::CONTROL + theme::space::S,
             pills: PILLS.iter().map(|p| pill(p.label)).sum::<f32>()
                 + (PILLS.len() - 1) as f32 * theme::space::S,
-            // Pop out is an icon at every width.
             view_words: word(VIEWS[0].label)
                 + theme::space::S
                 + word(VIEWS[1].label)
@@ -411,7 +385,6 @@ impl App {
         }
     }
 
-    /// "4 bars · 0:08.9 file": the bars the clip spans and its file's length.
     fn audio_caption(&self, clip: &Clip, file: Option<&WholeFile>) -> String {
         let meter = &self.transport.timeline.meter;
         let first = meter.bbt_at(clip.start);

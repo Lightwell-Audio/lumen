@@ -1,11 +1,3 @@
-//! What Iris's parameters are, and the words they say (M8 slice B1,
-//! ADR-0146): the table the card, the lanes and the engine's values all read.
-//!
-//! Each row is a stable `u32` id (never reused), the name a person reads, its
-//! unit, range and taper, its default, its steps and their words, and the two
-//! functions that read a value as text and back. Ids come from [`super`]'s
-//! `field_of`: `10 × band + field`.
-
 use super::bands::Kind;
 use super::words::{
     db_parse, db_text, hz_parse, hz_text, kind_parse, kind_text, on_parse, on_text, q_parse,
@@ -17,7 +9,6 @@ use super::{
 };
 use crate::params::{ParamInfo, Taper};
 
-/// What the columns of the table are for, so a reader sees the shape of a row.
 #[allow(clippy::too_many_arguments)]
 const fn param(
     id: u32,
@@ -47,11 +38,6 @@ const fn param(
     }
 }
 
-/// Iris's parameters, in the order the card shows them. Ids are stable and
-/// never reused.
-///
-/// The strip's first eight are the output and the first six band controls a
-/// person meets: the low cut's three, then a bell's beginning.
 pub static TABLE: &[ParamInfo] = &[
     param(
         OUTPUT,

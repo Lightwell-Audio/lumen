@@ -1,6 +1,3 @@
-//! The arrangement: the ruler strips, the grid, the lanes and their clips,
-//! file drops, the playhead and start marker, and the empty state.
-
 use std::path::PathBuf;
 
 use eframe::egui::{self, Sense, Stroke, pos2, vec2};
@@ -16,8 +13,6 @@ use crate::commands::Command;
 use crate::document::{DropInto, Places};
 use crate::{App, canvas, lanes, light, media, motion, ruler, theme, widgets};
 
-/// The mark above an empty arrangement's words (`text`), half risen
-/// until files that can be added are dragged over.
 fn empty_mark(painter: &egui::Painter, text: egui::Rect, look: widgets::mark::Look) {
     let rect = egui::Rect::from_center_size(
         pos2(
@@ -29,11 +24,8 @@ fn empty_mark(painter: &egui::Painter, text: egui::Rect, look: widgets::mark::Lo
     widgets::mark::paint(painter, rect, look);
 }
 
-/// The mark's size above an empty arrangement.
 const EMPTY_MARK_SIZE: f32 = 48.0;
 
-/// A glided position, or the exact one once the glide has settled: the
-/// glide runs in f32, which is pixels off at sample-level zoom.
 fn settled(glided: f32, exact: f64) -> f64 {
     if (f64::from(glided) - exact).abs() < 1e-3 {
         exact
@@ -48,9 +40,6 @@ impl App {
         self.panes
             .anchor(ui, super::super::panes::Pane::Arrangement, whole);
         let response = ui.allocate_rect(whole, Sense::hover());
-        // Layout A (owner, slice 5b): the locator strip and the bar ruler
-        // on top, the time ruler at the bottom; track headers on the left
-        // between their corners; the lanes in the middle.
         let header = self.arrangement.header_width();
         let band = self.song_band_height(ui.ctx());
         let top = rulers::STRIP_HEIGHT + rulers::RULER_HEIGHT;
@@ -77,7 +66,6 @@ impl App {
             egui::Rect::from_min_max(pos2(full.left(), ruler.bottom() + band), time.right_top());
 
         self.canvas = canvas;
-        // Across the headers and the lanes: the pinned returns and master.
         let pinned = egui::Rect::from_x_y_ranges(headers.left()..=canvas.right(), canvas.y_range());
         self.arrangement
             .pinned_wheel(ui, pinned, self.document.project());
@@ -94,7 +82,6 @@ impl App {
             pos2(corner.left(), corner.top() + rulers::STRIP_HEIGHT),
             corner.max,
         );
-        // One well of grid, tool and tempo lanes (the interface audit's H1).
         let well = egui::Rect::from_min_max(
             pos2(row.left() + theme::space::S, row.center().y),
             pos2(row.right() - theme::space::S, row.center().y),
@@ -115,7 +102,6 @@ impl App {
         self.arrangement.additive_solo = self.settings.mixing.additive_solo;
         self.lend_live_input();
         self.lend_cue_controls();
-        // New, moved and deleted tracks glide (M4.5).
         self.arrangement.begin_frame(
             ui.ctx(),
             self.document.session(),
@@ -154,8 +140,6 @@ impl App {
             &mut self.lanes,
             view,
         );
-        // Clip selection and editing (slice 6); a hover card with the
-        // file's details; right-click the lanes for the grid menu (5a).
         let hover = ui.interact(canvas, ui.id().with("clips"), Sense::click_and_drag());
         hover.widget_info(|| {
             egui::WidgetInfo::labeled(
@@ -182,8 +166,6 @@ impl App {
             },
         );
         widgets::Menu::context(&hover).show(|ui| self.lanes_menu(ui));
-        // Where the tracks are scrolled: a bar that shows while scrolling
-        // or near the right edge (M4.5, U2).
         let pending = self.lanes.pending().len();
         let (area, content) =
             self.arrangement
@@ -201,8 +183,6 @@ impl App {
             self.arrangement.scroll_to(top, all, canvas.height());
         }
         self.arrangement.pinned_controls(ui, pinned, &self.document);
-        // Clip properties (slice 6e): renaming in the title bar, and the
-        // pinned card, which takes the hover card's place.
         self.clip_rename(ui, canvas);
         self.clip_card(ui.ctx(), canvas);
         if let Some(pointer) = hover.hover_pos()
@@ -223,13 +203,6 @@ impl App {
             });
         }
 
-        // Dropped files land under the pointer (snapped; Alt places them
-        // freely) when the system reports it, otherwise at the playhead, on
-        // new tracks at the end. Over the lane of a track of their kind
-        // (audio or MIDI, M5 slice 7) they land on it; near the line between
-        // two tracks they make new tracks there (slice 6e). The lane or the
-        // line, and a snap guide, show where while files are dragged over:
-        // where MIDI files go when every file dragged is one.
         let carried: Vec<PathBuf> =
             egui::DragAndDrop::payload::<crate::browser::files::Dragged>(ui.ctx())
                 .map(|d| d.0.clone())
@@ -292,7 +265,6 @@ impl App {
         } else {
             (audio, audio_line)
         };
-        // A file from the browser let go over the lanes is added there.
         if !carried.is_empty() && pointer.is_some() && ui.input(|i| i.pointer.any_released()) {
             self.file_drop = Some(carried.clone());
             egui::DragAndDrop::clear_payload(ui.ctx());
@@ -325,11 +297,6 @@ impl App {
         self.time_ruler_input(ui, &painter, &at);
         self.song_band(ui, &at, band);
 
-        // The start marker: where Play starts. A neutral arrow on the ruler
-        // only, at its bottom edge, so it stays visible when the playhead
-        // (blue, at the top edge) is at the same place.
-        // Both glide to a new place while stopped (motion: GLIDE) and follow
-        // the audio exactly while playing.
         let state = self.transport.state();
         let ctx = ui.ctx().clone();
         let marker = motion::glide(
@@ -358,9 +325,6 @@ impl App {
             ));
         }
 
-        // Playhead: from the bar ruler through the time ruler. While
-        // playing it is a beam (ADR-0043): a white core in the accent, a
-        // halo, and light cast on the lanes it passes; stopped, it is unlit.
         let x = x_of(settled(head, playhead));
         if (full.left()..=full.right()).contains(&x) {
             let ys = egui::Rangef::new(ruler.top(), full.bottom());
@@ -382,7 +346,6 @@ impl App {
             }
         }
 
-        // While files are dragged over the window, say which will be added.
         let hovered: Vec<PathBuf> = ui.input(|i| {
             i.raw
                 .hovered_files
@@ -450,7 +413,6 @@ impl App {
                 egui::FontId::proportional(theme::size::TITLE),
                 color,
             );
-            // The mark rises over the files it can take (ADR-0043).
             let look = if supported > 0 {
                 widgets::mark::Look::RISEN
             } else {
@@ -458,11 +420,8 @@ impl App {
             };
             empty_mark(&painter, text, look);
         } else if self.lanes.is_empty(self.document.project()) {
-            // Or choose them (M3 review H1: importing was mouse-drag only).
             let keys = self.keymap.keys(Command::Import);
             let state = widgets::EmptyState {
-                // The mark waits, half risen, over an empty arrangement
-                // (ADR-0043).
                 icon: Some(|p, at, _| {
                     let rect =
                         egui::Rect::from_center_size(at, vec2(EMPTY_MARK_SIZE, EMPTY_MARK_SIZE));
@@ -477,8 +436,6 @@ impl App {
                     tip: "Choose audio or MIDI files to add",
                 }),
             };
-            // Above the pinned master's row, not behind it: in a short window
-            // little room is left and the state gives up its icon and hint.
             let free = egui::Rect::from_min_size(
                 canvas.min,
                 vec2(
@@ -493,10 +450,6 @@ impl App {
                 self.run(&ui.ctx().clone(), Command::Import);
             }
         }
-        // Last, so it sits over the headers; on their side of the edge
-        // only, a point short of it, so a press on the lanes' first column
-        // stays the lanes' (a clip or locator drag, or the point at the
-        // start of a lane: KNOWN_ISSUES rows 37 and 54).
         self.header_divider(
             ui,
             egui::Rect::from_x_y_ranges(

@@ -1,7 +1,3 @@
-//! M4.5 slice 3, the interface audit's chrome: the panel toggles keep a
-//! button's look and say whether they are on, the empty mixer's ghost strip
-//! adds a track, and the time signature is one field that takes "7/8".
-
 use eframe::egui::{Event, Key, Modifiers};
 use egui_kittest::kittest::Queryable;
 
@@ -10,7 +6,6 @@ use super::Lumen;
 #[test]
 fn the_panel_toggles_and_the_mixer_tab_say_whether_they_are_on() {
     let mut lumen = Lumen::start("toggles");
-    // ("Browser" also names its pane, so the Detail toggle is checked.)
     assert!(lumen.is_on("Detail"));
     lumen.click("Detail");
     assert!(!lumen.is_on("Detail"), "a click switches it off");
@@ -45,7 +40,6 @@ fn the_time_signature_is_one_field_that_takes_a_typed_meter() {
     let meter = lumen.app().project().meter[0].meter;
     assert_eq!((meter.numerator, meter.denominator), (7, 8));
     assert!(lumen.shows("Time signature: 7/8"));
-    // Not a meter Lumen has: nothing changes.
     lumen
         .harness
         .get_by_label_contains("Time signature: 7/8")
@@ -61,15 +55,12 @@ fn the_time_signature_is_one_field_that_takes_a_typed_meter() {
 #[test]
 fn the_browser_and_the_devices_tab_stop_before_they_stop_being_useful() {
     let mut lumen = Lumen::start("panel-limits");
-    // Tall enough that the window itself is not what limits the panel.
     lumen.harness.set_size(eframe::egui::vec2(1280.0, 900.0));
     lumen.frames(10);
     let (browser, devices) = lumen.app().panel_limits();
     lumen.app_mut().set_browser_size(40.0);
-    // The Devices tab needs a track to show.
     lumen.click("Add track in the mixer");
     lumen.frames(30);
-    // The browser has a Devices tab too: the detail panel's comes last.
     lumen
         .harness
         .get_all_by_label("Devices tab")
@@ -91,7 +82,6 @@ fn the_browser_and_the_devices_tab_stop_before_they_stop_being_useful() {
     );
 }
 
-/// The detail panel's Devices tab, on a new MIDI track (it has the synth).
 fn devices_of_a_new_midi_track(name: &str) -> Lumen {
     let mut lumen = Lumen::start(name);
     lumen.harness.set_size(eframe::egui::vec2(1280.0, 900.0));
@@ -123,8 +113,6 @@ fn a_short_devices_tab_turns_the_cards_compact_and_a_tall_one_turns_them_back() 
         "the panel keeps room for a compact card: {} < {least}",
         lumen.app().detail_size()
     );
-    // A compact card is far shorter than a whole one: the panel can be
-    // small.
     assert!(least < 240.0, "the least height is {least}");
 
     lumen.app_mut().set_detail_size(400.0);

@@ -1,9 +1,3 @@
-//! Undo and redo by shared snapshots (ADR-0024).
-//!
-//! Every step keeps the whole project as it was, but a snapshot is cheap:
-//! tracks and clips are `Arc`s, so it shares everything the edit did not
-//! touch. Undo therefore restores the exact previous state by construction.
-
 use std::collections::VecDeque;
 use std::sync::Arc;
 
@@ -11,33 +5,24 @@ use crate::automation::AutomationLane;
 use crate::edit::freeze::{self, Violation};
 use crate::model::{Id, Project, Track};
 
-/// Steps kept by default; the oldest are dropped beyond this.
 pub const DEFAULT_LIMIT: usize = 10_000;
 
 #[derive(Debug, Clone)]
 struct Step {
-    /// What the edit that left this state did ("Change tempo").
     label: String,
     project: Project,
     state: u64,
 }
 
-/// The project with its undo and redo history.
 #[derive(Debug, Clone)]
 pub struct History {
     current: Project,
     state: u64,
     next_state: u64,
-    /// Oldest first; the last entry is the state before the latest edit.
     undo: VecDeque<Step>,
-    /// The next redo is the last entry.
     redo: Vec<Step>,
-    /// The merge key of the gesture in progress, if any.
     open_gesture: Option<String>,
-    /// What the latest refused edit tried to change on a frozen track.
     refused: Vec<Violation>,
-    /// The tracks a recording is writing a take into: their clips may change
-    /// only by the take's own commits ([`apply_take`](Self::apply_take)).
     recording: Vec<Id>,
     limit: usize,
 }
@@ -62,9 +47,6 @@ impl History {
         self
     }
 
-    /// Keeps at most `limit` undo steps (at least one). Steps beyond it go
-    /// at the next edit, oldest first: the app sets it only on a history
-    /// that has just been made (the Undo steps preference, M9 R7).
     pub fn set_limit(&mut self, limit: usize) {
         self.limit = limit.max(1);
     }
@@ -77,16 +59,10 @@ impl History {
         &self.current
     }
 
-    /// Identifies the current state: equal values mean the same project (for
-    /// example, after undoing back to what was saved).
     pub fn state(&self) -> u64 {
         self.state
     }
 
-    /// Applies `edit` as one undo step named `label`. Edits with the same
-    /// `merge` key while a gesture is open (until [`seal`](Self::seal))
-    /// become one step, so a drag undoes in one go. An edit that changes
-    /// nothing records nothing. Returns whether the project changed.
     pub fn apply(
         &mut self,
         label: &str,
@@ -96,8 +72,6 @@ impl History {
         self.apply_checked(label, merge, true, edit)
     }
 
-    /// [`apply`](Self::apply) for a recording's own commit of its take: the
-    /// clips of the tracks it records into may change.
     pub fn apply_take(
         &mut self,
         label: &str,
@@ -107,10 +81,6 @@ impl History {
         self.apply_checked(label, merge, false, edit)
     }
 
-    /// Sets the tracks a recording writes a take into (empty when none is):
-    /// until then an edit that changes their clips, or removes them, is
-    /// refused like one on a frozen track, because the next commit would put
-    /// the clips back as they were when recording began.
     pub fn guard_recording(&mut self, tracks: &[Id]) {
         if self.recording != tracks {
             self.recording = tracks.to_vec();
@@ -132,9 +102,6 @@ impl History {
             broken.extend(self.recording_violations(&next));
         }
         if !broken.is_empty() {
-            // A frozen track is read-only (owner's FR2), and so are the clips
-            // of a track being recorded: the edit is dropped and the interface
-            // says why.
             self.refused = broken;
             return false;
         }
@@ -154,9 +121,6 @@ impl History {
             }
         } else {
             self.current = next;
-            // A gesture brought back to where it began has changed nothing:
-            // its step goes, so undo does not stop on a step that does
-            // nothing. The gesture is closed; moving on begins a new step.
             if self
                 .undo
                 .back()
@@ -175,7 +139,6 @@ impl History {
         true
     }
 
-    /// The tracks being recorded whose clips `next` changes or removes.
     fn recording_violations(&self, next: &Project) -> Vec<Violation> {
         self.recording
             .iter()
@@ -200,13 +163,10 @@ impl History {
             .collect()
     }
 
-    /// What the latest edit that was refused tried to change on a frozen
-    /// track or a track being recorded, taken: empty until another is refused.
     pub fn take_refused(&mut self) -> Vec<Violation> {
         std::mem::take(&mut self.refused)
     }
 
-    /// Ends the gesture in progress: the next edit is a new step.
     pub fn seal(&mut self) {
         self.open_gesture = None;
     }
@@ -219,7 +179,6 @@ impl History {
         !self.redo.is_empty()
     }
 
-    /// The label of the step [`undo`](Self::undo) would revert.
     pub fn undo_label(&self) -> Option<&str> {
         self.undo.back().map(|s| s.label.as_str())
     }
@@ -228,7 +187,6 @@ impl History {
         self.redo.last().map(|s| s.label.as_str())
     }
 
-    /// Reverts the latest step. Returns its label.
     pub fn undo(&mut self) -> Option<String> {
         let step = self.undo.pop_back()?;
         self.open_gesture = None;
@@ -241,7 +199,6 @@ impl History {
         Some(label)
     }
 
-    /// Re-applies the latest undone step. Returns its label.
     pub fn redo(&mut self) -> Option<String> {
         let step = self.redo.pop()?;
         self.open_gesture = None;
@@ -254,7 +211,6 @@ impl History {
         Some(label)
     }
 
-    /// The step labels: done (oldest first), then undone (next redo first).
     pub fn steps(&self) -> (Vec<&str>, Vec<&str>) {
         (
             self.undo.iter().map(|s| s.label.as_str()).collect(),
@@ -262,8 +218,6 @@ impl History {
         )
     }
 
-    /// Moves to the state after `done` steps (0 = before the oldest kept
-    /// step), undoing or redoing as needed.
     pub fn jump_to(&mut self, done: usize) {
         while self.undo.len() > done && self.undo().is_some() {}
         while self.undo.len() < done && self.redo().is_some() {}
@@ -276,11 +230,7 @@ impl History {
     }
 }
 
-/// Fast equality for the edit check: tracks and clips that are the same
-/// `Arc` are not compared field by field.
 fn unchanged(a: &Project, b: &Project) -> bool {
-    // Destructured, so a new field cannot be forgotten here (one was: the
-    // routing fields of format v7 made edits look like no change).
     let Project {
         name,
         sample_rate,
@@ -318,8 +268,6 @@ fn unchanged(a: &Project, b: &Project) -> bool {
         && tracks.iter().zip(&b.tracks).all(|(x, y)| same_track(x, y))
 }
 
-/// Whether two tracks are the same to the bit (floats by their bits, so a
-/// change from 0.0 to −0.0 still counts and NaN equals itself).
 fn same_track(x: &Arc<Track>, y: &Arc<Track>) -> bool {
     if Arc::ptr_eq(x, y) {
         return true;
@@ -385,7 +333,6 @@ fn same_track(x: &Arc<Track>, y: &Arc<Track>) -> bool {
             .all(|(c, d)| Arc::ptr_eq(c, d) || c == d)
 }
 
-/// Whether two sets of lanes are the same, point values by their bits.
 fn automation_unchanged(a: &[AutomationLane], b: &[AutomationLane]) -> bool {
     a.len() == b.len()
         && a.iter().zip(b).all(|(x, y)| {
@@ -421,7 +368,6 @@ mod tests {
             }
             1 if project.tracks.len() > 1 => {
                 let i = rng.below(project.tracks.len() as u64) as usize;
-                // Keep group parents valid: only remove tracks nobody points at.
                 let removed = project.tracks[i].id;
                 if project.tracks.iter().all(|t| t.parent != Some(removed)) {
                     project.tracks.remove(i);
@@ -476,8 +422,6 @@ mod tests {
         }
     }
 
-    /// Random edits, undos and redos, checked against a reference that keeps
-    /// deep copies: the history must always show exactly the expected state.
     #[test]
     fn random_edits_undo_and_redo_exactly() {
         for seed in 1..=40 {
@@ -513,8 +457,6 @@ mod tests {
                 }
                 assert_eq!(history.project(), done.last().unwrap(), "seed {seed}");
             }
-            // Redo to the newest state, then undo everything (the starting
-            // project) and redo everything (back to the newest).
             while history.redo().is_some() {}
             let end = history.project().clone();
             assert_eq!(&end, undone.first().or(done.last()).unwrap(), "seed {seed}");
@@ -527,8 +469,6 @@ mod tests {
 
     #[test]
     fn routing_changes_are_edits() {
-        // Format v7's fields once looked unchanged to the history, so the
-        // edits recorded nothing.
         use crate::model::{Level, Output, Send};
         type Change = fn(&mut Project);
         let changes: [Change; 9] = [
@@ -633,7 +573,6 @@ mod tests {
         assert_eq!(history.project(), &before);
         assert_eq!(history.steps().0, ["Earlier"], "no step that does nothing");
         assert_eq!(history.state(), state, "the same state as before it");
-        // Moving on is a new step, not a merge into the one before.
         history.apply("Change tempo", Some("tempo"), |p| {
             p.tempo[0].bpm = was + 5.0
         });
@@ -737,11 +676,9 @@ mod tests {
         let id = history.project().tracks[1].id;
         assert_eq!(history.take_refused(), vec![Violation::Track(id)]);
         assert!(history.take_refused().is_empty(), "taken once");
-        // Mixing is not editing.
         assert!(history.apply("Fader", None, |p| {
             Arc::make_mut(&mut p.tracks[1]).gain_db = -6.0;
         }));
-        // Another track is free.
         assert!(history.apply("Delete clips", None, |p| {
             Arc::make_mut(&mut p.tracks[2]).clips.clear();
         }));
@@ -755,7 +692,6 @@ mod tests {
         let mut history = History::new(project);
         history.guard_recording(&[id]);
         let before = history.project().clone();
-        // Deleting, adding or removing the track's clips is refused.
         assert!(!history.apply("Delete clips", None, |p| {
             Arc::make_mut(&mut p.tracks[1]).clips.clear();
         }));
@@ -766,7 +702,6 @@ mod tests {
             p.tracks.remove(1);
         }));
         assert_eq!(history.take_refused(), vec![Violation::Recording(id)]);
-        // The fader, another track, and the take's own commit are not.
         assert!(history.apply("Fader", None, |p| {
             Arc::make_mut(&mut p.tracks[1]).gain_db = -6.0;
         }));
@@ -777,7 +712,6 @@ mod tests {
         assert!(history.apply_take("Record", None, |p| {
             Arc::make_mut(&mut p.tracks[1]).clips.truncate(1);
         }));
-        // When the recording ends the track is free again.
         history.guard_recording(&[]);
         assert!(history.apply("Delete clips", None, |p| {
             Arc::make_mut(&mut p.tracks[1]).clips.clear();

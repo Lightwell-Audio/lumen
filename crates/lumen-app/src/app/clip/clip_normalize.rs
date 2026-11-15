@@ -1,8 +1,3 @@
-//! Normalize (M7b slice E1): sets the selected audio clips' gain so the
-//! loudest sample of the stretch each plays reaches full scale. The scan
-//! runs on a worker (`normalize::Scan`) with progress in the toast and Esc
-//! to stop; the gains are applied as one undo step when it finishes.
-
 use std::time::Instant;
 
 use eframe::egui;
@@ -13,15 +8,12 @@ use crate::App;
 use crate::media::{State, reversed_key};
 use crate::normalize::{Job, Poll, Scan};
 
-/// A scan under way.
 pub(crate) struct Running {
     scan: Scan,
-    /// Selected clips left out because their audio was not ready.
     left_out: usize,
 }
 
 impl App {
-    /// Starts the scan for the selected audio clips (Normalize).
     pub(crate) fn normalize_selected_clips(&mut self, ctx: &egui::Context) {
         if self.normalizing.is_some() {
             self.say("Already normalizing".to_owned());
@@ -37,7 +29,6 @@ impl App {
             if !self.arrangement.clips.contains(&clip.id) || clip.locked {
                 continue;
             }
-            // A reversed clip plays its file's reversed twin.
             let key = if clip.reversed {
                 reversed_key(media.0)
             } else {
@@ -75,8 +66,6 @@ impl App {
         });
     }
 
-    /// Follows the scan: shows its progress, stops it on Esc and applies the
-    /// gains when it is done. Call every frame.
     pub(crate) fn poll_normalize(&mut self, ctx: &egui::Context) {
         let Some(running) = &self.normalizing else {
             return;
@@ -90,7 +79,6 @@ impl App {
         match running.scan.poll() {
             Poll::Running(done) => {
                 let shown = (done * 100.0).floor() as u32;
-                // Keeps the note up while the scan goes.
                 self.toast = Some((
                     format!("Normalizing {shown}% \u{b7} Esc to stop"),
                     Instant::now(),
@@ -111,8 +99,6 @@ impl App {
                 let mut silent = 0;
                 let mut changed = 0;
                 for found in &found {
-                    // An edit while the scan ran (a trim, a slip, a reverse,
-                    // a tempo change) means the peak is of other audio.
                     if !is_current(self.document.project(), found.clip, &found.source) {
                         changed += 1;
                         continue;
@@ -135,21 +121,14 @@ impl App {
     }
 }
 
-/// What a scan came to, for the note after it.
 struct Words {
-    /// Clips given a gain.
     done: usize,
-    /// Clips whose stretch is silent.
     silent: usize,
-    /// Clips asked for more gain than a clip can have.
     limited: usize,
-    /// Clips left out because their audio was still loading.
     left_out: usize,
-    /// Clips edited while the scan ran, so their peak was not applied.
     changed: usize,
 }
 
-/// What to tell the user after a scan.
 fn normalized_words(
     Words {
         done,

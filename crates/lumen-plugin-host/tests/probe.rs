@@ -1,6 +1,3 @@
-//! The compatibility probe, run against the test plugins: what it reports
-//! for a plugin that behaves, and for each way a plugin can fail a stage.
-
 mod support;
 
 use std::collections::HashMap;
@@ -16,7 +13,6 @@ struct Probed {
     out: String,
 }
 
-/// Runs the probe over the test plugin with `fault` set and `extra` options.
 fn probe(fault: &str, extra: &[&str]) -> Probed {
     let run = Command::new(PROBE)
         .args(["--host", HOST, "--no-editor", "--blocks", "40"])
@@ -31,7 +27,6 @@ fn probe(fault: &str, extra: &[&str]) -> Probed {
     }
 }
 
-/// `(verdict, detail)` of each stage of the class of `kind`.
 fn stages(out: &str, kind: &str) -> HashMap<String, (String, String)> {
     let mut found = HashMap::new();
     let mut mine = false;
@@ -50,7 +45,6 @@ fn stages(out: &str, kind: &str) -> HashMap<String, (String, String)> {
             .iter()
             .find(|w| rest.starts_with(**w))
             .unwrap_or_else(|| panic!("no verdict in `{line}`"));
-        // After the verdict: the time, then the detail.
         let detail = rest[word.len()..]
             .split_once(" ms")
             .map_or("", |(_, d)| d.trim());
@@ -84,9 +78,6 @@ fn a_plugin_that_behaves_passes_every_stage_it_runs() {
             "parameters",
             "shutdown",
         ] {
-            // The link stage measures timing: a block over three quarters of
-            // the period (one in forty on a busy runner) is a note, not a
-            // failure.
             let ok: &[&str] = if name == "link" {
                 &["pass", "note"]
             } else {
@@ -150,7 +141,6 @@ fn a_plugin_that_crashes_processing_is_a_result_and_the_rest_are_skipped() {
         assert_eq!(verdict_of_link, "skipped");
         assert!(why.contains("process crashed"), "{why}");
         assert_eq!(verdict(&found.out, kind, "shutdown"), "skipped");
-        // What went before is kept.
         assert_eq!(verdict(&found.out, kind, "configure"), "pass");
     }
 }
@@ -176,7 +166,6 @@ fn output_that_is_not_finite_fails_the_process_stage_and_not_the_run() {
     let process = &stages(&found.out, "instrument")["process"];
     assert_eq!(process.0, "fail", "{}", found.out);
     assert!(process.1.contains("not finite"), "{}", process.1);
-    // The plugin did not die, so the later stages still ran.
     assert_ne!(verdict(&found.out, "instrument", "state"), "skipped");
 }
 

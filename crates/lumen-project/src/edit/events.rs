@@ -1,61 +1,21 @@
-//! Controller, pitch-bend and pressure lane edits (M5 slice 4a): the piano
-//! roll's lanes as pure functions over a clip's event list. The app wraps
-//! each in one undo step (a later `Document` method), so everything here is
-//! tested without a window.
-//!
-//! # The lanes
-//!
-//! A [`Lane`] is one kind of event the lane view shows: a controller number,
-//! pitch bend or channel pressure. Program changes belong to no lane and are
-//! never touched by these functions. Each lane has a value range
-//! ([`Lane::range`]) and a rest value ([`Lane::rest`]), 0 for all of them.
-//!
-//! # The selection contract
-//!
-//! Points are picked by **index** into the clip's `events`, as notes are (see
-//! [`super::notes`]). Every function returns the indices of the events it made
-//! or changed, in the list as it is *after* the edit, so a UI keeps its
-//! selection by storing what comes back.
-//!
-//! - Indices that are out of range or repeated are ignored; order does not
-//!   matter. Picks of another lane are ignored by a lane's edit.
-//! - The list is kept sorted by `at`. Events on one tick keep their old
-//!   order; an event an edit adds goes after the events already on its tick.
-//!   Indices therefore only mean something against the list they were made
-//!   for, as with notes.
-//! - [`move_points`] takes **offsets**, as the note moves do: `time` in ticks
-//!   and `value` in the lane's units. The group is clamped as a whole, so the
-//!   points keep their offsets from each other.
-//! - Only the lane's own events change, with one exception: a point moved onto
-//!   the tick of an unpicked point of the same lane replaces it.
-//!
-//! `length` is the clip's content length: points start inside `[0, length)`.
-//! Times are not checked against it where a caller passes one in
-//! ([`ramp`]); the caller keeps its ramps inside the clip.
-
 use lumen_core::curve::Curve;
 use lumen_core::time::{PPQ, Ticks};
 
 use super::notes::picked;
 use crate::model::{ClipEvent, EventKind};
 
-/// The finest point spacing the lanes offer: a 1/64 note.
 pub const FINE: Ticks = Ticks(PPQ / 16);
 
-/// The coarser point spacing the lanes offer: a 1/16 note.
 pub const GRID: Ticks = Ticks(PPQ / 4);
 
-/// One of the lanes the piano roll shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Lane {
-    /// A controller by number (0 to 127).
     Controller(u8),
     PitchBend,
     Pressure,
 }
 
 impl Lane {
-    /// The lane an event belongs to; `None` for a program change.
     pub fn of(kind: EventKind) -> Option<Lane> {
         match kind {
             EventKind::Controller { number, .. } => Some(Lane::Controller(number)),
@@ -65,8 +25,6 @@ impl Lane {
         }
     }
 
-    /// The values the lane takes, both ends included: 0 to 127, or −8192 to
-    /// 8191 for pitch bend.
     pub fn range(self) -> (i32, i32) {
         match self {
             Lane::PitchBend => (-8192, 8191),
@@ -74,14 +32,10 @@ impl Lane {
         }
     }
 
-    /// The value with no effect: 0 on every lane (the centre of pitch bend).
     pub fn rest(self) -> i32 {
         0
     }
 
-    /// The event this lane holds with `value`, clamped into the lane's range.
-    /// A controller number above 127 is held to 127, so the event is always
-    /// valid.
     pub fn event(self, value: i32) -> EventKind {
         let (low, high) = self.range();
         let value = value.clamp(low, high);
@@ -97,7 +51,6 @@ impl Lane {
         }
     }
 
-    /// The value of `kind` if it belongs to this lane.
     pub fn value_of(self, kind: EventKind) -> Option<i32> {
         match (self, kind) {
             (Lane::Controller(lane), EventKind::Controller { number, value }) if lane == number => {
@@ -110,12 +63,10 @@ impl Lane {
     }
 }
 
-/// Whether `event` belongs to `lane`.
 fn on(lane: Lane, event: &ClipEvent) -> bool {
     lane.value_of(event.kind).is_some()
 }
 
-/// The indices of `lane`'s events, in time order.
 pub fn in_lane(events: &[ClipEvent], lane: Lane) -> Vec<usize> {
     events
         .iter()
@@ -125,11 +76,6 @@ pub fn in_lane(events: &[ClipEvent], lane: Lane) -> Vec<usize> {
         .collect()
 }
 
-/// Puts a point of `lane` at `at` with `value`. `at` is clamped into
-/// `[0, length)` and `value` into the lane's range. The point replaces the
-/// lane's event at exactly that tick (and any duplicates of it on that
-/// tick), or is inserted after the events already there. Returns its index.
-/// A clip with no length takes nothing.
 pub fn set_point(
     events: &mut Vec<ClipEvent>,
     lane: Lane,
@@ -151,8 +97,6 @@ pub fn set_point(
     match same.split_first() {
         Some((&first, duplicates)) => {
             events[first] = event;
-            // Drop the other points of the lane on this tick, last first so
-            // the earlier indices stay valid.
             for &i in duplicates.iter().rev() {
                 events.remove(i);
             }
@@ -165,7 +109,6 @@ pub fn set_point(
     }
 }
 
-/// Deletes the picked events. Nothing remains selected.
 pub fn delete_points(events: &mut Vec<ClipEvent>, selection: &[usize]) -> Vec<usize> {
     let chosen = picked(selection, events.len());
     let mut at = 0;
@@ -177,14 +120,6 @@ pub fn delete_points(events: &mut Vec<ClipEvent>, selection: &[usize]) -> Vec<us
     Vec::new()
 }
 
-/// Moves the picked points of `lane` by `time` ticks and `value` units as a
-/// group. The group is clamped as a whole: no point leaves `[0, length)` in
-/// time or the lane's range in value, and the points keep their offsets from
-/// each other. Picked events of other lanes stay where they are.
-///
-/// A moved point that lands on the tick of an unpicked point of the same lane
-/// replaces it (the moved one wins). Returns the moved points' indices in the
-/// new list. A moved point sits after the events already on its tick.
 pub fn move_points(
     events: &mut Vec<ClipEvent>,
     lane: Lane,
@@ -223,8 +158,6 @@ pub fn move_points(
     write_tagged(events, tagged)
 }
 
-/// The time and value offsets brought inside the limits as a group, or
-/// `None` when nothing is picked.
 fn clamp_move(
     events: &[ClipEvent],
     lane: Lane,
@@ -249,8 +182,6 @@ fn clamp_move(
     ))
 }
 
-/// `event` moved by `time` and `value` on `lane`. It belongs to the lane, so
-/// it has a value.
 fn shifted(event: ClipEvent, lane: Lane, time: Ticks, value: i32) -> ClipEvent {
     let now = lane.value_of(event.kind).unwrap_or(lane.rest());
     ClipEvent {
@@ -259,7 +190,6 @@ fn shifted(event: ClipEvent, lane: Lane, time: Ticks, value: i32) -> ClipEvent {
     }
 }
 
-/// Writes `tagged` back in order and returns the indices of the tagged ones.
 fn write_tagged(events: &mut Vec<ClipEvent>, tagged: Vec<(ClipEvent, bool)>) -> Vec<usize> {
     events.clear();
     let mut chosen = Vec::new();
@@ -272,9 +202,6 @@ fn write_tagged(events: &mut Vec<ClipEvent>, tagged: Vec<(ClipEvent, bool)>) -> 
     chosen
 }
 
-/// The indices of `lane`'s points in the box from `from` to `to` in time and
-/// from `low` to `high` in value, edges included. Each pair may be given in
-/// either order.
 pub fn in_box(
     events: &[ClipEvent],
     lane: Lane,
@@ -298,22 +225,6 @@ pub fn in_box(
         .collect()
 }
 
-/// The points that draw a line or curve on `lane`, from `from` to `to` (each
-/// a tick and a value). There is one at the start, one every `step` ticks in
-/// between, and one exactly at the end. `curve` shapes the values between
-/// the two ends: the value is `from + (to − from) · curve(t)`, where `t` is
-/// how far along the span the point is, rounded to a whole number and kept
-/// in the lane's range.
-///
-/// A point whose value equals the one before it is dropped (the first point
-/// of each run is kept), but the last point is always kept, so the end value
-/// lands exactly. A ramp whose end comes earlier than its start runs the
-/// other way; equal ticks give a single point at `from`. A `step` of zero or
-/// less is one tick.
-///
-/// The points are plain: MIDI holds each value until the next point, so no
-/// interpolation is implied at playback. The caller keeps the ticks inside
-/// the clip, and `step` sets how many points a long span makes.
 pub fn ramp(
     lane: Lane,
     from: (Ticks, i32),
@@ -363,11 +274,6 @@ pub fn ramp(
     out
 }
 
-/// Clears `lane`'s points from `from` to `to` (edges included, either order),
-/// then adds `with`: its points of `lane` that sit inside `[0, length)`, with
-/// values clamped into the lane's range. Other events are kept, and the
-/// whole list stays sorted. An added point goes after the events already on
-/// its tick. Returns the added points' indices.
 pub fn replace_span(
     events: &mut Vec<ClipEvent>,
     lane: Lane,
@@ -400,7 +306,6 @@ mod tests {
     use super::*;
 
     const Q: i64 = PPQ;
-    /// A clip of 1000 ticks, for the edits that clamp at its edges.
     const LEN: Ticks = Ticks(1000);
     const CC7: Lane = Lane::Controller(7);
 
@@ -439,7 +344,6 @@ mod tests {
         }
     }
 
-    /// The list is sorted by tick and every event is inside MIDI's ranges.
     fn assert_valid(events: &[ClipEvent]) {
         assert!(events.is_sorted_by_key(|e| e.at), "unsorted: {events:?}");
         assert!(
@@ -448,7 +352,6 @@ mod tests {
         );
     }
 
-    /// (tick, value) of `lane`'s points, in order.
     fn points(events: &[ClipEvent], lane: Lane) -> Vec<(i64, i32)> {
         events
             .iter()
@@ -456,7 +359,6 @@ mod tests {
             .collect()
     }
 
-    /// The value `lane` holds at `at`: its last point at or before it.
     fn held(events: &[ClipEvent], lane: Lane, at: Ticks) -> Option<i32> {
         events
             .iter()
@@ -598,7 +500,6 @@ mod tests {
         assert_eq!(events, [cc(0, 7, 127)]);
         assert_eq!(set_point(&mut events, CC7, LEN, 0, LEN), [1]);
         assert_eq!(events[1].at, t(999), "the last tick inside the clip");
-        // Past the end lands on the same last tick, replacing it.
         assert_eq!(set_point(&mut events, CC7, t(9_000), 1, LEN), [1]);
         assert_eq!(events, [cc(0, 7, 127), cc(999, 7, 1)]);
         assert_eq!(
@@ -623,7 +524,6 @@ mod tests {
         assert_eq!(events, [cc(100, 1, 40), bend(100, 500), cc(100, 7, 60)]);
         assert_eq!(set_point(&mut events, Lane::PitchBend, t(100), 7, LEN), [1]);
         assert_eq!(events, [cc(100, 1, 40), bend(100, 7), cc(100, 7, 60)]);
-        // A new point on a tick with only other lanes goes after them.
         let mut events = vec![cc(100, 1, 40), bend(100, 500)];
         assert_eq!(set_point(&mut events, CC7, t(100), 60, LEN), [2]);
         assert_eq!(events[2], cc(100, 7, 60));
@@ -643,8 +543,6 @@ mod tests {
         let mut events = vec![cc(100, 7, 10), cc(150, 1, 5), cc(200, 7, 20)];
         let sel = move_points(&mut events, CC7, &[0, 2], t(50), 5, LEN);
         assert_eq!(sel, [1, 2]);
-        // The controller 1 point is not moved, and the moved ones sit after
-        // the events already on their ticks.
         assert_eq!(events, [cc(150, 1, 5), cc(150, 7, 15), cc(250, 7, 25)]);
         assert_valid(&events);
     }
@@ -683,7 +581,6 @@ mod tests {
         let sel = move_points(&mut events, CC7, &[0], t(200), 0, LEN);
         assert_eq!(sel, [1]);
         assert_eq!(events, [cc(300, 1, 9), cc(300, 7, 10)]);
-        // Another lane on the tick is not replaced.
         let mut bends = vec![bend(100, 1), bend(300, 2), cc(300, 7, 5)];
         move_points(&mut bends, Lane::PitchBend, &[0], t(200), 0, LEN);
         assert_eq!(bends, [cc(300, 7, 5), bend(300, 1)]);
@@ -695,7 +592,6 @@ mod tests {
         let sel = move_points(&mut events, CC7, &[0, 1, 2, 2, 99], t(100), 10, LEN);
         assert_eq!(sel, [2]);
         assert_eq!(events, [cc(10, 1, 4), bend(30, 100), cc(120, 7, 18)]);
-        // Only another lane picked: nothing moves.
         let before = events.clone();
         assert!(move_points(&mut events, CC7, &[0, 1], t(100), 10, LEN).is_empty());
         assert_eq!(events, before);
@@ -713,7 +609,6 @@ mod tests {
             cc(30, 1, 50),
             cc(40, 7, 50),
         ];
-        // Reversed arguments, edges included: time 10 to 40, value 20 to 60.
         assert_eq!(in_box(&events, CC7, t(40), t(10), 60, 20), [0, 1, 5]);
         assert_eq!(in_box(&events, CC7, t(20), t(20), 0, 127), [1]);
         assert_eq!(
@@ -737,8 +632,6 @@ mod tests {
         assert_eq!(found.first(), Some(&(0, 0)));
         assert_eq!(found.last(), Some(&(2 * Q, 127)));
         assert!(found.windows(2).all(|w| w[0].1 <= w[1].1), "{found:?}");
-        // Each point is within a unit of the straight line (a midpoint tie
-        // may round either way).
         for (k, &(_, value)) in (0..).zip(&found) {
             let straight = (127.0 * f64::from(k) / 8.0).round() as i32;
             assert!((value - straight).abs() <= 1, "{k}: {value} vs {straight}");
@@ -798,8 +691,6 @@ mod tests {
 
     #[test]
     fn repeated_values_are_dropped_but_the_end_is_kept() {
-        // 0 to 1 over 90 ticks, a point every 10: the value is 0 until tick 45
-        // and 1 after, so only the first point of each run and the end stay.
         let r = ramp(CC7, (t(0), 0), (t(90), 1), &Curve::LINEAR, t(10));
         assert_eq!(points(&r, CC7), [(0, 0), (50, 1), (90, 1)]);
     }

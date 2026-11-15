@@ -1,7 +1,3 @@
-//! The COM objects a VST3 host must provide: host context, event list,
-//! parameter changes and a memory stream for state. Built on the `vst3`
-//! crate's `ComWrapper`. Methods take `&self`, so state lives in a `Mutex`.
-
 use std::ffi::c_void;
 use std::sync::Mutex;
 
@@ -25,7 +21,6 @@ impl Class for HostApplication {
 impl IHostApplicationTrait for HostApplication {
     unsafe fn getName(&self, name: *mut String128) -> tresult {
         let text: Vec<u16> = "Lumen".encode_utf16().chain(std::iter::once(0)).collect();
-        // SAFETY: the plugin passes a String128 buffer; "Lumen\0" fits.
         unsafe {
             for (i, unit) in text.iter().enumerate() {
                 (*name)[i] = *unit;
@@ -41,7 +36,6 @@ impl IHostApplicationTrait for HostApplication {
         obj: *mut *mut c_void,
     ) -> tresult {
         if !obj.is_null() {
-            // SAFETY: valid out pointer from the caller.
             unsafe { *obj = std::ptr::null_mut() };
         }
         kNotImplemented
@@ -54,7 +48,6 @@ pub fn host_application() -> ComPtr<IHostApplication> {
         .expect("interface listed")
 }
 
-/// Events for one block. Filled by the host before `process`.
 pub struct EventList(pub Mutex<Vec<Event>>);
 
 impl Class for EventList {
@@ -72,7 +65,6 @@ impl IEventListTrait for EventList {
         };
         match events.get(index as usize) {
             Some(event) if !e.is_null() => {
-                // SAFETY: valid out pointer from the plugin.
                 unsafe { *e = *event };
                 kResultOk
             }
@@ -85,15 +77,12 @@ impl IEventListTrait for EventList {
             return kInvalidArgument;
         }
         if let Ok(mut events) = self.0.lock() {
-            // SAFETY: valid event from the plugin.
             events.push(unsafe { *e });
         }
         kResultOk
     }
 }
 
-/// No parameter changes. Some plugins crash on a null pointer, so the host
-/// passes an empty list instead.
 pub struct NoParameterChanges;
 
 impl Class for NoParameterChanges {
@@ -116,7 +105,6 @@ impl IParameterChangesTrait for NoParameterChanges {
     }
 }
 
-/// In-memory `IBStream` used for plugin state.
 pub struct MemoryStream(pub Mutex<(Vec<u8>, usize)>);
 
 impl MemoryStream {
@@ -143,11 +131,9 @@ impl IBStreamTrait for MemoryStream {
         };
         let (data, pos) = &mut *guard;
         let n = (num_bytes.max(0) as usize).min(data.len().saturating_sub(*pos));
-        // SAFETY: the plugin's buffer holds `num_bytes` bytes; n <= num_bytes.
         unsafe { std::ptr::copy_nonoverlapping(data.as_ptr().add(*pos), buffer.cast::<u8>(), n) };
         *pos += n;
         if !num_bytes_read.is_null() {
-            // SAFETY: valid out pointer.
             unsafe { *num_bytes_read = n as int32 };
         }
         kResultOk
@@ -167,13 +153,11 @@ impl IBStreamTrait for MemoryStream {
         if data.len() < *pos + n {
             data.resize(*pos + n, 0);
         }
-        // SAFETY: the plugin's buffer holds `num_bytes` bytes.
         unsafe {
             std::ptr::copy_nonoverlapping(buffer.cast::<u8>(), data.as_mut_ptr().add(*pos), n)
         };
         *pos += n;
         if !num_bytes_written.is_null() {
-            // SAFETY: valid out pointer.
             unsafe { *num_bytes_written = n as int32 };
         }
         kResultOk
@@ -196,7 +180,6 @@ impl IBStreamTrait for MemoryStream {
         }
         *pos = target as usize;
         if !result.is_null() {
-            // SAFETY: valid out pointer.
             unsafe { *result = target };
         }
         kResultOk
@@ -207,19 +190,15 @@ impl IBStreamTrait for MemoryStream {
             return kInvalidArgument;
         };
         if !pos.is_null() {
-            // SAFETY: valid out pointer.
             unsafe { *pos = guard.1 as int64 };
         }
         kResultOk
     }
 }
 
-/// Reads the whole contents back out of a stream created by [`MemoryStream::open`].
 pub fn stream_bytes(stream: &ComPtr<IBStream>) -> Vec<u8> {
-    // Seek to the start and read everything through the interface itself.
     let mut out = Vec::new();
     let mut chunk = [0_u8; 4096];
-    // SAFETY: plain calls on our own live stream object.
     unsafe {
         stream.seek(0, kIBSeekSet as int32, std::ptr::null_mut());
         loop {

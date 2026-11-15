@@ -1,6 +1,3 @@
-//! The built-in synth: sound at the exact frame, envelopes, the pedal,
-//! pitch bend, voice stealing, presets and a fuzz for numbers gone wrong.
-
 use std::path::{Path, PathBuf};
 
 use lumen_core::midi::{Event, Msg};
@@ -32,8 +29,6 @@ fn cc(offset: u32, number: u8, value: u8) -> Event {
     }
 }
 
-/// Renders `frames` of `synth` after `events` (offsets from the start), in
-/// blocks of `block`, returning left and right.
 fn render(
     synth: &mut Synth,
     events: &[Event],
@@ -52,8 +47,6 @@ fn render(
                 msg: e.msg,
             })
             .collect();
-        // The synth is the audio thread's work: nothing here may reach the
-        // heap (the allocation guard, `realtime.rs`).
         let ((), heap) = count_rt_violations(|| {
             synth.render(RATE, &local, &mut left[at..at + n], &mut right[at..at + n]);
         });
@@ -150,7 +143,6 @@ fn pitch_bend_changes_the_pitch() {
     };
     let (bent, _) = render(&mut b, &[up, on(0, 45, 100)], 24_000, 128);
     let ratio = crossings(&bent[4_000..]) as f32 / crossings(&flat[4_000..]) as f32;
-    // Two semitones up is a ratio of about 1.122.
     assert!((ratio - 1.122).abs() < 0.04, "ratio {ratio}");
 }
 
@@ -180,17 +172,13 @@ fn a_preset_change_glides_sounding_notes_without_a_click_or_a_new_note() {
     let (during, _) = render(&mut synth, &[], glide + 128, 128);
     let (after, _) = render(&mut synth, &[], 9_600, 128);
     assert_eq!(synth.voices(), 1, "no new note");
-    // No step beyond what the note itself does, across the change.
     let straight = steepest(&before[4_000..]);
     assert!(
         steepest(&during) < straight * 2.0,
         "{} {straight}",
         steepest(&during)
     );
-    // Once it has glided, the held note has the new preset's character:
-    // the bass is darker than the poly.
     assert!(bright(&after) < bright(&before[12_000..]) * 0.8);
-    // And matches a bass note held the same way (level within 15%).
     let mut bass = Synth::new(Preset::Bass);
     let skip = 24_000 + glide + 128;
     let (b, _) = render(&mut bass, &[on(0, 60, 100)], skip + 9_600, 128);
@@ -201,7 +189,6 @@ fn a_preset_change_glides_sounding_notes_without_a_click_or_a_new_note() {
         rms(&after),
         rms(b)
     );
-    // Nothing hangs: release it and it ends.
     render(&mut synth, &[off(0, 60)], 96_000, 4_800);
     assert!(!synth.active());
 }
@@ -297,8 +284,6 @@ fn presets_have_stable_ids() {
     }
 }
 
-/// The phrase every preset's golden fixture plays: three notes, the last one
-/// quiet, all released inside the half second the fixture covers.
 fn phrase() -> Vec<Event> {
     vec![
         on(0, 60, 100),
@@ -310,7 +295,6 @@ fn phrase() -> Vec<Event> {
     ]
 }
 
-/// Frames one fixture covers.
 const FIXTURE_FRAMES: usize = 24_000;
 
 fn golden_path(preset: Preset) -> PathBuf {
@@ -319,7 +303,6 @@ fn golden_path(preset: Preset) -> PathBuf {
         .join(format!("preset_{}.pcm", preset.id()))
 }
 
-/// The fixture as `(left, right)`, from 16-bit samples.
 fn golden(preset: Preset) -> (Vec<f32>, Vec<f32>) {
     let bytes = std::fs::read(golden_path(preset))
         .unwrap_or_else(|e| panic!("{}: {e}", golden_path(preset).display()));
@@ -334,18 +317,8 @@ fn golden(preset: Preset) -> (Vec<f32>, Vec<f32>) {
     (left, right)
 }
 
-/// How far the sound of a preset may be from the render this build's
-/// predecessor made of it, sample by sample (M8 slice B4, ADR-0150): a
-/// thousandth of full scale, 60 dB down. The old path worked its filter and
-/// pitch out in `f32` through the library's `tan`, `exp2`, `sin` and `cos`;
-/// this one works them out in `f64` by hand so a golden is the same on every
-/// platform, and The difference is under a hundred-thousandth of full scale
-/// everywhere. The fixtures are 16-bit, which quantises at 3e-5.
 const PRESET_TOLERANCE: f32 = 1e-4;
 
-/// The five presets, as parameters, sound as they always have: the old
-/// path's own render of each is pinned in `tests/golden/` and this one is
-/// within [`PRESET_TOLERANCE`] of it at every sample.
 #[test]
 fn the_five_presets_sound_as_they_did() {
     for preset in Preset::ALL {
@@ -363,7 +336,6 @@ fn the_five_presets_sound_as_they_did() {
             "{} differs from the old sound by {worst}",
             preset.name()
         );
-        // And it is not silence against silence: the fixtures have a sound.
         assert!(peak(&old_left) > 0.01, "{} sounds", preset.name());
     }
 }
@@ -375,21 +347,17 @@ fn a_preview_is_what_comes_next_and_leaves_the_synth_where_it_was() {
     let events = [on(0, 60, 100), on(0, 64, 100)];
     render(&mut a, &events, 2_000, 128);
     render(&mut b, &events, 2_000, 128);
-    // `a` previews 96 frames; `b` really plays them.
     let (mut pl, mut pr) = (vec![0.0; 96], vec![0.0; 96]);
     a.preview(RATE, &mut pl, &mut pr);
     let (bl, br) = render(&mut b, &[], 96, 96);
     assert_eq!((&pl, &pr), (&bl, &br), "the preview is what plays next");
-    // Nothing moved: `a` now plays those same frames.
     let (al, ar) = render(&mut a, &[], 96, 96);
     assert_eq!((&al, &ar), (&bl, &br), "and the synth did not advance");
-    // Another rate adds nothing.
     let (mut xl, mut xr) = (vec![0.0; 16], vec![0.0; 16]);
     a.preview(44_100, &mut xl, &mut xr);
     assert!(xl.iter().chain(&xr).all(|v| *v == 0.0));
 }
 
-/// An event on `channel`.
 fn on_channel(offset: u32, channel: u8, key: u8, velocity: u8) -> Event {
     Event {
         offset,
@@ -413,7 +381,6 @@ fn controller_on(offset: u32, channel: u8, number: u8, value: u8) -> Event {
 
 #[test]
 fn the_same_key_on_two_channels_is_two_notes_and_a_preview_ending_leaves_the_clip() {
-    // A clip's note on channel 0 and a preview of the same key on channel 15.
     let mut synth = Synth::new(Preset::Poly);
     render(
         &mut synth,
@@ -422,7 +389,6 @@ fn the_same_key_on_two_channels_is_two_notes_and_a_preview_ending_leaves_the_cli
         128,
     );
     assert_eq!(synth.voices(), 2, "both sound");
-    // The preview lets go; its release ends, and the clip's note rings on.
     let (left, _) = render(&mut synth, &[off_channel(0, 15, 50)], 96_000, 128);
     assert_eq!(synth.voices(), 1, "only the clip's note is left");
     assert!(rms(&left[92_000..]) > 0.01, "and it still rings");
@@ -447,7 +413,6 @@ fn a_note_off_ends_only_the_note_on_its_own_channel() {
 fn the_same_key_again_on_one_channel_lets_the_first_go() {
     let mut synth = Synth::new(Preset::Poly);
     render(&mut synth, &[on_channel(0, 0, 50, 100)], 9_600, 128);
-    // The same key again, once the first is sounding: it is released.
     render(&mut synth, &[on_channel(0, 0, 50, 100)], 128, 128);
     assert_eq!(synth.voices(), 2, "the first is in release, still counted");
     render(&mut synth, &[], 96_000, 128);
@@ -459,12 +424,8 @@ fn the_same_key_again_on_one_channel_lets_the_first_go() {
 #[test]
 fn a_note_waiting_for_a_steal_is_matched_by_channel_and_key() {
     let mut synth = Synth::new(Preset::Poly);
-    // Sixteen notes on channel 0; a seventeenth on channel 15 with the same
-    // key takes the oldest voice (channel 0, key 40) once it has faded.
     let mut events: Vec<Event> = (0..16).map(|i| on_channel(0, 0, 40 + i, 100)).collect();
     events.push(on_channel(1_000, 15, 40, 100));
-    // Channel 0's key 40 lets go while its voice is still fading (about
-    // 2 ms): it must not cancel channel 15's waiting note.
     events.push(off_channel(1_050, 0, 40));
     render(&mut synth, &events, 9_600, 128);
     assert_eq!(synth.voices(), 16, "channel 15's note took the voice");
@@ -491,11 +452,6 @@ fn all_notes_off_and_all_sound_off_still_reach_every_channel() {
     assert!(!synth.active(), "all sound off cuts channel 15 too");
 }
 
-// ---- The controls (M8 slice B4) -------------------------------------------
-
-/// Renders `frames` with a lane on `id`, cut into blocks of `every`, the way
-/// the engine fills each block: the value the lane has at the block's first
-/// frame, its own points inside, and its value at the last frame.
 fn render_lane(
     synth: &mut Synth,
     id: u32,
@@ -540,7 +496,6 @@ fn render_lane(
     (left, right)
 }
 
-/// The lane's value at a frame: straight between its points.
 fn lane_at(points: &[(u32, f32)], frame: usize) -> f32 {
     let after = points.partition_point(|p| p.0 as usize <= frame);
     let Some(before) = after.checked_sub(1) else {
@@ -556,15 +511,10 @@ fn lane_at(points: &[(u32, f32)], frame: usize) -> f32 {
     }
 }
 
-/// A lane on the cutoff is played on its own samples: the corner the filter
-/// is given at frame `k` is the lane's value at frame `k`, exact on the
-/// lane's own points.
 #[test]
 fn automating_the_cutoff_is_sample_exact() {
     use lumen_devices::synth::params::{FILTER_CUTOFF, cutoff_hz};
     let points: Vec<(u32, f32)> = vec![(0, 0.15), (64, 0.9), (128, 0.2), (255, 0.75)];
-    // The value the project holds is the lane's first, so nothing glides into
-    // it: what is measured is the lane alone.
     let mut synth = Synth::new(Preset::Poly);
     synth.configure_values(&flash_values(Preset::Poly, FILTER_CUTOFF, 87.432));
     let events = [on(0, 60, 100)];
@@ -590,10 +540,6 @@ fn automating_the_cutoff_is_sample_exact() {
     }
 }
 
-/// The same lane plays the same samples whatever block size the engine cuts
-/// it into: 64, 97, 128, 240 and all 256 at once. The curves agree to the
-/// arithmetic's own rounding (the same allowance the effects' own test
-/// makes).
 #[test]
 fn a_lane_plays_the_same_at_every_block_size() {
     use lumen_devices::synth::params::FILTER_CUTOFF;
@@ -633,12 +579,10 @@ fn a_lane_plays_the_same_at_every_block_size() {
     }
 }
 
-/// The preset's values with one parameter replaced (normalised).
 fn flash_values(preset: Preset, id: u32, value: f32) -> Vec<(u32, f32)> {
     flash_many(preset, &[(id, value)])
 }
 
-/// The preset's values with several parameters replaced, in their own units.
 fn flash_many(preset: Preset, changes: &[(u32, f32)]) -> Vec<(u32, f32)> {
     let mut values = preset.values();
     for &(id, value) in changes {
@@ -652,14 +596,10 @@ fn flash_many(preset: Preset, changes: &[(u32, f32)]) -> Vec<(u32, f32)> {
     values
 }
 
-/// How bright a stretch of sound is: its sample-to-sample change over its
-/// level.
 fn bright(x: &[f32]) -> f32 {
     x.windows(2).map(|w| (w[1] - w[0]).abs()).sum::<f32>() / rms(x).max(1e-6)
 }
 
-/// A value the project holds reaches a sounding note by gliding, not by
-/// cutting it: changing the cutoff mid-note never steps, and it does arrive.
 #[test]
 fn a_value_the_project_holds_glides_into_a_sounding_note() {
     use lumen_devices::synth::params::FILTER_CUTOFF;
@@ -673,7 +613,6 @@ fn a_value_the_project_holds_glides_into_a_sounding_note() {
             .map(|w| (w[1] - w[0]).abs())
             .fold(0.0, f32::max)
     };
-    // The join of the two halves is as smooth as either half.
     let joint = [before[8_000..].to_vec(), after.clone()].concat();
     let own = steepest(&before[8_000..]).max(steepest(&after));
     assert!(
@@ -681,12 +620,10 @@ fn a_value_the_project_holds_glides_into_a_sounding_note() {
         "{} against {own}",
         steepest(&joint)
     );
-    // And the held note is the new sound: much darker than it was.
     assert!(bright(&after[4_000..]) < bright(&before[4_000..]) * 0.6);
     assert_eq!(synth.voices(), 1, "the note never stopped");
 }
 
-/// Noise is noise: it adds a broadband hiss, and at nothing it adds none.
 #[test]
 fn the_noise_generator_adds_a_hiss() {
     use lumen_devices::synth::params::NOISE;
@@ -700,9 +637,6 @@ fn the_noise_generator_adds_a_hiss() {
     assert!(peak(&noisy) < 1.0);
 }
 
-/// The filter's four shapes are four different sounds, and the 24 dB low-pass
-/// takes more of the top away than the 12 dB one. Measured at a 400 Hz
-/// corner, where a saw's harmonics are in reach of all of them.
 #[test]
 fn every_filter_shape_is_its_own_sound() {
     use lumen_devices::synth::params::{FILTER_CUTOFF, FILTER_TYPE, find};
@@ -716,7 +650,6 @@ fn every_filter_shape_is_its_own_sound() {
         let (left, _) = render(&mut synth, &[on(0, 60, 100)], 9_600, 256);
         sounds.push(left);
     }
-    // How much of the top each one keeps: its sample-to-sample change.
     let rough = |x: &[f32]| x.windows(2).map(|w| (w[1] - w[0]).abs()).sum::<f32>() / x.len() as f32;
     let top: Vec<f32> = sounds.iter().map(|s| rough(&s[4_000..])).collect();
     assert!(
@@ -747,8 +680,6 @@ fn every_filter_shape_is_its_own_sound() {
     );
 }
 
-/// The filter's envelope opens the corner and lets it fall back: it changes
-/// the sound while it is open, and leaves it alone once it has decayed.
 #[test]
 fn the_filter_envelope_moves_the_corner() {
     use lumen_devices::synth::params::{FILTER_ATTACK, FILTER_DECAY, FILTER_ENV, FILTER_SUSTAIN};
@@ -766,7 +697,6 @@ fn the_filter_envelope_moves_the_corner() {
     let mut b = Synth::with_values(&moved);
     let (plain, _) = render(&mut a, &[on(0, 60, 100)], 24_000, 256);
     let (env, _) = render(&mut b, &[on(0, 60, 100)], 24_000, 256);
-    // How far the envelope moves the sound, as a share of its own level.
     let apart = |from: usize, to: usize| {
         let difference: f32 = env[from..to]
             .iter()
@@ -788,9 +718,6 @@ fn the_filter_envelope_moves_the_corner() {
     );
 }
 
-/// The LFO moves the pitch, the cutoff or the amp, and at nothing it does
-/// nothing. At 1 Hz and full depth, a quarter of a second apart is an
-/// opposite half of its cycle.
 #[test]
 fn the_lfo_reaches_its_three_destinations() {
     use lumen_devices::synth::params::{LFO_DEPTH, LFO_RATE, LFO_TARGET};
@@ -810,7 +737,6 @@ fn the_lfo_reaches_its_three_destinations() {
     }
     let crossings = |x: &[f32]| x.windows(2).filter(|w| w[0] <= 0.0 && w[1] > 0.0).count();
     let peak = |x: &[f32]| x.iter().fold(0.0f32, |m, v| m.max(v.abs()));
-    // A quarter cycle in (the sine's crest) against three quarters in.
     let (crest, trough) = (12_000..14_000, 36_000..38_000);
     assert!(
         (crossings(&sounds[1][crest.clone()]) as f32)
@@ -825,7 +751,6 @@ fn the_lfo_reaches_its_three_destinations() {
         peak(&sounds[3][trough.clone()]) < peak(&sounds[3][crest.clone()]) * 0.5,
         "the amp moves"
     );
-    // Off: the two halves are the same sound.
     assert_eq!(
         crossings(&sounds[0][crest]),
         crossings(&sounds[0][trough]),
@@ -833,7 +758,6 @@ fn the_lfo_reaches_its_three_destinations() {
     );
 }
 
-/// Glide takes a new note from the last one's pitch to its own.
 #[test]
 fn glide_slides_a_new_note_from_the_last() {
     use lumen_devices::synth::params::GLIDE;
@@ -845,18 +769,14 @@ fn glide_slides_a_new_note_from_the_last() {
     render(&mut straight, &[on(0, 60, 100)], 1_200, 256);
     let (plain, _) = render(&mut straight, &[on(0, 72, 100)], 24_000, 256);
     let crossings = |x: &[f32]| x.windows(2).filter(|w| w[0] <= 0.0 && w[1] > 0.0).count();
-    // Just after it starts it is well below the note it was played at.
     assert!(
         (crossings(&glided[1_000..2_000]) as f32) < (crossings(&plain[1_000..2_000]) as f32) * 0.8,
         "the note starts low"
     );
-    // Long after, it is the note that was played.
     let late = crossings(&glided[14_000..18_000]) as i32 - crossings(&plain[14_000..18_000]) as i32;
     assert!(late.abs() <= 3, "and arrives: {late}");
 }
 
-/// Voices limits what sounds at once, and a note a full synth cannot start
-/// is counted rather than lost.
 #[test]
 fn voices_limit_what_sounds_and_a_lost_note_is_counted() {
     use lumen_devices::synth::params::VOICES;
@@ -867,8 +787,6 @@ fn voices_limit_what_sounds_and_a_lost_note_is_counted() {
         render(&mut synth, &notes, 9_600, 256);
         assert!(synth.voices() <= limit, "{limit}: {}", synth.voices());
     }
-    // Every voice already fading out: the newest note takes a place and the
-    // one it displaces is counted (KNOWN_ISSUES, the M5 review's row).
     let values = flash_values(Preset::Poly, VOICES, 1.0);
     let mut synth = Synth::with_values(&values);
     let mut left = vec![0.0f32; 64];
@@ -879,8 +797,6 @@ fn voices_limit_what_sounds_and_a_lost_note_is_counted() {
     assert_eq!(synth.voices(), 1, "and the voice plays the newest");
 }
 
-/// Velocity is what it is set to: at nothing, a quiet note is as loud as a
-/// loud one; at full, it is as quiet as it was played.
 #[test]
 fn velocity_sensitivity_is_a_control() {
     use lumen_devices::synth::params::VELOCITY;
@@ -896,8 +812,6 @@ fn velocity_sensitivity_is_a_control() {
             "velocity {setting}: ratio {ratio}"
         );
     }
-    // Velocity also opens the filter, by the amount the filter's own control
-    // says.
     let soft = flash_many(
         Preset::Poly,
         &[(lumen_devices::synth::params::FILTER_VEL, 2.0)],
@@ -909,7 +823,6 @@ fn velocity_sensitivity_is_a_control() {
     assert!(bright(&l[4_000..]) > bright(&q[4_000..]) * 1.1);
 }
 
-/// A synced LFO follows the tempo: twice the tempo, twice the rate.
 #[test]
 fn a_synced_lfo_follows_the_tempo() {
     use lumen_devices::synth::params::{LFO_DEPTH, LFO_DIVISION, LFO_SYNC, LFO_TARGET, find};
@@ -927,8 +840,6 @@ fn a_synced_lfo_follows_the_tempo() {
         synth.set_tempo(bpm);
         assert_eq!(synth.tempo(), bpm);
         let (left, _) = render(&mut synth, &[on(0, 60, 100)], 96_000, 256);
-        // The tremolo's cycles, counted as the level rises through the middle
-        // of its swing.
         let levels: Vec<f32> = left.chunks(2_000).map(peak).collect();
         let low = levels.iter().copied().fold(f32::MAX, f32::min);
         let high = levels.iter().copied().fold(0.0f32, f32::max);
@@ -944,8 +855,6 @@ fn a_synced_lfo_follows_the_tempo() {
     assert!(fast > slow, "120 bpm is faster: {slow} then {fast}");
 }
 
-/// FNV-1a 64: a stable hash, written here so a pin cannot drift with a
-/// library.
 fn fnv1a64(bytes: &[u8]) -> u64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for byte in bytes {
@@ -955,41 +864,30 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
     hash
 }
 
-/// A render of everything the controls do at once — the noise, the 24 dB
-/// filter with its envelope, the LFO on the cutoff, glide, velocity and both
-/// oscillators — pinned by hash. The synth's maths is `f64` arithmetic worked
-/// out by hand, so this hash is the same on Windows, Linux and macOS (M8
-/// slice B4).
-/// The values the pinned render is made with: **literals**, not worked out
-/// from the units, so a platform whose `powf` or `sqrt` rounds differently
-/// cannot move the pin (review M1). Normalised, by id; the table's defaults
-/// for every parameter not named.
 const PINNED_INPUT: &[(u32, f32)] = &[
-    (1, 1.0),           // Oscillator 1 shape: square
-    (3, 0.37),          // Oscillator 1 detune
-    (7, 0.25),          // Oscillator 2 octave: -1
-    (11, 0.25),         // Noise
-    (12, 0.333_333_34), // Filter type: Low 24
-    (13, 0.353_152_6),  // Filter cutoff
-    (14, 0.592_156_5),  // Resonance
-    (15, 0.75),         // Filter envelope
-    (16, 0.6),          // Filter key follow
-    (18, 0.076_632_22), // Amp attack
-    (19, 0.271_219_88), // Amp decay
-    (20, 0.4),          // Amp sustain
-    (21, 0.292_211_6),  // Amp release
-    (29, 0.666_666_7),  // LFO target: Cutoff
-    (27, 0.384_538_26), // LFO rate
-    (30, 0.4),          // LFO depth
-    (31, 0.1),          // Glide
-    (32, 0.2),          // Voices: 4
-    (33, 0.7),          // Velocity
+    (1, 1.0),
+    (3, 0.37),
+    (7, 0.25),
+    (11, 0.25),
+    (12, 0.333_333_34),
+    (13, 0.353_152_6),
+    (14, 0.592_156_5),
+    (15, 0.75),
+    (16, 0.6),
+    (18, 0.076_632_22),
+    (19, 0.271_219_88),
+    (20, 0.4),
+    (21, 0.292_211_6),
+    (29, 0.666_666_7),
+    (27, 0.384_538_26),
+    (30, 0.4),
+    (31, 0.1),
+    (32, 0.2),
+    (33, 0.7),
 ];
 
 #[test]
 fn a_render_of_every_control_is_pinned() {
-    // Poly's values with the input above over them: the sound every control
-    // makes at once.
     let mut values = lumen_devices::Preset::Poly.values();
     for &(id, value) in PINNED_INPUT {
         if let Some(slot) = values.iter_mut().find(|(known, _)| *known == id) {
@@ -1021,14 +919,11 @@ fn a_render_of_every_control_is_pinned() {
     );
 }
 
-/// A program change, a list of values and a block of lanes all run on the
-/// audio thread, so none of them may reach the heap (review H1).
 #[test]
 fn loading_a_preset_and_taking_values_allocate_nothing() {
     assert!(guard_is_active(), "guarded allocator not installed");
     let mut synth = Synth::new(Preset::Poly);
     render(&mut synth, &[on(0, 60, 100)], 512, 256);
-    // Built outside the guard: a block reserves its room when it is made.
     let values = flash_many(
         Preset::Bass,
         &[(lumen_devices::synth::params::FILTER_CUTOFF, 800.0)],
@@ -1051,8 +946,6 @@ fn loading_a_preset_and_taking_values_allocate_nothing() {
     assert_eq!(heap, 0, "a value change reached the heap");
 }
 
-/// Changing the filter's shape under a held note slides from one response to
-/// the other: no sample jumps more than the sound itself does (review M3).
 #[test]
 fn a_filter_shape_change_does_not_click() {
     use lumen_devices::synth::params::{FILTER_TYPE, find};
@@ -1073,7 +966,6 @@ fn a_filter_shape_change_does_not_click() {
             "shape {kind} steps {} against the sound's own {own}",
             steepest(&joint)
         );
-        // And the new shape is what plays: brighter or darker than before.
         let bright =
             |x: &[f32]| x.windows(2).map(|w| (w[1] - w[0]).abs()).sum::<f32>() / rms(x).max(1e-6);
         assert!(
@@ -1085,14 +977,11 @@ fn a_filter_shape_change_does_not_click() {
     assert_eq!(find(FILTER_TYPE).unwrap().name, "Filter type");
 }
 
-/// All notes off lets go of a note waiting for a voice to fade out: it must
-/// never sound (review L6).
 #[test]
 fn all_notes_off_cancels_a_note_waiting_for_a_steal() {
     use lumen_devices::synth::params::VOICES;
     let values = flash_values(Preset::Poly, VOICES, 1.0);
     let mut synth = Synth::with_values(&values);
-    // One voice: the second note waits for the first to fade out.
     let mut left = vec![0.0f32; 64];
     let mut right = vec![0.0f32; 64];
     synth.render(
@@ -1105,7 +994,6 @@ fn all_notes_off_cancels_a_note_waiting_for_a_steal() {
         synth.voices() > 0,
         "the voice is fading out for the next note"
     );
-    // All notes off: the waiting note is let go too.
     synth.render(RATE, &[cc(0, 123, 0)], &mut left, &mut right);
     let (tail, _) = render(&mut synth, &[], 9_600, 256);
     assert_eq!(synth.voices(), 0, "nothing starts after all notes off");
@@ -1115,9 +1003,6 @@ fn all_notes_off_cancels_a_note_waiting_for_a_steal() {
     );
 }
 
-/// A lane and a value arriving at once play the same samples whatever block
-/// size they are cut into: whether a value is arriving is a question about the
-/// absolute frame, never about the cut (review M4).
 #[test]
 fn a_lane_and_a_glide_play_the_same_at_every_block_size() {
     use lumen_devices::synth::params::{FILTER_CUTOFF, FILTER_RESO};
@@ -1128,8 +1013,6 @@ fn a_lane_and_a_glide_play_the_same_at_every_block_size() {
     for block in [256usize, 240, 128, 97, 64, 33, 512, 1_024] {
         let mut synth = Synth::new(Preset::Poly);
         let (mut left, mut right) = (vec![0.0f32; 256], vec![0.0f32; 256]);
-        // The first half with the lane, then a value the project holds arrives
-        // while the lane plays on.
         let (head, _) = render_lane(
             &mut synth,
             FILTER_CUTOFF,

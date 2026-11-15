@@ -1,22 +1,12 @@
-//! Audio input as the engine plays it (M9 slice R1, ADR-0100): which of the
-//! device's open inputs each audio track listens to, and when it hears them.
-//! Kept pure, so the translation is tested, as `routing::routing` is.
-
 use lumen_engine::{InputRoute, Monitoring};
 use lumen_project::model::{AudioInput, Monitor, Project, Track, TrackKind};
 
-/// Where `input` sits among the device channels open as inputs (`open`, in
-/// the order the engine sees them): its first channel's place, when the
-/// channel after it is open too for a pair. `None` when the device does not
-/// have it open, so the track is silent and says why.
 pub fn place(input: AudioInput, open: &[usize]) -> Option<usize> {
     let first = open.iter().position(|&c| c == usize::from(input.channel))?;
     (!input.stereo || open.get(first + 1) == Some(&(usize::from(input.channel) + 1)))
         .then_some(first)
 }
 
-/// When a track's input is heard (the owner's R2): monitor In always, Auto
-/// while the track is armed, Off never.
 pub fn monitoring(track: &Track) -> Monitoring {
     match track.monitor {
         Monitor::In => Monitoring::Always,
@@ -25,8 +15,6 @@ pub fn monitoring(track: &Track) -> Monitoring {
     }
 }
 
-/// The routes of every audio track that has an input the device has open. A
-/// frozen track plays its file and listens to nothing.
 pub fn routes(project: &Project, open: &[usize]) -> Vec<InputRoute> {
     project
         .tracks
@@ -45,8 +33,6 @@ pub fn routes(project: &Project, open: &[usize]) -> Vec<InputRoute> {
         .collect()
 }
 
-/// Why a track's input cannot be heard or recorded, in words for the track
-/// (`None` when it can, or it has none).
 pub fn unavailable(track: &Track, open: &[usize]) -> Option<&'static str> {
     let input = track.input?;
     if open.is_empty() {
@@ -57,8 +43,6 @@ pub fn unavailable(track: &Track, open: &[usize]) -> Option<&'static str> {
         .then_some("This input is not on the audio device in use")
 }
 
-/// The first channels of the stereo pairs the open inputs offer: two open
-/// channels side by side, the first even (1+2, 3+4, ...).
 pub fn pairs(open: &[usize]) -> Vec<u16> {
     open.iter()
         .filter(|&&c| c % 2 == 0 && open.contains(&(c + 1)))
@@ -66,9 +50,6 @@ pub fn pairs(open: &[usize]) -> Vec<u16> {
         .collect()
 }
 
-/// The input after `current` in the order the input menu lists them: none,
-/// each stereo pair, each mono input, and round to none again. An input the
-/// device does not have is followed by the first one it does.
 pub fn next_input(current: Option<AudioInput>, open: &[usize]) -> Option<AudioInput> {
     let choices: Vec<Option<AudioInput>> = std::iter::once(None)
         .chain(pairs(open).into_iter().map(|c| Some(AudioInput::pair(c))))
@@ -188,8 +169,6 @@ mod tests {
                 Some(AudioInput::pair(0)),
             ]
         );
-        // One the device lacks is followed by the first it has; with no
-        // inputs open there is nothing to choose.
         assert_eq!(
             next_input(Some(AudioInput::mono(9)), &open),
             Some(AudioInput::pair(0))

@@ -1,20 +1,6 @@
-//! Compile-time checks for WGSL shaders, for build scripts.
-//!
-//! [`check`] parses and validates every `.wgsl` file in a folder with naga,
-//! the shader compiler wgpu itself uses, so a shader error fails
-//! `cargo build` with naga's message, pointing at the file and line. It
-//! also writes `$OUT_DIR/shaders.rs`, with each shader's source and the size
-//! of its uniform block, so Rust structs are checked against the shader
-//! with a `const` assertion: a mismatch is a compile error, not a GPU
-//! validation error at the first draw.
-
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-/// Checks every `.wgsl` file in `dir` (relative to the crate) and writes
-/// `$OUT_DIR/shaders.rs`. For `boxes.wgsl` it holds `BOXES` (the source)
-/// and, if the shader has a uniform block, `BOXES_UNIFORM` (its size in
-/// bytes). Panics, failing the build, if any shader does not compile.
 pub fn check(dir: &str) {
     let root =
         PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").expect("run from a build script"));
@@ -56,8 +42,6 @@ pub fn check(dir: &str) {
     std::fs::write(out.join("shaders.rs"), code).expect("writing shaders.rs");
 }
 
-/// Parses and validates one shader (`path` is only for messages); returns
-/// the size of its uniform block, if it has one.
 pub fn check_source(source: &str, path: &str) -> Result<Option<u32>, String> {
     let module = naga::front::wgsl::parse_str(source)
         .map_err(|e| e.emit_to_string_with_path(source, path))?;
@@ -86,7 +70,6 @@ pub fn check_source(source: &str, path: &str) -> Result<Option<u32>, String> {
     }
 }
 
-/// `boxes.wgsl` → `BOXES`, `ui-stress.wgsl` → `UI_STRESS`.
 fn constant_name(path: &Path) -> String {
     path.file_stem()
         .map(|s| {
@@ -122,8 +105,6 @@ struct U { size: vec2<f32>, scale: f32, top: f32 };
 
     #[test]
     fn a_vec3_pad_is_measured_as_the_gpu_lays_it_out() {
-        // The padding bug of slice 4c: a vec3 aligns to 16 bytes, so after
-        // three floats it starts at byte 16, and the block takes 32.
         let shader = r"
 struct U { a: f32, b: f32, c: f32, pad: vec3<f32> };
 @group(0) @binding(0) var<uniform> u: U;

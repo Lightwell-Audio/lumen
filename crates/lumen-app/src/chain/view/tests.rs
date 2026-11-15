@@ -1,5 +1,3 @@
-//! The tab's tests.
-
 use super::paint::output_name;
 use super::rows::ago;
 use super::*;
@@ -30,9 +28,6 @@ fn the_output_chip_names_where_the_sound_goes() {
     assert_eq!(output_name(&project, &kick), "Master");
 }
 
-/// Reduce motion makes Iris's screen still: the analyser does not run, so no
-/// mist is read, whatever the transport and the meter say; and a stopped,
-/// silent track leaves it off too.
 #[test]
 fn the_analyser_runs_only_while_something_is_heard_and_motion_is_not_reduced() {
     use super::rows::mist_runs;

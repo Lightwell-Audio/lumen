@@ -1,25 +1,3 @@
-//! The design system's material (its Material and Button cards, ADR-0052,
-//! which replaces ADR-0051's lit look): controls are raised, sink when
-//! pressed, and when on are `accent_muted` with an accent hairline; the
-//! one primary, a lit S and the chosen tool are filled accent; a lit M is
-//! `mute`.
-//!
-//! - **Raised**: a two-stop vertical gradient, `control_hi` to `control` (a
-//!   3% step), a 1 pt `border` (`border_strong` under the pointer) and a
-//!   1 pt `edge_light` along the top inside edge. Hover is Ember (`ember`
-//!   over the fill), never another fill. No shadow: only windows and
-//!   popovers float.
-//! - **Pressed**: sunk, flat `control_press` with the 1 pt `shade` lip; the
-//!   content moves 1 pt down, the box stays.
-//! - **On** ([`Tone`]): `accent_muted`, accent letters, a 38% accent
-//!   hairline; filled accent and mute get a stronger edge light; filled
-//!   controls do not glow (their fill is their light), only recording does.
-//! - **Sunk** ([`paint_sunken`]): `well` with the `shade` lip, for troughs,
-//!   grooves and meters; fields add a border ([`paint_field`]).
-//! - **Disabled**: a flat `control` fill and `text_disabled` letters.
-//!
-//! State is never colour alone: callers keep the label, icon or shape.
-
 use eframe::egui::{
     self, Color32, Mesh, Painter, Pos2, Rect, Response, Sense, Shape, Stroke, StrokeKind, Ui, pos2,
     vec2,
@@ -29,23 +7,17 @@ use eframe::emath::GuiRounding as _;
 use crate::theme::{self, Tone, radius, stroke};
 use crate::{light, motion};
 
-/// How a control looks this frame.
 #[derive(Debug, Clone, Copy)]
 pub struct Face {
-    /// The colours for the surface under it (`theme::controls`).
     pub surface: theme::Controls,
-    /// Pointer over it, 0 to 1 (`motion::hover`).
     pub hover: f32,
     pub pressed: bool,
-    /// How lit it is, 0 to 1 (`motion::hover` of the on state, so it
-    /// cross-fades).
     pub lit: f32,
     pub tone: Tone,
     pub enabled: bool,
 }
 
 impl Face {
-    /// A plain control on a surface, at rest.
     pub fn new(surface: theme::Controls) -> Self {
         Self {
             surface,
@@ -57,7 +29,6 @@ impl Face {
         }
     }
 
-    /// Greyed out: flat, `text_disabled` letters.
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
         self
@@ -73,14 +44,12 @@ impl Face {
         self
     }
 
-    /// Lit by `lit` (0 to 1) in `tone`.
     pub fn lit(mut self, lit: f32, tone: Tone) -> Self {
         self.lit = lit;
         self.tone = tone;
         self
     }
 
-    /// The colour of letters and icons on this face.
     pub fn text(&self) -> Color32 {
         let c = theme::p();
         if !self.enabled {
@@ -94,9 +63,6 @@ impl Face {
     }
 }
 
-/// Draws a control in `rect` (snap it to pixels first): raised, pressed,
-/// on or disabled as `face` says. Returns the rect its content is centred
-/// in: 1 pt lower while pressed.
 pub fn paint(painter: &Painter, rect: Rect, radius: u8, face: &Face) -> Rect {
     let c = theme::p();
     let r = f32::from(radius);
@@ -143,14 +109,10 @@ pub fn paint(painter: &Painter, rect: Rect, radius: u8, face: &Face) -> Rect {
     rect
 }
 
-/// A well cut into the surface (a segmented control's trough, a groove, a
-/// meter): `well` with the `shade` lip along its top.
 pub fn paint_sunken(painter: &Painter, rect: Rect, radius: u8) {
     painter.extend(sunken_shapes(rect, radius));
 }
 
-/// The shapes [`paint_sunken`] paints, for a well drawn under what it
-/// holds once that is placed (`widgets::well::row`).
 pub fn sunken_shapes(rect: Rect, radius: u8) -> [Shape; 2] {
     [
         Shape::rect_filled(rect, f32::from(radius), theme::p().well),
@@ -158,8 +120,6 @@ pub fn sunken_shapes(rect: Rect, radius: u8) -> [Shape; 2] {
     ]
 }
 
-/// A field (a value field, a readout): sunk, with a 1 pt `border` that
-/// strengthens to `border_strong` by `hover`.
 pub fn paint_field(painter: &Painter, rect: Rect, radius: u8, hover: f32) {
     let c = theme::p();
     painter.rect_filled(rect, f32::from(radius), c.well);
@@ -175,21 +135,14 @@ pub fn paint_field(painter: &Painter, rect: Rect, radius: u8, hover: f32) {
     );
 }
 
-/// A 1 pt line in `colour` along the top inside edge of `rect`, under its
-/// border: the edge light on what is raised, the lip on what is pressed.
-/// It follows the rounded corners and fades down them, as an inset shadow
-/// 1 pt down does.
 pub fn lip(painter: &Painter, rect: Rect, radius: u8, colour: Color32) {
     painter.add(lip_shape(rect, radius, colour, Edge::UnderBorder));
 }
 
-/// [`lip`] on a surface with no border (a well, a thumb): the line is the
-/// surface's top row.
 pub(super) fn bare_lip(painter: &Painter, rect: Rect, radius: u8, colour: Color32) {
     painter.add(lip_shape(rect, radius, colour, Edge::Bare));
 }
 
-/// Where a lip sits: its surface's top row, or the row under its border.
 #[derive(Clone, Copy)]
 enum Edge {
     Bare,
@@ -197,14 +150,11 @@ enum Edge {
 }
 
 fn lip_shape(rect: Rect, radius: u8, colour: Color32, edge: Edge) -> Shape {
-    /// Segments in each corner's quarter turn: smooth at 200%.
     const STEPS: usize = 6;
     if colour.a() == 0 || rect.width() <= 0.0 || rect.height() <= 0.0 {
         return Shape::Noop;
     }
     let width = stroke::HAIRLINE;
-    // The line's centre, inside the outline by half its width (and the
-    // border's width under a border).
     let inset = match edge {
         Edge::Bare => 0.5 * width,
         Edge::UnderBorder => 1.5 * width,
@@ -221,8 +171,6 @@ fn lip_shape(rect: Rect, radius: u8, colour: Color32, edge: Edge) -> Shape {
             Stroke::new(width, colour),
         );
     }
-    // Down each top corner to where its side begins, so the line wraps over
-    // the corners; it fades as the corner turns, by how far down it is.
     let centre_y = top + r;
     let corners = [
         (pos2(rect.left() + outer, centre_y), 180.0_f32),
@@ -247,8 +195,6 @@ fn lip_shape(rect: Rect, radius: u8, colour: Color32, edge: Edge) -> Shape {
     )
 }
 
-/// A vertical gradient inside a rounded rectangle: a convex fan with the
-/// colour set per vertex.
 pub fn gradient(painter: &Painter, rect: Rect, radius: f32, top: Color32, bottom: Color32) {
     const STEPS: usize = 4;
     if rect.height() <= 0.0 || rect.width() <= 0.0 {
@@ -285,13 +231,10 @@ pub fn gradient(painter: &Painter, rect: Rect, radius: f32, top: Color32, bottom
     painter.add(Shape::mesh(mesh));
 }
 
-/// A raised button named `label`, sized to its letters (24 pt, radius
-/// 6).
 pub fn button(ui: &mut Ui, label: &str) -> Response {
     button_inked(ui, label, None)
 }
 
-/// How wide [`button`] is for `label`, for a layout that measures first.
 pub fn button_width(ui: &Ui, label: &str) -> f32 {
     let galley = ui.painter().layout_no_wrap(
         label.to_owned(),
@@ -301,20 +244,14 @@ pub fn button_width(ui: &Ui, label: &str) -> f32 {
     galley.size().x + 2.0 * theme::space::M
 }
 
-/// The one primary button of a view: filled accent, `on_accent` letters.
 pub fn primary_button(ui: &mut Ui, label: &str) -> Response {
     button_face(ui, label, None, Some(Tone::Accent))
 }
 
-/// [`button`] with its letters in `ink` (Panic's record red), still on one
-/// pixel-snapped centred line.
 pub fn button_inked(ui: &mut Ui, label: &str, ink: Option<Color32>) -> Response {
     button_face(ui, label, ink, None)
 }
 
-/// [`button`] whose letters are in `font` rather than the interface's body
-/// face, and lit while `on`: the app menu's wordmark, set in the display
-/// face, lights while its menu shows as a control that is on does.
 pub fn text_button(ui: &mut Ui, label: &str, font: egui::FontId, on: bool) -> Response {
     button_face_in(ui, label, font, None, on.then_some(Tone::On))
 }
@@ -364,8 +301,6 @@ fn button_face_in(
     response
 }
 
-/// A raised square button of the control's height named `name`; `draw`
-/// paints the icon centred on the point it is given, in the colour given.
 pub fn icon_button(
     ui: &mut Ui,
     name: &str,
@@ -384,7 +319,6 @@ pub fn icon_button(
     response
 }
 
-/// A plain face for `response`'s hover and press this frame.
 pub fn face_of(ui: &Ui, response: &Response) -> Face {
     let hover = motion::hover(ui.ctx(), response.id.with("hover"), response.hovered());
     Face::new(theme::controls(false))
@@ -392,8 +326,6 @@ pub fn face_of(ui: &Ui, response: &Response) -> Face {
         .pressed(response.is_pointer_button_down_on())
 }
 
-/// Centres `galley` in `rect` on one line, snapped to whole pixels so
-/// letters and icons beside it share a baseline.
 pub fn centre_galley(
     painter: &Painter,
     rect: Rect,
@@ -404,29 +336,18 @@ pub fn centre_galley(
     painter.galley_with_override_text_color(at, galley, colour);
 }
 
-/// The 2 pt accent ring of keyboard focus, 2 pt outside `rect`, rounded
-/// to follow the control (its radius taken from its height).
 pub fn focus_ring(painter: &Painter, response: &Response, rect: Rect) {
     if response.has_focus() {
         paint_focus(painter, rect, radius::for_height(rect.height()));
     }
 }
 
-/// How far outside its control the focus ring reaches: the gap and the
-/// ring's own stroke. Anything that clips its contents (a scroll area) pads
-/// them by this much so a focused first or last row keeps its whole ring.
 pub const FOCUS_OUTSET: f32 = stroke::FOCUS + stroke::FOCUS;
 
-/// `rect` grown up and down by [`FOCUS_OUTSET`]: what to scroll into view
-/// for a focused row, so its ring is not cut at the scroll area's edge.
 pub fn ring_rect(rect: Rect) -> Rect {
     rect.expand2(vec2(0.0, FOCUS_OUTSET))
 }
 
-/// Runs `add` with [`FOCUS_OUTSET`] of room above and below, for the
-/// contents of a vertical scroll area: it clips to its inner rect, which
-/// would cut the focus ring of the first and last row. The room is part of
-/// the scrolled content (add [`ring_room_height`] to a `max_height`).
 pub fn ring_room<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
     egui::Frame::NONE
         .inner_margin(egui::Margin::symmetric(0, FOCUS_OUTSET as i8))
@@ -434,12 +355,10 @@ pub fn ring_room<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
         .inner
 }
 
-/// The height [`ring_room`] adds to its contents.
 pub const fn ring_room_height() -> f32 {
     2.0 * FOCUS_OUTSET
 }
 
-/// The focus ring around `rect` of corner `radius`, drawn now.
 pub fn paint_focus(painter: &Painter, rect: Rect, radius: u8) {
     painter.rect_stroke(
         rect.expand(FOCUS_OUTSET),

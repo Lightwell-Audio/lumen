@@ -1,6 +1,3 @@
-//! Render, encode, measure, then publish. All disk and plugin work stays on
-//! this worker; each stem starts with fresh hosts and the same snapshot.
-
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -30,12 +27,8 @@ pub struct Job {
     pub destination: PathBuf,
     pub targets: Vec<(Option<Id>, String)>,
     pub live: Option<Arc<Mutex<export_live::Handle>>>,
-    /// Existing project and media files may never be export destinations.
     pub protected: Vec<PathBuf>,
-    /// What the clips could not read from disk; an export with a hole fails.
     pub unread: Unread,
-    /// The warped streams the clips play, held until the job is done (a
-    /// real-time export reads them again on its own thread).
     pub _warps: Option<Arc<crate::media::warped::WarpedStreams>>,
 }
 
@@ -118,8 +111,6 @@ fn encoding(options: Options) -> lumen_media::export::Spec {
     }
 }
 
-/// The loudness and true peak of an exported file, read block by block so
-/// the file is never held whole (M9 slice R6).
 fn measure(path: &Path, cancel: &AtomicBool) -> Result<Option<Report>, String> {
     let mut found: Option<(u32, Blocks, Loudness, [TruePeak; 2])> = None;
     let mut peak = 0f32;
@@ -154,7 +145,6 @@ fn measure(path: &Path, cancel: &AtomicBool) -> Result<Option<Report>, String> {
     let Some((rate, _, loudness, mut peaks)) = found else {
         return Err(MediaError::Empty.to_string());
     };
-    // Flush the finite interpolation filter so the final samples count.
     for p in &mut peaks {
         peak = peak.max(p.process(&[0.0; 64]));
     }
@@ -239,8 +229,6 @@ pub(super) fn run(
         job.clips = clips;
     }
     if job.live.is_some() {
-        // The audio callback plays a real-time export: nothing it plays may
-        // read the disk, so streamed files are read into memory first.
         job.clips = streams::in_memory(std::mem::take(&mut job.clips))?;
     }
     let count = job.targets.len().max(1) as f32;

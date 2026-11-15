@@ -1,7 +1,3 @@
-//! MIDI for the app: the device layer (`lumen-midi`) with the user's
-//! switches, saved in the settings. Listing and opening ports happens on
-//! the layer's own thread; the UI reads a snapshot (M5 slice 0, ADR-0044).
-
 pub(crate) mod export;
 pub(crate) mod files;
 pub(crate) mod out;
@@ -18,22 +14,16 @@ use lumen_midi::{Direction, MidiSystem, PortEvent, PortId, PortState, Use};
 
 use crate::settings;
 
-/// The clock delay's range in milliseconds (the owner's F4).
 pub const SYNC_DELAY_MS: (i32, i32) = (-20, 50);
 
-/// Where MIDI ports come from.
 #[derive(Clone)]
 pub enum Source {
-    /// The operating system's MIDI.
     System,
-    /// No MIDI at all (`--midi off`).
     Off,
-    /// A scripted driver, for tests (`--midi test:fake` starts an empty one).
     Test(FakeControl),
 }
 
 impl Source {
-    /// Parses `--midi`.
     pub fn parse(arg: &str) -> Result<Self, String> {
         match arg {
             "system" => Ok(Source::System),
@@ -46,17 +36,14 @@ impl Source {
     }
 }
 
-/// What the settings window asks for.
 pub enum Action {
     Use(PortId, Use),
     Rescan,
-    /// An output's clock delay in milliseconds (M5 slice 7): saved only.
     SyncDelay(String, i32),
 }
 
 pub struct Midi {
     system: Option<MidiSystem>,
-    /// Plugging and failures worth telling the user, newest last.
     pub notices: Vec<String>,
 }
 
@@ -68,8 +55,6 @@ fn direction_key(direction: Direction) -> &'static str {
 }
 
 impl Midi {
-    /// `wake` is called from a driver's thread when a playing message
-    /// arrives, so the interface can sleep between them.
     pub fn start(source: Source, saved: &settings::Midi, wake: lumen_midi::Waker) -> Self {
         let uses: HashMap<PortId, Use> = saved
             .ports
@@ -121,7 +106,6 @@ impl Midi {
         }
     }
 
-    /// The ports present now, inputs first.
     pub fn ports(&self) -> Vec<PortState> {
         let mut ports = self
             .system
@@ -132,30 +116,22 @@ impl Midi {
         ports
     }
 
-    /// Messages from every open input, once: the live feed takes them.
     pub fn take_input(&mut self) -> Option<rtrb::Consumer<lumen_midi::Timed>> {
         self.system.as_mut().and_then(MidiSystem::take_input)
     }
 
-    /// The traffic count of a port (see `MidiSystem::activity`); 0 when
-    /// MIDI is off or the port is not there.
     pub fn activity(&self, id: &PortId) -> u32 {
         self.system.as_ref().map_or(0, |s| s.activity(id))
     }
 
-    /// Whether a key is held down on an input port now.
     pub fn held(&self, id: &PortId) -> bool {
         self.system.as_ref().is_some_and(|s| s.held(id))
     }
 
-    /// A handle that sends from other threads, if MIDI is on.
     pub fn sender(&self) -> Option<lumen_midi::MidiSender> {
         self.system.as_ref().map(MidiSystem::sender)
     }
 
-    /// Sends All Notes Off and All Sound Off on every channel of the named
-    /// outputs (those that are open). The engine does the same when it
-    /// runs; this covers it not running.
     pub fn panic(&self, names: &[String]) {
         let Some(system) = &self.system else { return };
         for name in names {
@@ -177,7 +153,6 @@ impl Midi {
         }
     }
 
-    /// Why MIDI is not available, if it is not.
     pub fn unavailable(&self) -> Option<String> {
         match &self.system {
             None => Some("MIDI is switched off for this run".into()),
@@ -185,8 +160,6 @@ impl Midi {
         }
     }
 
-    /// Plugging and unplugging since the last call, as notices. True when
-    /// the ports changed (the window should redraw).
     pub fn poll(&mut self) -> bool {
         let Some(system) = &self.system else {
             return false;
@@ -211,8 +184,6 @@ impl Midi {
         }
     }
 
-    /// Folds a port's new switches into what is saved. Ports that are
-    /// switched off everywhere are forgotten.
     pub fn remember(saved: &mut settings::Midi, id: &PortId, using: Use) {
         let key = direction_key(id.direction);
         let delay = saved
@@ -237,10 +208,6 @@ impl Midi {
         }
     }
 
-    /// The clock delay saved for the output `name`, in milliseconds, within
-    /// the limits of [`SYNC_DELAY_MS`]: a settings file edited by hand, or
-    /// written by another version, can hold any number, and a far-off delay
-    /// would make the sender keep every clock message until then.
     pub fn sync_delay(saved: &settings::Midi, name: &str) -> i32 {
         saved
             .ports
@@ -251,8 +218,6 @@ impl Midi {
             })
     }
 
-    /// Saves the clock delay of the output `name` (a port with Sync on is
-    /// always remembered).
     pub fn set_sync_delay(saved: &mut settings::Midi, name: &str, ms: i32) {
         let ms = ms.clamp(SYNC_DELAY_MS.0, SYNC_DELAY_MS.1);
         if let Some(port) = saved

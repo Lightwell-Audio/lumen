@@ -1,6 +1,3 @@
-//! The host's protocol handling, driven with raw frames: what it does with
-//! a block from an older configuration and with bytes it cannot trust.
-
 mod support;
 
 use std::io::Write;
@@ -62,7 +59,6 @@ fn a_block_from_an_older_configuration_is_refused_and_not_processed() {
         configure(1),
         block(1, 0),
         configure(2),
-        // A late block from generation 1.
         block(1, 1),
         block(2, 2),
         Request::Quit,
@@ -105,7 +101,6 @@ fn a_failed_configuration_leaves_no_generation_to_process_in() {
             sample_rate: 48_000.0,
             max_frames: 256,
             inputs: 0,
-            // Not something the instrument will agree to.
             outputs: 1,
             aux_inputs: 0,
             aux_outputs: 0,
@@ -168,7 +163,6 @@ fn the_host_binary_exits_with_a_code_on_garbage_and_cleanly_on_close() {
     let response = read_response(&mut output.stdout.as_slice()).unwrap();
     assert!(matches!(response, Response::Failed { .. }));
 
-    // Closing stdin with nothing sent is how a host learns Lumen is gone.
     let mut child = Command::new(HOST)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -181,8 +175,6 @@ fn the_host_binary_exits_with_a_code_on_garbage_and_cleanly_on_close() {
 
 #[test]
 fn an_exchange_through_the_real_binary_parses_end_to_end() {
-    // The host's stdout carries only frames (a plugin's own prints are
-    // pointed at stderr); a whole exchange must parse with nothing left over.
     let mut child = Command::new(HOST)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

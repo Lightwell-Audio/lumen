@@ -1,15 +1,9 @@
-//! The metronome's menu, and the loop and punch switches.
-
 use super::*;
 
 impl Transport {
-    /// The metronome button's menu: volume, sound, count-in, the
-    /// record-only and keep-played switches, and the output.
     pub(super) fn metronome_menu(&mut self, ui: &mut Ui, record: RecordSettings) {
         let mut changed = false;
         ui.label("Metronome volume");
-        // A value slider like every other level (it was egui's own);
-        // double-click goes back to the default level.
         let (rect, _) = ui.allocate_exact_size(
             egui::vec2(160.0, theme::size::CONTROL_SMALL),
             egui::Sense::hover(),
@@ -38,8 +32,6 @@ impl Transport {
             self.metronome.sound = sound;
             changed = true;
         }
-        // The count-in and the record-only switch are the palette's
-        // settings: the choices ask the app for their commands.
         ui.separator();
         widgets::menu_caption(ui, "Count-in");
         let counts =
@@ -62,8 +54,6 @@ impl Transport {
         {
             self.requests.push(Run::KeepPlayedNotes);
         }
-        // Its own output, never through the master (the owner's D6): the
-        // main pair, or the cue pair for the headphones.
         ui.separator();
         widgets::menu_caption(ui, "Output");
         let cue = crate::settings::CUE_CHANNEL;
@@ -90,8 +80,6 @@ impl Transport {
     }
 }
 
-/// Loop and punch switches: the loop button's and the loop brace's
-/// right-click menus. Punch in and out act at the loop's edges.
 pub fn punch_menu(ui: &mut Ui, doc: &mut crate::document::Document, keymap: &Keymap) {
     let t = doc.project().transport;
     let keys = keymap.keys(Run::ToggleLoop);

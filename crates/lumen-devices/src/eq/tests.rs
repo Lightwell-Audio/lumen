@@ -1,6 +1,3 @@
-//! Iris's own tests: the table, the words it says, and that a still Iris
-//! passes everything without touching it.
-
 use super::*;
 use crate::ParamBlock;
 use crate::effect::{Block, Effect, Stereo};
@@ -8,8 +5,6 @@ use crate::eq::words::{
     db_parse, kind_parse, kind_text, on_parse, on_text, q_parse, side_parse, side_text, slope_parse,
 };
 
-/// The table pinned by id, name and normalised default: an id may not be
-/// renamed, reused or renumbered without failing here (as Prism's is).
 #[test]
 fn the_parameter_table_is_pinned_by_id_name_and_default() {
     let pinned: Vec<(u32, &str, u32)> = TABLE
@@ -71,12 +66,9 @@ fn the_parameter_table_is_pinned_by_id_name_and_default() {
             "{got:?} against {want:?}"
         );
     }
-    // No id is reused, and none is zero.
     let ids: std::collections::HashSet<u32> = TABLE.iter().map(|info| info.id).collect();
     assert_eq!(ids.len(), TABLE.len());
     assert!(!ids.contains(&0));
-    // Every id a band names is either in the table or a field that band does
-    // not have.
     for band in 1..=BANDS {
         for field in 1..=5 {
             let id = field_of(band, field);
@@ -125,14 +117,11 @@ fn the_other_words_read_and_are_read_back() {
     assert_eq!(on_text(0.0), "Off");
     assert_eq!(side_parse("pre"), Some(0.0));
     assert_eq!(side_text(1.0), "Output");
-    // A choice stops on its own steps.
     let kind = params::find(TABLE, type_of(2)).unwrap();
     assert_eq!(kind.value(0.3), 1.0);
     assert_eq!(kind.normalised(2.0), 2.0 / 3.0);
 }
 
-/// The face's frequency axis is the one the response is drawn on: 20 Hz to
-/// 20 kHz, evenly on a log scale.
 #[test]
 fn the_face_s_axis_runs_from_twenty_hertz_to_twenty_kilohertz() {
     assert!((axis(20.0) - 0.0).abs() < 1e-6);
@@ -143,7 +132,6 @@ fn the_face_s_axis_runs_from_twenty_hertz_to_twenty_kilohertz() {
     }
 }
 
-/// Nothing set: the output is the input, to the last bit, at any block size.
 #[test]
 fn a_fresh_iris_passes_everything_untouched() {
     for block in [64usize, 97, 128, 512] {
@@ -172,9 +160,6 @@ fn a_fresh_iris_passes_everything_untouched() {
     }
 }
 
-/// The response the face draws is the bands' settings added up: a +6 dB bell
-/// at 1 kHz reads 6 dB there and nothing far from it, and the output gain is
-/// added at every point.
 #[test]
 fn the_drawn_response_is_the_bands_added_up() {
     let mut values: Vec<(u32, f32)> = TABLE
@@ -195,7 +180,6 @@ fn the_drawn_response_is_the_bands_added_up() {
     set(&mut values, OUTPUT, -3.0);
     let mut out = [0.0f32; 64];
     response(&values, 48_000, &mut out, (20.0, 20_000.0));
-    // The point nearest 1 kHz is the 6 dB the band gives, less the output.
     let nearest = out
         .iter()
         .enumerate()
@@ -208,12 +192,10 @@ fn the_drawn_response_is_the_bands_added_up() {
         .map(|(at, _)| at)
         .unwrap();
     assert!((out[nearest] - 3.0).abs() < 0.3, "{}", out[nearest]);
-    // 20 Hz is far from it: only the output gain is left.
     assert!((out[0] + 3.0).abs() < 0.1, "{}", out[0]);
     assert!((out[63] + 3.0).abs() < 0.1, "{}", out[63]);
 }
 
-/// A band that is off contributes nothing, whatever it is set to.
 #[test]
 fn a_band_that_is_off_is_not_in_the_response() {
     let mut values: Vec<(u32, f32)> = TABLE

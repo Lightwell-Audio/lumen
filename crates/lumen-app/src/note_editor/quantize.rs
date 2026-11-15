@@ -1,18 +1,3 @@
-//! Quantize and its tools in the clip editor (M5 slice 5c; the owner chose
-//! ghost trails and comet sliders from the "Lumen Quantize Specimens").
-//!
-//! - [`Options`] are the popover's settings (Shift+Q); Q applies the last
-//!   ones. They become the pure `edit::quantize::Settings` once the grid is
-//!   known (`Options::settings`).
-//! - While the popover is open the editor shows what Apply would do: the
-//!   clip is drawn with the quantized notes (a stand-in clip with the notes
-//!   in their old order, so picks keep their indices) and each note that
-//!   moves leaves a dashed outline where it was and a line to where it went
-//!   ([`Trail`]). The document is not touched until Apply.
-//! - The tools beside it (humanize, fixed length, scale constrain, reverse)
-//!   run on the picked notes, or on every note when none are picked, with
-//!   fixed amounts (see `Tools`).
-
 use std::sync::Arc;
 
 use eframe::egui::{self, Id as EguiId, Ui, vec2};
@@ -29,12 +14,9 @@ use crate::commands::Command;
 use crate::widgets::{self, Choice, Dropdown, SliderKind, raised};
 use crate::{App, theme};
 
-/// Width of the popover's content.
 const WIDTH: f32 = 280.0;
-/// The label column.
 const LABEL: f32 = 76.0;
 
-/// A note value for the grid, as a fraction of a whole note.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Division {
     Quarter,
@@ -74,7 +56,6 @@ impl Division {
     }
 }
 
-/// Straight, triplet or dotted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum Kind {
     #[default]
@@ -83,16 +64,13 @@ pub(crate) enum Kind {
     Dotted,
 }
 
-/// The popover's settings.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Options {
-    /// The grid; `None` follows the editing grid (the owner's C5).
     pub grid: Option<Division>,
     pub kind: Kind,
     pub mode: Mode,
     pub strength: f32,
     pub swing: f32,
-    /// 1 is off.
     pub window: f32,
 }
 
@@ -110,7 +88,6 @@ impl Default for Options {
 }
 
 impl Options {
-    /// The pure settings, with `editing` the editing grid's step.
     pub fn settings(&self, editing: Ticks) -> quantize::Settings {
         let base = self.grid.map_or(editing.0, Division::ticks);
         let step = match self.kind {
@@ -127,8 +104,6 @@ impl Options {
         }
     }
 
-    /// What Q will do, short: the grid ("1/16", "1/8T", "1/16."), then only
-    /// what is not the default: the mode, strength and swing.
     pub fn summary(&self, editing: Ticks) -> String {
         let base = self
             .grid
@@ -153,7 +128,6 @@ impl Options {
         text
     }
 
-    /// The options as the settings keep them.
     pub fn saved(&self) -> crate::settings::QuantizeChoices {
         crate::settings::QuantizeChoices {
             grid: self.grid.map(|d| d.label().to_owned()),
@@ -176,8 +150,6 @@ impl Options {
         }
     }
 
-    /// The options the settings keep; a word or an amount that cannot be
-    /// read is the default's.
     pub fn from_saved(saved: &crate::settings::QuantizeChoices) -> Self {
         let d = Self::default();
         let amount = |v: f32, default: f32| {
@@ -209,7 +181,6 @@ impl Options {
         }
     }
 
-    /// The grid as the popover's dropdown names it.
     fn grid_label(&self, editing: Ticks) -> String {
         match self.grid {
             Some(d) => d.label().to_owned(),
@@ -218,7 +189,6 @@ impl Options {
     }
 }
 
-/// A step in ticks as a note value, for the dropdown's "Editing grid".
 fn step_name(step: Ticks) -> String {
     Division::ALL
         .iter()
@@ -226,24 +196,19 @@ fn step_name(step: Ticks) -> String {
         .map_or_else(|| "custom".to_owned(), |d| d.label().to_owned())
 }
 
-/// The amounts the tools use (a popover for them would need a mock-up).
 pub(crate) const HUMANIZE_TIMING: Ticks = Ticks(PPQ / 16);
 pub(crate) const HUMANIZE_VELOCITY: u8 = 8;
 
-/// A note that the preview moves: where it was and where Apply puts it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Trail {
     pub from: Note,
     pub to: Note,
 }
 
-/// What the popover shows of the clip while it is open.
 #[derive(Clone)]
 pub(crate) struct Shown {
-    /// The clip with its notes quantized, in their old order.
     pub clip: Arc<Clip>,
     pub trails: Arc<Vec<Trail>>,
-    /// How many notes were looked at, and the largest move in ticks.
     pub looked_at: usize,
     pub largest: Ticks,
 }
@@ -255,21 +220,16 @@ struct Cache {
     shown: Shown,
 }
 
-/// The quantize state of the editor.
 #[derive(Default)]
 pub(crate) struct QuantizeState {
     pub options: Options,
-    /// The toolbar button's id: Shift+Q opens the popover through it.
     pub button: Option<EguiId>,
     cache: Option<Cache>,
-    /// Counts humanize presses, so each one gives different offsets.
     pub humanized: u64,
-    /// The root (0 is C) and scale of "Constrain to scale".
     pub root: u8,
     pub scale: ScaleChoice,
 }
 
-/// A scale, as a `Default` for the state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ScaleChoice(pub Scale);
 
@@ -283,8 +243,6 @@ const ROOTS: [&str; 12] = [
     "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
 ];
 
-/// The notes an edit works on: the picked ones, or every note the editor
-/// shows (all of the clip's, those outside its window too; ADR-0059).
 pub(crate) fn targets(picked: &[usize], clip: &Clip) -> Vec<usize> {
     if picked.is_empty() {
         (0..notes_of(clip).len()).collect()
@@ -293,8 +251,6 @@ pub(crate) fn targets(picked: &[usize], clip: &Clip) -> Vec<usize> {
     }
 }
 
-/// Quantizes `notes` one by one (each note stands alone in the pure
-/// function), so the result keeps their order.
 fn quantized(clip: &Clip, targets: &[usize], s: &quantize::Settings) -> Shown {
     let notes = notes_of(clip);
     let length = edit::content_length(clip);
@@ -314,8 +270,6 @@ fn quantized(clip: &Clip, targets: &[usize], s: &quantize::Settings) -> Shown {
         }
         out[i] = to;
     }
-    // The clip itself with other notes: its place, loop and events stay, so
-    // the roll draws it where the clip is.
     let mut stand_in = clip.clone();
     if let ClipContent::Midi { notes, .. } = &mut stand_in.content {
         *notes = out;
@@ -329,9 +283,6 @@ fn quantized(clip: &Clip, targets: &[usize], s: &quantize::Settings) -> Shown {
 }
 
 impl QuantizeState {
-    /// The clip as Apply would leave it, while the popover is open; `None`
-    /// when it is closed. Rebuilt only when the clip, the picks or the
-    /// settings changed.
     pub fn shown(
         &mut self,
         open: bool,
@@ -364,20 +315,17 @@ impl QuantizeState {
 }
 
 impl App {
-    /// The editing grid's step where the clip starts.
     pub(super) fn editing_step(&self, ed: &NoteEditor, clip: &Clip) -> Ticks {
         let (a, b) = self.grid_cell_at_zoom(clip.start, ed.time.zoom);
         (b - a).max(edit::notes::MIN_NOTE)
     }
 
-    /// Shift+Q: opens the options.
     pub(crate) fn open_quantize_options(&mut self, ctx: &egui::Context) {
         if let Some(id) = self.note_editor.quantize.button {
             widgets::Menu::open_for(ctx, id);
         }
     }
 
-    /// The Quantize button and its popover, in the editor's toolbar.
     pub(super) fn quantize_button(&mut self, row: &mut Ui, ed: &mut NoteEditor, clip: &Clip) {
         let response = raised::button(row, "Quantize");
         ed.quantize.button = Some(response.id);
@@ -389,8 +337,6 @@ impl App {
             Some("Q applies the last settings; this shows what it will do first"),
         );
         let editing = self.editing_step(ed, clip);
-        // What Q does is told beside the button, so it is known with the
-        // popover closed (owner, MT-MIDI-6: "what subdivision is it?").
         let summary = ed.quantize.options.summary(editing);
         row.label(
             egui::RichText::new(&summary)
@@ -410,7 +356,6 @@ impl App {
         }
     }
 
-    /// The popover's rows. Returns whether Apply was pressed.
     fn quantize_popover(
         &mut self,
         ui: &mut Ui,
@@ -424,7 +369,6 @@ impl App {
         let o = &mut ed.quantize.options;
         let mut changed = false;
 
-        // Grid: a dropdown and straight / triplet / dotted.
         ui.horizontal(|ui| {
             label(ui, "Grid");
             let mut names = vec![format!("Editing grid ({})", step_name(editing))];
@@ -497,12 +441,10 @@ impl App {
         }
         if changed {
             widgets::note_change(ui);
-            // Kept for the next start (KNOWN_ISSUES row 120).
             self.settings.quantize = o.saved();
             self.settings_changed = Some(std::time::Instant::now());
         }
 
-        // What it will do.
         let picked = ed.picked().to_vec();
         let (moved, total, largest) = match ed.quantize.cache.as_ref() {
             Some(c) => (c.shown.trails.len(), c.shown.looked_at, c.shown.largest),
@@ -545,7 +487,6 @@ impl App {
         apply
     }
 
-    /// Milliseconds a span of ticks lasts at the project's tempo here.
     fn ticks_to_ms(&self, span: Ticks) -> u32 {
         let bpm = self
             .document
@@ -558,8 +499,6 @@ impl App {
         (beats * 60_000.0 / bpm).round() as u32
     }
 
-    /// The tools' submenu entries in the roll's context menu: a row per tool
-    /// and the scale choices.
     pub(super) fn tools_menu(&mut self, ui: &mut Ui, ed: &mut NoteEditor) -> Option<super::NoteOp> {
         let mut op = None;
         let keys = |s: &Self, c| s.keymap.keys(c);
@@ -603,7 +542,6 @@ impl App {
         op
     }
 
-    /// The seed for the next humanize.
     pub(super) fn humanize_with(&self, ed: &mut NoteEditor) -> Humanize {
         ed.quantize.humanized += 1;
         Humanize {
@@ -614,7 +552,6 @@ impl App {
     }
 }
 
-/// End, Both and Length change how long notes are.
 fn changes_lengths(mode: Mode) -> bool {
     mode != Mode::Start
 }

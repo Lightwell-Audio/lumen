@@ -1,9 +1,3 @@
-//! The transport (spec §5): what drives `lumen-engine` (play, stop, locate,
-//! scrub, Follow, the timeline it plays) here; the bar's controls (go to
-//! start, stop, play, record, loop, metronome, tempo, time signature, the
-//! position field) in `bar/`; the audio status, its panel and the
-//! settings window in `status.rs`. Keys are commands (`crate::commands`).
-
 mod bar;
 pub(crate) mod budget;
 mod budget_view;
@@ -29,109 +23,54 @@ pub use bar::punch_menu;
 pub use fit::divider;
 pub use midi_chip::{Lights as MidiLights, View as MidiView};
 
-/// What the disk thread reports, for the audio panel and the chip.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct DiskReading {
-    /// The share of the last second spent reading (0.0 to 1.0).
     pub load: f32,
-    /// Underruns since the pool was made.
     pub underruns: u64,
-    /// Pages that could not be read (a file gone or unreadable).
     pub failed: u32,
 }
 
 pub struct Transport {
     pub audio: Audio,
-    /// The UI's copy of what the engine plays against.
     pub timeline: Timeline,
-    /// A new timeline is waiting to be sent (the queue was full).
     timeline_pending: bool,
-    /// The project's own loop, which export, the loop brace and the rest read.
     pub loop_region: Region,
-    /// A loop the engine plays in its place while a clip is looped in its
-    /// editor (M9.5 S2c, LC A): never saved, never an edit.
     clip_loop: Option<Region>,
-    /// What the engine was last told to loop.
     sent_loop: Region,
-    /// Text while the position field is being edited.
     editing: Option<String>,
     error: Option<String>,
-    /// Keep drawing every frame until then, so the result of a command shows
-    /// at once rather than at the next idle repaint.
     settle_until: Option<Instant>,
-    /// Bytes of clip audio in memory, shown in the audio panel.
     pub clip_memory: usize,
     pub metronome: MetronomeSettings,
-    /// The metronome is held silent although it is on, because it sounds
-    /// only while recording (M5 slice 6): the engine is sent `enabled` off.
     metronome_gated: bool,
-    /// How the arrangement follows the playhead (saved in settings), and
-    /// whether that is paused by scrolling by hand (until Play).
     pub follow: crate::settings::Follow,
     pub follow_paused: bool,
-    /// The Follow mode to turn back on after Off.
     follow_last: crate::settings::Follow,
-    /// How the time ruler and the position's time read (saved in settings).
     pub time_format: crate::timefmt::TimeFormat,
     test_tone: bool,
-    /// What the MIDI chip's popover asked for, taken by the app.
     midi_asked: Vec<crate::midi::Action>,
-    /// A Preferences page the audio panel or the MIDI chip asked to open,
-    /// taken by the app (M9 R7).
     pub open_preferences: Option<crate::preferences::Page>,
-    /// The disk thread's reading while audio plays from disk, set by the app
-    /// each frame (M9 slice R6, the owner's D A).
     pub disk: Option<DiskReading>,
-    /// What a start waits for while audio plays from disk, set by the app,
-    /// and a start held for it (the owner's L A).
     pub gate: Option<hold::Gate>,
     held: Option<hold::Held>,
-    /// What the chip's lights showed when last drawn.
     pub midi_lights: MidiLights,
-    /// CPU load shown: the peak over the last second, refreshed once a second.
     cpu_peak: f32,
     cpu_taken: Option<Instant>,
-    /// Where each block's time goes, for the audio panel (ADR-0075); the
-    /// app feeds it the hosts' costs once a second.
     pub(crate) budget: budget::Budget,
-    /// Dropouts told as episodes in the bar and counts in the panel.
     dropouts: dropouts::Dropouts,
-    /// Underruns (pages the disk read too late) told the same way, counted
-    /// from `disk_base`, the pool's count at the last Reset.
     late: dropouts::Dropouts,
     disk_base: u64,
-    /// The playhead as drawn while playing: smooth, where the engine's
-    /// position moves once per audio block (`playhead.rs`).
     clock: crate::playhead::Clock,
     head: Option<Ticks>,
-    /// A locate sent, and where the engine's playhead was then: until the
-    /// engine reports a move, [`Self::position`] is the locate's target.
     located: Option<(Ticks, Ticks)>,
-    /// Playback started from stop since the app last looked: integrated
-    /// loudness starts again (the owner's B5; Continue keeps it).
     pub played_from_stop: bool,
-    /// Panic was pressed: the app also silences MIDI outputs directly (the
-    /// engine may not be running to do it).
     pub panic_midi: bool,
-    /// What the info line should say about the bar this frame, for the
-    /// app to take (the delay compensation readout).
     pub(crate) info: Option<crate::app::info::Info>,
-    /// The computer keyboard's readout while its mode is on, set by the app
-    /// each frame; `None` when off (M5 slice 2).
     pub(crate) keyboard_readout: Option<String>,
-    /// Its button was clicked, for the app to take.
     pub(crate) keyboard_clicked: bool,
-    /// Taps in the tap tempo run, set by the app each frame; 0 with none
-    /// (M9 R7).
     pub(crate) taps: usize,
-    /// The readout fitted in the bar this frame; when it did not (the
-    /// smallest window) the info line carries it.
     pub(crate) keyboard_readout_shown: bool,
-    /// What fits in the bar (`fit.rs`).
     fit: fit::Fit,
-    /// Commands the bar's controls asked for this frame (Record, Overdub,
-    /// the count-in, record-only metronome), for the app to run: the bar has
-    /// no access to the app's settings or its command dispatch.
     pub(crate) requests: Vec<crate::commands::Command>,
 }
 
@@ -144,7 +83,6 @@ fn timeline_of(project: &Project) -> Timeline {
 impl Transport {
     pub fn new(project: &Project, choice: &Choice) -> Self {
         let timeline = timeline_of(project);
-        // Until the ruler can set it (M3), the loop covers bars 1–4.
         let loop_region = Region::new(Ticks::ZERO, timeline.meter.bar_start(4), false);
         Self {
             audio: Audio::start(choice, timeline.clone()),
@@ -195,8 +133,6 @@ impl Transport {
         self.audio.engine.transport()
     }
 
-    /// Moves the drawn playhead on to `now` (seconds on the frame clock).
-    /// Once per frame, before anything reads [`Self::playhead`].
     pub fn advance_playhead(&mut self, now: f64) {
         let state = self.state();
         let rate = state.sample_rate;
@@ -223,14 +159,10 @@ impl Transport {
         });
     }
 
-    /// Where the playhead is drawn and followed: smooth while playing,
-    /// exactly the engine's position otherwise.
     pub fn playhead(&self) -> Ticks {
         self.head.unwrap_or_else(|| self.state().ticks)
     }
 
-    /// Whether the UI should redraw every frame: while playing, and briefly
-    /// after a command until the engine has applied it.
     pub fn animating(&self) -> bool {
         let state = self.state();
         state.playing
@@ -240,8 +172,6 @@ impl Transport {
     }
 
     fn settle(&mut self) {
-        // The engine applies commands at its next block (a few ms); the
-        // margin covers large buffers.
         self.settle_until = Some(Instant::now() + crate::motion::ENGINE_SETTLE);
     }
 
@@ -252,29 +182,20 @@ impl Transport {
             settings.enabled = false;
         }
         crate::trace::log(|| format!("send {command:?}"));
-        // Stop ends the sound check too (M9 slice R7b).
         if matches!(command, Command::Stop) {
             self.audio.stop_sound_check();
         }
         self.settle();
-        // A full queue means the engine is not running; the UI shows why.
         let _ = self.audio.engine.send(command);
     }
 
-    /// Sends `command`, which starts playback at `at`: while audio plays
-    /// from disk, once what plays there is in memory, for at most
-    /// [`hold::LONGEST`] (the owner's L A).
     fn start(&mut self, command: Command, at: Ticks) {
-        // A new start replaces one still waiting, which never fires.
         self.drop_held();
         let Some(gate) = &self.gate else {
             self.send(command);
             return;
         };
         let sample = gate.sample_at(at);
-        // The disk reads there first until the playhead has arrived, also
-        // when the start goes at once: what follows the ready part is read
-        // next.
         gate.cuer.cue(Some(sample));
         if gate.ready(sample) {
             self.send(command);
@@ -289,8 +210,6 @@ impl Transport {
         self.settle();
     }
 
-    /// Forgets a start held for the disk, and the disk's cue for it.
-    /// Whether one was held.
     fn drop_held(&mut self) -> bool {
         let dropped = self.held.take().is_some();
         if dropped && let Some(gate) = &self.gate {
@@ -299,18 +218,15 @@ impl Transport {
         dropped
     }
 
-    /// Sends a held start once it is due.
     fn release(&mut self) {
         if let Some(held) = &self.held
             && held.due(self.gate.as_ref(), Instant::now())
         {
-            // The disk keeps its cue until the playhead arrives there.
             let held = self.held.take().expect("checked above");
             self.send(held.command);
         }
     }
 
-    /// Stops and silences everything, MIDI notes included.
     pub fn panic(&mut self) {
         self.drop_held();
         self.send(Command::Panic);
@@ -318,8 +234,6 @@ impl Transport {
     }
 
     pub fn play_stop(&mut self) {
-        // Pressed again while Play waits for the disk: it never starts. A
-        // locate held while playing is dropped, and playback stops.
         if self.drop_held() && !self.state().playing {
             return;
         }
@@ -332,14 +246,11 @@ impl Transport {
         }
     }
 
-    /// Applies saved metronome settings.
     pub fn restore_metronome(&mut self, settings: MetronomeSettings) {
         self.metronome = settings;
         self.send(Command::SetMetronome(settings));
     }
 
-    /// Starts recording from the play marker, after `count_in` beats of
-    /// clicks when stopped (M5 slice 6).
     pub fn record(&mut self, count_in: u32) {
         let state = self.state();
         if state.playing {
@@ -350,19 +261,15 @@ impl Transport {
         }
     }
 
-    /// Stops (a count-in too), without the Stop-twice rule of [`Self::play_stop`].
     pub fn stop(&mut self) {
         self.drop_held();
         self.send(Command::Stop);
     }
 
-    /// Ends recording; playback carries on.
     pub fn end_record(&mut self) {
         self.send(Command::EndRecord);
     }
 
-    /// Holds the metronome silent (or lets it sound) while it is on but only
-    /// meant for recording. Resends it when this changes.
     pub fn gate_metronome(&mut self, gated: bool) {
         if gated != self.metronome_gated {
             self.metronome_gated = gated;
@@ -370,10 +277,7 @@ impl Transport {
         }
     }
 
-    /// Shift+Space: stop where playback is, or continue from the playhead.
     pub fn pause_continue(&mut self) {
-        // As Play: a held start is dropped; a held locate is dropped and
-        // playback pauses.
         if self.drop_held() && !self.state().playing {
             return;
         }
@@ -389,14 +293,11 @@ impl Transport {
         let state = self.state();
         self.located = Some((at, state.ticks));
         match &self.gate {
-            // While playing, the playhead holds at the old place until the
-            // new one is ready (L A); stopped, the disk reads there first.
             Some(_) if state.playing => self.start(Command::Locate(at), at),
             Some(gate) => {
                 let held = self.held.take();
                 gate.cuer.cue(Some(gate.sample_at(at)));
                 self.send(Command::Locate(at));
-                // A start waiting for the disk waits for the new place.
                 if let Some(held) = held {
                     self.start(held.command, at);
                 }
@@ -405,10 +306,6 @@ impl Transport {
         }
     }
 
-    /// Where the playhead is, counting a locate the audio thread has not
-    /// played a block since: what edits at the playhead use (a paste right
-    /// after a click on the lanes landed at the old place, owner after M4
-    /// slice 7).
     pub fn position(&self) -> Ticks {
         let ticks = self.state().ticks;
         match self.located {
@@ -417,8 +314,6 @@ impl Transport {
         }
     }
 
-    /// Scrubs at `at` while stopped (slice 5e); the engine ignores it while
-    /// playing.
     pub fn scrub(&mut self, at: Ticks, style: lumen_engine::ScrubStyle) {
         self.send(Command::Scrub { at, style });
     }
@@ -427,32 +322,22 @@ impl Transport {
         self.send(Command::EndScrub);
     }
 
-    /// The loop the engine plays: a clip's, while it is looped in its editor
-    /// (M9.5 S2c, LC A), else the project's. Playback, the drawn playhead and
-    /// the disk's read-ahead follow it; export, recording and saving read
-    /// [`Self::loop_region`] and never see it.
     pub fn played_loop(&self) -> Region {
         self.clip_loop.unwrap_or(self.loop_region)
     }
 
-    /// Plays `region` on repeat in place of the project's loop, or goes back
-    /// to the project's with `None`.
     pub fn set_clip_loop(&mut self, region: Option<Region>) {
         self.clip_loop = region;
     }
 
-    /// The loop the engine was last told to play.
     pub fn sent_loop(&self) -> Region {
         self.sent_loop
     }
 
-    /// Whether a clip's loop is what plays.
     pub fn clip_looping(&self) -> bool {
         self.clip_loop.is_some()
     }
 
-    /// Plays the project's loop (its brace and switch are document edits,
-    /// slice 5c): sends it to the engine when it differs from what plays.
     pub fn follow_loop(&mut self, state: &lumen_project::model::TransportState) {
         self.loop_region = Region::new(state.loop_start, state.loop_end, state.loop_enabled);
         let played = self.played_loop();
@@ -462,13 +347,11 @@ impl Transport {
         }
     }
 
-    /// The metronome on or off (the button and `transport.metronome`).
     pub fn toggle_metronome(&mut self) {
         self.metronome.enabled = !self.metronome.enabled;
         self.send(Command::SetMetronome(self.metronome));
     }
 
-    /// Follow on, off, or back on after a pause (the button and Ctrl+Shift+F).
     pub fn toggle_follow(&mut self) {
         use crate::settings::Follow;
         if self.follow == Follow::Off {
@@ -482,7 +365,6 @@ impl Transport {
         }
     }
 
-    /// Applies the saved Follow mode.
     pub fn restore_follow(&mut self, follow: crate::settings::Follow) {
         self.follow = follow;
         if follow != crate::settings::Follow::Off {
@@ -490,10 +372,6 @@ impl Transport {
         }
     }
 
-    /// Rebuilds the timeline from the project and sends it to the engine
-    /// (after an edit, undo or redo that may have changed tempo or meter).
-    /// Most edits (arming, volume, pan, renaming) leave tempo and meter as
-    /// they were; those send nothing.
     pub fn timeline_changed(&mut self, project: &Project) {
         let timeline = timeline_of(project);
         if timeline == self.timeline {
@@ -504,8 +382,6 @@ impl Transport {
         self.settle();
     }
 
-    /// Per-frame work: device events and pending timeline swaps. Returns
-    /// true if something visible changed.
     pub fn update(&mut self) -> bool {
         if self
             .located

@@ -1,9 +1,3 @@
-//! On Windows, draws the app icon and the project file icon
-//! (`lumen_brand`, ADR-0117) into ICO files and embeds them in `lumen.exe`
-//! as icon resources 1 (the program) and 2 (`.lumen` files, the
-//! association's `DefaultIcon` is `"lumen.exe",-2`). No icon files are
-//! checked in, so the icons always match the drawing.
-
 use std::path::PathBuf;
 
 fn main() {

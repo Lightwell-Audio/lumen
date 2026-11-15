@@ -1,8 +1,3 @@
-//! A scriptable backend for tests: unplug, replug, reset, stall or reject
-//! settings on demand, and refuse, delay or hold on to a stream as a driver
-//! that does not answer would. Each `poll` runs one callback block, standing in for
-//! the driver's thread.
-
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -17,66 +12,26 @@ pub struct FakeDevice {
     pub present: bool,
     pub reset_pending: bool,
     pub stalled: bool,
-    /// Opens succeed even while unplugged (the stream then fails at once),
-    /// as some drivers do while their hardware is disappearing.
     pub phantom: bool,
-    /// Deliver a block only every Nth poll (1 = always): a starving
-    /// driver.
     pub deliver_every: u32,
-    /// Driver sample positions jump ahead by this many frames once (a
-    /// skipped buffer), then reset to 0.
     pub skip_frames: u64,
-    /// The driver sample position a new stream starts at. Some drivers
-    /// (the Focusrite's ASIO) keep counting through a reset, so a reopened
-    /// stream starts far past where the last one stopped.
     pub start_position: u64,
-    /// The next block reports no position and later ones jump this far
-    /// ahead: a driver that lost sync and resynced (ASIO's resync request).
     pub resync_jump: Option<u64>,
     pub opens: u32,
     pub buffer_sizes: BufferSizes,
-    /// Output channels the device has (4: a main and a cue pair).
     pub outputs: usize,
-    /// Input channels the device has (2).
     pub inputs: usize,
-    /// What each input channel hears, as a steady level (a DC signal), by
-    /// the device's channel: a channel past the list hears silence. Read at
-    /// every block, so a test changes it while the stream runs.
     pub input_levels: Vec<f32>,
-    /// Every input channel hears a ramp instead of `input_levels`: the
-    /// stream's frame count (counted from its start position) times a
-    /// millionth, wrapping at a million, so a recording shows to the sample
-    /// where each frame came from ([`ramp_at`]).
     pub input_ramp: bool,
-    /// Keep a pace: each poll runs every block the time since the stream
-    /// opened owes (up to [`CATCH_UP`]), so a poll that came late is made up
-    /// for, as a hardware driver's clock would be. `None`, a poll runs one
-    /// block however long it took, which a busy machine turns into a device
-    /// that runs slow and falls ever further behind the wall clock.
     pub pace: Option<Pace>,
-    /// Run at most this many more blocks, then none until it is raised:
-    /// a test that steps the engine by its own clock (the docs' recorder
-    /// grants each video frame its time's worth). `None` runs freely.
     pub allowance: Option<u64>,
-    /// A cable from an output to an input (M9 slice R2b): what the output
-    /// played comes back on the input `delay` frames later, times `gain`,
-    /// in place of `input_levels`. Delays shorter than a block read as
-    /// silence, as no real device is that quick.
     pub cable: Option<Cable>,
-    /// Every open is refused, as a driver that will not start.
     pub refuse_open: bool,
-    /// Inputs reported as not opening (silent in place), as a system that
-    /// blocks a microphone does.
     pub silent_inputs: Vec<String>,
-    /// Each open takes this long before it answers, as a driver that is
-    /// slow to start (or, for long enough, one that does not answer).
     pub open_delay: Duration,
-    /// Closing a stream takes this long, so a driver switch's handover
-    /// does not come in time: a driver that holds on to the audio.
     pub close_delay: Duration,
 }
 
-/// A loopback cable on the fake device, by device channel.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Cable {
     pub output: usize,
@@ -85,35 +40,24 @@ pub struct Cable {
     pub gain: f32,
 }
 
-/// Frames of output a fake cable remembers.
 const CABLE_FRAMES: usize = 1 << 18;
 
-/// How a paced device counts the blocks it owes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pace {
-    /// Real time at the stream's sample rate, as a hardware driver runs.
     RealTime,
-    /// A block per interval of wall time: a test device's slow motion (a
-    /// small block every few milliseconds), kept steady however late the
-    /// polls come.
     Every(Duration),
 }
 
-/// What the ramp input holds at stream frame `frame`.
 pub fn ramp_at(frame: u64) -> f32 {
     (frame % 1_000_000) as f32 * 1e-6
 }
 
-/// The most blocks a paced device runs in one poll.
 pub const CATCH_UP: u64 = 16;
 
-/// Shared handle the test uses to script the device.
 #[derive(Debug, Clone)]
 pub struct FakeControl(pub Arc<Mutex<FakeDevice>>);
 
 impl FakeDevice {
-    /// The device as it first is: present, silent, four outputs and two
-    /// inputs, with nothing scripted.
     fn initial() -> Self {
         FakeDevice {
             present: true,
@@ -151,8 +95,6 @@ impl FakeControl {
         Self(Arc::new(Mutex::new(FakeDevice::initial())))
     }
 
-    /// Puts the device back as [`FakeControl::new`] made it, whatever a
-    /// scenario scripted: for a device shared by scenarios that take turns.
     pub fn reset(&self) {
         *self.0.lock().expect("fake device lock") = FakeDevice::initial();
     }
@@ -200,7 +142,6 @@ impl Backend for FakeBackend {
         config: &StreamConfig,
         callback: Box<dyn AudioCallback>,
     ) -> Result<Box<dyn Stream>, OpenError> {
-        // Waits as a slow driver would, with the device free meanwhile.
         let delay = self.0.0.lock().expect("fake device lock").open_delay;
         std::thread::sleep(delay);
         let mut device = self.0.0.lock().expect("fake device lock");
@@ -262,27 +203,18 @@ struct FakeStream {
     callback: Option<Box<dyn AudioCallback>>,
     info: StreamInfo,
     inputs: Vec<f32>,
-    /// The device channel each input of the callback is.
     input_map: Vec<usize>,
-    /// The device channel each output of the callback is.
     output_map: Vec<usize>,
-    /// What the cable's output played, by stream frame modulo its length;
-    /// made when a cable is first plugged in.
     line: Vec<f32>,
     outputs: Vec<f32>,
     position: u64,
     polls: u32,
-    /// When the stream opened, and how many blocks it has run since: what
-    /// a paced device measures real time by.
     opened: Instant,
     ran: u64,
-    /// The polling thread has asked to be scheduled as an audio thread.
     realtime: bool,
 }
 
 impl FakeStream {
-    /// The blocks that `pace` owes since the stream opened, not past
-    /// [`CATCH_UP`]; what is owed beyond it waits for the next poll.
     fn owed(&mut self, pace: Pace) -> u64 {
         let every = match pace {
             Pace::RealTime => {
@@ -299,7 +231,6 @@ impl FakeStream {
 }
 
 impl FakeStream {
-    /// The cable's input hears what its output played `delay` frames ago.
     fn cable_in(&mut self, cable: Cable) {
         let Some(i) = self.input_map.iter().position(|&c| c == cable.input) else {
             return;
@@ -319,7 +250,6 @@ impl FakeStream {
         }
     }
 
-    /// Remembers what the cable's output played in this block.
     fn cable_out(&mut self, cable: Cable) {
         let frames = self.info.buffer_frames as usize;
         let played = self.output_map.iter().position(|&c| c == cable.output);
@@ -370,14 +300,9 @@ impl Stream for FakeStream {
         if stalled {
             return Some(StreamEvent::Stalled);
         }
-        // Real drivers ask for a reset when their hardware disappears.
         if reset || !present {
             return Some(StreamEvent::ResetRequested);
         }
-        // A device in real time runs its callback on a thread the system
-        // schedules as an audio thread, as Core Audio's is; on macOS an
-        // ordinary thread of a busy machine is left waiting past blocks'
-        // deadlines (KNOWN_ISSUES, `walkthrough_plugins`).
         if pace == Some(Pace::RealTime) && !self.realtime {
             self.realtime = true;
             let block =
@@ -389,7 +314,6 @@ impl Stream for FakeStream {
             blocks = blocks.min(*left);
             *left -= blocks;
         }
-        // Held out while it runs, so the cable can use the stream meanwhile.
         if let Some(mut callback) = self.callback.take() {
             for n in 0..blocks {
                 if ramp {

@@ -1,6 +1,3 @@
-//! Playing, stopping, jumping and everything that follows the playhead: the
-//! count-in, loop wraps, latency and the click-free tails.
-
 use crate::declick::{MAX_FADE, fade_frames};
 use crate::metronome;
 use crate::source::{Jump, Mode, Output, RenderContext, Source};
@@ -8,10 +5,6 @@ use crate::source::{Jump, Mode, Output, RenderContext, Source};
 use super::Engine;
 
 impl<S: Source> Engine<S> {
-    /// The count-in's part of this block: the song waits at the play marker
-    /// while the metronome clicks, and a live instrument still sounds. When
-    /// the beats are done, playback starts mid-block and recording with it.
-    /// Returns the frames used.
     pub(super) fn count_in(&mut self, data: &mut [f32], channels: usize, frames: usize) -> usize {
         let Some(mut count) = self.counting else {
             return 0;
@@ -56,20 +49,15 @@ impl<S: Source> Engine<S> {
         n
     }
 
-    /// Renders the block from frame `from` (earlier frames were a count-in).
     pub(super) fn render(&mut self, data: &mut [f32], channels: usize, frames: usize, from: usize) {
-        // Without latency the playhead is the render position, and the
-        // `Playhead` is left alone (the transport gate counts every step).
         let latent = self.lookahead != 0;
         let mut offset = from;
         while offset < frames {
             let mut n = frames - offset;
-            // The render position wraps at the loop end if it is before it.
             let wraps = self.loop_samples.filter(|&(_, end)| self.ahead < end);
             if let Some((_, end)) = wraps {
                 n = n.min((end - self.ahead) as usize);
             }
-            // The playhead moves on smoothly up to the next jump heard.
             if latent && let Some(until) = self.playhead.until_jump() {
                 n = n.min(until.max(1) as usize);
             }
@@ -89,8 +77,6 @@ impl<S: Source> Engine<S> {
             let mut out = Output::new(data, frames, offset, n, channels);
             self.source.render(&cx, &mut out);
             self.declick.apply(data, frames, channels, offset, n);
-            // After the crossfade, so a click on a loop start keeps its
-            // attack; none before the start is heard.
             if !(latent && self.playhead.prerolling()) {
                 self.metronome.render(
                     &self.timeline,
@@ -113,7 +99,6 @@ impl<S: Source> Engine<S> {
             if let Some((start, end)) = wraps
                 && self.ahead == end
             {
-                // Crossfade what would follow the loop end into the loop start.
                 self.declicked(channels, |engine| {
                     engine.ahead = start;
                     engine.locate_source(Jump::LoopWrap);
@@ -123,7 +108,6 @@ impl<S: Source> Engine<S> {
         }
     }
 
-    /// The playhead while playing: the render position, or behind it.
     pub(super) fn heard(&self) -> i64 {
         if self.lookahead == 0 {
             self.ahead
@@ -132,8 +116,6 @@ impl<S: Source> Engine<S> {
         }
     }
 
-    /// Moves the render position with `jump`, crossfaded: here while the
-    /// source is not latent, by the source otherwise. Only while playing.
     pub(super) fn declicked(&mut self, channels: usize, jump: impl FnOnce(&mut Self)) {
         let here = self.lookahead == 0;
         if here {
@@ -147,9 +129,6 @@ impl<S: Source> Engine<S> {
         }
     }
 
-    /// Follows a change in the source's latency. While playing, the
-    /// playhead carries on and the render position moves to stay ahead of
-    /// it by the new amount (wrapped into the loop), crossfaded.
     pub(super) fn follow_latency(&mut self, channels: usize) {
         let lookahead = i64::from(self.source.latency());
         if lookahead == self.lookahead {
@@ -167,7 +146,6 @@ impl<S: Source> Engine<S> {
         {
             ahead = start + (ahead - end) % (end - start);
         }
-        // Crossfaded by whichever side is not latent after the change.
         if lookahead == 0 {
             self.capture_tail(channels);
         }
@@ -182,12 +160,6 @@ impl<S: Source> Engine<S> {
         self.position = self.playhead.position();
     }
 
-    /// Playback starts rendering at `self.ahead`, fading in from silence.
-    /// What still rings from before (an instrument's release after a Stop)
-    /// carries on instead: fading the whole output in would cut the ringing
-    /// note to nothing for a frame. Without latency it is crossfaded here,
-    /// as a jump while playing is; a latent source carries it through its
-    /// delay lines itself, and the first frames heard are from them.
     pub(super) fn start(&mut self, channels: usize) {
         let ringing = self.source.ringing();
         if ringing && self.lookahead == 0 {
@@ -195,8 +167,6 @@ impl<S: Source> Engine<S> {
         }
         self.playing = true;
         self.locate_source(Jump::Play);
-        // Read after the source's locate, which takes up a waiting
-        // routing.
         self.lookahead = i64::from(self.source.latency());
         self.playhead.start(self.ahead, self.lookahead);
         self.position = self.playhead.position();
@@ -205,8 +175,6 @@ impl<S: Source> Engine<S> {
         }
     }
 
-    /// Stops where the playhead is: playback continues from what was
-    /// heard.
     pub(super) fn halt(&mut self, channels: usize) {
         self.capture(channels, true);
         self.playing = false;
@@ -215,29 +183,21 @@ impl<S: Source> Engine<S> {
         self.source.stopped();
     }
 
-    /// Places the stopped transport at `sample`.
     pub(super) fn place(&mut self, sample: i64) {
         self.position = sample;
         self.ahead = sample;
     }
 
-    /// Renders what would follow the current position into the declick
-    /// tail, faded out, ahead of a jump. Only while playing.
     pub(super) fn capture_tail(&mut self, channels: usize) {
         self.capture(channels, false);
     }
 
-    /// As [`Self::capture_tail`]; `stopping` when playback is about to
-    /// stop rather than jump (instruments carry on ringing after a stop,
-    /// so they leave the tail out).
     fn capture(&mut self, channels: usize, stopping: bool) {
         if self.playing {
             self.render_tail(channels, Mode::Play, stopping);
         }
     }
 
-    /// Renders the next frames from the render position in `mode` into the
-    /// declick tail, faded out, without moving the source on.
     fn render_tail(&mut self, channels: usize, mode: Mode, stopping: bool) {
         let frames = fade_frames(self.sample_rate);
         let Some(buffer) = self.declick.tail_buffer(channels) else {

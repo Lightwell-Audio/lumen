@@ -1,6 +1,3 @@
-//! Format v30: an audio track may name the device inputs it records from.
-//! Earlier formats route no input.
-
 use std::path::PathBuf;
 
 use lumen_project::model::{AudioInput, Color, Id, Project, Track, TrackKind};

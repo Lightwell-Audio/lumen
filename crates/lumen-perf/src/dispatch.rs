@@ -1,12 +1,9 @@
-//! Runs one scenario by name: its setup, then its measured function.
-
 use lumen_engine::testing::latent;
 use lumen_project::to_bytes;
 
 use super::measured::*;
 use super::scenarios::*;
 
-/// Runs one scenario. Returns false for an unknown name.
 pub fn run(name: &str) -> bool {
     match name {
         "engine_crossfades_64" => {
@@ -27,8 +24,6 @@ pub fn run(name: &str) -> bool {
         }
         "engine_latent_swaps_64" => {
             let (mut routing, mut engine) = playing_clips_routed(64, Mix::Latent);
-            // Two plans with the same shape and different levels
-            // (`latent`'s variants 0 and 6), compiled outside the measure.
             let plans = [latent(64, 0), latent(64, 6)];
             for block in 0..1_000 {
                 assert!(routing.set(&plans[block % 2]).expect("a valid routing"));

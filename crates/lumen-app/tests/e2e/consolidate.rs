@@ -1,6 +1,3 @@
-//! M7b E3: Consolidate renders the selected audio clips of a track into one
-//! new file and replaces them with a clip that plays it, as one undo step.
-
 use std::sync::atomic::AtomicBool;
 
 use eframe::egui::{Key, Modifiers};
@@ -11,8 +8,6 @@ use lumen_project::model::ClipContent;
 use super::Lumen;
 use super::clip_commands::{audio, command, cut_at};
 
-/// A track with the clip cut at two quarters, the second part moved one grid
-/// step later so a gap lies between the parts, both selected.
 fn parts_with_a_gap(name: &str) -> Lumen {
     let mut lumen = audio(name);
     cut_at(&mut lumen, 2);
@@ -64,8 +59,6 @@ fn consolidate_writes_one_file_holding_the_parts_and_the_gap_and_undo_gives_them
     assert!(clip.name.ends_with("(joined)"), "{}", clip.name);
     assert_eq!(lumen.app().selected_clips(), [clip.id]);
 
-    // The file is a render in the renders folder, at the device's rate, and
-    // the originals stay in the media pool.
     let media = media_of(&lumen, 0);
     assert!(after.media.len() > 1, "the original media stays");
     let path = std::path::PathBuf::from(&media.path);
@@ -75,8 +68,6 @@ fn consolidate_writes_one_file_holding_the_parts_and_the_gap_and_undo_gives_them
     assert_eq!(audio.channels(), 2);
     assert_eq!(audio.sample_rate, media.sample_rate);
 
-    // Sound at both ends, silence in the gap (120 BPM: a quarter is half a
-    // second).
     let rate = f64::from(media.sample_rate);
     let at = |t: Ticks| (t.0 as f64 / lumen_core::time::PPQ as f64 * 0.5 * rate) as usize;
     let gap = at(first.length)..at(second.start - first.start);
@@ -89,7 +80,6 @@ fn consolidate_writes_one_file_holding_the_parts_and_the_gap_and_undo_gives_them
         left[gap.end..].iter().any(|v| v.abs() > 0.01),
         "second part"
     );
-    // A few frames in from each edge, to leave the 2 ms fades out.
     let quiet = gap.start + 200..gap.end - 200;
     assert!(left[quiet].iter().all(|v| *v == 0.0), "the gap is silent");
 
@@ -102,7 +92,6 @@ fn consolidate_writes_one_file_holding_the_parts_and_the_gap_and_undo_gives_them
 fn one_clip_consolidates_and_a_clip_with_nothing_selected_does_not() {
     let mut lumen = audio("consolidate-one");
     let before = lumen.app().project().clone();
-    // Nothing selected: the command is not available.
     lumen.key(Modifiers::COMMAND, Key::K);
     lumen
         .harness
@@ -133,7 +122,6 @@ fn ctrl_j_renders_parts_that_do_not_continue_and_a_second_press_has_nothing_left
         app.undo_label() == Some("Join into new file")
     });
     assert_eq!(lumen.app().project().tracks[0].clips.len(), 1);
-    // One clip is selected: Ctrl+J wants two.
     let now = lumen.app().project().clone();
     lumen.key(Modifiers::COMMAND, Key::J);
     lumen.frames(10);
@@ -167,8 +155,6 @@ fn a_consolidated_clip_survives_save_and_reopen_inside_the_project() {
     assert_eq!(media.original_path, None, "a render is not an import");
 }
 
-/// MIDI needs no file: the loop is baked into real notes and the track's
-/// clips merge, in one undo step, at once.
 #[test]
 fn a_looping_midi_clip_consolidates_at_once_and_undo_gives_the_loop_back() {
     use lumen_core::time::Ticks;

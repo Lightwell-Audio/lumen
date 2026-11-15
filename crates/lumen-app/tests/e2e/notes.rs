@@ -1,9 +1,3 @@
-//! The clip editor (M5 slice 3c): MIDI clips made and opened from the
-//! arrangement, notes drawn, selected, moved, copied, resized and edited,
-//! each one undo step; Live A (the document changes once, on release) and
-//! Escape; keyboard-only use; the pop-out state. A real second window is
-//! checked by hand (MT-MIDI-4): the headless harness embeds viewports.
-
 use eframe::egui::{self, Key, Modifiers, Pos2, vec2};
 use egui_kittest::kittest::Queryable;
 use lumen_app::TimeView;
@@ -19,8 +13,6 @@ fn q(n: i64) -> Ticks {
     Ticks::quarters(n)
 }
 
-/// A MIDI track "Keys" with one clip from beat 0 to 8 holding four notes,
-/// and an audio-less second MIDI track "Empty" with no clip.
 fn project() -> Project {
     let notes = vec![
         Note::new(q(0), q(1), 60, 100),
@@ -60,7 +52,6 @@ fn launch(name: &str) -> Lumen {
     lumen
 }
 
-/// Opens the Keys clip by double-clicking it, and lets the editor draw.
 fn open(lumen: &mut Lumen) {
     let ctx = lumen.harness.ctx.clone();
     let r = lumen
@@ -87,7 +78,6 @@ fn notes(lumen: &Lumen) -> Vec<Note> {
         .expect("the clip")
 }
 
-/// The middle of a note's first half beat, in the row of its pitch.
 fn at(lumen: &Lumen, start: Ticks, pitch: u8) -> Pos2 {
     lumen
         .app()
@@ -99,7 +89,6 @@ fn beat(n: f32) -> Ticks {
     Ticks((n * Q as f32) as i64)
 }
 
-/// A click without moving: press and release in one frame.
 fn click(lumen: &mut Lumen, p: Pos2, modifiers: Modifiers) {
     lumen
         .harness
@@ -151,13 +140,10 @@ fn double_clicking_a_midi_clip_opens_it_in_the_clip_tab() {
 #[test]
 fn the_midi_clip_body_above_the_old_midpoint_selects_time_and_the_header_moves() {
     let mut lumen = launch("notes-header-body");
-    // Fit tracks to the available lane height so the body has visible
-    // space above the former midpoint even with compact default tracks.
     lumen.key(Modifiers::NONE, Key::H);
     lumen.frames(40);
     let ctx = lumen.harness.ctx.clone();
     let r = lumen.app().clip_rect(&ctx, KEYS_CLIP).unwrap();
-    // Just below the visible 15 pt title, still above the old midpoint.
     let y = r.top() + 20.0;
     assert!(y < r.center().y);
     lumen.drag(
@@ -197,7 +183,6 @@ fn playing_double_click_opens_the_midi_editor_without_rewinding() {
 
 #[test]
 fn the_clip_tab_is_there_only_once_a_clip_is_opened() {
-    // DP1: no tab opens onto an empty page.
     let mut lumen = launch("notes-empty");
     assert!(!lumen.shows("Clip tab"));
     assert_eq!(lumen.app().editor_open_clip(), None);
@@ -211,7 +196,6 @@ fn double_clicking_an_empty_spot_of_a_midi_lane_makes_a_one_bar_clip_there() {
     let mut lumen = launch("notes-make");
     let ctx = lumen.harness.ctx.clone();
     let r = lumen.app().clip_rect(&ctx, KEYS_CLIP).unwrap();
-    // Beat 13, on the Keys track, past its clip: bar 4 (beats 12 to 16).
     let spot = Pos2::new(r.left() + 13.0 * 60.0, r.center().y);
     lumen.double_click(spot);
     lumen.frames(20);
@@ -245,7 +229,6 @@ fn the_create_command_uses_the_time_range_when_there_is_one() {
     let mut lumen = launch("notes-create-range");
     let ctx = lumen.harness.ctx.clone();
     let r = lumen.app().clip_rect(&ctx, KEYS_CLIP).unwrap();
-    // The body of a clip selects time: beat 1 to beat 3.
     let y = r.bottom() - 6.0;
     lumen.drag(
         Pos2::new(r.left() + 60.0, y),
@@ -254,7 +237,6 @@ fn the_create_command_uses_the_time_range_when_there_is_one() {
     );
     assert!(lumen.app().time_range().is_some(), "a range is selected");
     let (a, b, _) = lumen.app().time_range().unwrap();
-    // The range is on the Keys track: the command makes its clip there.
     lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::M);
     lumen.frames(10);
     let clips = &lumen.app().project().tracks[0].clips;
@@ -265,8 +247,6 @@ fn the_create_command_uses_the_time_range_when_there_is_one() {
     assert_eq!(made.start + made.length, b);
 }
 
-/// ADR-0049 (owner, MT-MIDI-4 step 7): a drag in empty lane space selects
-/// time on its track, and Create MIDI clip puts the clip on that track.
 #[test]
 fn create_after_an_empty_lane_drag_puts_the_clip_on_that_track() {
     let mut lumen = launch("notes-create-lane");
@@ -274,8 +254,6 @@ fn create_after_an_empty_lane_drag_puts_the_clip_on_that_track() {
     let ctx = lumen.harness.ctx.clone();
     let zoom = lumen.app().view().zoom as f32;
     let r = lumen.app().clip_rect(&ctx, KEYS_CLIP).unwrap();
-    // The Empty track has no clips: its lane is at the Keys clip's height
-    // one row down, so take its y from its header.
     let y = lumen
         .harness
         .get_by_label_contains("Track Empty,")
@@ -354,9 +332,6 @@ fn dragging_left_with_the_draw_tool_keeps_the_cell_pressed() {
     let mut lumen = launch("notes-draw-left");
     open(&mut lumen);
     lumen.key(Modifiers::NONE, Key::B);
-    // Pressed in the grid cell at beat 6, dragged left to beat 4: the note
-    // runs from the pointer's snapped place to the end of the pressed cell,
-    // so the cell pressed is part of it.
     let (_, press_end) = lumen
         .app()
         .editor_grid_cell_at(beat(6.1))
@@ -403,7 +378,6 @@ fn clicking_a_note_picks_it_without_moving_the_playhead() {
     click(&mut lumen, p, Modifiers::NONE);
     assert_eq!(lumen.app().editor_picked(), [1]);
     assert_eq!(lumen.app().playhead(), head, "the transport stayed");
-    // Shift adds, and picking on empty space clears.
     let p = at(&lumen, beat(2.5), 67);
     click(&mut lumen, p, Modifiers::SHIFT);
     assert_eq!(lumen.app().editor_picked(), [1, 2]);
@@ -506,8 +480,6 @@ fn ctrl_dragging_copies_the_note() {
 fn dragging_a_note_s_ends_resizes_it() {
     let mut lumen = launch("notes-resize");
     open(&mut lumen);
-    // The end of the note at beat 1 (E4), out to beat 3. The grab is two
-    // points inside the end: the roll fits the clip, so a beat is wide.
     let on = at(&lumen, q(2), 64);
     let end = Pos2::new(on.x - 2.0, on.y);
     let to = at(&lumen, q(3), 64);
@@ -515,8 +487,6 @@ fn dragging_a_note_s_ends_resizes_it() {
     let n = notes(&lumen).into_iter().find(|n| n.pitch() == 64).unwrap();
     assert_eq!((n.start(), n.length()), (q(1), q(2)));
     undo(&mut lumen);
-    // The start of the note at beat 2 (G4), back to beat 2.5.. snapped to 3
-    // is past its end, so it stops at the minimum: drag it half a beat.
     let on = at(&lumen, q(2), 67);
     let start = Pos2::new(on.x + 2.0, on.y);
     let to = at(&lumen, beat(2.5), 67);
@@ -557,7 +527,6 @@ fn the_edit_keys_each_make_one_undo_step() {
     open(&mut lumen);
     let original = notes(&lumen);
 
-    // Mute (0), twice.
     pick_all(&mut lumen);
     lumen.key(Modifiers::NONE, Key::Num0);
     assert!(notes(&lumen).iter().all(|n| n.muted()));
@@ -567,7 +536,6 @@ fn the_edit_keys_each_make_one_undo_step() {
     undo(&mut lumen);
     assert_eq!(notes(&lumen), original);
 
-    // Transpose: Up, Shift+Up for an octave.
     pick_all(&mut lumen);
     lumen.key(Modifiers::NONE, Key::ArrowUp);
     assert_eq!(notes(&lumen)[0].pitch(), 61);
@@ -578,7 +546,6 @@ fn the_edit_keys_each_make_one_undo_step() {
     undo(&mut lumen);
     assert_eq!(notes(&lumen), original);
 
-    // Nudge by a grid step; Alt finely.
     pick_all(&mut lumen);
     lumen.key(Modifiers::NONE, Key::ArrowRight);
     let step = {
@@ -596,7 +563,6 @@ fn the_edit_keys_each_make_one_undo_step() {
     undo(&mut lumen);
     assert_eq!(notes(&lumen), original);
 
-    // Duplicate puts copies after the originals and picks them.
     let first = at(&lumen, beat(0.5), 60);
     click(&mut lumen, first, Modifiers::NONE);
     lumen.key(Modifiers::COMMAND, Key::D);
@@ -605,7 +571,6 @@ fn the_edit_keys_each_make_one_undo_step() {
     undo(&mut lumen);
     assert_eq!(notes(&lumen), original);
 
-    // Legato stretches each note to the next one's start.
     pick_all(&mut lumen);
     lumen.key(Modifiers::NONE, Key::L);
     assert_eq!(notes(&lumen)[2].length(), q(2), "G4 reaches C5 at beat 4");
@@ -613,16 +578,13 @@ fn the_edit_keys_each_make_one_undo_step() {
     assert_eq!(notes(&lumen), original);
 }
 
-/// Moves the playhead by clicking the editor's ruler, above the roll.
 fn playhead_to(lumen: &mut Lumen, t: Ticks) {
     let body = lumen.app().editor_body().unwrap();
     let x = at(lumen, t, 60).x;
     click(lumen, Pos2::new(x, body.top() - 8.0), Modifiers::NONE);
-    // The playhead is the engine's, which a slow device moves a poll later.
     lumen.wait_for("the playhead", |app| app.playhead() == t);
 }
 
-/// The two halves of the C5 note (beats 4 to 6) after a split, in order.
 fn c5_halves(lumen: &Lumen) -> Vec<Note> {
     let mut halves: Vec<Note> = notes(lumen)
         .into_iter()
@@ -638,8 +600,6 @@ fn split_and_glue_cut_and_join_notes() {
     let mut lumen = launch("notes-split");
     open(&mut lumen);
     let original = notes(&lumen);
-    // Pick the long note (C5, beats 4 to 6). The playhead is at beat 5, so
-    // Ctrl+E cuts there, with the pointer resting on the note at beat 4.5.
     playhead_to(&mut lumen, q(5));
     let mid = at(&lumen, beat(4.5), 72);
     click(&mut lumen, mid, Modifiers::NONE);
@@ -654,7 +614,6 @@ fn split_and_glue_cut_and_join_notes() {
         2,
         "both halves stay picked"
     );
-    // Glue joins them again.
     lumen.key(Modifiers::COMMAND, Key::J);
     assert_eq!(notes(&lumen), original);
     undo(&mut lumen);
@@ -670,7 +629,6 @@ fn ctrl_e_cuts_the_picked_notes_at_the_playhead_not_under_the_pointer() {
     let on_note = at(&lumen, beat(4.5), 72);
     click(&mut lumen, on_note, Modifiers::NONE);
     assert_eq!(lumen.app().editor_picked(), [3]);
-    // The pointer moves over the roll at beat 4.25, somewhere else again.
     let elsewhere = at(&lumen, beat(4.25), 72);
     hover(&mut lumen, elsewhere);
     lumen.key(Modifiers::COMMAND, Key::E);
@@ -685,7 +643,6 @@ fn ctrl_e_cuts_the_picked_notes_at_the_playhead_not_under_the_pointer() {
 fn ctrl_e_cuts_at_the_pointer_when_the_playhead_is_outside_the_clip() {
     let mut lumen = launch("notes-split-pointer");
     open(&mut lumen);
-    // The clip runs from beat 0 to 8: the playhead at beat 8 is past its end.
     playhead_to(&mut lumen, q(8));
     let on_note = at(&lumen, beat(4.5), 72);
     click(&mut lumen, on_note, Modifiers::NONE);
@@ -703,7 +660,6 @@ fn ctrl_e_cuts_at_the_pointer_when_the_playhead_is_outside_the_clip() {
 fn split_here_in_the_menu_cuts_where_the_pointer_was_clicked() {
     let mut lumen = launch("notes-split-menu");
     open(&mut lumen);
-    // The playhead is at beat 5; the menu's cut is where the pointer was.
     playhead_to(&mut lumen, q(5));
     let on_note = at(&lumen, beat(4.5), 72);
     lumen.right_click(on_note);
@@ -749,7 +705,6 @@ fn the_context_menu_acts_on_notes() {
     lumen.harness.get_by_label("Delete Delete").click();
     lumen.frames(3);
     assert_eq!(notes(&lumen).len(), 3);
-    // The empty editor has its own menu.
     let empty = at(&lumen, beat(6.5), 62);
     lumen.right_click(empty);
     assert!(
@@ -763,17 +718,14 @@ fn the_context_menu_acts_on_notes() {
 #[test]
 fn the_editor_works_from_the_keyboard_alone() {
     let mut lumen = launch("notes-keyboard");
-    // Select the clip from the arrangement, open it with Enter.
     let ctx = lumen.harness.ctx.clone();
     let r = lumen.app().clip_rect(&ctx, KEYS_CLIP).unwrap();
     click(&mut lumen, r.center(), Modifiers::NONE);
     assert_eq!(lumen.app().selected_clips(), [KEYS_CLIP]);
-    // Move the pointer off everything, so only the keyboard decides.
     hover(&mut lumen, Pos2::new(2.0, 2.0));
     lumen.key(Modifiers::NONE, Key::Enter);
     lumen.frames(10);
     assert_eq!(lumen.app().editor_open_clip(), Some(KEYS_CLIP));
-    // F6 until the detail panel holds the keyboard.
     for _ in 0..2 {
         lumen.key(Modifiers::NONE, Key::F6);
     }
@@ -796,9 +748,7 @@ fn popping_out_and_docking_back() {
     lumen.click("Pop out");
     lumen.frames(10);
     assert!(lumen.app().editor_popped());
-    // The panel says where the editor went, and offers it back.
     assert!(lumen.shows("Dock editor"));
-    // The editor works in the window (embedded here).
     let p = at(&lumen, beat(1.5), 64);
     click(&mut lumen, p, Modifiers::NONE);
     assert_eq!(lumen.app().editor_picked(), [1]);
@@ -806,7 +756,6 @@ fn popping_out_and_docking_back() {
     lumen.frames(5);
     assert!(!lumen.app().editor_popped());
     assert!(lumen.shows("Note editor: Keys"));
-    // The command toggles too.
     lumen.key(
         Modifiers::COMMAND | Modifiers::SHIFT | Modifiers::ALT,
         Key::E,
@@ -819,8 +768,6 @@ fn popping_out_and_docking_back() {
     assert!(!lumen.app().editor_popped());
 }
 
-/// PR 14: send keys only to the separate viewport, bypassing the main
-/// window's input. Embedded pop-outs cannot catch this dispatch bug.
 #[test]
 fn the_native_editor_plays_computer_keyboard_notes_before_editing_shortcuts() {
     use std::cell::RefCell;
@@ -856,7 +803,6 @@ fn the_native_editor_plays_computer_keyboard_notes_before_editing_shortcuts() {
             },
         );
         let mut output = ctx.run_ui(input, |ui| (viewport.viewport_ui_cb)(ui));
-        // This headless viewport exercises input and layout, without a GPU.
         output.textures_delta.clear();
     });
     lumen.harness.ctx.set_embed_viewports(false);
@@ -890,7 +836,6 @@ fn the_native_editor_plays_computer_keyboard_notes_before_editing_shortcuts() {
         [Msg::note_off(0, 74)]
     );
 
-    // With MIDI mode off, the same native-window key is still a command.
     lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::K);
     assert!(!lumen.app().computer_keyboard_on());
     pending.borrow_mut().push(letter(true));
@@ -904,7 +849,6 @@ fn the_native_editor_plays_computer_keyboard_notes_before_editing_shortcuts() {
 fn deleting_the_open_clip_closes_the_editor() {
     let mut lumen = launch("notes-gone");
     open(&mut lumen);
-    // Back to the arrangement: select the clip and delete it.
     let ctx = lumen.harness.ctx.clone();
     let r = lumen.app().clip_rect(&ctx, KEYS_CLIP).unwrap();
     hover(&mut lumen, Pos2::new(2.0, 2.0));
@@ -938,8 +882,6 @@ fn pressing_a_note_auditions_it_and_escape_lets_go() {
     lumen.frames(3);
 }
 
-/// Turns the wheel `notches` at `p` (up is positive) with `modifiers` held,
-/// then lets egui's smoothed scroll settle.
 fn wheel(lumen: &mut Lumen, p: Pos2, notches: i32, modifiers: Modifiers) {
     hover(lumen, p);
     for _ in 0..notches.abs() {
@@ -954,7 +896,6 @@ fn wheel(lumen: &mut Lumen, p: Pos2, notches: i32, modifiers: Modifiers) {
     lumen.frames(30);
 }
 
-/// The x at which the roll draws clip time `local` (pitch 60's row).
 fn roll_x(lumen: &Lumen, local: Ticks) -> f32 {
     lumen
         .app()
@@ -996,14 +937,12 @@ fn the_roll_zooms_and_scrolls_on_its_own() {
     let (arrangement0, roll0) = (lumen.app().view(), lumen.app().editor_view().unwrap());
     let x0 = roll_x(&lumen, beat(4.0));
 
-    // Ctrl+wheel over the arrangement zooms the arrangement, and only it.
     wheel(&mut lumen, lane, 2, Modifiers::COMMAND);
     let arrangement1 = lumen.app().view();
     assert!(arrangement1.zoom > arrangement0.zoom, "{arrangement1:?}");
     assert_eq!(lumen.app().editor_view(), Some(roll0), "the roll stays");
     assert_eq!(roll_x(&lumen, beat(4.0)), x0, "its notes stay put");
 
-    // Ctrl+wheel over the roll zooms the roll, and only it.
     wheel(&mut lumen, roll, 2, Modifiers::COMMAND);
     let roll1 = lumen.app().editor_view().unwrap();
     assert!(roll1.zoom > roll0.zoom, "{roll0:?} -> {roll1:?}");
@@ -1013,13 +952,11 @@ fn the_roll_zooms_and_scrolls_on_its_own() {
         "the notes moved"
     );
 
-    // Shift+wheel scrolls the roll in time, and only it.
     wheel(&mut lumen, roll, 2, Modifiers::SHIFT);
     let roll2 = lumen.app().editor_view().unwrap();
     assert_ne!(roll2.left, roll1.left, "the roll scrolled");
     assert_eq!(lumen.app().view(), arrangement1, "the arrangement stays");
 
-    // The zoom keys follow the pointer: over the roll they zoom the roll...
     hover(&mut lumen, roll);
     lumen.key(Modifiers::NONE, Key::Equals);
     lumen.frames(30);
@@ -1027,7 +964,6 @@ fn the_roll_zooms_and_scrolls_on_its_own() {
     assert!(roll3.zoom > roll2.zoom, "+ zooms the roll");
     assert_eq!(lumen.app().view(), arrangement1, "the arrangement stays");
 
-    // ...and over the arrangement they zoom the arrangement.
     hover(&mut lumen, lane);
     lumen.key(Modifiers::NONE, Key::Equals);
     lumen.frames(30);
@@ -1044,8 +980,6 @@ fn drawing_snaps_to_the_rolls_grid_not_the_arrangements() {
     open(&mut lumen);
     let body = lumen.app().editor_body().unwrap();
     let roll = Pos2::new(body.left() + body.width() * 0.8, body.center().y);
-    // Zoom the roll in alone, so its automatic grid is finer than the
-    // arrangement's.
     wheel(&mut lumen, roll, 6, Modifiers::COMMAND);
     let (a0, a1) = lumen.app().grid_cell_at(beat(6.1));
     let (r0, r1) = lumen.app().editor_grid_cell_at(beat(6.1)).unwrap();
@@ -1093,7 +1027,6 @@ fn double_clicking_empty_space_and_dragging_sets_the_length() {
     let from = at(&lumen, beat(5.0) + Ticks(10), 62);
     let to = at(&lumen, beat(7.0), 62);
     lumen.frames(40);
-    // Click once, then press again and drag.
     click(&mut lumen, from, Modifiers::NONE);
     lumen.harness.hover_at(from);
     lumen.harness.drag_at(from);
@@ -1140,8 +1073,6 @@ fn two_slow_or_distant_clicks_are_not_a_double_click() {
 
 #[test]
 fn the_wheel_over_the_velocity_lane_zooms_and_scrolls_the_editors_time() {
-    // The lane shares the roll's time; the wheel used to do nothing there
-    // (KNOWN_ISSUES row 118).
     let mut lumen = launch("notes-lane-wheel");
     open(&mut lumen);
     let over_lane = lumen
@@ -1160,14 +1091,11 @@ fn the_wheel_over_the_velocity_lane_zooms_and_scrolls_the_editors_time() {
 
 #[test]
 fn a_note_dragged_to_the_rolls_side_scrolls_the_view_and_goes_on_past_it() {
-    // There was no auto-scroll at the editor's sides (KNOWN_ISSUES row 128).
     let mut lumen = launch("notes-edge-scroll");
     open(&mut lumen);
     let body = lumen.app().editor_body().unwrap();
-    // Zoomed in, so the clip runs on past the roll's right side.
     let anchor = at(&lumen, Ticks::ZERO, 60);
     wheel(&mut lumen, anchor, 4, Modifiers::COMMAND);
-    // Inside the note, away from its edges.
     let first = at(&lumen, beat(0.5), 60);
     assert!(
         body.contains(first),
@@ -1176,7 +1104,6 @@ fn a_note_dragged_to_the_rolls_side_scrolls_the_view_and_goes_on_past_it() {
     let view0 = lumen.app().editor_view().unwrap();
     let left0 = view0.left;
     let side = Pos2::new(body.right() - 2.0, first.y);
-    // As far as the roll as it was could take the note.
     let reach = f64::from(side.x - first.x) / view0.zoom;
     lumen.harness.hover_at(first);
     lumen.harness.drag_at(first);
@@ -1190,7 +1117,6 @@ fn a_note_dragged_to_the_rolls_side_scrolls_the_view_and_goes_on_past_it() {
     lumen.run_until("the roll to scroll a beat on", |lumen| {
         lumen.app().editor_view().unwrap().left > left0 + 1.0
     });
-    // The note goes on with the content under the pointer.
     lumen.harness.drop_at(side);
     lumen.frames(3);
     let moved = notes(&lumen)

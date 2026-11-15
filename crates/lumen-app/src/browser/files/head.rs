@@ -1,8 +1,3 @@
-//! What sits above the file list (M9 R7c): the search, Samples' first
-//! visit, Places' way back up, the count with Refresh and the folder menu,
-//! and the designed empty states. What the app does with what was pressed is
-//! `app::browser::files::head` (audit M12).
-
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -14,17 +9,12 @@ use crate::browser::files::Place;
 use crate::icons::{self, Icon};
 use crate::{theme, widgets};
 
-/// What Samples' first-visit card was asked for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MusicAnswer {
-    /// Choose a folder….
     Choose,
-    /// Keep Music.
     Keep,
 }
 
-/// Samples' first visit: it shows the Music folder until one is chosen.
-/// Returns what was pressed.
 pub(crate) fn music_card(ui: &mut Ui) -> Option<MusicAnswer> {
     let (mut choose, mut keep) = (false, false);
     let palette = *theme::p();
@@ -53,7 +43,6 @@ pub(crate) fn music_card(ui: &mut Ui) -> Option<MusicAnswer> {
     }
 }
 
-/// "Drums › Kicks": the folder from the place it is in.
 pub(crate) fn crumb_of(dir: &Path, places: &[Place]) -> String {
     let place = places
         .iter()
@@ -71,8 +60,6 @@ pub(crate) fn crumb_of(dir: &Path, places: &[Place]) -> String {
     }
 }
 
-/// The folders one level inside the sample folders that hold a file read so
-/// far, each once.
 pub(crate) fn inner_sample_folders(roots: &[PathBuf], rows: &[Arc<Entry>]) -> Vec<PathBuf> {
     let mut inner: Vec<PathBuf> = rows
         .iter()
@@ -88,8 +75,6 @@ pub(crate) fn inner_sample_folders(roots: &[PathBuf], rows: &[Arc<Entry>]) -> Ve
     inner
 }
 
-/// "2 folders", "2 folders, 3 files", or [`count`] when there are no
-/// folders.
 pub(crate) fn count_with_folders(folders: usize, files: usize, tab: Tab) -> String {
     let folders_said = || {
         let word = if folders == 1 { "folder" } else { "folders" };
@@ -102,7 +87,6 @@ pub(crate) fn count_with_folders(folders: usize, files: usize, tab: Tab) -> Stri
     }
 }
 
-/// "1,284 files" or "12 projects".
 pub(crate) fn count(n: usize, tab: Tab) -> String {
     let what = match (tab, n) {
         (Tab::Projects, 1) => "project",
@@ -137,8 +121,6 @@ fn wrapped(ui: &mut Ui, text: &str) {
     );
 }
 
-/// The count line's "Reading… 3 files, stopped" words, from what a read is
-/// doing.
 pub(crate) fn count_said(found: String, reading: bool, outcome: Option<Outcome>) -> String {
     match (reading, outcome) {
         (true, _) => format!("Reading\u{2026} {found}"),
@@ -150,8 +132,6 @@ pub(crate) fn count_said(found: String, reading: bool, outcome: Option<Outcome>)
     }
 }
 
-/// The list is empty: a designed state for each reason, as its title, its
-/// hint and its one action.
 pub(crate) fn empty_words(
     tab: Tab,
     reading: bool,
@@ -211,7 +191,6 @@ pub(crate) fn empty_words(
     }
 }
 
-/// The file icon an empty state shows.
 pub(crate) fn empty_icon(painter: &egui::Painter, at: egui::Pos2, colour: egui::Color32) {
     let rect = Rect::from_center_size(at, vec2(theme::space::L, theme::space::L));
     painter.extend(icons::shapes(Icon::Folder, rect, colour));

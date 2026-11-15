@@ -1,8 +1,3 @@
-//! The engine's end of a host: [`Link`] plays a [`BlockLink`] as a
-//! [`Hosted`] (M6 slice 2c, ADR-0071). Everything here runs on the audio
-//! thread: no allocation, no lock, no system call. The one wait is
-//! `BlockLink::wait`, bounded by the deadline the engine gives.
-
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::{Duration, Instant};
@@ -14,27 +9,17 @@ use lumen_plugin_host::protocol::{
 };
 use lumen_plugin_host::shm::{BlockLink, Outcome, Poll, SubmitError};
 
-/// Where a bus's channels sit in a block, and how many it has (1 or 2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Pair {
     pub first: usize,
     pub channels: usize,
 }
 
-/// What a link has dropped, readable from the interface thread.
 #[derive(Debug, Default)]
 pub struct Counts {
-    /// Messages the host protocol does not carry (program change, key
-    /// pressure, system messages), or events past the block's room.
     dropped_events: AtomicU32,
-    /// Blocks the link refused because they did not fit its region.
     unfit_blocks: AtomicU32,
-    /// Parameters whose automation for a block was left out because the
-    /// region had no room for it (M7 slice A3).
     dropped_params: AtomicU32,
-    /// Blocks the host answered, counted by the audio thread: the control
-    /// thread reads it to tell a host working on a long block (an offline
-    /// render) from one that stopped answering.
     answered: AtomicU32,
 }
 
@@ -51,21 +36,17 @@ impl Counts {
         self.dropped_params.load(Ordering::Relaxed)
     }
 
-    /// How many blocks the host has answered.
     pub fn answered(&self) -> u32 {
         self.answered.load(Ordering::Relaxed)
     }
 }
 
-/// The first `queues` parameters of a block, as the region takes them.
 struct Fit<'a> {
     block: &'a ParamBlock,
     queues: usize,
 }
 
 impl<'a> Fit<'a> {
-    /// The whole queues of `block` that the region has room for: a parameter
-    /// is sent whole or not at all, and how many were left out.
     fn of(block: &'a ParamBlock, max_queues: usize, max_points: usize) -> (Self, usize) {
         let mut points = 0;
         let mut queues = 0;
@@ -91,32 +72,20 @@ impl ParamQueues for Fit<'_> {
     }
 }
 
-/// A plugin in a host process, as the engine plays it.
 pub struct Link {
     link: BlockLink,
     generation: u32,
-    /// The plugin's tail in frames, as reported when it was configured. The
-    /// host's answers carry latency but not tail.
     tail: u32,
-    /// The output buses that are on, main first: where each sits in a block.
     pairs: Vec<Pair>,
-    /// Channels a block carries in: the audio in and the sidechain.
     inputs: usize,
-    /// Silence for the input channels the engine gave nothing for (a
-    /// sidechain nobody feeds), as long as a block can be.
     silence: Vec<f32>,
     ended: Arc<AtomicBool>,
     counts: Arc<Counts>,
-    /// The block's events in the host's terms, reused every block.
     events: Vec<HostEvent>,
-    /// How many of them a block may hold: the region's room (a `Vec` may
-    /// have been given more than it was asked for).
     room: usize,
 }
 
 impl Link {
-    /// Wraps `link`, configured as `generation`. Allocates: call off the
-    /// audio thread.
     pub(crate) fn new(
         link: BlockLink,
         generation: u32,
@@ -142,7 +111,6 @@ impl Link {
         }
     }
 
-    /// The longest block the plugin was configured for, in frames.
     pub fn most_frames(&self) -> u32 {
         self.link.layout().max_frames
     }
@@ -152,12 +120,6 @@ impl Link {
     }
 }
 
-/// A MIDI message as the host's event, if the host can take it: notes,
-/// controllers, pitch bend and channel pressure (a plugin hears these through
-/// its own controller mapping) and program changes (through its program
-/// parameter). Velocities and values are 0 to 1 in the host's terms; bend
-/// has its centre at 0.5. Key pressure and system messages are not carried:
-/// the caller counts them.
 fn host_event(event: &Event, frames: usize) -> Option<HostEvent> {
     let channel = i16::from(event.msg.channel());
     let kind = match event.msg.kind() {
@@ -191,8 +153,6 @@ fn host_event(event: &Event, frames: usize) -> Option<HostEvent> {
         _ => return None,
     };
     Some(HostEvent {
-        // A message at or past the end of the block would make the whole
-        // block invalid: it goes on the last frame.
         offset: event.offset.min(frames.saturating_sub(1) as u32),
         kind,
     })
@@ -225,8 +185,6 @@ impl Hosted for Link {
                 }
             }
         }
-        // The channels the layout carries, the engine's where it gave them
-        // and silence where it did not.
         let mut channels: [&[f32]; MAX_CHANNELS] = [&[]; MAX_CHANNELS];
         let silence = &self.silence[..frames.min(self.silence.len())];
         for (k, slot) in channels.iter_mut().enumerate().take(self.inputs) {
@@ -263,16 +221,10 @@ impl Hosted for Link {
                 Reply::Ready {
                     latency: answer.latency,
                     tail: self.tail,
-                    // Only a restart that needs the plugin set up again: a
-                    // plugin says its parameter values changed whenever it
-                    // loads a patch, and setting it up for that once cost a
-                    // plugin its host while it was busy loading (MT-VST-4).
                     restart: answer.restart & RESTART_RECONFIGURE != 0,
                     work_ns: answer.work_ns,
                 }
             }
-            // A block the host answered without processing (stale,
-            // invalid, failed, not ready) is a miss like a late one.
             _ => {
                 if self.ended.load(Ordering::Relaxed) {
                     Reply::Gone
@@ -300,15 +252,9 @@ impl Hosted for Link {
     }
 }
 
-/// How often a long wait for a block looks whether its host has ended.
 const ENDED_LOOK: Duration = Duration::from_millis(5);
 
 impl Link {
-    /// Waits for the block's answer until `deadline`, in steps of at most
-    /// [`ENDED_LOOK`], and stops early once the host has ended: an offline
-    /// render (or a test device, ADR-0122) waits seconds per block, and a
-    /// host that died would otherwise hold each block that long. A real-time
-    /// deadline is shorter than one step, so it waits as one.
     fn wait_while_alive(&mut self, deadline: Instant) -> Poll {
         loop {
             let step = (Instant::now() + ENDED_LOOK).min(deadline);
@@ -319,7 +265,6 @@ impl Link {
         }
     }
 
-    /// Bus pair `pair` of the block last answered, into `left` and `right`.
     fn copy_pair(&mut self, pair: usize, left: &mut [f32], right: &mut [f32]) {
         let Some(&Pair { first, channels }) = self.pairs.get(pair) else {
             return;
@@ -333,7 +278,6 @@ impl Link {
         }
     }
 
-    /// The output buses that are on, main first.
     pub fn pairs(&self) -> &[Pair] {
         &self.pairs
     }
@@ -367,11 +311,8 @@ mod tests {
     #[test]
     fn a_parameter_is_left_out_whole_or_not_at_all() {
         let b = block(&[3, 5, 2, 4]);
-        // Room for two queues: the first two go.
         let (fit, left_out) = Fit::of(&b, 2, 1024);
         assert_eq!((fit.queue_count(), left_out), (2, 2));
-        // Room for nine points: 3 + 5 fit; the next would make ten, so the
-        // rest wait, and a later small queue is not let past it.
         let (fit, left_out) = Fit::of(&b, 64, 9);
         assert_eq!((fit.queue_count(), left_out), (2, 2));
     }
@@ -440,7 +381,6 @@ mod tests {
 
     #[test]
     fn messages_the_host_cannot_take_are_left_out() {
-        // Key pressure (0xA0) and system messages.
         let key_pressure = Msg([0xA0, 60, 40]);
         assert!(host_event(&at(0, key_pressure), 128).is_none());
         assert!(host_event(&at(0, Msg::CLOCK), 128).is_none());

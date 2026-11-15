@@ -1,8 +1,3 @@
-//! Editing an automation lane (M7 slice A2): picking several points with a
-//! box or Shift, moving them together, giving segments a shape, bending a
-//! segment, resting places for values, the pencil, the shape tools, and copy,
-//! paste and duplicate. Every edit is one undo step.
-
 use eframe::egui::{Event, Key, Modifiers};
 use lumen_core::automation::{Lane, Point, Shape};
 use lumen_core::time::Ticks;
@@ -16,8 +11,6 @@ fn q(quarters: i64) -> Ticks {
     Ticks::quarters(quarters)
 }
 
-/// A volume lane of points at the beats given, each at its own level, with
-/// the lane shown.
 fn shown(name: &str, held: &[(i64, f32)]) -> (Lumen, Id) {
     let (mut lumen, track) = tone(name);
     lumen
@@ -72,7 +65,6 @@ fn a_shift_drag_picks_the_points_in_the_box() {
         4,
         "nothing added"
     );
-    // A box that catches nothing lets go of the picks.
     let from = spot(&lumen, track, 9.0, 6.0);
     let to = spot(&lumen, track, 10.0, -30.0);
     lumen.drag(from, to, Modifiers::SHIFT);
@@ -99,7 +91,6 @@ fn picked_points_move_together_in_one_undo_step() {
     let from = spot(&lumen, track, 3.0, 6.0);
     let to = spot(&lumen, track, 7.0, -30.0);
     lumen.drag(from, to, Modifiers::SHIFT);
-    // Take hold of the second and move it a beat later and 6 dB down.
     let grab = point_pos(&lumen, track, 1);
     let drop = spot(&lumen, track, 5.0, -12.0);
     lumen.drag(grab, drop, Modifiers::NONE);
@@ -167,7 +158,6 @@ fn delete_and_the_arrows_act_on_every_pick() {
 #[test]
 fn select_all_copy_paste_and_duplicate_repeat_the_points() {
     let (mut lumen, track) = shown("lane-clip", &[(1, -12.0), (3, -6.0), (5, -12.0)]);
-    // A press in the lane gives it the keyboard.
     let first = point_pos(&lumen, track, 0);
     click_at(&mut lumen, first);
     lumen.key(Modifiers::COMMAND, Key::A);
@@ -195,8 +185,6 @@ fn select_all_copy_paste_and_duplicate_repeat_the_points() {
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert_eq!(points(&lumen, track, Target::Volume).len(), 3, "one step");
 
-    // Duplicate: the picked run again, right after itself. This run starts
-    // and ends at one level, so the copy joins on the last point's beat.
     let first = point_pos(&lumen, track, 0);
     click_at(&mut lumen, first);
     lumen.key(Modifiers::COMMAND, Key::A);
@@ -276,8 +264,6 @@ fn the_pencil_draws_a_thinned_stroke_in_one_undo_step() {
     assert_eq!(lumen.app().automation_tool(), "Pointer", "B again");
 }
 
-/// Picks a shape tool and drags it across beats 4 to 12 from a low level up
-/// to a high one.
 fn draw(lumen: &mut Lumen, track: Id, command: &str) -> Vec<Point> {
     run_command(lumen, command);
     let from = spot(lumen, track, 4.0, -30.0);
@@ -327,7 +313,6 @@ fn the_sine_tool_draws_plain_points_that_swing_between_the_two_levels() {
         (low + 30.0).abs() < 1.5 && (high + 6.0).abs() < 1.5,
         "{low} {high}"
     );
-    // It starts where the press was and turns back.
     assert!((held[0].value + 30.0).abs() < 1.5);
     assert!(held.iter().any(|p| p.value > held[0].value + 10.0));
 }
@@ -422,7 +407,6 @@ fn a_command_gives_the_picked_segments_a_shape() {
         lane(&lumen, track, Target::Volume).points()[0].shape,
         Shape::Linear
     );
-    // Each was one step.
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert!(matches!(
         lane(&lumen, track, Target::Volume).points()[0].shape,
@@ -441,7 +425,6 @@ fn dragging_the_dot_on_a_segment_bends_it_in_one_undo_step() {
     let first = point_pos(&lumen, track, 0);
     click_at(&mut lumen, first);
     let dot = lumen.app().automation_bend_pos(&ctx, track, 0).unwrap();
-    // Pull the dot down and to the right: slow at first, then quick.
     lumen.drag(dot, dot + eframe::egui::vec2(30.0, 14.0), Modifiers::NONE);
     let bent = lane(&lumen, track, Target::Volume);
     assert!(
@@ -503,8 +486,6 @@ fn a_shape_on_a_mute_lane_is_made_of_steps() {
 
 #[test]
 fn a_point_at_the_start_of_the_song_is_picked_by_a_press_on_the_lane_edge() {
-    // Exactly on the edge (once taken by the headers' resize grip), and just
-    // inside it.
     for nudge in [0.0, 1.0] {
         let (mut lumen, track) = shown("lane-edge", &[(0, -30.0), (4, -12.0)]);
         let first = point_pos(&lumen, track, 0);
@@ -561,9 +542,6 @@ fn a_wavy_stroke_with_pauses_is_one_undo_step_stopped_or_playing() {
 
 #[test]
 fn a_drag_held_in_a_popped_out_editors_window_stays_one_undo_step() {
-    // The pop-out is its own window with its own pointer: the main window
-    // sees no button down, so the history must be told (a stroke there
-    // undid point by point).
     let (mut lumen, track) = tone("lane-popped-gesture");
     for step in 0..4 {
         lumen.app_mut().hold_popped_pointer();

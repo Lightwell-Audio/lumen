@@ -1,6 +1,3 @@
-//! What differs between systems: pacing, a process's CPU time, and a
-//! description of the machine for the record.
-
 use std::time::{Duration, Instant};
 
 #[cfg(windows)]
@@ -14,13 +11,10 @@ mod imp {
         SetWaitableTimer, TIMER_ALL_ACCESS, WaitForSingleObject,
     };
 
-    /// A high-resolution timer: sleeps of a fraction of a millisecond that
-    /// end on time without changing the system's timer resolution.
     pub struct Pacer(HANDLE);
 
     impl Pacer {
         pub fn new() -> Self {
-            // SAFETY: an unnamed timer with default security.
             let handle = unsafe {
                 CreateWaitableTimerExW(
                     ptr::null(),
@@ -43,7 +37,6 @@ mod imp {
                 return;
             }
             let due = -((left.as_nanos() / 100).max(1) as i64);
-            // SAFETY: a live timer and a valid due-time pointer.
             unsafe {
                 SetWaitableTimer(self.0, &due, 0, None, ptr::null(), 0);
                 WaitForSingleObject(self.0, u32::MAX);
@@ -54,15 +47,12 @@ mod imp {
     impl Drop for Pacer {
         fn drop(&mut self) {
             if !self.0.is_null() {
-                // SAFETY: closing the handle this object owns.
                 unsafe { CloseHandle(self.0) };
             }
         }
     }
 
-    /// Kernel plus user time of a process.
     pub fn cpu_time(pid: u32) -> Option<Duration> {
-        // SAFETY: a plain call; the handle is closed below.
         let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
         if process.is_null() {
             return None;
@@ -72,10 +62,8 @@ mod imp {
             dwHighDateTime: 0,
         };
         let (mut created, mut exited, mut kernel, mut user) = (zero, zero, zero, zero);
-        // SAFETY: a live handle and valid out pointers.
         let ok =
             unsafe { GetProcessTimes(process, &mut created, &mut exited, &mut kernel, &mut user) };
-        // SAFETY: closing the handle opened above.
         unsafe { CloseHandle(process) };
         if ok == 0 {
             return None;
@@ -117,13 +105,10 @@ mod imp {
     #[cfg(target_os = "linux")]
     pub fn cpu_time(pid: u32) -> Option<Duration> {
         let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-        // The name can contain spaces and parentheses; the fields after the
-        // last `)` are fixed.
         let rest = stat.rsplit_once(')')?.1;
         let mut fields = rest.split_whitespace();
         let user: u64 = fields.nth(11)?.parse().ok()?;
         let system: u64 = fields.next()?.parse().ok()?;
-        // SAFETY: a plain query.
         let ticks = unsafe { libc::sysconf(libc::_SC_CLK_TCK) }.max(1) as u64;
         Some(Duration::from_secs_f64(
             (user + system) as f64 / ticks as f64,
@@ -133,10 +118,7 @@ mod imp {
     #[cfg(target_os = "macos")]
     pub fn cpu_time(pid: u32) -> Option<Duration> {
         let pid = libc::pid_t::try_from(pid).ok()?;
-        // SAFETY: a zeroed output record of the requested kernel ABI version.
         let mut usage: libc::rusage_info_v2 = unsafe { std::mem::zeroed() };
-        // SAFETY: proc_pid_rusage writes one RUSAGE_INFO_V2 record into the
-        // supplied buffer; the API's opaque pointer names the record itself.
         let result =
             unsafe { libc::proc_pid_rusage(pid, libc::RUSAGE_INFO_V2, (&raw mut usage).cast()) };
         (result == 0)
@@ -167,8 +149,6 @@ mod tests {
     }
 }
 
-/// Threads that keep every core busy, to see how the wake-up behaves when
-/// the machine is not idle. They stop when dropped.
 pub struct Contention {
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     threads: Vec<std::thread::JoinHandle<()>>,

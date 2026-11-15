@@ -1,6 +1,3 @@
-//! The engine scenarios: playing clips, crossfades, routed and latent mixes,
-//! synths, fake plugin hosts, the transport and disk streams.
-
 use std::sync::Arc;
 
 use lumen_core::time::Ticks;
@@ -67,12 +64,10 @@ pub(crate) fn crossfading_clips() -> Player {
     engine
 }
 
-/// `clips` clips playing, mixed as `mix`.
 pub(crate) fn playing_clips(clips: usize, mix: Mix) -> Player {
     playing_clips_routed(clips, mix).1
 }
 
-/// As [`playing_clips`], with the handle that sends it new routings.
 pub(crate) fn playing_clips_routed(clips: usize, mix: Mix) -> (MixerHandle, Player) {
     let routed_mix = mix != Mix::Direct;
     let audio = Arc::new(ClipAudio::Memory {
@@ -112,16 +107,12 @@ pub(crate) fn playing_clips_routed(clips: usize, mix: Mix) -> (MixerHandle, Play
     let (mut transport, mut engine) = engine(Timeline::default(), source, RATE);
     transport.send(Command::Play).expect("room for a command");
     let mut data = vec![0.0; 2 * FRAMES];
-    // Past the fade-in, into steady playback.
     for _ in 0..10 {
         engine.process(RATE, &mut data, 2, FRAMES);
     }
     (routing, engine)
 }
 
-/// `tracks` MIDI tracks, each a four-note chord on the synth that repeats every
-/// beat and rings on past it (so voices overlap while they release), mixed as
-/// in [`routed`], playing.
 pub(crate) fn playing_synths(tracks: u64) -> SynthPlayer {
     use lumen_devices::{Preset, Synth, synth};
     use lumen_engine::{InstrumentSpec, Layered, MidiClip, MidiNote, MidiTrack, Target};
@@ -167,16 +158,12 @@ pub(crate) fn playing_synths(tracks: u64) -> SynthPlayer {
     let (mut transport, mut engine) = engine(Timeline::default(), source, RATE);
     transport.send(Command::Play).expect("room for a command");
     let mut data = vec![0.0; 2 * FRAMES];
-    // Past the fade-in, into steady playback.
     for _ in 0..10 {
         engine.process(RATE, &mut data, 2, FRAMES);
     }
     engine
 }
 
-/// A host that is not one: it answers inside `submit`, with no thread (the
-/// scenarios may not use any). An instrument rings a level that each note-on
-/// resets and each block lets fall; an effect halves its input.
 struct Echo {
     effect: bool,
     level: f32,
@@ -243,8 +230,6 @@ impl lumen_devices::Hosted for Echo {
     }
 }
 
-/// [`playing_synths`], with every instrument and a hosted effect on every
-/// track in plugin hosts (fake ones): the engine's own cost of hosting.
 pub(crate) fn playing_hosted(tracks: u64, lanes: bool) -> (MixerHandle, SynthPlayer) {
     use lumen_devices::{Guard, HostedInstrument};
     use lumen_engine::{Device, InstrumentSpec, Layered, MidiClip, MidiNote, MidiTrack, Target};
@@ -307,18 +292,13 @@ pub(crate) fn playing_hosted(tracks: u64, lanes: bool) -> (MixerHandle, SynthPla
     let (mut transport, mut engine) = engine(Timeline::default(), source, RATE);
     transport.send(Command::Play).expect("room for a command");
     let mut data = vec![0.0; 2 * FRAMES];
-    // Past the fade-in and the glide from each fallback to its host, into
-    // steady playback.
     for _ in 0..400 {
         engine.process(RATE, &mut data, 2, FRAMES);
     }
-    // The scenario must really use its hosts: none failed or missed a block.
     assert!(statuses.iter().all(|s| !s.failed() && s.late_blocks() == 0));
     (routing, engine)
 }
 
-/// A curved and a stepped lane on the plugin `host`, long enough that
-/// every block of the scenario is inside them.
 fn plugin_lanes(host: u64) -> lumen_engine::NodeAutomation {
     use lumen_core::automation::Shape;
     use lumen_engine::{AutoLane, AutoPoint, NodeAutomation, ParamLane};
@@ -359,8 +339,6 @@ pub(crate) fn transport_only() -> (EngineHandle, Player) {
             channel: 0,
         }))
         .expect("room for a command");
-    // Two quarters at 120 BPM: 48,000 samples, so 2,000 blocks wrap it
-    // about five times.
     handle
         .send(Command::SetLoop(Region {
             start: Ticks::quarters(4),
@@ -372,12 +350,8 @@ pub(crate) fn transport_only() -> (EngineHandle, Player) {
     (handle, engine)
 }
 
-/// Pages of each streamed file: 163,840 frames, more than the 1,010 blocks
-/// play.
 const STREAM_PAGES: usize = 40;
 
-/// 64 streamed clips on one track, every page in memory: the audio
-/// thread's page copy (M9 slice R6), beside `engine_clips_64`'s memory.
 pub(crate) fn playing_streams() -> (Arc<PagePool>, Player) {
     let pool = PagePool::new(64 * STREAM_PAGES as u32);
     let mut writer = PoolWriter::new(&pool);

@@ -1,6 +1,3 @@
-//! A part's first half: new lists and live input, the clock, and handing
-//! each hosted instrument its block.
-
 use std::sync::atomic::Ordering;
 
 use lumen_core::midi::Msg;
@@ -15,10 +12,6 @@ use super::MidiPlayer;
 use super::out::Out;
 
 impl MidiPlayer {
-    /// A part's first half: takes new lists and live input, places the live
-    /// and clock messages, reads every track's clips and, with `hosts`, hands
-    /// each hosted instrument its block. False for a scrub, which plays no
-    /// MIDI.
     pub(super) fn prepare(
         &mut self,
         cx: &RenderContext<'_>,
@@ -30,7 +23,6 @@ impl MidiPlayer {
         self.take_feed();
         self.clock = cx.stream + frames as u64;
         if cx.mode == Mode::Scrub {
-            // Live input waits until the scrub ends.
             return false;
         }
         self.play_live(cx, frames);
@@ -46,8 +38,6 @@ impl MidiPlayer {
         true
     }
 
-    /// The loop wrapped: the next messages are of a new pass, and each
-    /// recording track is told so.
     pub(super) fn wrapped(&mut self) {
         self.pass = self.pass.wrapping_add(1);
         if !self.recording {
@@ -72,8 +62,6 @@ impl MidiPlayer {
         }
     }
 
-    /// Tells the sender to forget what it has not sent yet, if any track
-    /// goes to hardware or any port gets the clock.
     pub(super) fn flush_hardware(&mut self) {
         let ports = self
             .current
@@ -85,7 +73,6 @@ impl MidiPlayer {
         }
     }
 
-    /// Sends `msg` to every port in `ports` at device frame `frame`.
     pub(super) fn to_synced(out: &mut Out, ports: u64, frame: u64, msg: Msg) {
         let mut left = ports;
         while left != 0 {
@@ -95,8 +82,6 @@ impl MidiPlayer {
         }
     }
 
-    /// The clock's messages for a part being played (M5 slice 7). Ports
-    /// that turn Sync on while playing pick the song up from here.
     fn play_clock(&mut self, cx: &RenderContext<'_>, frames: usize) {
         let ports = self.sync.load(Ordering::Relaxed);
         if ports != self.synced {

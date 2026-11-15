@@ -1,14 +1,10 @@
-//! Frames: a magic number, a version, a kind and a bounded payload.
-
 use std::io::{self, Read, Write};
 
 use super::*;
 use crate::wire::WireError;
 
-/// Why reading a frame failed.
 #[derive(Debug)]
 pub enum FrameError {
-    /// The other side closed the stream between frames.
     Closed,
     Io(io::Error),
     Wire(WireError),
@@ -45,8 +41,6 @@ pub(super) fn write_frame<W: Write>(out: &mut W, kind: u16, payload: &[u8]) -> i
 
 fn read_frame<R: Read>(input: &mut R) -> Result<(u16, Vec<u8>), FrameError> {
     let mut header = [0_u8; 12];
-    // End of stream before the first byte is an orderly close; partway
-    // through a header it is a torn frame.
     let mut got = 0;
     while got < header.len() {
         match input.read(&mut header[got..]) {

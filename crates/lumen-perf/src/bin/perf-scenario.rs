@@ -1,5 +1,3 @@
-//! Runs one scenario by name; `perf-gate` starts it under Callgrind.
-
 fn main() {
     let Some(name) = std::env::args().nth(1) else {
         eprintln!("usage: perf-scenario <name>");

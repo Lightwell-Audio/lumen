@@ -1,9 +1,3 @@
-//! Dropdowns (combo boxes) in the premium control look: the audio settings'
-//! buffer size is a `widgets::Dropdown`. It is named "<label>: <value>",
-//! opens its list of choices as a menu, picks by click, and works from the
-//! keyboard alone: Enter opens it, the arrows move between rows, Enter
-//! picks, and Esc closes the list and leaves the window open.
-
 use std::time::Instant;
 
 use eframe::egui::{Key, Modifiers};
@@ -11,9 +5,6 @@ use egui_kittest::kittest::{NodeT, Queryable};
 
 use super::Lumen;
 
-/// A window can move after the settings menu opens, so a click on the first
-/// layout's combo rectangle may miss. Keep trying until its option is in the
-/// accessibility tree; that confirms the menu is actually open.
 fn open_by_click(lumen: &mut Lumen, button: &str, option: &str) {
     let started = Instant::now();
     loop {
@@ -36,22 +27,15 @@ fn open_by_click(lumen: &mut Lumen, button: &str, option: &str) {
 fn a_buffer_size_is_picked_by_click_and_by_keyboard() {
     let mut lumen = Lumen::start("dropdown");
     lumen.open_audio_settings();
-    // The window opens over a few frames; wait for the combo, not for a count.
     lumen.run_until("the combo, named", |l| l.shows("Buffer size: 128 samples"));
-    // By click: the list opens as a menu and a row applies its size; the
-    // button keeps keyboard focus afterwards.
     open_by_click(&mut lumen, "Buffer size: 128 samples", "64 samples");
     assert!(lumen.shows("64 samples"), "the list offers 64 samples");
     lumen.click("64 samples");
-    // The menu is disabled until the device answers, then has the keyboard
-    // back (ADR-0113).
     lumen.run_until("the 64-sample choice to apply", |l| {
         l.harness
             .query_by_label("Buffer size: 64 samples")
             .is_some_and(|b| !b.accesskit_node().is_disabled() && b.accesskit_node().is_focused())
     });
-    // By keyboard: Enter opens the list with the current row focused; the
-    // arrow goes down one row and Enter picks it.
     lumen.key(Modifiers::NONE, Key::Enter);
     lumen.run_until("the buffer-size list to open from the keyboard", |l| {
         l.shows("64 samples")
@@ -72,7 +56,6 @@ fn a_buffer_size_is_picked_by_click_and_by_keyboard() {
         lumen.shows("Buffer size: 128 samples"),
         "the key pick applies"
     );
-    // Esc closes the list and keeps the window open.
     lumen.key(Modifiers::NONE, Key::Enter);
     lumen.run_until("the list to open before Escape", |l| l.shows("64 samples"));
     assert!(lumen.shows("64 samples"), "the list is open");

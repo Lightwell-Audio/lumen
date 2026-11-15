@@ -1,17 +1,3 @@
-//! Compiling a [`Routing`] into a [`Plan`]: checking it, ordering the
-//! nodes so that every node comes after everything that feeds it, working
-//! out delay compensation (M4 slice 6), and allocating every buffer and
-//! delay line the plan needs. Runs on the UI side.
-//!
-//! **Delay compensation.** Each node's input arrives some frames after the
-//! tracks played it: the latest of everything feeding it (an output, a
-//! send or a sidechain), each of which left its source after the source's
-//! devices (or, for a pre-FX sidechain, before them). Paths that arrive
-//! early go through delay lines as long as the difference, and so does
-//! what the tracks play into a node that waits for a later input. All device
-//! outputs and the cue bus are lined up to the latest of them, the
-//! routing's [`Compensation`].
-
 use std::collections::BTreeSet;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
@@ -25,22 +11,16 @@ use super::plan::{BUS, CHUNK, Dev, NO_DEV, NO_METER, NO_SIDE, Node, Out, Plan, S
 use super::smooth::Smoothed;
 use super::spec::{Compensation, Destination, Routing, RoutingError, Tap};
 
-/// Checks `routing` and builds its plan, unmetered. Allocates; call it off
-/// the audio thread.
 pub fn compile(routing: &Routing) -> Result<Plan, RoutingError> {
     compile_metered(routing, None, |_| NO_METER)
 }
 
-/// What feeds a node: an output or send (after the source's devices) or a
-/// sidechain taken at `Tap`.
 #[derive(Clone, Copy)]
 enum Edge {
     Main,
     Sidechain(Tap),
 }
 
-/// [`compile`], with every node's level going to `meters` at the slot
-/// `slot` gives its id.
 pub(super) fn compile_metered(
     routing: &Routing,
     meters: Option<Arc<MeterBank>>,
@@ -63,10 +43,8 @@ pub(super) fn compile_metered(
             .map_err(|_| RoutingError::Unknown { from, to })
     };
 
-    // Edges from each node to the nodes it feeds.
     let mut feeds: Vec<Vec<(usize, Edge)>> = vec![Vec::new(); specs.len()];
     let mut incoming = vec![0usize; specs.len()];
-    // Whether another node's output or send adds to a node's audio.
     let mut fed = vec![false; specs.len()];
     for (i, spec) in specs.iter().enumerate() {
         let outputs = match spec.output {
@@ -89,13 +67,10 @@ pub(super) fn compile_metered(
             }
             feeds[from].push((i, Edge::Sidechain(sidechain.tap)));
             incoming[i] += 1;
-            // What a sidechain brings is not there until its source has run.
             fed[i] = true;
         }
     }
 
-    // Kahn's order; among ready nodes, the earliest listed goes first, so
-    // the same routing always compiles to the same plan.
     let mut ready: BTreeSet<usize> = (0..specs.len()).filter(|&i| incoming[i] == 0).collect();
     let mut order = Vec::with_capacity(specs.len());
     while let Some(i) = ready.pop_first() {
@@ -146,9 +121,6 @@ pub(super) fn compile_metered(
         };
         (spec.id, spec.output, spec.source).hash(&mut hasher);
         let out_line = lines.add(LineKey::Output { from: spec.id }, out_delay);
-        // What the tracks play into the node waits for its other inputs.
-        // A plugin instrument's own output is already late by its source
-        // latency, so only the rest of the wait is a line.
         let input_line = lines.add(
             LineKey::Input { node: spec.id },
             arrival.at[i].saturating_sub(arrival.source[i]),
@@ -176,9 +148,6 @@ pub(super) fn compile_metered(
                 ),
             };
             devices.push(Dev {
-                // A hosted device's line is its fallback: the plugin's
-                // reported latency, which the compensation counts too. A
-                // built-in's is the same: what plays while it is not attached.
                 line: lines.add(
                     LineKey::Device {
                         node: spec.id,
@@ -197,8 +166,6 @@ pub(super) fn compile_metered(
                 refused: false,
             });
         }
-        // Nothing feeds the node, so its input is ready as soon as the
-        // tracks have played: its first hosted device can start early.
         let early = match spec.devices.first() {
             Some(super::spec::Device::Hosted { .. }) if !fed[i] => first_device,
             _ => NO_DEV,
@@ -227,10 +194,6 @@ pub(super) fn compile_metered(
             });
         }
 
-        // The node's lanes (M7 slice A0). A value with a lane is played by
-        // the lane alone, so the fixed level it replaces is unity here; which
-        // lanes there are is part of the plan's shape, so switching one on or
-        // off crossfades.
         let lanes = spec.automation.as_ref().filter(|a| !a.is_empty());
         lanes
             .map(|a| {
@@ -270,8 +233,6 @@ pub(super) fn compile_metered(
 
         let sign = if spec.invert { -1.0 } else { 1.0 };
         let heard = spec.audible || spec.sends_audible;
-        // With devices or sidechains taken from it, mute comes after them;
-        // otherwise it is folded into the input gain.
         let split = !spec.devices.is_empty() || first_tap < taps.len() as u32;
         let trim = if trim_lane { 1.0 } else { finite(spec.trim) };
         let pre = if split || heard { trim * sign } else { 0.0 };
@@ -364,8 +325,6 @@ pub(super) fn compile_metered(
     let compensation = arrival.compensation(routing);
     Ok(Plan {
         buses: vec![0.0; nodes.len() * BUS],
-        // Room to blend the tracks' input across a jump (`Mixer::locate`),
-        // only needed while the routing is latent.
         input_tail: if compensation.frames > 0 {
             vec![0.0; nodes.len() * BUS]
         } else {
@@ -396,19 +355,12 @@ pub(super) fn compile_metered(
     })
 }
 
-/// When each node's input arrives, in frames after the tracks played it.
 struct Arrival {
-    /// Per node, by its index in the routing.
     at: Vec<u32>,
-    /// Frames each node's devices add.
     latency: Vec<u32>,
-    /// Frames each node's own source trails the timeline.
     source: Vec<u32>,
-    /// What each node waits for: the node whose path arrives last, if any.
     latest: Vec<Option<usize>>,
-    /// When the device outputs and the cue bus play.
     total: u32,
-    /// The node that sets `total`, if any.
     last: Option<usize>,
 }
 
@@ -420,7 +372,6 @@ impl Arrival {
             .iter()
             .map(|s| s.source.min(super::MAX_DEVICE_LATENCY))
             .collect();
-        // A node's input is ready no sooner than its own source plays.
         let mut at = source.clone();
         let mut latest = vec![None; specs.len()];
         for &i in order {
@@ -469,7 +420,6 @@ impl Arrival {
     fn compensation(&self, routing: &Routing) -> Compensation {
         let mut path = Vec::new();
         let mut at = self.last;
-        // Each step goes to a node earlier in the order, so this ends.
         while let Some(i) = at {
             let adds = self.source[i].saturating_add(self.latency[i]);
             if adds > 0 {
@@ -485,16 +435,10 @@ impl Arrival {
     }
 }
 
-/// A gain the audio thread can use: NaN and infinities become silence.
 pub(super) fn finite(gain: f32) -> f32 {
     if gain.is_finite() { gain } else { 0.0 }
 }
 
-/// Hashes what makes a device part of the routing's **shape**: which device it
-/// is and how far it delays, but not its power switch. A power switch is a
-/// level, and the mixer fades it in place through the device's own glide
-/// (`BuiltinPool`); hashing it here would make every press of it crossfade the
-/// whole plan, which is a pop in proportion to what the device does (OR-4).
 fn shape(device: &super::spec::Device, hasher: &mut impl Hasher) {
     match *device {
         super::spec::Device::Delay { frames, listen } => {
@@ -547,8 +491,6 @@ mod tests {
 
     #[test]
     fn nodes_come_after_everything_that_feeds_them() {
-        // The master listed first, a group before its children, a return
-        // fed by a send from a track listed after it.
         let mut track = node(4, Destination::Node(2));
         track.sends.push(SendSpec {
             to: 3,
@@ -568,7 +510,6 @@ mod tests {
 
     #[test]
     fn a_sidechain_source_comes_before_the_node_it_feeds() {
-        // Track 2 listens to track 3, listed after it.
         let mut ducked = node(2, Destination::Node(1));
         ducked.sidechains.push(SidechainSpec {
             from: 3,
@@ -594,8 +535,6 @@ mod tests {
         let b = compile(&routing).unwrap();
         assert_eq!(order(&a), order(&b));
         assert_eq!(a.topology, b.topology);
-        // Levels do not change the shape; outputs, devices and sidechains
-        // do.
         let mut louder = routing.clone();
         louder.nodes[3].volume = 0.5;
         assert_eq!(compile(&louder).unwrap().topology, a.topology);
@@ -611,7 +550,6 @@ mod tests {
             tap: Tap::PreFx,
         });
         assert_ne!(compile(&ducked).unwrap().topology, a.topology);
-        // The perf gate's fader drag swaps two plans of one shape.
         let (drag_a, drag_b) = (
             compile(&crate::testing::latent(64, 0)).unwrap(),
             compile(&crate::testing::latent(64, 6)).unwrap(),
@@ -636,7 +574,6 @@ mod tests {
             compile(&routing(vec![feedback])).unwrap_err(),
             RoutingError::Cycle
         );
-        // Through a send: a return that feeds the track sending to it.
         let mut track = node(1, Destination::Hardware(0));
         track.sends.push(SendSpec {
             to: 2,
@@ -661,7 +598,6 @@ mod tests {
 
     #[test]
     fn sidechains_that_loop_are_refused() {
-        // A group's sidechain from one of its own tracks is fine...
         let mut group = node(2, Destination::Node(1));
         group.sidechains.push(SidechainSpec {
             from: 3,
@@ -673,7 +609,6 @@ mod tests {
             node(3, Destination::Node(2)),
         ]);
         compile(&fine).unwrap();
-        // ...but a track's sidechain from its own group loops.
         let mut track = node(3, Destination::Node(2));
         track.sidechains.push(SidechainSpec {
             from: 2,
@@ -715,8 +650,6 @@ mod tests {
 
     #[test]
     fn compensation_follows_the_longest_path_to_the_outputs() {
-        // Track 3 (10 frames) → group 2 (5 frames) → master 1 (7 frames);
-        // track 4 straight to the master; a return 5 fed by track 4.
         let mut track = node(3, Destination::Node(2));
         track.devices = latent(10);
         let mut group = node(2, Destination::Node(1));
@@ -744,13 +677,9 @@ mod tests {
                 path: vec![(3, 10), (2, 5), (1, 7)],
             }
         );
-        // Track 4's output and the return's each wait the 15 frames of the
-        // track and group.
         let lengths: Vec<(LineKey, usize)> = plan.lines.shape().collect();
         assert!(lengths.contains(&(LineKey::Output { from: 4 }, 15)));
         assert!(lengths.contains(&(LineKey::Output { from: 5 }, 15)));
-        // The send meets nothing later at the return, so it needs no line;
-        // nor do the nodes on the longest path.
         assert!(
             !lengths
                 .iter()
@@ -765,8 +694,6 @@ mod tests {
 
     #[test]
     fn an_instruments_latency_is_met_by_every_other_path_and_not_delayed_again() {
-        // Track 2 is an instrument that plays 100 frames late; track 3 is a
-        // plain track; both go to the master.
         let mut instrument = node(2, Destination::Node(1));
         instrument.source = 100;
         let plan = compile(&routing(vec![
@@ -809,8 +736,6 @@ mod tests {
 
     #[test]
     fn a_pre_fx_sidechain_leaves_before_the_devices() {
-        // Track 2 (12 frames) feeds the master and, pre-FX, the sidechain
-        // of track 3, which waits for it.
         let mut source = node(2, Destination::Node(1));
         source.devices = latent(12);
         let mut listener = node(3, Destination::Node(1));
@@ -824,8 +749,6 @@ mod tests {
             listener,
         ]))
         .unwrap();
-        // The sidechain arrives at once, so track 3 waits for nothing; its
-        // output then waits 12 frames for track 2's at the master.
         assert_eq!(plan.compensation.frames, 12);
         let lengths: Vec<(LineKey, usize)> = plan.lines.shape().collect();
         assert!(lengths.contains(&(LineKey::Output { from: 3 }, 12)));

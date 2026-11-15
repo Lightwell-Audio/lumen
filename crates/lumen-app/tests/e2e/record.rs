@@ -1,21 +1,3 @@
-//! Recording MIDI (M5 slice 6, ADR-0055), end to end: F9 records the armed
-//! MIDI tracks from the play marker, after the count-in, from notes a fake
-//! keyboard sends. Each take is one undo step, Replace and Overdub place it
-//! over what is there, a held note is closed at the stop, loop passes layer,
-//! and punch boundaries mask the take while capture continues.
-//!
-//! Note times are checked against where the player heard the playhead when
-//! the test sent each message: the playhead the test read just before it sent
-//! it, less the device's output latency (the playhead is drawn ahead of what
-//! is heard by that much), within a few hundredths of a beat at 120 BPM.
-//!
-//! Timing needs the test device to keep pace with the wall clock, which the
-//! recorder's clock map assumes (`live.rs`, `FrameMap`). The fake device,
-//! as the repository has it, delivers blocks on a 10 ms supervisor poll and
-//! runs below real time in a debug build, so the clock map drifts by tenths
-//! of a beat within a few seconds. Timing failures here come from the test
-//! device's pacing, not from the recorder.
-
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -34,25 +16,15 @@ use super::Lumen;
 use super::midi_from::switch_on_for_tracks;
 use super::midi_play::{palette, wait_open};
 
-/// The fake keyboard's input port.
 const PORT: &str = "Keystation";
-/// Ticks in a beat.
 const BEAT: i64 = Ticks::quarters(1).0;
-/// Ticks in a 4/4 bar.
 const BAR: i64 = Ticks::quarters(4).0;
-/// How close a recorded time is to the playhead it was played at, in beats.
-/// Very generous on purpose (one beat): the test device does not pace its blocks to real
-/// time, so the clock the feed maps driver stamps with drifts. Sample-exact
-/// positions are the engine's `tests/record.rs`; a real controller's timing
-/// is MT-MIDI-7.
 const TOLERANCE: f64 = 1.0;
 
-/// A position in beats, as ticks.
 pub(super) fn beats(x: f64) -> Ticks {
     Ticks((x * BEAT as f64).round() as i64)
 }
 
-/// A note of a clip, at absolute project ticks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Placed {
     pub(super) start: Ticks,
@@ -61,8 +33,6 @@ pub(super) struct Placed {
     pub(super) velocity: u8,
 }
 
-/// The notes of `clip` in its window (what plays and shows), at absolute
-/// project ticks, in the order stored.
 pub(super) fn placed(clip: &Clip) -> Vec<Placed> {
     let ClipContent::Midi { notes, .. } = &clip.content else {
         return Vec::new();
@@ -79,7 +49,6 @@ pub(super) fn placed(clip: &Clip) -> Vec<Placed> {
         .collect()
 }
 
-/// Every note of every clip on the track, in order.
 fn all_placed(lumen: &Lumen) -> Vec<Placed> {
     clips_of(lumen).iter().flat_map(|c| placed(c)).collect()
 }
@@ -88,16 +57,12 @@ pub(super) fn clips_of(lumen: &Lumen) -> Vec<Arc<Clip>> {
     lumen.app().project().tracks[0].clips.clone()
 }
 
-/// The device's output latency, in ticks at the current tempo.
 fn latency_ticks(lumen: &Lumen) -> i64 {
     let rate = i64::from(snapshot(lumen).sample_rate.max(1));
-    // Samples in a beat at 120 BPM, the tempo these scenarios use.
     let samples_per_beat = rate / 2;
     lumen.app().output_latency_frames() * BEAT / samples_per_beat
 }
 
-/// Asserts `actual` is within [`TOLERANCE`] beats of where the player heard
-/// `rendered`, the playhead the test read when it sent the message.
 #[track_caller]
 fn assert_heard(lumen: &Lumen, what: &str, actual: Ticks, rendered: Ticks) {
     let heard = Ticks(rendered.0 - latency_ticks(lumen));
@@ -110,8 +75,6 @@ fn assert_heard(lumen: &Lumen, what: &str, actual: Ticks, rendered: Ticks) {
     );
 }
 
-/// The fake keyboard: messages stamped as the driver would, when they are
-/// played.
 pub(super) struct Keys {
     fake: FakeControl,
     epoch: Instant,
@@ -146,21 +109,17 @@ impl Keys {
     }
 }
 
-/// Switches Overdub on from the palette.
 pub(super) fn overdub_on(lumen: &mut Lumen) {
     palette(lumen, "Overdub");
     assert!(lumen.app().overdub_on(), "Overdub is on");
 }
 
-/// A fake keyboard with one input, plugged in before Lumen starts.
 pub(super) fn keyboard() -> FakeControl {
     let fake = FakeControl::new();
     fake.plug(Direction::Input, PORT);
     fake
 }
 
-/// An armed (or not) MIDI track with the synth on Poly: empty, or with a
-/// clip of `notes` over beats 0 to 8.
 pub(super) fn track(notes: Option<Vec<Note>>, armed: bool) -> Track {
     let mut track = match notes {
         Some(notes) => midi_track(1, "Keys", "poly", (0, 8), None, notes, vec![]),
@@ -174,8 +133,6 @@ pub(super) fn track(notes: Option<Vec<Note>>, armed: bool) -> Track {
     track
 }
 
-/// Starts Lumen with `project`, and the fake keyboard switched on for tracks
-/// (as the settings' MIDI page does).
 pub(super) fn launch(name: &str, project: &Project, fake: &FakeControl) -> Lumen {
     let dir = TempDir::new(&format!("e2e-record-{name}"));
     let path = dir.path().join("song.lumen");
@@ -188,26 +145,19 @@ pub(super) fn launch(name: &str, project: &Project, fake: &FakeControl) -> Lumen
     lumen.wait_for("the project", move |app| {
         app.project().tracks.len() == tracks
     });
-    // Rows grow in over a few frames.
     lumen.frames(30);
     switch_on_for_tracks(&mut lumen, fake, PORT);
     lumen
 }
 
-/// Record (F9) from stop, with no count-in: runs until the playhead moves.
 pub(super) fn record(lumen: &mut Lumen) {
     lumen.key(Modifiers::NONE, Key::F9);
     lumen.wait_for("the take to start", |app| {
         app.recording() && app.is_playing()
     });
-    // The arrangement draws the take a frame after the engine reports it.
     lumen.wait_for("the take to be drawn", |app| app.live_take().is_some());
 }
 
-/// Slows `project` to 30 BPM: a beat is two seconds, so the stretch between
-/// one playhead position and the next (a key sent after `reach`, a stop
-/// before the loop wraps) is wide enough that a busy machine does not take
-/// it. For scenarios that race the loop's end.
 pub(super) fn slowly(project: &mut Project) {
     project.tempo = vec![TempoPoint {
         at: Ticks::ZERO,
@@ -216,7 +166,6 @@ pub(super) fn slowly(project: &mut Project) {
     }];
 }
 
-/// Runs until the playhead reaches `at`, and returns where it is.
 pub(super) fn reach(lumen: &mut Lumen, at: Ticks) -> Ticks {
     lumen.wait_for(&format!("beat {}", at.0 as f64 / BEAT as f64), move |app| {
         app.playhead() >= at
@@ -224,8 +173,6 @@ pub(super) fn reach(lumen: &mut Lumen, at: Ticks) -> Ticks {
     lumen.app().playhead()
 }
 
-/// Space stops playback, which ends the take. Returns where the playhead
-/// stopped.
 pub(super) fn stop(lumen: &mut Lumen) -> Ticks {
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.wait_for("the take to end", |app| {
@@ -234,7 +181,6 @@ pub(super) fn stop(lumen: &mut Lumen) -> Ticks {
     lumen.app().playhead()
 }
 
-/// The loudest sample over the next stretch of audio.
 fn loudest(lumen: &mut Lumen) -> f32 {
     lumen
         .listen(Duration::from_millis(100), 2_000)
@@ -246,9 +192,6 @@ fn snapshot(lumen: &Lumen) -> TransportSnapshot {
     lumen.app().transport_state()
 }
 
-/// The take from an empty armed track: its clip starts at the play marker
-/// and ends where playback stops (not rounded to a bar), its notes keep
-/// their pitches, velocities and order, and their times are the playhead's.
 #[test]
 fn a_take_starts_at_the_marker_and_ends_where_playback_stops() {
     let fake = keyboard();
@@ -288,8 +231,6 @@ fn a_take_starts_at_the_marker_and_ends_where_playback_stops() {
     assert_heard(&lumen, "the second note's end", notes[1].end, second_off);
 }
 
-/// The whole take is one undo step: Undo removes it, Redo brings it back.
-/// Undo is refused while recording, and the take stays.
 #[test]
 fn a_take_is_one_undo_step_and_undo_is_refused_while_recording() {
     let fake = keyboard();
@@ -302,8 +243,6 @@ fn a_take_is_one_undo_step_and_undo_is_refused_while_recording() {
     keys.on(60, 90);
     reach(&mut lumen, beats(1.5));
     keys.off(60);
-    // The first commit that holds the note comes about a second of wall
-    // time after the start.
     lumen.wait_for("the first commit", |app| {
         app.project().tracks[0]
             .clips
@@ -333,8 +272,6 @@ fn a_take_is_one_undo_step_and_undo_is_refused_while_recording() {
     assert_eq!(all_placed(&lumen), take, "Redo brings the take back");
 }
 
-/// Replace cuts the clip under the take: the new clip is over the take, and
-/// the old notes under it are gone while the rest of the clip stays.
 #[test]
 fn replace_cuts_the_clip_under_the_take() {
     let fake = keyboard();
@@ -364,8 +301,6 @@ fn replace_cuts_the_clip_under_the_take() {
     let kept: Vec<u8> = all_placed(&lumen).iter().map(|n| n.pitch).collect();
     assert!(!kept.contains(&50), "the old note under the take is cut");
     assert!(kept.contains(&52), "the old note after the take stays");
-    // The piece after the take is a window onto the old
-    // clip's notes, so the one under the take is kept there, hidden.
     let after = clips_of(&lumen)
         .into_iter()
         .find(|c| c.start == stopped)
@@ -381,8 +316,6 @@ fn replace_cuts_the_clip_under_the_take() {
     );
 }
 
-/// A track with `old` over beats 0 to 8, armed and sent to the fake output
-/// "Synth" (so what plays can be counted), at a tempo that runs fast.
 pub(super) fn heard_project(old: Vec<Note>) -> (Project, FakeControl) {
     let fake = keyboard();
     fake.plug(Direction::Output, "Synth");
@@ -392,13 +325,10 @@ pub(super) fn heard_project(old: Vec<Note>) -> (Project, FakeControl) {
         channel: 0,
     });
     let mut project = project_of("Record", vec![keys]);
-    // Fast enough for a short test, slow enough that the stop after beat 3
-    // is not late for the note at beat 6 on a busy machine.
     project.tempo[0].bpm = 240.0;
     (project, fake)
 }
 
-/// The pitches the output was sent note-ons for, in order.
 fn pitches_sent(fake: &FakeControl) -> Vec<u8> {
     fake.sent()
         .into_iter()
@@ -408,8 +338,6 @@ fn pitches_sent(fake: &FakeControl) -> Vec<u8> {
         .collect()
 }
 
-/// Records from the start to beat 3 without playing anything, then stops,
-/// and returns the pitches the output was sent.
 fn record_over(name: &str, overdub: bool) -> Vec<u8> {
     let old = vec![
         Note::new(beats(1.0), beats(0.5), 50, 100),
@@ -428,9 +356,6 @@ fn record_over(name: &str, overdub: bool) -> Vec<u8> {
     pitches_sent(&fake)
 }
 
-/// In Replace the notes already in the clip under the take do not sound
-/// while it is recorded over (the owner, MT-MIDI-7); Overdub keeps them
-/// sounding, which also shows the output hears this test's clip at all.
 #[test]
 fn replace_does_not_play_the_old_notes_under_the_take_and_overdub_does() {
     assert_eq!(
@@ -445,10 +370,6 @@ fn replace_does_not_play_the_old_notes_under_the_take_and_overdub_does() {
     );
 }
 
-/// Overdub begun at a clip's start records a new clip and
-/// does not merge into the clip already there (owner, after MT-MIDI-7 run
-/// 7): the new clip carries the old notes it passed over along with the
-/// take, and the rest of the old clip stays a clip of its own after it.
 #[test]
 fn overdub_begun_at_a_clips_start_is_a_new_clip_and_the_old_one_stays_its_own() {
     let fake = keyboard();
@@ -490,9 +411,6 @@ fn overdub_begun_at_a_clips_start_is_a_new_clip_and_the_old_one_stays_its_own() 
     assert_eq!(after, [52]);
 }
 
-/// Overdub: playing a pitch the clip already holds there wins it.
-/// The old note is cut where the new one starts, not left stacked
-/// under it (owner, after MT-MIDI-7 run 3).
 #[test]
 fn overdubbing_the_same_pitch_cuts_the_old_note() {
     let fake = keyboard();
@@ -519,9 +437,6 @@ fn overdubbing_the_same_pitch_cuts_the_old_note() {
     assert_eq!(second.velocity, 90, "the one played");
 }
 
-/// A one-bar count-in: the playhead waits at the marker while the metronome
-/// counts, the transport says it is recording and not playing, and what is
-/// played during the count-in is not kept.
 #[test]
 fn a_count_in_holds_the_playhead_and_keeps_nothing_played_during_it() {
     let fake = keyboard();
@@ -532,7 +447,6 @@ fn a_count_in_holds_the_playhead_and_keeps_nothing_played_during_it() {
     let keys = Keys::new(&fake);
 
     lumen.key(Modifiers::NONE, Key::F9);
-    // The engine answers a block later, and a busy machine makes that long.
     lumen.wait_for("the count-in to begin", |app| {
         app.transport_state().count_in_left > 0
     });
@@ -574,7 +488,6 @@ fn a_count_in_holds_the_playhead_and_keeps_nothing_played_during_it() {
     assert_heard(&lumen, "the note's end", notes[0].end, first_off);
 }
 
-/// Record with nothing armed does not start, and says why.
 #[test]
 fn record_with_no_armed_track_does_not_start_and_says_so() {
     let fake = keyboard();
@@ -594,8 +507,6 @@ fn record_with_no_armed_track_does_not_start_and_says_so() {
     );
 }
 
-/// A note still held at the stop is closed there, and nothing is left
-/// sounding after the stop.
 #[test]
 fn a_held_note_is_closed_at_the_stop_and_nothing_hangs() {
     let fake = keyboard();
@@ -606,7 +517,6 @@ fn a_held_note_is_closed_at_the_stop_and_nothing_hangs() {
     reach(&mut lumen, beats(1.0));
     keys.on(60, 100);
     reach(&mut lumen, beats(3.0));
-    // Held: the track sounds it.
     assert!(loudest(&mut lumen) > 0.01, "the held note is heard");
     let stopped = stop(&mut lumen);
 
@@ -614,17 +524,12 @@ fn a_held_note_is_closed_at_the_stop_and_nothing_hangs() {
     assert_eq!(notes.len(), 1, "one note, the one held");
     assert_eq!(notes[0].pitch, 60);
     assert_eq!(notes[0].end, stopped, "it ends at the stop");
-    // The key is let go after the stop (a held key keeps sounding after a
-    // stop, ADR-0046); once its note-off arrives and the release is over,
-    // nothing sounds.
     keys.off(60);
     let quiet = lumen.listen(Duration::from_millis(1_500), 2_000);
     let after = quiet.iter().fold(0.0f32, |m, f| m.max(f[0].abs()));
     assert!(after < 1e-4, "still sounding after the stop: {after}");
 }
 
-/// A key already down when Record is pressed is part of the take, from the
-/// take's start (MT-MIDI-7, run 1).
 #[test]
 fn a_key_held_when_record_is_pressed_is_taken_from_the_start() {
     let fake = keyboard();
@@ -692,9 +597,6 @@ fn a_held_key_at_a_nonzero_recording_start_is_not_hidden_to_the_left() {
     );
 }
 
-/// A note held across the loop's end is cut there and goes on from the
-/// loop's start, so a note changed just before the wrap is not lost
-/// (MT-MIDI-7, run 1).
 #[test]
 fn a_note_held_across_the_loop_wrap_goes_on_from_the_loop_start() {
     let fake = keyboard();
@@ -730,9 +632,6 @@ fn a_note_held_across_the_loop_wrap_goes_on_from_the_loop_start() {
     assert!(after.end > beats(0.1), "and went on into the next pass");
 }
 
-/// The take is drawn up to the playhead on every frame, and a clip it cuts
-/// keeps its identity between commits, so nothing under it is redrawn
-/// (MT-MIDI-7, run 1).
 #[test]
 fn the_take_follows_the_playhead_and_what_it_cuts_keeps_its_ids() {
     let fake = keyboard();
@@ -763,10 +662,6 @@ fn the_take_follows_the_playhead_and_what_it_cuts_keeps_its_ids() {
     assert!(lumen.app().live_take().is_none(), "gone when it stops");
 }
 
-/// The take's notes are drawn where its clip will draw them: on the
-/// track's layout, which covers the clips already there and what is played
-/// (owner, MT-MIDI-7 runs 2 and 3: notes jumped when recording stopped, and
-/// clips an octave apart looked the same).
 #[test]
 fn the_take_is_laid_out_as_its_track_will_be() {
     let fake = keyboard();
@@ -797,8 +692,6 @@ fn the_take_is_laid_out_as_its_track_will_be() {
     );
 }
 
-/// With Loop on, recording goes round the loop and each pass layers into
-/// the same clip; the clip spans the loop.
 #[test]
 fn loop_passes_layer_into_one_clip_that_spans_the_loop() {
     let fake = keyboard();
@@ -815,7 +708,6 @@ fn loop_passes_layer_into_one_clip_that_spans_the_loop() {
     keys.on(60, 90);
     reach(&mut lumen, beats(0.9));
     keys.off(60);
-    // The wrap: the playhead goes back to the loop's start.
     lumen.wait_for("the loop to wrap", |app| app.playhead() < beats(0.5));
     let second_on = reach(&mut lumen, beats(1.0));
     keys.on(64, 100);
@@ -832,10 +724,6 @@ fn loop_passes_layer_into_one_clip_that_spans_the_loop() {
     let pitches: Vec<u8> = notes.iter().map(|n| n.pitch).collect();
     assert_eq!(pitches, [60, 64], "both passes are there, in order");
     assert_heard(&lumen, "the first pass's note", notes[0].start, first_on);
-    // Where a note sits after a wrap depends on how the stream clock was
-    // mapped across it (the paced test device runs blocks it owes in a
-    // burst), so only that it is in the loop is checked; the exact wrap
-    // placement is the engine's `tests/record.rs`.
     let _ = second_on;
     assert!(
         notes[1].start > beats(0.5) && notes[1].start < beats(2.0),
@@ -843,8 +731,6 @@ fn loop_passes_layer_into_one_clip_that_spans_the_loop() {
     );
 }
 
-/// Punch masks the clip, while notes and controllers outside both edges
-/// remain in its content. Widening the clip recovers the performance.
 #[test]
 fn punch_masks_the_take_and_keeps_the_full_performance_until_stop() {
     let fake = keyboard();
@@ -936,10 +822,6 @@ fn punch_masks_the_take_and_keeps_the_full_performance_until_stop() {
     );
 }
 
-/// After punch-out capture goes on, but what is played there stays hidden in
-/// the take, so it does not win its pitch: with the monitor Off, a key
-/// played after punch-out neither cuts the clip's note sounding on it nor
-/// holds back the next one, and sounds nothing itself.
 #[test]
 fn a_key_played_after_punch_out_leaves_playback_alone_with_the_monitor_off() {
     let old = vec![
@@ -991,7 +873,6 @@ fn a_key_played_after_punch_out_leaves_playback_alone_with_the_monitor_off() {
     assert!(notes.iter().all(|n| n.velocity == 100));
 }
 
-/// Turning Loop off before its first wrap keeps the saved recording window.
 #[test]
 fn disabling_loop_before_the_first_wrap_keeps_the_take_inside_its_saved_window() {
     let fake = keyboard();
@@ -1040,8 +921,6 @@ fn disabling_loop_before_the_first_wrap_keeps_the_take_inside_its_saved_window()
     );
 }
 
-/// A pre-loop performance remains hidden after the first wrap, and punch
-/// out does not end the capture when the transport loops.
 #[test]
 fn looping_with_punch_keeps_pre_loop_capture_and_records_the_next_pass() {
     let fake = keyboard();
@@ -1053,7 +932,6 @@ fn looping_with_punch_keeps_pre_loop_capture_and_records_the_next_pass() {
     project.transport.punch_out = true;
     slowly(&mut project);
     let mut lumen = launch("loop-window", &project, &fake);
-    // Passes layer into one clip in Overdub; Replace makes takes of them.
     overdub_on(&mut lumen);
     let keys = Keys::new(&fake);
     record(&mut lumen);
@@ -1077,8 +955,6 @@ fn looping_with_punch_keeps_pre_loop_capture_and_records_the_next_pass() {
     reach(&mut lumen, beats(3.0));
     keys.off(64);
     reach(&mut lumen, beats(3.5));
-    // Disable looping during the next pass and keep a note held past the
-    // former loop end. Its full tail must survive behind the mask.
     lumen.click("Loop");
     reach(&mut lumen, beats(4.5));
     keys.on(76, 100);
@@ -1110,26 +986,18 @@ fn looping_with_punch_keeps_pre_loop_capture_and_records_the_next_pass() {
     assert_eq!(active, [60, 64]);
 }
 
-/// Starts playback with Space and waits until the playhead reaches `at`.
 pub(super) fn play_to(lumen: &mut Lumen, at: Ticks) {
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.wait_for("playback", |app| app.is_playing());
     reach(lumen, at);
 }
 
-/// An armed MIDI track whose one clip (id 3) runs from beat `start` for
-/// `length` beats, holding `notes`.
 pub(super) fn track_at((start, length): (i64, i64), notes: Vec<Note>) -> Track {
     let mut track = midi_track(1, "Keys", "poly", (start, length), None, notes, vec![]);
     track.armed = true;
     track
 }
 
-/// Overdub begun before a clip and running into it records a new clip from
-/// where recording began and does not merge into or grow
-/// the clip already there (owner, after MT-MIDI-7 run 7). The old note it
-/// passes over sounds and stays where it was, in the new clip; the rest of
-/// the old clip stays a clip of its own.
 #[test]
 fn overdub_begun_before_a_clip_is_a_new_clip_beside_it() {
     let fake = keyboard();
@@ -1173,9 +1041,6 @@ fn overdub_begun_before_a_clip_is_a_new_clip_beside_it() {
     assert_eq!(after, [52]);
 }
 
-/// Overdub begun in the middle of a clip is a new clip from the playhead
-/// to the stop. It carries what the old clip played there, and the old
-/// clip goes on after it.
 #[test]
 fn overdub_begun_inside_a_clip_is_a_new_clip_from_the_playhead_to_the_stop() {
     let fake = keyboard();
@@ -1210,7 +1075,6 @@ fn overdub_begun_inside_a_clip_is_a_new_clip_from_the_playhead_to_the_stop() {
     assert!(began >= beats(2.0) && began < beats(3.0), "{began:?}");
     assert_eq!(take.start + take.length, stopped, "and ends at the stop");
     let mut pitches: Vec<u8> = placed(take).iter().map(|n| n.pitch).collect();
-    // In either order: the test device's clock drifts (see the top).
     pitches.sort_unstable();
     assert_eq!(
         pitches,
@@ -1224,9 +1088,6 @@ fn overdub_begun_inside_a_clip_is_a_new_clip_from_the_playhead_to_the_stop() {
     assert_eq!(before, [50]);
 }
 
-/// With Loop on, Record pressed inside the loop begins the take at the
-/// playhead, not at the loop's start; only after the wrap does it cover
-/// the whole loop.
 #[test]
 fn record_pressed_inside_the_loop_begins_at_the_playhead() {
     let fake = keyboard();
@@ -1262,10 +1123,6 @@ fn record_pressed_inside_the_loop_begins_at_the_playhead() {
     assert_eq!(clips[0].start + clips[0].length, stopped);
 }
 
-/// While recording, the clips drawn are the take placed as far as it has
-/// gone, on every frame: the Overdub clip reaches the playhead each frame
-/// rather than at each commit (about once a second), and the take's note is
-/// in it before any commit, beside the old note it carries.
 #[test]
 fn the_clip_recorded_into_is_drawn_growing_on_every_frame() {
     let fake = keyboard();
@@ -1277,9 +1134,6 @@ fn the_clip_recorded_into_is_drawn_growing_on_every_frame() {
     record(&mut lumen);
     keys.on(60, 90);
     reach(&mut lumen, beats(1.5));
-    // Frames are drawn until the playhead has moved on seven times, not for a
-    // fixed number of them: a busy machine can hold the audio back for
-    // longer than a dozen frames, and then there would be nothing to compare.
     let started = Instant::now();
     let (mut ends, mut heads) = (Vec::new(), Vec::new());
     while heads.len() < 8 {
@@ -1307,9 +1161,6 @@ fn the_clip_recorded_into_is_drawn_growing_on_every_frame() {
     }
     keys.off(60);
     stop(&mut lumen);
-    // The end follows the playhead on the frames between commits: it has
-    // moved on as many times as the playhead did, give or take the frame the
-    // count began on.
     ends.dedup();
     assert!(
         ends.len() + 1 >= heads.len(),
@@ -1317,10 +1168,6 @@ fn the_clip_recorded_into_is_drawn_growing_on_every_frame() {
     );
 }
 
-/// An edit to the clips of a track while a take is written into it would be
-/// put back by the next commit, which places the take over the clips the
-/// track had when recording began. It is refused instead, with the reason
-/// (M9 slice R0, the M5 slice 6 known issue).
 #[test]
 fn editing_the_clips_of_a_track_being_recorded_is_refused_and_says_why() {
     let fake = keyboard();
@@ -1357,7 +1204,6 @@ fn editing_the_clips_of_a_track_being_recorded_is_refused_and_says_why() {
     let note = lumen.app().note().unwrap_or_default().to_owned();
     assert!(note.contains(&format!("{name} is recording")), "{note}");
 
-    // The take goes on and ends as one step; afterwards the track is free.
     reach(&mut lumen, beats(3.0));
     stop(&mut lumen);
     lumen.frames(3);
@@ -1368,9 +1214,6 @@ fn editing_the_clips_of_a_track_being_recorded_is_refused_and_says_why() {
     assert!(!clips_of(&lumen).iter().any(|c| c.id == old_clip));
 }
 
-/// In Replace the passes of a loop are takes of one clip (M9 slice R3): the
-/// last pass plays, the earlier ones are one swap away, and the swap is one
-/// undo step.
 #[test]
 fn replace_keeps_each_loop_pass_as_a_take_and_the_last_one_plays() {
     let fake = keyboard();
@@ -1378,8 +1221,6 @@ fn replace_keeps_each_loop_pass_as_a_take_and_the_last_one_plays() {
     project.transport.loop_start = Ticks::ZERO;
     project.transport.loop_end = beats(2.0);
     project.transport.loop_enabled = true;
-    // The stop at beat 1.8 races the loop's end: at 120 BPM that was 100 ms,
-    // which a busy macOS runner missed, recording a third pass.
     slowly(&mut project);
     let mut lumen = launch("loop-takes", &project, &fake);
     let keys = Keys::new(&fake);
@@ -1406,7 +1247,6 @@ fn replace_keeps_each_loop_pass_as_a_take_and_the_last_one_plays() {
     assert_eq!(played, [64], "only the last pass is heard");
 
     let id = clips[0].id;
-    // The clip's menu lists the takes, and a clip without any lists none.
     let ctx = lumen.harness.ctx.clone();
     let rect = lumen.app().clip_rect(&ctx, id).expect("the clip is drawn");
     lumen.right_click(rect.center());
@@ -1422,7 +1262,6 @@ fn replace_keeps_each_loop_pass_as_a_take_and_the_last_one_plays() {
     assert_eq!(clips[0].takes.as_ref().unwrap().active, 0);
     assert_eq!(lumen.app().undo_label(), Some("Previous take"));
 
-    // One undo puts the last take back; the swap added a single step.
     lumen.key(Modifiers::COMMAND, Key::Z);
     let played: Vec<u8> = placed(&clips_of(&lumen)[0])
         .iter()
@@ -1431,7 +1270,6 @@ fn replace_keeps_each_loop_pass_as_a_take_and_the_last_one_plays() {
     assert_eq!(played, [64]);
     assert_eq!(lumen.app().undo_label(), Some("Record"));
 
-    // Keeping only the take that plays drops the other.
     lumen.app_mut().select_clip(id);
     lumen.frames(2);
     palette(&mut lumen, "Keep only this take");

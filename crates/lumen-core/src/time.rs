@@ -1,25 +1,12 @@
-//! Musical time base (ADR-0009).
-//!
-//! Positions are integer [`Ticks`] at [`PPQ`] ticks per quarter note. The
-//! resolution is highly composite, so grid values (straight, dotted, triplet,
-//! quintuplet, septuplet) are exact integers, and fine enough that every
-//! audio sample is addressable up to 999 BPM at 192 kHz. Conversion to time
-//! goes through a [`TempoMap`] with one rounding rule:
-//! [`TempoMap::sample_at`] rounds to the nearest sample, ties away from zero.
-//! A boundary shared by two clips is one tick value, so both sides always map
-//! to the same sample.
-
 use std::ops::{Add, Sub};
 
 use serde::{Deserialize, Serialize};
 
-/// Ticks per quarter note: 2⁷ · 3² · 5² · 7².
 pub const PPQ: i64 = 1_411_200;
 
 pub const MIN_BPM: f64 = 20.0;
 pub const MAX_BPM: f64 = 999.0;
 
-/// A musical position or duration.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
 )]
@@ -29,13 +16,10 @@ pub struct Ticks(pub i64);
 impl Ticks {
     pub const ZERO: Ticks = Ticks(0);
 
-    /// `quarters` quarter notes.
     pub const fn quarters(quarters: i64) -> Self {
         Ticks(quarters * PPQ)
     }
 
-    /// `numerator / denominator` of a whole note, if exactly representable.
-    /// For example `(1, 12)` is an eighth-note triplet.
     pub fn whole_note_fraction(numerator: i64, denominator: i64) -> Option<Self> {
         if denominator <= 0 {
             return None;
@@ -63,15 +47,10 @@ impl Sub for Ticks {
     }
 }
 
-/// Tempo from `at` until the next point. A step holds `bpm` to the next
-/// point; a ramp moves the tempo in a straight line, in music time, from
-/// `bpm` to the next point's `bpm`, arriving as the next point begins. The
-/// last point holds its tempo: a ramp on it has nowhere to go.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct TempoPoint {
     pub at: Ticks,
     pub bpm: f64,
-    /// Glides to the next point's tempo instead of jumping there.
     #[serde(default, skip_serializing_if = "is_step")]
     pub ramp: bool,
 }
@@ -81,7 +60,6 @@ fn is_step(ramp: &bool) -> bool {
 }
 
 impl TempoPoint {
-    /// A tempo that holds until the next point.
     pub const fn step(at: Ticks, bpm: f64) -> Self {
         Self {
             at,
@@ -91,12 +69,8 @@ impl TempoPoint {
     }
 }
 
-/// Tempos closer than this (BPM) are the same tempo: a ramp between them is
-/// a step, which keeps the ramp formulas away from dividing by nothing.
 const SAME_BPM: f64 = 1e-9;
 
-/// Ticks between the steps a ramp is written as where only steps exist (a
-/// MIDI file): a sixteenth note.
 pub const RAMP_STEP: Ticks = Ticks(PPQ / 4);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -124,15 +98,11 @@ impl std::fmt::Display for TempoError {
 
 impl std::error::Error for TempoError {}
 
-/// Maps ticks to seconds and samples.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TempoMap {
     points: Vec<TempoPoint>,
-    /// Seconds at each point, precomputed for O(log n) lookups.
     seconds: Vec<f64>,
-    /// How each segment runs, so a lookup reads one entry.
     runs: Vec<Run>,
-    /// Whether any segment ramps: a map of steps takes the short way.
     ramps: bool,
 }
 
@@ -176,8 +146,6 @@ impl TempoMap {
         &self.points
     }
 
-    /// Seconds from the start of the timeline. Before zero the first tempo
-    /// is extrapolated.
     pub fn seconds_at(&self, t: Ticks) -> f64 {
         let i = self.points.partition_point(|p| p.at <= t).saturating_sub(1);
         let point = self.points[i];
@@ -187,28 +155,20 @@ impl TempoMap {
         self.seconds[i] + self.runs[i].seconds(t - point.at)
     }
 
-    /// The sample at `t`: nearest sample, ties away from zero.
     pub fn sample_at(&self, t: Ticks, sample_rate: u32) -> i64 {
         (self.seconds_at(t) * f64::from(sample_rate)).round() as i64
     }
 
-    /// The tick nearest to `seconds`.
     pub fn ticks_at_seconds(&self, seconds: f64) -> Ticks {
         let (point, ticks) = self.run_at_seconds(seconds);
         point + Ticks(ticks.round() as i64)
     }
 
-    /// The position of `seconds` in ticks, between ticks: what warped audio
-    /// reads its map at, so a frame is not moved by rounding to a tick
-    /// (a tick is a fraction of a sample at any tempo the map allows).
     pub fn ticks_f64_at_seconds(&self, seconds: f64) -> f64 {
         let (point, ticks) = self.run_at_seconds(seconds);
         point.0 as f64 + ticks
     }
 
-    /// The tempo point `seconds` falls after, and the ticks from it. The
-    /// whole-tick rounding stays in the caller so [`Self::ticks_at_seconds`]
-    /// does the arithmetic it always did (the performance gate counts it).
     #[inline(always)]
     fn run_at_seconds(&self, seconds: f64) -> (Ticks, f64) {
         let i = self
@@ -223,19 +183,14 @@ impl TempoMap {
         };
         (point.at, ticks)
     }
-    /// The tick nearest to the start of `sample`.
     pub fn ticks_at_sample(&self, sample: i64, sample_rate: u32) -> Ticks {
         self.ticks_at_seconds(sample as f64 / f64::from(sample_rate))
     }
 
-    /// The tempo playing at `t`: a step's own, or the point a ramp has
-    /// reached.
     pub fn bpm_at(&self, t: Ticks) -> f64 {
         bpm_at(&self.points, t)
     }
 
-    /// Whether a ramp runs anywhere between `from` and `to`, where ticks
-    /// and samples are no longer in a straight line.
     pub fn ramps_between(&self, from: Ticks, to: Ticks) -> bool {
         let first = self
             .points
@@ -246,10 +201,6 @@ impl TempoMap {
             .any(|i| self.runs[i].ramp.is_some())
     }
 
-    /// The map as steps only, for where only steps exist (a MIDI file): each
-    /// ramp becomes a step every sixteenth note (fewer, for a very long
-    /// ramp), each holding the tempo that takes exactly as long as the ramp
-    /// does over that step, so the time at every step's start is the ramp's.
     pub fn stepped(&self) -> Vec<TempoPoint> {
         let mut out = Vec::with_capacity(self.points.len());
         for (i, point) in self.points.iter().enumerate() {
@@ -277,8 +228,6 @@ impl TempoMap {
     }
 }
 
-/// The tempo playing at `t` along `points` (sorted, the first at zero): a
-/// step's own, or the point a ramp has reached. 120 for no points.
 pub fn bpm_at(points: &[TempoPoint], t: Ticks) -> f64 {
     if points.is_empty() {
         return 120.0;
@@ -291,25 +240,14 @@ fn segment_seconds(duration: Ticks, bpm: f64) -> f64 {
     duration.0 as f64 / PPQ as f64 * 60.0 / bpm
 }
 
-/// The most steps one ramp is written as.
 const MOST_RAMP_STEPS: i64 = 256;
 
-/// Where a ramp goes: the tempo it ends on and how long it takes in ticks.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Ramp {
     to: f64,
     length: Ticks,
 }
 
-/// One segment of the map: the tempo it starts at and, if it ramps, where to.
-/// All the conversions between ticks and seconds inside a segment are here.
-///
-/// A ramp is a straight line in music time: the tempo `b` a fraction `f` of
-/// the way along is `b0 + (b1 - b0) f`. A quarter note at tempo `b` lasts
-/// `60 / b` seconds, so the seconds up to `f` are the integral of that, in
-/// closed form: `60 L / (b1 - b0) ln(b / b0)` for a ramp `L` quarters long.
-/// Going back is the same turned round: `b = b0 e^(k s)`, with
-/// `k = (b1 - b0) / (60 L)`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Run {
     from: f64,
@@ -332,8 +270,6 @@ impl Run {
         }
     }
 
-    /// Seconds from the segment's start to `offset` ticks in. Before the
-    /// start the first tempo goes on.
     fn seconds(&self, offset: Ticks) -> f64 {
         match self.ramp {
             Some(ramp) if offset.0 > 0 => {
@@ -346,7 +282,6 @@ impl Run {
         }
     }
 
-    /// Ticks from the segment's start to `seconds` in.
     fn ticks(&self, seconds: f64) -> f64 {
         match self.ramp {
             Some(ramp) if seconds > 0.0 => {
@@ -359,7 +294,6 @@ impl Run {
         }
     }
 
-    /// The tempo `offset` ticks in.
     fn bpm(&self, offset: Ticks) -> f64 {
         match self.ramp {
             Some(ramp) if offset.0 > 0 => {
@@ -377,7 +311,6 @@ mod tests {
 
     #[test]
     fn every_grid_value_down_to_the_finest_is_an_exact_integer() {
-        // Straight values down to 1/512.
         for denominator in [1, 2, 4, 8, 16, 32, 64, 128, 256, 512] {
             assert!(
                 Ticks::whole_note_fraction(1, denominator).is_some(),
@@ -385,10 +318,8 @@ mod tests {
             );
         }
         for denominator in [1, 2, 4, 8, 16, 32, 64, 128, 256] {
-            // Dotted.
             let dotted = Ticks::whole_note_fraction(3, denominator * 2);
             assert!(dotted.is_some(), "dotted 1/{denominator}");
-            // Triplets, quintuplets, septuplets, nonuplets.
             for (play, in_time_of) in [(3, 2), (5, 4), (7, 4), (9, 8)] {
                 let t = Ticks::whole_note_fraction(in_time_of, denominator * play);
                 assert!(t.is_some(), "{play}:{in_time_of} tuplet of 1/{denominator}");
@@ -406,7 +337,7 @@ mod tests {
     fn constant_tempo_conversions_are_exact() {
         let map = TempoMap::constant(120.0).unwrap();
         assert_eq!(map.sample_at(Ticks::quarters(1), 48_000), 24_000);
-        assert_eq!(map.sample_at(Ticks(PPQ / 3), 48_000), 8_000); // eighth triplet
+        assert_eq!(map.sample_at(Ticks(PPQ / 3), 48_000), 8_000);
         assert_eq!(map.sample_at(Ticks::quarters(-1), 48_000), -24_000);
     }
 
@@ -531,17 +462,14 @@ mod tests {
 
     #[test]
     fn a_ramp_takes_the_time_its_straight_line_of_tempo_takes() {
-        // 120 down to 60 over four quarters: 60 L / (b1 - b0) ln(b1 / b0).
         let map = ramping(&[(0, 120.0, true), (4, 60.0, false)]);
         let expected = 60.0 * 4.0 / (60.0 - 120.0) * (0.5f64).ln();
         assert!((map.seconds_at(Ticks::quarters(4)) - expected).abs() < 1e-12);
-        // Between a step's two seconds and four seconds, not either.
         assert!(expected > 2.0 && expected < 4.0);
         assert_eq!(map.bpm_at(Ticks::ZERO), 120.0);
         assert!((map.bpm_at(Ticks::quarters(2)) - 90.0).abs() < 1e-9);
         assert_eq!(map.bpm_at(Ticks::quarters(4)), 60.0);
         assert_eq!(map.bpm_at(Ticks::quarters(9)), 60.0);
-        // After the ramp the tempo is the point's own.
         let after = map.seconds_at(Ticks::quarters(5)) - map.seconds_at(Ticks::quarters(4));
         assert!((after - 1.0).abs() < 1e-12);
     }
@@ -631,7 +559,6 @@ mod tests {
         let steps = map.stepped();
         let plain = TempoMap::new(steps.clone()).unwrap();
         assert!(steps.iter().all(|p| !p.ramp));
-        // A ramp of 8 quarters is 32 sixteenths.
         assert_eq!(steps.len(), 1 + 32 + 1);
         for point in &steps {
             let want = map.seconds_at(point.at);

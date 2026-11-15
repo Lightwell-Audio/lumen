@@ -1,9 +1,3 @@
-//! The computer keyboard as a MIDI keyboard (M5 slice 2, the owner's K A):
-//! Ctrl+Shift+K turns it on, the letters play notes and are taken before
-//! the commands, Esc leaves, and nothing it plays is left sounding. These
-//! look at the messages the mode sent (`testing`), not at what is heard:
-//! which tracks listen is another part's.
-
 use eframe::egui::{Event, Key, Modifiers};
 use lumen_core::midi::Msg;
 
@@ -15,7 +9,6 @@ fn on(lumen: &mut Lumen) {
     lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::K);
 }
 
-/// A key goes down and stays down (`repeat` marks an auto-repeat).
 fn down(lumen: &mut Lumen, key: Key, repeat: bool) {
     lumen.harness.event(Event::Key {
         key,
@@ -58,7 +51,6 @@ fn the_shortcut_turns_the_mode_on_and_the_button_lights() {
         ),
         "the info line teaches the letters"
     );
-    // The button toggles it too.
     lumen.click(BUTTON);
     assert!(!lumen.app().computer_keyboard_on());
     assert!(!lumen.is_on(BUTTON));
@@ -136,14 +128,11 @@ fn the_letters_belong_to_the_mode_while_it_is_on_and_to_commands_after_esc() {
     let ctx = lumen.harness.ctx.clone();
     let before = lumen.app().tracks_height(&ctx);
     on(&mut lumen);
-    // H is "Fit tracks to height"; with the mode on it is the note A.
     lumen.key(Modifiers::NONE, Key::H);
     lumen.frames(30);
     assert!((lumen.app().tracks_height(&ctx) - before).abs() < 1.0);
-    // Ctrl chords still run commands (Ctrl+T adds a track).
     lumen.key(Modifiers::COMMAND, Key::T);
     assert_eq!(lumen.track_names().len(), 3);
-    // Esc leaves the mode, and H is its command again.
     lumen.key(Modifiers::NONE, Key::Escape);
     assert!(!lumen.app().computer_keyboard_on());
     assert!(!lumen.is_on(BUTTON));
@@ -188,11 +177,9 @@ fn turning_it_off_panic_and_losing_focus_let_go_of_held_notes() {
     let sent = lumen.app_mut().computer_keyboard_sent();
     assert_eq!(sent.len(), 2, "{sent:?}");
     assert!(sent.contains(&Msg::note_off(0, 60)) && sent.contains(&Msg::note_off(0, 64)));
-    // The late key-up of a released key sends nothing more.
     up(&mut lumen, Key::A);
     assert!(lumen.app_mut().computer_keyboard_sent().is_empty());
 
-    // Panic, from the palette.
     on(&mut lumen);
     down(&mut lumen, Key::G, false);
     lumen.app_mut().computer_keyboard_sent();
@@ -206,7 +193,6 @@ fn turning_it_off_panic_and_losing_focus_let_go_of_held_notes() {
         [Msg::note_off(0, 67)]
     );
 
-    // The window losing focus.
     down(&mut lumen, Key::J, false);
     lumen.app_mut().computer_keyboard_sent();
     lumen.harness.event(Event::WindowFocused(false));
@@ -249,7 +235,6 @@ fn the_readout_gives_way_in_the_smallest_window_and_the_info_line_carries_it() {
             .is_some(),
         "the info line leads with it"
     );
-    // With room it is in the bar.
     lumen.harness.set_size(eframe::egui::vec2(1600.0, 900.0));
     lumen.frames(10);
     assert!(readout(&lumen, "C3\u{2013}C4 \u{00B7} vel 100"));

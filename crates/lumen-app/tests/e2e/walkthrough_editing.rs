@@ -1,9 +1,3 @@
-//! M7b E6: the editing family end to end, as one producer would use it.
-//! A take is split, the halves are crossfaded, joined into a new file,
-//! bounced to a new track, the first track is frozen, and the project is
-//! saved, closed and reopened. At every step the state is the model's, and
-//! at the end both tracks still play.
-
 use std::time::Duration;
 
 use eframe::egui::{Key, Modifiers, vec2};
@@ -21,7 +15,6 @@ fn peak(lumen: &mut Lumen) -> f32 {
         .fold(0.0f32, |m, f| m.max(f[0].abs()).max(f[1].abs()))
 }
 
-/// Plays a moment from the start and reports the loudest sample heard.
 fn heard(lumen: &mut Lumen) -> f32 {
     lumen.key(Modifiers::NONE, Key::Home);
     lumen.wait_for("the rewind", |app| app.playhead() == Ticks::ZERO);
@@ -49,7 +42,6 @@ fn split_crossfade_join_bounce_freeze_save_reopen_and_play() {
     lumen.frames(15);
     let take = lumen.app().project().tracks[0].clips[0].clone();
 
-    // Split at the second quarter: two clips that meet.
     cut_at(&mut lumen, 2);
     assert_eq!(lumen.app().undo_label(), Some("Split clips"));
     let (left, right) = {
@@ -59,7 +51,6 @@ fn split_crossfade_join_bounce_freeze_save_reopen_and_play() {
         (clips[0].id, clips[1].id)
     };
 
-    // Crossfade: the left clip's fade-out handle pulled over the right clip.
     let handle = lumen
         .app()
         .clip_handles(&lumen.harness.ctx, left)
@@ -81,7 +72,6 @@ fn split_crossfade_join_bounce_freeze_save_reopen_and_play() {
         assert!(right.fade_in.length > Ticks::ZERO);
     }
 
-    // Join both into one new file, one undo step.
     lumen.key(Modifiers::COMMAND, Key::A);
     command(&mut lumen, "Join into new file");
     lumen.wait_for("the join", |app| {
@@ -98,7 +88,6 @@ fn split_crossfade_join_bounce_freeze_save_reopen_and_play() {
     );
     assert_ne!(joined.content, take.content, "it plays the new file");
 
-    // Bounce the joined clip to a new track after it.
     lumen.app_mut().select_clip(joined.id);
     command(&mut lumen, "Bounce");
     lumen.frames(3);
@@ -112,7 +101,6 @@ fn split_crossfade_join_bounce_freeze_save_reopen_and_play() {
         "the bounce's file is in the project"
     );
 
-    // Freeze the first track: it plays its file and refuses edits.
     let first = lumen.app().project().tracks[0].id;
     lumen.app_mut().select_tracks(&[first]);
     command(&mut lumen, "Freeze track");
@@ -126,7 +114,6 @@ fn split_crossfade_join_bounce_freeze_save_reopen_and_play() {
     let loud = heard(&mut lumen);
     assert!(loud > 0.01, "both tracks play: {loud}");
 
-    // Save, close, reopen: the same project, no missing media, still audible.
     let path = project_file(lumen.dir(), "Edited");
     lumen.app_mut().save_to(path.clone());
     lumen.wait_for("the save", |app| !app.is_busy() && !app.is_dirty());
@@ -143,7 +130,6 @@ fn split_crossfade_join_bounce_freeze_save_reopen_and_play() {
     let loud = heard(&mut again);
     assert!(loud > 0.01, "reopened, both tracks play: {loud}");
 
-    // Unfreeze is one step, and the clips are as they were frozen.
     let frozen = again.app().project().tracks[0].clips.clone();
     again.app_mut().select_tracks(&[opened.tracks[0].id]);
     command(&mut again, "Unfreeze track");

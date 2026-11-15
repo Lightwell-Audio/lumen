@@ -1,10 +1,3 @@
-//! One plugin instance inside a host process: a component and its
-//! controller, driven through the VST3 interfaces.
-//!
-//! Nothing here is called from Lumen's own audio thread. It runs in the host
-//! process, which owns the plugin's threads and, when it dies, takes the
-//! plugin with it.
-
 use std::fmt;
 use std::ptr;
 use std::sync::atomic::Ordering;
@@ -41,11 +34,8 @@ use crate::protocol::{
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InstanceError {
-    /// The module has no class like the one asked for.
     NoClass,
-    /// The plugin refused or failed a call.
     Plugin(String),
-    /// The call does not fit the instance's state.
     Sequence(&'static str),
 }
 
@@ -65,9 +55,6 @@ fn plugin(what: impl Into<String>) -> InstanceError {
     InstanceError::Plugin(what.into())
 }
 
-/// The processing format. To [`Instance::configure`] it gives the channels of
-/// the main buses; what [`Instance::format`] returns holds the channels a
-/// block carries each way (the main buses and every auxiliary bus turned on).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Format {
     pub sample_rate: f64,
@@ -76,8 +63,6 @@ pub struct Format {
     pub outputs: u8,
 }
 
-/// A bus that is turned on: which of the plugin's buses it is, how many
-/// channels it has and where they start in a block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Slot {
     bus: usize,
@@ -85,7 +70,6 @@ struct Slot {
     first: usize,
 }
 
-/// What one block produced.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Processed {
     pub status: i32,
@@ -95,7 +79,6 @@ pub struct Processed {
     pub output: Vec<Vec<f32>>,
 }
 
-/// What a block's processing reported, apart from its audio.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Done {
     pub status: i32,
@@ -104,14 +87,12 @@ pub struct Done {
     pub repaired: u32,
 }
 
-/// A stretch of a block: where it starts and how long it is, in frames.
 #[derive(Debug, Clone, Copy)]
 struct Span {
     start: usize,
     len: usize,
 }
 
-/// Channel buffers for [`Instance::process_into`].
 pub struct Buffers {
     pub input: Vec<Vec<f32>>,
     pub output: Vec<Vec<f32>>,
@@ -122,8 +103,6 @@ pub struct Instance {
     component: ComPtr<IComponent>,
     processor: ComPtr<IAudioProcessor>,
     controller: Option<ComPtr<IEditController>>,
-    /// The controller is its own object, so it is initialised and ended
-    /// separately from the component.
     separate_controller: bool,
     handler: ComWrapper<Handler>,
     events_in: ComWrapper<EventList>,
@@ -134,56 +113,29 @@ pub struct Instance {
     changes_ptr: ComPtr<IParameterChanges>,
     outputs: ComWrapper<OutputChanges>,
     outputs_ptr: ComPtr<IParameterChanges>,
-    /// Values to give the processor at the start of a block: edits made in
-    /// the plugin's window and values set from Lumen.
     now: Vec<(u32, f64)>,
-    /// The plugin's controller mapping (CC, bend, pressure to parameters).
     mapping: Option<ComPtr<IMidiMapping>>,
-    /// What the mapping said for each channel and controller number: unknown
-    /// (not asked yet), none, or a parameter id. Asked lazily, once.
     midi_map: Vec<i64>,
-    /// This block's controller events as `(parameter id, offset in the
-    /// block, normalized value)`.
     mapped: Vec<(u32, u32, f64)>,
-    /// The plugin's program-change parameter and its step count, if it has
-    /// one: a program change (MIDI) sets it to `program / steps`.
     program_param: Option<(u32, i32)>,
-    /// Controller and program events no parameter took, since the last
-    /// `take_edits`.
     ignored: u32,
-    /// The processor's reported values after a block, before they are noted.
     reported: Vec<(u32, f64)>,
-    /// Values the processor has heard that the controller has not: it is told
-    /// from the control thread ([`Instance::take_edits`]), never from the
-    /// audio thread.
     for_controller: Vec<(u32, f64)>,
     context: ProcessContext,
-    /// How many audio buses the plugin declares each way. The process data
-    /// carries an entry for every one, those that are off included.
     in_buses: usize,
     out_buses: usize,
-    /// The buses turned on, in block order (set by `configure`).
     in_slots: Vec<Slot>,
     out_slots: Vec<Slot>,
     notes: NoteIds,
-    /// Silence for the buses that are off to point at (see `empty_bus`).
     spare: Vec<f32>,
     format: Option<Format>,
     processing: bool,
     latency: u32,
-    // Kept alive for the component's life.
     _host: ComPtr<vst3::Steinberg::Vst::IHostApplication>,
 }
 
-/// The most buses the VST3 component may declare. Only the first 32 can be
-/// routed by the protocol's u32 auxiliary-bus masks; any later buses are
-/// reported as off and receive safe empty buffers.
 const MAX_DECLARED_BUSES: usize = 128;
 
-/// A bus entry with no channels: what an off bus is given. Its buffer list is
-/// never null: a plugin that walks the list of a bus it has off, without
-/// looking at the count, would otherwise read through a null pointer, as one
-/// widely used synthesizer does. The list points at silence.
 fn empty_bus(buffers: *mut *mut f32) -> AudioBusBuffers {
     AudioBusBuffers {
         numChannels: 0,
@@ -212,20 +164,13 @@ impl Instance {
     }
 
     pub fn tail(&self) -> u32 {
-        // SAFETY: a plain call on a live processor.
         unsafe { self.processor.getTailSamples() }.min(u32::MAX - 1)
     }
 
-    /// Makes the plugin forget what it holds (a reverb's tail, a filter's
-    /// memory): processing is stopped and started again, which is where the
-    /// standard says a plugin clears its state. Runs on the audio path, like
-    /// [`Instance::process_into`]; a plugin that cannot start again has
-    /// failed.
     pub fn flush(&mut self) -> Result<(), InstanceError> {
         if !self.processing {
             return Ok(());
         }
-        // SAFETY: calls on live objects, from the thread that processes.
         let result = unsafe {
             self.processor.setProcessing(0);
             self.processor.setProcessing(1)
@@ -236,9 +181,6 @@ impl Instance {
         Ok(())
     }
 
-    /// Renders one block. `input` has one slice per input channel; the
-    /// result's output has one per output channel, `frames` long. This
-    /// allocates; the audio path uses [`Instance::process_into`].
     pub fn process(
         &mut self,
         frames: u32,
@@ -271,16 +213,6 @@ impl Instance {
         })
     }
 
-    /// Renders one block in buffers the caller owns, allocating nothing of
-    /// its own once the events and parameter lists have grown to the size of
-    /// the busiest block. `buffers` holds one `Vec` per channel, each at
-    /// least `frames` long; the output is zeroed first and, afterwards,
-    /// anything not finite in it has been replaced by silence.
-    ///
-    /// A block longer than the plugin was configured for (a driver that
-    /// delivered more than its stated buffer) is given to the plugin in
-    /// pieces it accepts, each with the events and parameter points that
-    /// fall in it: a plugin is never handed more than it was promised.
     pub fn process_into(
         &mut self,
         frames: u32,
@@ -306,8 +238,6 @@ impl Instance {
         let most = (format.max_frames as usize).max(1);
         self.now.clear();
         self.handler.drain_to_processor(&mut self.now);
-        // What Lumen set before this block is newer than what earlier blocks
-        // carried; this block's own points, noted next, are newer still.
         for (id, _) in &self.now {
             self.for_controller.retain(|(i, _)| i != id);
         }
@@ -336,8 +266,6 @@ impl Instance {
         Ok(done)
     }
 
-    /// One call of the plugin's `process` over `span` of the buffers, checked
-    /// by [`Self::process_into`].
     #[allow(
         clippy::unnecessary_cast,
         reason = "the bindings' enum constants are `i32` on Windows and `u32` elsewhere, so the cast one platform needs is a no-op on the other"
@@ -352,8 +280,6 @@ impl Instance {
     ) -> Done {
         let Span { start, len: n } = span;
         let end = start + n;
-        // The pointers live on the stack: a main bus has at most
-        // `MAX_CHANNELS` channels, checked when the format was set.
         let mut in_ptrs = [ptr::null_mut::<f32>(); MAX_CHANNELS];
         let mut out_ptrs = [ptr::null_mut::<f32>(); MAX_CHANNELS];
         for (slot, channel) in in_ptrs.iter_mut().zip(&mut buffers.input) {
@@ -364,9 +290,6 @@ impl Instance {
             *slot = channel[start..].as_mut_ptr();
         }
 
-        // Controller, bend and pressure become parameter points through the
-        // plugin's own mapping, and program changes through its program
-        // parameter.
         self.mapped.clear();
         for e in events
             .iter()
@@ -388,15 +311,9 @@ impl Instance {
                 }
             }
         }
-        // Past the room a span has for them, controller events are dropped,
-        // and counted with those no parameter took.
         self.ignored = self
             .ignored
             .saturating_add(keep_most(&mut self.mapped, MOST_PENDING));
-        // The controller hears what the processor is given through the
-        // mapping too (a plugin's window follows a controller, and a program
-        // change is carried out by the controller: it sets the parameters the
-        // program holds).
         for i in 0..self.mapped.len() {
             let (id, _, value) = self.mapped[i];
             self.note(id, value);
@@ -413,22 +330,15 @@ impl Instance {
                 }),
         );
         self.events_out.set([]);
-        // The edits waiting go in the first piece of a block.
         let now: &[(u32, f64)] = if start == 0 { &self.now } else { &[] };
         self.changes
             .set_span(params, now, &self.mapped, start as u32, n as u32);
 
-        // An entry for every bus the plugin declares; only the main bus of
-        // each direction carries audio, the rest are off (no channels).
-        // The silence the off buses point at: as long as a block can be.
         self.spare.resize(format.max_frames as usize, 0.0);
         let mut spare_ptrs = [self.spare.as_mut_ptr(); MAX_CHANNELS];
         let mut in_buses = [empty_bus(spare_ptrs.as_mut_ptr()); MAX_DECLARED_BUSES];
         let mut out_buses = [empty_bus(spare_ptrs.as_mut_ptr()); MAX_DECLARED_BUSES];
-        // A slot's channels lie inside the pointer arrays: `configure` checked
-        // the totals against `MAX_CHANNELS`, and the arrays hold that many.
         for slot in &self.in_slots {
-            // SAFETY: `slot.first` is inside the array, as above.
             let list = unsafe { in_ptrs.as_mut_ptr().add(slot.first) };
             in_buses[slot.bus] = AudioBusBuffers {
                 numChannels: i32::from(slot.channels),
@@ -439,7 +349,6 @@ impl Instance {
             };
         }
         for slot in &self.out_slots {
-            // SAFETY: `slot.first` is inside the array, as above.
             let list = unsafe { out_ptrs.as_mut_ptr().add(slot.first) };
             out_buses[slot.bus] = AudioBusBuffers {
                 numChannels: i32::from(slot.channels),
@@ -471,14 +380,9 @@ impl Instance {
             outputEvents: self.events_out_ptr.as_ptr(),
             processContext: &mut self.context,
         };
-        // SAFETY: every pointer in `data` refers to live locals, buffers the
-        // caller lent for this call, or objects owned by the instance, and
-        // outlives the call.
         let status = unsafe { self.processor.process(&mut data) };
         self.context.projectTimeSamples += n as i64;
 
-        // A plugin's output is untrusted: anything not finite becomes
-        // silence before it can reach a mixer.
         let mut repaired = 0;
         for channel in &mut buffers.output {
             for s in &mut channel[start..end] {
@@ -490,10 +394,6 @@ impl Instance {
         }
         self.collect_outputs();
         let restart = self.handler.restart.swap(0, Ordering::AcqRel);
-        // A plugin's latency may change with a parameter, so it is read
-        // after every block; `restart` tells the caller the plugin also
-        // asked to be restarted (a graph rebuild is the caller's to do).
-        // SAFETY: a plain call on a live processor.
         self.latency = unsafe { self.processor.getLatencySamples() };
         Done {
             status,
@@ -503,8 +403,6 @@ impl Instance {
         }
     }
 
-    /// The controller's side of the plugin, for calls made without the lock
-    /// the audio thread takes (see [`Controls`]).
     pub fn controls(&self) -> Controls {
         Controls {
             component: self.component.clone(),
@@ -545,25 +443,14 @@ impl Instance {
         self.controls().set_param(id, value);
     }
 
-    /// The edits made since the last call and how many were dropped, the
-    /// controller told first what the processor heard (see
-    /// [`Controls::take_edits`]).
     pub fn take_edits(&mut self) -> Taken {
         let heard = self.take_heard();
         self.controls().take_edits(heard)
     }
 
-    /// What the processor heard that the controller has not, and the
-    /// controller events no parameter took, since the last call: the part of
-    /// taking edits that needs the instance (and so its lock).
     pub fn take_heard(&mut self) -> Heard {
-        // Copied and cleared, not taken: the list keeps its room, and the
-        // audio thread that fills it never allocates.
         let mut values = self.for_controller.to_vec();
         self.for_controller.clear();
-        // A value Lumen has set since is newer than one that rode in an
-        // earlier block (a lane's last value, after the lane let go): the
-        // controller already has the newer, and the processor will hear it.
         values.retain(|(id, _)| !self.handler.is_queued(*id));
         Heard {
             values,
@@ -571,7 +458,6 @@ impl Instance {
         }
     }
 
-    /// The parameter a controller number on a channel is mapped to.
     fn mapped_param(&mut self, channel: i16, number: i16) -> Option<u32> {
         let (channel, number) = (
             usize::try_from(channel).ok()?,
@@ -584,7 +470,6 @@ impl Instance {
         if self.midi_map[slot] == MAP_UNKNOWN {
             let mut id: u32 = 0;
             let found = self.mapping.as_ref().is_some_and(|m| {
-                // SAFETY: a plain call on a live interface with a valid out pointer.
                 let result = unsafe {
                     m.getMidiControllerAssignment(0, channel as i16, number as i16, &mut id)
                 };
@@ -595,7 +480,6 @@ impl Instance {
         u32::try_from(self.midi_map[slot]).ok()
     }
 
-    /// Notes the last value of each parameter in `params` for the controller.
     fn note_for_controller(&mut self, params: &[ParamQueue]) {
         for queue in params {
             if let Some(&(_, value)) = queue.points.last() {
@@ -614,8 +498,6 @@ impl Instance {
         }
     }
 
-    /// After a block: what the processor reported becomes edits for Lumen
-    /// and a value for the controller.
     fn collect_outputs(&mut self) {
         self.reported.clear();
         self.outputs.take(&mut self.reported);
@@ -634,9 +516,6 @@ impl Instance {
 impl Drop for Instance {
     fn drop(&mut self) {
         self.stop();
-        // Disconnect a separate controller before either side terminates.
-        // SAFETY: the interfaces are queried from live component objects and
-        // remain retained through both disconnect calls.
         unsafe {
             if self.separate_controller
                 && let Some(controller) = &self.controller
@@ -650,9 +529,6 @@ impl Drop for Instance {
                 controller_point.disconnect(component_point.as_ptr());
             }
 
-            // The VST3 SDK's plug-provider helper disconnects both connection
-            // points, terminates the component, then terminates a separate
-            // controller; this is that order.
             self.component.terminate();
             if self.separate_controller
                 && let Some(controller) = &self.controller
@@ -670,7 +546,6 @@ mod setup;
 #[cfg(test)]
 mod tests;
 
-/// Shortens `mapped` to `most` entries; how many it dropped.
 fn keep_most<T>(mapped: &mut Vec<T>, most: usize) -> u32 {
     let over = mapped.len().saturating_sub(most);
     mapped.truncate(most);

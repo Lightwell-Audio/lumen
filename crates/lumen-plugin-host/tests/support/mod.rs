@@ -1,4 +1,3 @@
-//! Shared by the integration tests: the built test plugin and the host binary.
 #![allow(dead_code, reason = "each test binary uses some of these helpers")]
 
 use std::path::{Path, PathBuf};
@@ -13,7 +12,6 @@ pub const HOST: &str = env!("CARGO_BIN_EXE_lumen-plugin-host");
 pub const FAULT: &str = lumen_test_plugin::faults::ENV;
 pub const SLOW: Duration = Duration::from_secs(10);
 
-/// The test plugin's shared library, built once for the whole test run.
 pub fn plugin() -> &'static Path {
     static PATH: OnceLock<PathBuf> = OnceLock::new();
     PATH.get_or_init(|| {
@@ -27,7 +25,6 @@ pub fn plugin() -> &'static Path {
             build.status().expect("run cargo").success(),
             "build the test plugin"
         );
-        // target/<profile>/deps/<this test> -> target/<profile>
         let exe = std::env::current_exe().expect("test binary");
         let profile = exe.parent().and_then(Path::parent).expect("profile dir");
         let name = if cfg!(windows) {
@@ -64,8 +61,6 @@ pub fn spawn(fault: &str) -> HostProcess {
     HostProcess::spawn(Path::new(HOST), &[(FAULT, fault)]).expect("start the host")
 }
 
-/// A host with the instrument (class 0) loaded and configured: 48 kHz, 512
-/// frames, no input, stereo output.
 pub fn instrument(fault: &str) -> HostProcess {
     let mut host = spawn(fault);
     host.load(plugin(), None, SLOW).expect("load");
@@ -74,7 +69,6 @@ pub fn instrument(fault: &str) -> HostProcess {
     host
 }
 
-/// A host with the effect loaded and configured: stereo in and out.
 pub fn effect(fault: &str) -> HostProcess {
     let mut host = spawn(fault);
     let id = effect_class();
@@ -111,11 +105,9 @@ pub fn note_off(offset: u32, pitch: i16) -> Event {
     }
 }
 
-/// Whether a process with this id exists (and has not been reaped).
 pub fn exists(pid: u32) -> bool {
     #[cfg(target_os = "linux")]
     {
-        // A zombie still has a /proc entry; it has stopped running.
         match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
             Ok(stat) => !stat.contains(") Z "),
             Err(_) => false,
@@ -123,10 +115,6 @@ pub fn exists(pid: u32) -> bool {
     }
     #[cfg(target_os = "macos")]
     {
-        // `kill(pid, 0)` reports whether the process still exists without
-        // sending it a signal. A process adopted and reaped after its parent
-        // exits stops matching before this returns false.
-        // SAFETY: signal zero only queries whether this PID exists.
         unsafe {
             libc::kill(pid as libc::pid_t, 0) == 0
                 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)

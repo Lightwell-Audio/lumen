@@ -1,13 +1,3 @@
-//! Fade and gain handles (M3 slice 6d), in the owner's choices: a fade is a
-//! glowing curve with a round handle at its top and a dot that bends it
-//! (F3); the dot moves freely, the curve passing through it, and Alt adds
-//! S-shape (C3, `lumen_core::curve`). Clip gain is a glowing level line
-//! across the clip (G1). They show on audio clips.
-//!
-//! Where everything sits, and what the pointer is over, is pure and tested
-//! here; the app turns drags on the handles into document edits
-//! (`app/handles.rs`) and the arrangement draws them (`draw_handles`).
-
 use eframe::egui::{self, Color32, Painter, Pos2, Rangef, Rect, Stroke, Vec2, pos2};
 use lumen_core::curve::{self, Curve};
 use lumen_core::fade::Fade;
@@ -19,51 +9,31 @@ use super::clips::WAVE_GAP;
 use super::select::Edge;
 use crate::{light, theme};
 
-/// The ends of the gain line: clip gain's range.
 const MIN_DB: f32 = *crate::document::CLIP_GAIN.start();
 const MAX_DB: f32 = *crate::document::CLIP_GAIN.end();
-/// The radius of a fade handle, and of a bend dot.
 pub(crate) const HANDLE_RADIUS: f32 = 3.5;
 pub(crate) const BEND_RADIUS: f32 = 3.0;
-/// A fade with no length keeps its handle this far in from the clip's
-/// side, clear of the trim edge.
 const CORNER: f32 = 8.0;
-/// How close the pointer must be to a fade handle, a bend dot, or the gain
-/// line.
 const FADE_GRAB: f32 = 6.0;
 const BEND_GRAB: f32 = 5.0;
 const LINE_GRAB: f32 = 3.0;
-/// Clips narrower than this, or with a shorter wave area, show no handles.
 pub(crate) const MIN_WIDTH: f32 = 28.0;
 const MIN_HEIGHT: f32 = 10.0;
-/// How strong the shading of a crossfade zone is (of the ember wash), how
-/// strongly each clip's colour fills under its curve, and
-/// how strong its closing edge and crossing lines are (of the text colour).
 const CROSSFADE_WASH: f32 = 1.0;
 const CROSSFADE_FILL: f32 = 0.4;
 const CROSSFADE_EDGE: f32 = 0.35;
 const CROSSFADE_LINE: f32 = 0.85;
-/// A fade narrower than this shows no bend dot.
 const BEND_MIN: f32 = 16.0;
-/// The coarsest a gain drag gets (Shift: a tenth of it).
 const MAX_DB_PER_POINT: f32 = 0.5;
-/// How far up an Alt-drag on a bend dot goes from no S-shape to all of it.
 pub const S_SPAN: f32 = 40.0;
 
-/// A handle on a clip.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Handle {
-    /// The top of a fade: drag it along to set the fade's length.
     Fade(Edge),
-    /// The dot on a fade's curve: drag it anywhere to bend the fade, with
-    /// Alt for S-shape.
     Bend(Edge),
-    /// The gain line: drag it up or down.
     Gain,
 }
 
-/// A fade on screen: it runs from `from` to `to` (points), silent at the
-/// clip's side and full at the other end.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FadeLook {
     pub edge: Edge,
@@ -94,7 +64,6 @@ impl FadeLook {
         self.to - self.from
     }
 
-    /// The fade's level at `x`, 0 (silent) to 1, as the engine plays it.
     pub fn level_at(&self, x: f32) -> f32 {
         if self.width() <= 0.0 {
             return 1.0;
@@ -106,9 +75,6 @@ impl FadeLook {
         }
     }
 
-    /// How far through a crossfade `x` is, 0 to 1, along the curve (the
-    /// same on both sides: the incoming clip's gain follows it up and the
-    /// outgoing clip's down).
     fn progress_at(&self, x: f32) -> f32 {
         if self.width() <= 0.0 {
             return 1.0;
@@ -117,8 +83,6 @@ impl FadeLook {
             .at(((x - self.from) / self.width()).clamp(0.0, 1.0))
     }
 
-    /// Where the point `[u, v]` of the curve (u along it from silence, v
-    /// its level) is across: a fade out runs backwards.
     fn x_of(&self, u: f32) -> f32 {
         let u = (u - self.offset) / self.portion.max(f32::EPSILON);
         match self.edge {
@@ -127,7 +91,6 @@ impl FadeLook {
         }
     }
 
-    /// Where the fade reaches full level: its handle's x.
     fn inner(&self) -> f32 {
         match self.edge {
             Edge::Start => self.to,
@@ -136,20 +99,15 @@ impl FadeLook {
     }
 }
 
-/// An audio clip's handles on screen.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ClipHandles {
-    /// Where the waveform is drawn.
     pub wave: Rect,
     pub fade_in: FadeLook,
     pub fade_out: FadeLook,
-    /// The fade out is a crossfade into the next clip, which this clip
-    /// ends where it starts: both its curves cross the zone.
     pub crossfade: bool,
     pub gain_db: f32,
 }
 
-/// Where the waveform of a clip drawn in `rect` goes (as the GPU draws it).
 pub fn wave_area(rect: Rect) -> Rect {
     Rect::from_min_max(
         pos2(rect.left() + 1.0, rect.top() + TITLE + WAVE_GAP),
@@ -157,24 +115,14 @@ pub fn wave_area(rect: Rect) -> Rect {
     )
 }
 
-/// Where `db` sits up the wave area, 0 (bottom, silence) to 1 (+12 dB):
-/// even in dB, so 0 dB is five sixths of the way up.
 pub fn db_position(db: f32) -> f32 {
     ((db - MIN_DB) / (MAX_DB - MIN_DB)).clamp(0.0, 1.0)
 }
 
-/// How many dB one point of a drag moves the gain line, in a wave area
-/// `height` points tall: in a tall clip the line follows the pointer; in a
-/// short one it moves at most [`MAX_DB_PER_POINT`], or it would be too
-/// coarse to set (about 4 dB a point at the default track height).
 pub fn db_per_point(height: f32) -> f32 {
     ((MAX_DB - MIN_DB) / height.max(1.0)).min(MAX_DB_PER_POINT)
 }
 
-/// A bend handle moved by the pointer moving `by` points over a fade at
-/// `edge` drawn `size` points wide and tall (C3): the dot follows the
-/// pointer, within the curve's middle three quarters; with `alt`, up adds
-/// S-shape and down takes it away, [`S_SPAN`] points for all of it.
 pub fn bend(handle: curve::Handle, edge: Edge, size: Vec2, by: Vec2, alt: bool) -> curve::Handle {
     if alt {
         return curve::Handle {
@@ -197,9 +145,6 @@ pub fn bend(handle: curve::Handle, edge: Edge, size: Vec2, by: Vec2, alt: bool) 
 }
 
 impl ClipHandles {
-    /// The handles of `clip` drawn in `rect`, with `x_of` placing a time on
-    /// screen. `None` for clips without audio, and clips too small for
-    /// handles to be grabbed.
     pub fn of(clip: &Clip, rect: Rect, x_of: impl Fn(Ticks) -> f32) -> Option<Self> {
         let ClipContent::Audio { gain_db, .. } = clip.content else {
             return None;
@@ -211,9 +156,6 @@ impl ClipHandles {
         Some(Self::placed(clip, gain_db, wave, rect.x_range(), x_of))
     }
 
-    /// The handles of `clip` in a wave area of its own (the audio editor's):
-    /// `wave` runs across the clip from side to side, with no title above it
-    /// and no least size. `None` for clips without audio.
     pub fn in_wave(clip: &Clip, wave: Rect, x_of: impl Fn(Ticks) -> f32) -> Option<Self> {
         let ClipContent::Audio { gain_db, .. } = clip.content else {
             return None;
@@ -255,13 +197,10 @@ impl ClipHandles {
         }
     }
 
-    /// The y of `level` (0 to 1) in the wave area.
     pub fn y_of(&self, level: f32) -> f32 {
         self.wave.bottom() - level * self.wave.height()
     }
 
-    /// Where a fade's handle is: at the top of the wave area where the
-    /// fade reaches full level, kept clear of the clip's side.
     pub fn handle_pos(&self, edge: Edge) -> Pos2 {
         let (left, right) = (self.wave.left() + CORNER, self.wave.right() - CORNER);
         let x = self.fade(edge).inner();
@@ -272,8 +211,6 @@ impl ClipHandles {
         pos2(x, self.wave.top())
     }
 
-    /// Where a fade's bend dot is (its curve's handle, on the curve), if
-    /// the fade is long enough to show one.
     pub fn bend_pos(&self, edge: Edge) -> Option<Pos2> {
         let fade = self.fade(edge);
         if fade.width() < BEND_MIN {
@@ -284,26 +221,20 @@ impl ClipHandles {
             return None;
         }
         if self.crossfade && edge == Edge::End {
-            // The dot sits on the rising curve, `u` of the way across.
             let x = fade.from + u * fade.width();
             return Some(pos2(x, self.y_of(equal_power_gains(v).0)));
         }
         Some(pos2(fade.x_of(u), self.y_of(v)))
     }
 
-    /// How big a fade is drawn, for bending it: its width and the wave
-    /// area's height.
     pub fn fade_size(&self, edge: Edge) -> Vec2 {
         egui::vec2(self.fade(edge).width(), self.wave.height())
     }
 
-    /// The y of the gain line.
     pub fn gain_y(&self) -> f32 {
         self.y_of(db_position(self.gain_db))
     }
 
-    /// The handle under `p`: fade handles first, then bend dots, then the
-    /// gain line.
     pub fn handle_at(&self, p: Pos2) -> Option<Handle> {
         let near = |at: Pos2, reach: f32| at.distance(p) <= reach;
         for edge in [Edge::Start, Edge::End] {
@@ -320,8 +251,6 @@ impl ClipHandles {
         (across && (p.y - self.gain_y()).abs() <= LINE_GRAB).then_some(Handle::Gain)
     }
 
-    /// Points along a fade's curve from `x0` to `x1` (the part in view),
-    /// about every two points, for drawing.
     pub fn curve(&self, edge: Edge, x0: f32, x1: f32) -> Vec<Pos2> {
         let fade = self.fade(edge);
         let (a, b) = (fade.from.max(x0), fade.to.min(x1));
@@ -338,9 +267,6 @@ impl ClipHandles {
     }
 }
 
-/// How [`draw_handles`] shows a clip: whether the pointer is on it, the handle
-/// it is on or dragging, and the track colours of a crossfade at its start
-/// (the outgoing clip's, then its own).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct HandleLook {
     pub hovered: bool,
@@ -348,11 +274,6 @@ pub struct HandleLook {
     pub crossing: Option<(Color32, Color32)>,
 }
 
-/// Draws `h` on `painter`, within `view` (the lanes' x range, so nothing
-/// sized by a long clip is drawn whole). A fade is a quiet curve until the
-/// clip is `hovered`; then fades glow in the accent with their handles and
-/// bend dots, and the gain line glows across the clip. `hot` is the handle
-/// under the pointer or being dragged.
 pub fn draw_handles(painter: &Painter, h: &ClipHandles, view: Rangef, look: HandleLook) {
     let HandleLook {
         hovered,
@@ -363,8 +284,6 @@ pub fn draw_handles(painter: &Painter, h: &ClipHandles, view: Rangef, look: Hand
     let accent = palette.accent;
     let crossing_edge = Edge::End;
     if h.crossfade {
-        // The crossfade zone, over the end of the clip: set apart by a dim
-        // wash and an edge where it begins.
         let zone = &h.fade_out;
         let (x0, x1) = (zone.from.max(view.min), zone.to.min(view.max));
         if x1 > x0 {
@@ -386,9 +305,6 @@ pub fn draw_handles(painter: &Painter, h: &ClipHandles, view: Rangef, look: Hand
         let mut curve = h.curve(edge, view.min, view.max);
         let other = if h.crossfade && edge == crossing_edge {
             let (incoming, outgoing) = crossing_curves(h, &curve);
-            // What each clip still gives across the zone: filled under its
-            // curve in its own colour, so the outgoing clip fades away
-            // beneath the incoming one's rise.
             let (from, to) = crossing.unwrap_or((accent, accent));
             wash_to(
                 painter,
@@ -413,8 +329,6 @@ pub fn draw_handles(painter: &Painter, h: &ClipHandles, view: Rangef, look: Hand
         if !hovered {
             if h.crossfade && edge == crossing_edge {
                 let other = other.expect("crossfade outgoing curve");
-                // Both curves cross the whole zone, drawn firmly so a
-                // crossfade reads at a glance.
                 let line = Stroke::new(
                     theme::stroke::LIT,
                     palette.text.gamma_multiply(CROSSFADE_LINE),
@@ -432,7 +346,6 @@ pub fn draw_handles(painter: &Painter, h: &ClipHandles, view: Rangef, look: Hand
             }
             continue;
         }
-        // What the fade takes away: a light wash above the curve.
         wash_to(
             painter,
             &curve,
@@ -447,8 +360,6 @@ pub fn draw_handles(painter: &Painter, h: &ClipHandles, view: Rangef, look: Hand
     if !hovered {
         return;
     }
-    // The gain line (G1), across the part of the clip in view: quiet until
-    // the pointer is on it, so it does not crowd the fades.
     let (x0, x1) = (h.wave.left().max(view.min), h.wave.right().min(view.max));
     if x1 > x0 {
         let line = vec![pos2(x0, h.gain_y()), pos2(x1, h.gain_y())];
@@ -482,7 +393,6 @@ pub fn draw_handles(painter: &Painter, h: &ClipHandles, view: Rangef, look: Hand
             );
             painter.circle_filled(at, HANDLE_RADIUS + big, accent);
         } else {
-            // No fade yet: an open ring waits in the corner.
             painter.circle_stroke(
                 at,
                 HANDLE_RADIUS - 0.5 + big,
@@ -513,8 +423,6 @@ pub fn draw_handles(painter: &Painter, h: &ClipHandles, view: Rangef, look: Hand
     }
 }
 
-/// A fade under the pointer: a wash and a glow along its curve, or both
-/// curves of a crossfade.
 pub(crate) fn draw_hot_fade(painter: &Painter, h: &ClipHandles, edge: Edge, view: Rangef) {
     let accent = theme::p().accent;
     let curve = h.curve(edge, view.min, view.max);
@@ -536,8 +444,6 @@ pub(crate) fn draw_hot_fade(painter: &Painter, h: &ClipHandles, edge: Edge, view
     }
 }
 
-/// The two curves of a crossfade through the zone, at the x of each point of
-/// `curve`: the incoming clip's and the outgoing clip's.
 fn crossing_curves(h: &ClipHandles, curve: &[Pos2]) -> (Vec<Pos2>, Vec<Pos2>) {
     let zone = &h.fade_out;
     curve
@@ -552,7 +458,6 @@ fn crossing_curves(h: &ClipHandles, curve: &[Pos2]) -> (Vec<Pos2>, Vec<Pos2>) {
         .unzip()
 }
 
-/// A wash `tint` between `curve` and the horizontal line at `y`.
 fn wash_to(painter: &Painter, curve: &[Pos2], y: f32, tint: Color32) {
     if curve.len() < 2 {
         return;
@@ -570,14 +475,11 @@ fn wash_to(painter: &Painter, curve: &[Pos2], y: f32, tint: Color32) {
     painter.add(wash);
 }
 
-/// Equal-power incoming and outgoing gains at normalized fade progress.
 fn equal_power_gains(progress: f32) -> (f32, f32) {
     let angle = progress.clamp(0.0, 1.0) * std::f32::consts::FRAC_PI_2;
     (angle.sin(), angle.cos())
 }
 
-/// A glowing accent line through `points` (the [`light::LIT`] level),
-/// brighter when `hot`.
 pub(crate) fn glow_line(painter: &Painter, points: Vec<Pos2>, accent: Color32, hot: bool) {
     let lift = if hot { 1.6 } else { 1.0 };
     light::polyline(painter, light::LIT, points, accent, lift);
@@ -597,7 +499,6 @@ mod tests {
         }
     }
 
-    /// An audio clip of four beats drawn 100 points a beat from x = 0.
     fn setup(fade_in: Fade, fade_out: Fade, gain_db: f32) -> ClipHandles {
         let clip = Clip {
             id: Id(1),
@@ -641,7 +542,6 @@ mod tests {
         let h = setup(fade(1, Curve::SLOW), fade(2, Curve::FAST), 0.0);
         assert_eq!((h.fade_in.from, h.fade_in.to), (0.0, 100.0));
         assert_eq!((h.fade_out.from, h.fade_out.to), (200.0, 400.0));
-        // The same curve the engine plays, backwards for a fade-out.
         assert_eq!(h.fade_in.level_at(50.0), Curve::SLOW.at(0.5));
         assert_eq!(h.fade_out.level_at(250.0), Curve::FAST.at(0.75));
         assert_eq!(h.fade_in.level_at(300.0), 1.0);
@@ -659,7 +559,6 @@ mod tests {
     fn handles_sit_at_the_fades_tops_and_clear_of_the_sides() {
         let h = setup(fade(1, Curve::LINEAR), Fade::default(), 0.0);
         assert_eq!(h.handle_pos(Edge::Start), pos2(100.0, h.wave.top()));
-        // No fade: the handle waits in the corner, clear of the trim edge.
         assert_eq!(h.handle_pos(Edge::End).x, h.wave.right() - CORNER);
         assert!(h.bend_pos(Edge::End).is_none(), "no fade, no bend dot");
         let bend = h.bend_pos(Edge::Start).unwrap();
@@ -692,11 +591,9 @@ mod tests {
         assert_eq!(db_position(-100.0), 0.0, "clamped");
         let loud = setup(Fade::default(), Fade::default(), 0.0);
         let soft = setup(Fade::default(), Fade::default(), -12.0);
-        // In a tall clip one point of drag is the dB of one point of line.
         let tall = 72.0 / MAX_DB_PER_POINT;
         assert_eq!(db_per_point(tall), MAX_DB_PER_POINT);
         assert_eq!(db_per_point(2.0 * tall), MAX_DB_PER_POINT / 2.0);
-        // Shorter, it never gets coarser than that.
         assert_eq!(db_per_point(loud.wave.height()), MAX_DB_PER_POINT);
         assert_eq!(db_per_point(19.0), MAX_DB_PER_POINT);
         let spread = soft.gain_y() - loud.gain_y();
@@ -707,16 +604,12 @@ mod tests {
     fn a_bend_dot_follows_the_pointer_and_alt_adds_s_shape() {
         let size = egui::vec2(100.0, 50.0);
         let start = Curve::LINEAR.handle();
-        // Up and to the right on a fade in: further along, louder.
         let moved = bend(start, Edge::Start, size, egui::vec2(10.0, -5.0), false);
         assert!((moved.dot[0] - 0.6).abs() < 1e-6 && (moved.dot[1] - 0.6).abs() < 1e-6);
-        // A fade out runs backwards: right is back towards its start.
         let back = bend(start, Edge::End, size, egui::vec2(10.0, 0.0), false);
         assert!((back.dot[0] - 0.4).abs() < 1e-6);
-        // Never past the middle three quarters.
         let far = bend(start, Edge::Start, size, egui::vec2(1e4, 1e4), false);
         assert_eq!(far.dot, [curve::DOT_MAX, curve::DOT_MIN]);
-        // Alt: up adds S-shape and leaves the dot where it is.
         let s = bend(
             start,
             Edge::Start,
@@ -744,7 +637,6 @@ mod tests {
             (h.fade_in.level_at(dot.x) - 0.75).abs() < 1e-3,
             "on the curve"
         );
-        // The fade out (300 to 400) mirrors it.
         let dot = h.bend_pos(Edge::End).unwrap();
         assert!((dot.x - 375.0).abs() < 1e-3, "{dot:?}");
         assert!((h.fade_out.level_at(dot.x) - 0.75).abs() < 1e-3);

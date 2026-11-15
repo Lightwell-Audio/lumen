@@ -1,6 +1,3 @@
-//! The scenarios' setup: deterministic data and fixed iteration counts, one
-//! module per kind of work.
-
 mod engine;
 mod files;
 
@@ -12,7 +9,6 @@ pub(crate) use files::{busy_tempo_map, quality_bar_project, streamed_scene};
 
 use lumen_engine::{ClipPlayer, Engine, Mixer};
 
-/// Every scenario, with what it measures.
 pub const SCENARIOS: &[(&str, &str)] = &[
     (
         "engine_crossfades_64",
@@ -80,19 +76,13 @@ pub(crate) const RATE: u32 = 48_000;
 pub(crate) const FRAMES: usize = 128;
 
 pub(crate) type Player = Engine<Mixer<ClipPlayer>>;
-/// The engine with the MIDI instruments beside the audio clips.
 pub(crate) type SynthPlayer =
     Engine<Mixer<lumen_engine::Layered<ClipPlayer, lumen_engine::MidiPlayer>>>;
 
-/// How the clips of a scenario are mixed.
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum Mix {
-    /// All on one track, straight to the device.
     Direct,
-    /// Each on its own track in the routed mix.
     Routed,
-    /// Each on its own track in the latent mix.
     Latent,
-    /// Each on its own track in the automated mix.
     Automated,
 }

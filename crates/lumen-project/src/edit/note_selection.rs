@@ -1,15 +1,3 @@
-//! A selection of notes that knows when it has gone stale (M5 slice 3a).
-//!
-//! Notes are picked by index (see `edit::notes`), and an index means
-//! nothing once the list has changed. A [`NoteSelection`] remembers the
-//! clip as it was when the picks were made; before using it, the editor
-//! calls [`NoteSelection::refresh`] with the project. If the clip is the
-//! very same one (or an edit elsewhere left its notes as they were: a
-//! rename, a move, a recolour) the picks stand; if its notes changed (an
-//! undo, a redo, another editor) they are cleared. After an edit of its
-//! own, the editor stores the indices the edit returned with
-//! [`NoteSelection::rebind`], so the selection follows its own edits.
-
 use std::sync::Arc;
 
 use crate::model::{Clip, ClipContent, Id, Project};
@@ -21,24 +9,18 @@ pub struct NoteSelection {
 }
 
 impl NoteSelection {
-    /// `indices` of the notes of `clip`, as the clip is now.
     pub fn new(clip: Arc<Clip>, indices: Vec<usize>) -> Self {
         Self { clip, indices }
     }
 
-    /// An empty selection in the clip with id `id` of `project`, or `None`
-    /// if there is no such clip.
     pub fn in_clip(project: &Project, id: Id) -> Option<Self> {
         find(project, id).map(|clip| Self::new(clip, Vec::new()))
     }
 
-    /// The clip the notes belong to.
     pub fn clip(&self) -> Id {
         self.clip.id
     }
 
-    /// The picked indices, sorted. Use only after [`Self::refresh`] said the
-    /// selection is current.
     pub fn indices(&self) -> &[usize] {
         &self.indices
     }
@@ -47,9 +29,6 @@ impl NoteSelection {
         self.indices.is_empty()
     }
 
-    /// Replaces the picks (after an edit returned its resulting indices, or
-    /// a click) for the clip as `project` has it now. Returns whether the
-    /// clip still exists; if it does not the selection is emptied.
     pub fn rebind(&mut self, project: &Project, indices: Vec<usize>) -> bool {
         match find(project, self.clip.id) {
             Some(clip) => {
@@ -65,10 +44,6 @@ impl NoteSelection {
         }
     }
 
-    /// Brings the selection up to date with `project` and says whether the
-    /// picks were kept. Cheap when nothing changed (a pointer comparison);
-    /// when the clip was replaced, its notes are compared, so edits that
-    /// leave the notes alone keep the selection and anything else clears it.
     pub fn refresh(&mut self, project: &Project) -> bool {
         let Some(clip) = find(project, self.clip.id) else {
             self.indices.clear();
@@ -113,8 +88,6 @@ mod tests {
         Note::new(Ticks::quarters(beat), Ticks(PPQ / 2), pitch, 100)
     }
 
-    /// A project with one MIDI track whose clip holds `notes`, and the clip's
-    /// id.
     fn project(notes: Vec<Note>) -> (Project, Id) {
         let track = midi_track(1, "Lead", "keys", (0, 8), None, notes, Vec::new());
         let id = track.clips[0].id;
@@ -129,8 +102,6 @@ mod tests {
         selection.rebind(&project, vec![0, 2]);
         assert_eq!(selection.indices(), [0, 2]);
 
-        // An edit elsewhere (a rename, a move) replaces the clip but leaves
-        // its notes as they were: the picks stand.
         let track = Arc::make_mut(&mut project.tracks[0]);
         let edited = Arc::make_mut(&mut track.clips[0]);
         edited.name = "Verse".into();
@@ -153,7 +124,6 @@ mod tests {
         assert!(!selection.refresh(&project));
         assert!(selection.is_empty(), "stale picks are dropped");
 
-        // The clip going away clears them too.
         selection.rebind(&project, vec![0]);
         let track = Arc::make_mut(&mut project.tracks[0]);
         track.clips.clear();
@@ -183,7 +153,6 @@ mod tests {
         assert!(!selection.refresh(&gone));
         assert!(selection.is_empty());
 
-        // An audio clip holds no notes to pick.
         let mixed = crate::testing::synthetic(7, 3, 1, 2, 0);
         let audio = mixed.tracks[2].clips[0].id;
         assert!(matches!(

@@ -1,13 +1,8 @@
-//! A track's type, as a glyph drawn beside its name: a waveform for audio,
-//! keys for MIDI, stacked bars for a group, a return arrow for a return.
-
 use eframe::egui::{self, Color32, Painter, Pos2, Rect, Stroke, vec2};
 use lumen_project::model::TrackKind;
 
 use crate::theme;
 
-/// A 14 pt icon for the track type: a waveform for audio, keys for MIDI,
-/// stacked bars for a group, a return arrow for a return.
 pub fn draw_type_icon(painter: &Painter, center: Pos2, kind: TrackKind, color: Color32) {
     let stroke = Stroke::new(theme::stroke::GLYPH_WIDE, color);
     let at = |x: f32, y: f32| center + vec2(x, y);

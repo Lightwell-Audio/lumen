@@ -1,7 +1,3 @@
-//! Freeze (M7b slice E5): the document side. The rendering is the app's
-//! (`freeze.rs`); which tracks go, over what span, and what the project
-//! becomes is `lumen_project::edit::freeze`.
-
 use std::path::PathBuf;
 
 use lumen_project::edit::freeze::{self, Baked, Violation};
@@ -11,9 +7,6 @@ use super::Document;
 use super::clips::fresh_ids;
 
 impl Document {
-    /// Freezes each track with its rendered file as one step. A part whose
-    /// track changed while it rendered is left alone; when nothing is applied
-    /// nothing is recorded and the answer is empty.
     pub fn freeze_tracks(&mut self, baked: &[Baked]) -> Vec<Id> {
         let current: Vec<Baked> = baked
             .iter()
@@ -32,8 +25,6 @@ impl Document {
         done
     }
 
-    /// Unfreezes tracks as one step: their clips, notes and devices play
-    /// again. Returns the tracks that were frozen.
     pub fn unfreeze_tracks(&mut self, tracks: &[Id]) -> Vec<Id> {
         let mut done = Vec::new();
         self.history.apply("Unfreeze", None, |project| {
@@ -42,8 +33,6 @@ impl Document {
         done
     }
 
-    /// Flattens frozen tracks into plain audio tracks as one step (owner's
-    /// FR3). Returns the tracks flattened.
     pub fn flatten_tracks(&mut self, tracks: &[Id]) -> Vec<Id> {
         let mut done = Vec::new();
         self.history.apply("Flatten", None, |project| {
@@ -52,16 +41,10 @@ impl Document {
         done
     }
 
-    /// What the latest refused edit tried to change on a frozen track (owner's
-    /// FR2), once: the interface says why nothing happened.
     pub fn take_refused(&mut self) -> Vec<Violation> {
         self.history.take_refused()
     }
 
-    /// Names the tracks a recording is writing a take into (none when it has
-    /// ended): edits to their clips are refused meanwhile, as `take_refused`
-    /// reports. Called every frame, so a recording that ends any way at all
-    /// lifts it.
     pub fn guard_recording(&mut self, tracks: &[Id]) {
         self.history.guard_recording(tracks);
     }

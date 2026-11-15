@@ -1,7 +1,3 @@
-//! Meters (M4 slice 5): a playing track's level shows under its volume, a
-//! clip stays lit until clicked, meters come to rest so the app idles, and
-//! the master's loudness starts again on Play from stop.
-
 use std::time::Duration;
 
 use eframe::egui::{Event, Key, Modifiers, vec2};
@@ -10,12 +6,10 @@ use lumen_core::time::Ticks;
 
 use super::{Lumen, wav, wav_at};
 
-/// The quiet test tone's peak (`wav`), in dBFS: 3,000 of 32,768.
 fn tone_db() -> f32 {
     20.0 * (3_000.0f32 / 32_768.0).log10()
 }
 
-/// Unfolds `track`'s header and waits for its volume slider.
 fn unfold(lumen: &mut Lumen, track: &str) {
     lumen.click(&format!("Fold {track}"));
     lumen.run_until(&format!("{track} to unfold"), |l| {
@@ -30,15 +24,8 @@ fn play(lumen: &mut Lumen) {
     lumen.wait_for("playback", |app| app.playhead() > Ticks::quarters(1));
 }
 
-/// Lets audio play for `ms`, drawing frames as the app would, and ends on a
-/// frame drawn just after the engine played, so a level read next is fresh.
 fn listen(lumen: &mut Lumen, ms: u64) {
     for _ in 0..ms / 50 {
-        // The meters fall by egui's clock, 1/60 s a step: three steps are
-        // the 50 ms the engine plays meanwhile. Two go before the wait and
-        // one after it: steps drawn back to back see no new audio (how
-        // often the device delivers differs by system), so a level read
-        // after the third of three would have fallen by two steps, 0.67 dB.
         lumen.frames(2);
         std::thread::sleep(Duration::from_millis(50));
         lumen.frames(1);
@@ -62,32 +49,20 @@ fn a_playing_tracks_level_shows_and_comes_to_rest_when_stopped() {
     let master = lumen.app().project().master.id;
     play(&mut lumen);
     listen(&mut lumen, 400);
-    // After the fader and the pan: a stereo track at the centre keeps the
-    // tone's level, as does the master. Waited for, not read once: a shown
-    // peak falls 20 dB a second between callbacks, so on a busy machine one
-    // late block takes a frame's reading 0.3 dB under the tone.
     let want = tone_db();
     lumen.wait_for("the track and the master at the tone's level", |app| {
         (app.meter(track).peak_db - want).abs() < 0.3
             && (app.meter(master).peak_db - want).abs() < 0.3
     });
-    // `wait_for` draws one more frame, which may see no new audio: read the
-    // levels on a fresh frame instead.
     listen(&mut lumen, 50);
     let shown = lumen.app().meter(track);
     assert!((shown.peak_db - want).abs() < 0.3, "{shown:?}, want {want}");
     assert!(shown.rms_db < shown.peak_db && shown.rms_db > want - 4.0);
     assert!(!shown.clipped);
-    // The master carries it on (buses pan with the balance law).
     let on_master = lumen.app().meter(master);
     assert!((on_master.peak_db - want).abs() < 0.3, "{on_master:?}");
     assert!(lumen.app().meters_moving());
 
-    // Stopped: peaks and the hold line fall to rest (20 dB a second, the
-    // hold after 1.5 s), and the RMS falls in the engine. (The test device
-    // plays a block every 10 ms, slower than real time, so the RMS, which
-    // falls in audio time, is checked to fall here and to rest in the
-    // engine's tests.)
     lumen.key(Modifiers::NONE, Key::Space);
     listen(&mut lumen, 3_500);
     let rested = lumen.app().meter(track);
@@ -102,7 +77,6 @@ fn a_playing_tracks_level_shows_and_comes_to_rest_when_stopped() {
 #[test]
 fn a_clip_stays_lit_until_clicked_and_the_palette_clears_every_one() {
     let mut lumen = Lumen::start("meters-clip");
-    // A full-scale tone, pushed 6 dB past it.
     let files = [
         wav_at(&lumen.dir().join("loud.wav"), 20.0, 32_000.0),
         wav_at(&lumen.dir().join("loud2.wav"), 20.0, 32_000.0),
@@ -129,17 +103,14 @@ fn a_clip_stays_lit_until_clicked_and_the_palette_clears_every_one() {
     for &id in &ids {
         assert!(lumen.app().meter(id).clipped, "{:?}", lumen.app().meter(id));
     }
-    // Stopped and silent, the clip lights stay.
     listen(&mut lumen, 600);
     assert!(lumen.app().meter(ids[0]).clipped);
 
-    // A click on one clears it alone.
     lumen.click(&format!("Clear the clip light of {}", names[0]));
     assert!(!lumen.app().meter(ids[0]).clipped);
     assert!(lumen.app().meter(ids[1]).clipped);
     assert!(!lumen.shows(&format!("Clear the clip light of {}", names[0])));
 
-    // The palette clears every one.
     palette(&mut lumen, "Clear clip lights");
     assert!(!lumen.app().meter(ids[1]).clipped);
 }
@@ -157,19 +128,14 @@ fn integrated_loudness_starts_again_on_play_from_stop() {
         momentary.is_finite() && integrated.is_finite(),
         "{momentary} {integrated}"
     );
-    // The quiet tone: well below full scale.
     assert!(true_peak < tone_db() + 1.0, "{true_peak}");
 
-    // Pause and continue (Shift+Space): integrated keeps counting. Each
-    // key toggles by what the audio thread last reported, so each waits
-    // for the one before to be heard.
     lumen.key(Modifiers::SHIFT, Key::Space);
     lumen.wait_for("the pause", |app| !app.is_playing());
     lumen.key(Modifiers::SHIFT, Key::Space);
     lumen.wait_for("playback to continue", |app| app.is_playing());
     assert!(lumen.app().loudness().2.is_finite());
 
-    // Stop, then Play: it starts again.
     lumen.key(Modifiers::NONE, Key::Space);
     listen(&mut lumen, 200);
     lumen.wait_for("playback to stop", |app| !app.is_playing());
@@ -182,8 +148,6 @@ fn integrated_loudness_starts_again_on_play_from_stop() {
     );
 }
 
-/// A stereo 1 kHz sine at `dbfs` (16-bit, 48 kHz), the EBU Tech 3341
-/// reference tone at −23.
 fn reference_tone(path: &std::path::Path, dbfs: f64, seconds: f64) -> std::path::PathBuf {
     let amplitude = 10f64.powf(dbfs / 20.0) * 32_767.0;
     let frames = (seconds * 48_000.0) as usize;
@@ -213,10 +177,6 @@ fn reference_tone(path: &std::path::Path, dbfs: f64, seconds: f64) -> std::path:
     path.to_path_buf()
 }
 
-/// Owner, after slice 7: the loudness seemed low (a −3 dB centre on
-/// stereo tracks; the owner's B keeps their level). The EBU Tech 3341
-/// reference tone (stereo 1 kHz at −23 dBFS) on a centred track reads
-/// −23 LUFS and −23 dBTP at the master.
 #[test]
 fn the_loudness_column_reads_the_reference_tone_at_minus_23() {
     let mut lumen = Lumen::start("meters-reference");
@@ -235,8 +195,6 @@ fn the_loudness_column_reads_the_reference_tone_at_minus_23() {
     );
 }
 
-/// A stereo sine of `frequency` Hz at `rate`, its samples peaking at
-/// `peak` (of 32,767), starting at `phase` radians.
 fn sine_file(
     path: &std::path::Path,
     rate: u32,
@@ -272,12 +230,6 @@ fn sine_file(
     path.to_path_buf()
 }
 
-/// Owner, after the pan law change: the master's meter went to about
-/// +1.1 dB. No gain is added: a full-scale 48 kHz file reads 0.0 dB on its
-/// track and the master. A file at another rate is converted to the
-/// device's, and the new samples land between the old ones, where a loud
-/// master's waveform goes over full scale (its true peak): a 44.1 kHz tone
-/// whose samples peak at 0 dBFS, its waveform at +3 dB, reads +3 dB.
 #[test]
 fn full_scale_reads_zero_and_a_converted_file_shows_its_true_peak() {
     let cases = [
@@ -305,10 +257,6 @@ fn full_scale_reads_zero_and_a_converted_file_shows_its_true_peak() {
         let master = lumen.app().project().master.id;
         play(&mut lumen);
         listen(&mut lumen, 600);
-        // Waited for, not read once: a shown peak falls between callbacks,
-        // so a frame drawn after a late block on a busy machine reads under
-        // the tone (2.0 dB for 3.01 on macOS CI). A gain added or a peak
-        // missed never reaches the window, so the claim is unchanged.
         lumen.wait_for(&format!("{rate} Hz read at {want} dB"), |app| {
             [track, master]
                 .iter()

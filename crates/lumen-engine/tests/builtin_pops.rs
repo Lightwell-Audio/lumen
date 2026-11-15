@@ -1,14 +1,3 @@
-//! The built-in effects' clicks in the engine's path (M8, OR-4): the events a
-//! device never sees on its own — its power switched, it inserted into or taken
-//! out of a playing chain, the routing re-planned, the transport played,
-//! stopped or located, and a key connected — measured the way a person hears
-//! them.
-//!
-//! The measurement is the same as `lumen-devices/tests/pops.rs`: the worst bend
-//! `|x[n] - 2x[n-1] + x[n-2]|` over the frames around an event, as a fraction of
-//! the wave around it, against the same measure of a clean tone. A click is a
-//! bend the wave cannot account for.
-
 use std::sync::Arc;
 
 use lumen_core::time::Ticks;
@@ -25,14 +14,12 @@ const TRACK: u64 = 1;
 const KEYED: u64 = 2;
 const DEVICE: u64 = 7;
 
-/// A tone at −12 dBFS, off the grid, long enough for any render here.
 fn tone(frames: usize) -> Vec<f32> {
     (0..frames)
         .map(|k| 0.25 * (std::f32::consts::TAU * 997.0 * k as f32 / RATE as f32).sin())
         .collect()
 }
 
-/// A clip of `samples` on `track`.
 fn clip(track: u64, id: u64, samples: &[f32]) -> Clip {
     Clip {
         envelope: Default::default(),
@@ -50,8 +37,6 @@ fn clip(track: u64, id: u64, samples: &[f32]) -> Clip {
     }
 }
 
-/// The master, and a track carrying a built-in device; and, when `keyed`, a
-/// second track that feeds the device's sidechain and is heard nowhere.
 fn routing(bypass: bool, keyed: bool) -> Routing {
     let mut track = NodeSpec::unity(TRACK, Destination::Node(MASTER));
     track.devices = vec![Device::Builtin {
@@ -83,7 +68,6 @@ fn routing(bypass: bool, keyed: bool) -> Routing {
     }
 }
 
-/// The same chain with no device on the track.
 fn plain() -> Routing {
     Routing {
         nodes: vec![
@@ -127,8 +111,6 @@ impl Rig {
         self.transport.send(Command::Play).unwrap();
     }
 
-    /// Renders `frames` in blocks of at most `block`, calling `between` before
-    /// each block with the block's index.
     fn run(
         &mut self,
         frames: usize,
@@ -150,13 +132,8 @@ impl Rig {
     }
 }
 
-// ------------------------------------------------------------- the measures
-
 const LOCAL: usize = 64;
 
-/// A local level for each frame: the largest sample in its own block of
-/// [`LOCAL`] and the blocks either side, so a bend is judged against the wave
-/// around it rather than against a stretch of another level.
 fn local_level(x: &[f32]) -> Vec<f32> {
     let blocks: Vec<f32> = x
         .chunks(LOCAL)
@@ -173,7 +150,6 @@ fn local_level(x: &[f32]) -> Vec<f32> {
     out
 }
 
-/// The worst bend over `from..to` as a fraction of the wave around it.
 fn worst_bend_over_level(x: &[f32], from: usize, to: usize) -> f32 {
     let local = local_level(x);
     let floor = 0.01 * local.iter().fold(0.0f32, |m, s| m.max(*s)).max(1e-9);
@@ -183,7 +159,6 @@ fn worst_bend_over_level(x: &[f32], from: usize, to: usize) -> f32 {
     })
 }
 
-/// What a click at `at` measures against a clean tone over the same span.
 fn click_db(out: &[f32], clean: &[f32], at: usize, span: usize) -> f32 {
     let from = at.saturating_sub(span);
     let to = at + span;
@@ -192,7 +167,6 @@ fn click_db(out: &[f32], clean: &[f32], at: usize, span: usize) -> f32 {
     20.0 * (worse.max(1e-9) / clean.max(1e-9)).log10()
 }
 
-/// Where the worst bend over `from..to` is, and how big it is next to the wave.
 fn worst_at(x: &[f32], from: usize, to: usize) -> (usize, f32) {
     let local = local_level(x);
     let floor = 0.01 * local.iter().fold(0.0f32, |m, s| m.max(*s)).max(1e-9);
@@ -217,18 +191,10 @@ fn cell(db: f32) -> String {
     }
 }
 
-/// Frames the runs play; the event lands at [`AT`].
 const FRAMES: usize = 24_000;
 const AT: usize = 12_000;
-/// How far either side of the event a click is looked for.
 const SPAN: usize = 2_400;
 
-// The harness is a measurement; these are the checks it is read from.
-
-/// The events of OR-4's (c) to (g), each at three block sizes, with Gravity in
-/// the chain: none of them may bend the wave by more than six decibels (a click
-/// was twenty-six to thirty-two). Six is the transport's own floor: its
-/// two-millisecond crossfade bends the wave by four, with or without a device.
 #[test]
 fn nothing_the_engine_does_to_a_chain_clicks() {
     let input = tone(FRAMES);
@@ -236,7 +202,6 @@ fn nothing_the_engine_does_to_a_chain_clicks() {
     for block in [64usize, 128, 256] {
         let event = AT / block;
         let mut cases: Vec<(&str, Vec<f32>)> = Vec::new();
-        // The power switched off, and back on.
         for (name, bypass) in [("power off", true), ("power on", false)] {
             let mut rig = rig(vec![clip(TRACK, 1, &input)], &routing(!bypass, false));
             rig.attach();
@@ -249,7 +214,6 @@ fn nothing_the_engine_does_to_a_chain_clicks() {
             });
             cases.push((name, out));
         }
-        // The device taken out of a playing chain, and put back.
         {
             let mut rig = rig(vec![clip(TRACK, 1, &input)], &routing(false, false));
             rig.attach();
@@ -274,7 +238,6 @@ fn nothing_the_engine_does_to_a_chain_clicks() {
             });
             cases.push(("inserted", out));
         }
-        // The interface rewriting the same routing every block.
         {
             let mut rig = rig(vec![clip(TRACK, 1, &input)], &routing(false, false));
             rig.attach();
@@ -286,7 +249,6 @@ fn nothing_the_engine_does_to_a_chain_clicks() {
             });
             cases.push(("rewritten", out));
         }
-        // Stop, play again, and a locate.
         {
             let mut rig = rig(vec![clip(TRACK, 1, &input)], &routing(false, false));
             rig.attach();
@@ -323,8 +285,6 @@ fn nothing_the_engine_does_to_a_chain_clicks() {
     }
 }
 
-/// A key connected to a playing compressor does not step: it is an input to the
-/// detector, and the detector's ballistics take it up.
 #[test]
 fn connecting_a_key_does_not_click() {
     let input = tone(FRAMES);
@@ -364,7 +324,6 @@ fn the_engine_pop_table() {
     for block in [64usize, 128, 256] {
         let event = AT / block;
         let mut rows: Vec<(&str, Vec<f32>, Vec<f32>)> = Vec::new();
-        // (a) steady: nothing happens at all.
         {
             let mut with = rig(vec![clip(TRACK, 1, &input)], &routing(false, false));
             with.attach();
@@ -377,7 +336,6 @@ fn the_engine_pop_table() {
             bare_rig.run(FRAMES, block, &mut plain_out, |_, _| {});
             rows.push(("steady", out, plain_out));
         }
-        // (c) the power switched off.
         {
             let mut rig = rig(vec![clip(TRACK, 1, &input)], &routing(false, false));
             rig.attach();
@@ -390,7 +348,6 @@ fn the_engine_pop_table() {
             });
             rows.push(("power off (c)", out, Vec::new()));
         }
-        // (d) the device taken out of a playing chain.
         {
             let mut rig = rig(vec![clip(TRACK, 1, &input)], &routing(false, false));
             rig.attach();
@@ -403,7 +360,6 @@ fn the_engine_pop_table() {
             });
             rows.push(("removed (d)", out, Vec::new()));
         }
-        // (d) and put back into a playing chain.
         {
             let mut rig = rig(vec![clip(TRACK, 1, &input)], &plain());
             rig.attach();
@@ -416,7 +372,6 @@ fn the_engine_pop_table() {
             });
             rows.push(("inserted (d)", out, Vec::new()));
         }
-        // (g) the interface rewriting the same routing every block.
         {
             let mut rig = rig(vec![clip(TRACK, 1, &input)], &routing(false, false));
             rig.attach();
@@ -428,8 +383,6 @@ fn the_engine_pop_table() {
             });
             rows.push(("rewritten (g)", out, Vec::new()));
         }
-        // (e) stop, then play again. With and without a device: the transport
-        // is the engine's own, and a click there is not the built-in's.
         for (name, with) in [("stop+play (e)", true), ("stop+play, no dev", false)] {
             let route = if with { routing(false, false) } else { plain() };
             let mut rig = rig(vec![clip(TRACK, 1, &input)], &route);
@@ -448,7 +401,6 @@ fn the_engine_pop_table() {
             });
             rows.push((name, out, Vec::new()));
         }
-        // (e) a locate while playing.
         for (name, with) in [("locate (e)", true), ("locate, no dev", false)] {
             let route = if with { routing(false, false) } else { plain() };
             let mut rig = rig(vec![clip(TRACK, 1, &input)], &route);
@@ -489,7 +441,6 @@ fn the_engine_pop_table() {
 #[test]
 #[ignore = "a measurement, not a check: prints the table"]
 fn the_key_pop_table() {
-    // A key that is loud and pulsing: connecting it takes the input far down.
     let input = tone(FRAMES);
     let mut key = vec![0.0f32; FRAMES];
     for (k, s) in key.iter_mut().enumerate() {
@@ -518,12 +469,8 @@ fn the_key_pop_table() {
     }
 }
 
-/// A chain with a device that does nothing: the shape of a plan with a device
-/// and without one, for the harness's own check.
 #[test]
 fn the_harness_sees_a_click_it_is_given() {
-    // A tone, and the same tone with one sample stepped: the detector must call
-    // that a click, or none of its quiet numbers mean anything.
     let clean = tone(4_800);
     let mut clicked = clean.clone();
     let at = 2_400;
@@ -536,8 +483,6 @@ fn the_harness_sees_a_click_it_is_given() {
     assert!(loud > 12.0, "a stepped tone reads only {loud} dB");
 }
 
-/// The engine's fallback for a device that is not attached is the dry signal:
-/// nothing here is the harness mistaking its own plumbing for a device.
 #[test]
 fn an_unattached_device_plays_the_wave_through() {
     let input = tone(FRAMES);

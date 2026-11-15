@@ -1,6 +1,3 @@
-//! The Audio page's device lists and details, loaded in the background so
-//! they never block the window (ASIO drivers through `probe.rs`).
-
 use super::*;
 
 pub(super) enum Loaded {
@@ -8,8 +5,6 @@ pub(super) enum Loaded {
     Details(String, Result<DeviceInfo, String>),
 }
 
-/// Device lists per driver and details per device, loaded in the
-/// background.
 pub struct Catalog {
     lists: HashMap<String, Option<DeviceList>>,
     details: HashMap<String, Option<Result<DeviceInfo, String>>>,
@@ -43,7 +38,6 @@ impl Catalog {
         }
     }
 
-    /// Forgets everything (after plugging a device in or out).
     pub(super) fn refresh(&mut self) {
         self.lists.clear();
         self.details.clear();
@@ -54,8 +48,6 @@ impl Catalog {
             self.lists.insert(driver.to_owned(), None);
             let (tx, ctx, driver) = (self.tx.clone(), ctx.clone(), driver.to_owned());
             std::thread::spawn(move || {
-                // WASAPI and the system hosts describe every device as they
-                // list them; keep those details too.
                 let mut details = Vec::new();
                 let list = match audio::backend(&driver) {
                     None => Err(format!("{driver} is not available here")),
@@ -80,8 +72,6 @@ impl Catalog {
         self.lists.get(driver).and_then(Option::as_ref)
     }
 
-    /// Details of device `id`: probed in a helper for ASIO; already known
-    /// from the list for the others.
     pub(super) fn details(
         &mut self,
         driver: &str,

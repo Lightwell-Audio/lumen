@@ -1,10 +1,3 @@
-//! The card's parameter strip (M6 slice 4, the owner's S2 with the send
-//! knobs' comet style): eight chosen parameters as knobs in two rows, each
-//! with its name and the plugin's own text for its value, and under them one
-//! row of buttons: Learn and every parameter (the plugin's own window has its
-//! button in the card's header). A slot with nothing in it offers to be
-//! filled.
-
 use eframe::egui::{self, Align2, FontId, Rect, Shape, Stroke, Ui, pos2, vec2};
 use eframe::emath::GuiRounding as _;
 use lumen_hosting::ParamInfo;
@@ -16,106 +9,65 @@ use crate::widgets::param::{ParamLook, param_knob, start_typing};
 use crate::widgets::{self, raised};
 use crate::{motion, theme, widgets::fit};
 
-/// The knobs on a card.
 pub(super) const SLOTS: usize = 8;
 const COLUMNS: usize = 4;
-/// A knob's size (DESIGN §6: 24, or 18 in the compact card).
 const KNOB: f32 = theme::size::KNOB;
-/// The row of buttons under the knobs, a small control.
 pub(super) const BUTTONS: f32 = theme::size::CONTROL_SMALL;
 pub(super) const GAP: f32 = 6.0;
 
-/// One chosen parameter, as the card needs it.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Slot {
     pub id: u32,
     pub name: String,
-    /// The plugin's own words for the value now.
     pub text: String,
     pub value: f64,
     pub default: f64,
     pub steps: i32,
     pub read_only: bool,
-    /// The plugin's own word for each step of a stepped parameter, as far as
-    /// it has said them (empty for the rest, and for a knob).
     pub choices: Vec<String>,
-    /// A parameter that a lane, MIDI learn or an override may drive. A
-    /// device's timing (the limiter's lookahead) is not one (M8 slice B2).
     pub automatable: bool,
-    /// The user has taken over the lane that drives it (M7 slice A4a).
     pub over: bool,
-    /// The controller that moves it (channel, number), if one is mapped
-    /// (M7 slice A5).
     pub mapped: Option<(u8, u8)>,
-    /// It waits for a controller to move, to be mapped.
     pub waiting: bool,
 }
 
-/// What the strip asked for.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum Output {
-    /// A parameter was moved.
     Set(u32, f64),
-    /// Several were moved together by a face: a point drags its band's
-    /// frequency and gain at once, as one gesture of one undo step (M8 slice
-    /// B1).
     Moved(Vec<(u32, f64)>),
-    /// A face put a band back to its defaults: one undo step.
     Reset(Vec<(u32, f64)>),
-    /// A switch or a chooser picked a value: one undo step each.
     Choose(u32, f64),
-    /// The user typed text for a parameter: the plugin reads it.
     Type(u32, String),
-    /// A parameter leaves the strip.
     Remove(u32),
-    /// An empty slot was clicked: choose a parameter for it.
     Fill,
-    /// The button for every parameter.
     All,
-    /// The editor button: open the window, or close it.
     Editor,
-    /// Learn: touch a control in the plugin's window and it takes the next
-    /// free slot.
     Learn,
-    /// A parameter's menu asked about its lane or its controller.
     Ask(u32, widgets::Ask),
-    /// End a plugin whose window stopped answering.
     End,
 }
 
-/// What the editor button says and does (M6 slice 4f).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(super) enum Editor {
-    /// Closed: the button opens it.
     #[default]
     Closed,
-    /// Asked for, not shown yet.
     Opening,
     Open,
-    /// The plugin's window stopped answering.
     NotResponding,
-    /// No window to open, and why: the plugin has none, or this platform
-    /// cannot show one.
     Unavailable(String),
 }
 
-/// The row of buttons under the knobs.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Buttons<'a> {
     pub editor: &'a Editor,
     pub learning: bool,
-    /// How many parameters the plugin lists (0 hides Learn and All).
     pub parameters: usize,
 }
 
-/// A parameter a strip may show: not hidden by the plugin.
 pub(super) fn offered(p: &ParamInfo) -> bool {
     !p.hidden()
 }
 
-/// What a plugin's first card shows when nothing was chosen: the first
-/// parameters it lists that a person would move (not hidden, not read only,
-/// not a program or a bypass), at most [`SLOTS`].
 pub(super) fn default_shown(list: &[ParamInfo]) -> Vec<u32> {
     list.iter()
         .filter(|p| offered(p) && !p.read_only() && !p.program_change() && !p.bypass())
@@ -124,8 +76,6 @@ pub(super) fn default_shown(list: &[ParamInfo]) -> Vec<u32> {
         .collect()
 }
 
-/// The ids on the strip: the chosen ones the plugin still lists and offers,
-/// in order, at most [`SLOTS`]; or the default when nothing was chosen.
 pub(super) fn resolve(list: &[ParamInfo], chosen: Option<&[u32]>) -> Vec<u32> {
     match chosen {
         None => default_shown(list),
@@ -142,12 +92,9 @@ pub(super) fn resolve(list: &[ParamInfo], chosen: Option<&[u32]>) -> Vec<u32> {
     }
 }
 
-/// Room between neighbouring controls, each side.
 const PAD: f32 = 3.0;
-/// How far the grid of controls reaches past the strip's margins.
 const GRID_OUT: f32 = 8.0;
 
-/// Paints the strip in `area` and answers it.
 pub(super) fn paint(
     ui: &mut Ui,
     area: Rect,
@@ -158,8 +105,6 @@ pub(super) fn paint(
     key_room: f32,
 ) -> Vec<Output> {
     let mut out = Vec::new();
-    // The grid reaches a little past the card's margins, so a chooser has the
-    // room its word needs while the buttons below keep to the margins.
     let grid = Rect::from_min_max(
         pos2(area.left() - GRID_OUT, area.top()),
         pos2(
@@ -194,8 +139,6 @@ pub(super) fn paint(
     out
 }
 
-/// A cell's sizes: the knob, the gap under it to the name, and the name's
-/// line (the value is under it).
 #[derive(Clone, Copy)]
 struct Cells {
     knob: f32,
@@ -203,21 +146,18 @@ struct Cells {
     line: f32,
 }
 
-/// The full card's two rows of four.
 const FULL: Cells = Cells {
     knob: KNOB,
     name_gap: theme::size::KNOB_NAME_GAP,
     line: theme::size::KNOB_NAME_LINE,
 };
 
-/// The compact card's one row (D2): 18 pt knobs, the name's 14 pt line.
 const SMALL: Cells = Cells {
     knob: theme::size::KNOB_SMALL,
     name_gap: theme::space::XXS,
     line: theme::size::CAPTION_LINE,
 };
 
-/// The first four slots in one row across `area` (the compact card's).
 pub(super) fn paint_row(
     ui: &mut Ui,
     area: Rect,
@@ -246,8 +186,6 @@ pub(super) fn paint_row(
     out
 }
 
-/// One knob, switch or chooser in `cell` with its name and value, or an
-/// empty slot that offers to be filled.
 fn paint_cell(
     ui: &mut Ui,
     cell: Rect,
@@ -268,9 +206,6 @@ fn paint_cell(
     .round_to_pixels(ui.pixels_per_point());
     match slot {
         Some(slot) => {
-            // The whole cell says the parameter's full name when the
-            // pointer rests on it (its name below may be cut short); the
-            // control on top has its own words.
             ui.interact(cell, slot_id.with("cell"), egui::Sense::hover())
                 .on_hover_text(&slot.name);
             let kind = stepped::kind_of(slot);
@@ -337,7 +272,6 @@ fn paint_cell(
                 caption.clone(),
                 palette.text_secondary,
             );
-            // A chooser shows its word in its own body.
             if kind != Kind::Chooser {
                 let text = fit(painter, &slot.text, mono.clone(), cell_w - 2.0 * PAD);
                 painter.text(
@@ -429,23 +363,16 @@ fn paint_cell(
     }
 }
 
-/// How a button looks in the row.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Style {
     Plain,
-    /// Lit: the thing it names is on.
     On,
-    /// The one thing to do about a stuck plugin.
     Fill,
-    /// Says how things are and cannot be pressed.
     Warn,
 }
 
-/// One button of the row.
 struct Part<'a> {
-    /// What is painted.
     shown: std::borrow::Cow<'a, str>,
-    /// What a screen reader says (and the tests look for).
     name: String,
     tip: &'a str,
     style: Style,
@@ -453,8 +380,6 @@ struct Part<'a> {
     output: Option<Output>,
 }
 
-/// A parameter count short enough for the All button, never cut to a wrong
-/// number: exact below a thousand, then 1.2k, then 12k.
 pub(super) fn count_words(count: usize) -> String {
     match count {
         0..1000 => count.to_string(),
@@ -463,10 +388,6 @@ pub(super) fn count_words(count: usize) -> String {
     }
 }
 
-/// The plugin window's button, in the card's header beside the power button
-/// (the owner's choice D, slice 5h): the window glyph in the power button's
-/// make, lit while the window is open or opening, warm when it stopped
-/// answering and dim when there is none. Its name says what a click does.
 pub(super) fn editor_button(
     ui: &mut Ui,
     rect: Rect,
@@ -548,10 +469,6 @@ pub(super) fn editor_button(
     output.filter(|_| clicked)
 }
 
-/// Learn and All buttons in `area`, as the editor's state allows: a plugin
-/// with no window hides Learn; a stuck one offers to be ended in their place
-/// (the window button itself is in the header); a plugin with no parameters
-/// has neither.
 pub(super) fn buttons(ui: &mut Ui, area: Rect, id: egui::Id, row: Buttons<'_>) -> Vec<Output> {
     let mut parts: Vec<Part<'_>> = Vec::new();
     let learn_ok = row.parameters > 0;
@@ -620,7 +537,6 @@ pub(super) fn buttons(ui: &mut Ui, area: Rect, id: egui::Id, row: Buttons<'_>) -
     out
 }
 
-/// A raised button with a label; true when it was pressed.
 fn pill(ui: &mut Ui, rect: Rect, id: egui::Id, part: &Part<'_>) -> bool {
     let enabled = part.output.is_some();
     let sense = if enabled {
@@ -657,7 +573,6 @@ fn pill(ui: &mut Ui, rect: Rect, id: egui::Id, part: &Part<'_>) -> bool {
         face.text()
     };
     let font = FontId::proportional(theme::size::CAPTION);
-    // A little air on both sides.
     let text = fit(ui.painter(), &part.shown, font.clone(), body.width() - 16.0);
     let galley = ui.painter().layout_no_wrap(text, font, ink);
     raised::centre_galley(
@@ -715,7 +630,6 @@ mod tests {
             info(11, AUTOMATE),
         ];
         assert_eq!(default_shown(&list), [10, 11]);
-        // At most eight.
         let many: Vec<_> = (100..130).map(|id| info(id, AUTOMATE)).collect();
         assert_eq!(default_shown(&many), (100..108).collect::<Vec<_>>());
         assert!(default_shown(&[]).is_empty());
@@ -729,13 +643,9 @@ mod tests {
             info(3, AUTOMATE),
             info(4, 0),
         ];
-        // 9 is gone, 2 is hidden, 3 is twice.
         assert_eq!(resolve(&list, Some(&[4, 9, 3, 2, 3, 1])), [4, 3, 1]);
-        // A choice of nothing is an empty strip, not the default.
         assert!(resolve(&list, Some(&[])).is_empty());
-        // No choice made: the default.
         assert_eq!(resolve(&list, None), [1, 3, 4]);
-        // Read-only parameters may be chosen, though never by default.
         let list = vec![info(1, READ_ONLY)];
         assert_eq!(resolve(&list, Some(&[1])), [1]);
         assert!(resolve(&list, None).is_empty());

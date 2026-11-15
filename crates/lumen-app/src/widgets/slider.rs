@@ -1,6 +1,3 @@
-//! The value slider and the value field (DESIGN §5): drag, Shift for
-//! fine, double-click to reset, click and type, arrow keys.
-
 use eframe::egui::{
     self, Align2, FontId, Id as EguiId, Key, Painter, Rangef, Rect, Sense, Stroke, Ui, pos2, vec2,
 };
@@ -10,37 +7,18 @@ use crate::{motion, theme};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SliderKind {
-    /// −60 to +6 dB, filled from the left; resets to 0 dB.
     Volume,
-    /// −1 (left) to +1 (right), filled from the centre; resets to centre.
     Pan,
-    /// A clip's gain (slice 6e): −60 to +12 dB, filled from the left;
-    /// resets to 0 dB.
     ClipGain,
-    /// A length in milliseconds, 0 to `max_ms`, filled from the left;
-    /// resets to 0 (a fade's length, slice 6e).
     Millis { max_ms: f32 },
-    /// A channel's input trim (M4 slice 5): −24 to +24 dB, filled from the
-    /// centre; resets to 0 dB.
     Trim,
-    /// A level as a share, 0 to 1 shown as 0–100%, filled from the left;
-    /// resets to `default` (the metronome's volume, M4.5).
     Percent { default: f32 },
-    /// A time offset in whole milliseconds, earlier (negative) or later,
-    /// from `min_ms` to `max_ms`; resets to 0 (a MIDI clock's delay, M5
-    /// slice 7).
     Offset { min_ms: f32, max_ms: f32 },
-    /// A tempo, 20 to 999 BPM, filled from the left; resets to 120 (the
-    /// tempo a clip's file was made at, M9.5 S5a).
     Bpm,
-    /// A pitch shift in semitones, −48 to +48, filled from the centre; resets
-    /// to none (a clip's transpose and pitch envelope, M9.5 S6). Typed values
-    /// keep cents.
     Semitones,
 }
 
 impl SliderKind {
-    /// What a double-click sets.
     pub fn reset(self) -> f32 {
         match self {
             SliderKind::Percent { default } => default,
@@ -63,8 +41,6 @@ impl SliderKind {
         }
     }
 
-    /// What a notch of the wheel changes (Shift: a tenth of it): a dB on
-    /// levels, 5% on pan, a hundredth of a length.
     pub fn wheel_step(self) -> f32 {
         match self {
             SliderKind::Volume | SliderKind::ClipGain | SliderKind::Trim => 1.0,
@@ -91,7 +67,6 @@ impl SliderKind {
         }
     }
 
-    /// Reads typed text: "-6", "−6 dB"; "C", "L 30", "R30", "-30".
     pub fn parse(self, text: &str) -> Option<f32> {
         let text = text.trim().replace('\u{2212}', "-").to_ascii_uppercase();
         match self {
@@ -151,9 +126,6 @@ impl SliderKind {
     }
 }
 
-/// A slider with its value inside it. Drag (Shift for fine steps),
-/// double-click to reset, click then type a value (Enter applies, Esc
-/// cancels), or use the arrow keys when it has focus. Returns the value.
 pub fn value_slider(
     ui: &mut Ui,
     rect: Rect,
@@ -174,19 +146,12 @@ pub fn value_slider(
     )
 }
 
-/// How a [`value_slider_styled`] is drawn.
 #[derive(Clone, Copy)]
 pub struct SliderStyle {
-    /// Its colours, from [`theme::controls`].
     pub look: theme::Controls,
-    /// Draw the filled part as the send knob's comet (M5 slice 5, the
-    /// owner's request): a trail of the accent that brightens towards a
-    /// glowing head, in place of the grey fill and the line handle. Only
-    /// the one-sided kinds (not Pan or Trim) take it.
     pub comet: bool,
 }
 
-/// [`value_slider`] drawn as a comet.
 pub fn comet_slider(
     ui: &mut Ui,
     rect: Rect,
@@ -207,7 +172,6 @@ pub fn comet_slider(
     )
 }
 
-/// [`value_slider`] drawn with `style`.
 pub fn value_slider_styled(
     ui: &mut Ui,
     rect: Rect,
@@ -223,7 +187,6 @@ pub fn value_slider_styled(
     let typing_id = id.with("typing");
     let typing: Option<String> = ui.data(|d| d.get_temp(typing_id));
     if let Some(mut text) = typing {
-        // Typing a value.
         let edit = ui.put(
             rect,
             egui::TextEdit::singleline(&mut text)
@@ -325,23 +288,18 @@ pub fn value_slider_styled(
             ui.data_mut(|d| d.insert_temp(typing_id, text));
         }
     }
-    // The wheel, when its gesture started here (the owner's B3).
     let notches = wheel::steps(ui, id, rect);
     if notches != 0.0 {
         out += notches * kind.wheel_step() * if fine { 0.1 } else { 1.0 };
     }
     let out = out.clamp(lo, hi);
 
-    // Drawing.
     let p = ui.painter();
     let hover = motion::hover(
         ui.ctx(),
         id.with("hover"),
         response.hovered() || response.dragged(),
     );
-    // The ground is a well (the Field card, ADR-0052; it supersedes the
-    // owner's T1, which filled it with the control colour), Ember under
-    // the pointer; the filled part is drawn over it.
     let radius = theme::radius::for_height(rect.height());
     raised::paint_sunken(p, rect, radius);
     if hover > 0.0 {
@@ -349,9 +307,6 @@ pub fn value_slider_styled(
     }
     let x_at = |v: f32| rect.left() + (v - lo) / (hi - lo) * rect.width();
     let text = kind.text(out);
-    // Numbers are mono (`.lm-slider .val`); a trim's "dB" is smaller and
-    // grey, so the number has room in a strip's narrow field (the interface
-    // audit's X1–X4 B).
     let galley = match text
         .strip_suffix(" dB")
         .filter(|_| kind == SliderKind::Trim)
@@ -390,8 +345,6 @@ pub fn value_slider_styled(
             if comet {
                 draw_comet(p, rect, x, hover.max(f32::from(response.dragged())));
             } else {
-                // `press` to `fill`, cut off square at the value; the
-                // well's rounded corners shape its left end.
                 raised::gradient(
                     &p.with_clip_rect(Rect::from_min_max(rect.min, pos2(x, rect.bottom()))),
                     rect,
@@ -405,7 +358,6 @@ pub fn value_slider_styled(
         SliderKind::Pan | SliderKind::Trim | SliderKind::Semitones => {
             let center = rect.center().x;
             let x = x_at(out);
-            // Grey at the centre, the accent at the edges (owner request).
             let strength = (out / hi).abs().powf(1.2);
             let fill = look.press.lerp_to_gamma(palette.accent, strength);
             p.rect_filled(
@@ -413,8 +365,6 @@ pub fn value_slider_styled(
                 0.0,
                 fill,
             );
-            // The centre mark: short ticks at the edges, clear of the value
-            // text (a full line ran through the "C").
             for y in [
                 rect.top()..=rect.top() + 3.0,
                 rect.bottom() - 3.0..=rect.bottom(),
@@ -425,7 +375,6 @@ pub fn value_slider_styled(
                     Stroke::new(theme::stroke::HAIRLINE, palette.text_hint),
                 );
             }
-            // The fill's moving edge, as the volume's handle.
             if (x - center).abs() >= 1.0 {
                 draw_handle(p, x, rect.shrink2(vec2(0.0, 3.0)).y_range(), text_rect);
             }
@@ -438,16 +387,10 @@ pub fn value_slider_styled(
     out
 }
 
-/// The comet (the send knob's look, laid flat): a trail of the accent,
-/// faint at the left and full at the head, a soft glow round the head and
-/// a bright core. `hot` (0 to 1) swells the glow while the pointer is on
-/// the slider.
 fn draw_comet(p: &Painter, rect: Rect, x: f32, hot: f32) {
     let palette = *theme::p();
     let inner = rect.shrink2(vec2(2.0, 4.0));
     let r = inner.height() / 2.0;
-    // The head stays inside the slider at both ends, and the trail ends at
-    // it (at 100% the trail ran on past the head to the edge).
     let x = x.clamp(inner.left() + r, inner.right() - r);
     if x - inner.left() >= 1.0 {
         let pieces = 24;
@@ -463,8 +406,6 @@ fn draw_comet(p: &Painter, rect: Rect, x: f32, hot: f32) {
         }
     }
     let head = pos2(x, rect.center().y);
-    // A restrained glow (owner: too much): one soft ring, a little more
-    // while the pointer is on it.
     let glow = 1.0 + 0.25 * hot;
     for (radius, alpha) in [
         (r * 1.9 * glow, theme::alpha::HALO_FAINT),
@@ -476,15 +417,8 @@ fn draw_comet(p: &Painter, rect: Rect, x: f32, hot: f32) {
     p.circle_filled(head, r * 0.62, palette.accent);
 }
 
-/// How far from the value's text a slider's handle starts to open, in
-/// points.
 const HANDLE_OPENS_WITHIN: f32 = 8.0;
 
-/// A slider's handle at `x` over `ys`: a 2 pt `text` line that opens around the
-/// value's `text` as it comes near, smoothly with the distance, until only
-/// a tick above and below it remains (the owner's choice C, the interface
-/// audit's S2: the line ran through the value). Nothing animates by
-/// itself: the opening follows the handle.
 fn draw_handle(p: &Painter, x: f32, ys: Rangef, text: Rect) {
     let stroke = Stroke::new(theme::stroke::EDGE, theme::p().text);
     for span in handle_spans(x, ys, text) {
@@ -492,13 +426,8 @@ fn draw_handle(p: &Painter, x: f32, ys: Rangef, text: Rect) {
     }
 }
 
-/// Half the height a handle opens to around the value: from the capitals'
-/// tops to the baseline (about 0.36 of the size each way from the line's
-/// middle), with 1.5 pt to spare; not the whole line, which fills the
-/// slider. The value is in `MONO_SMALL`.
 const HANDLE_GAP_HALF: f32 = 0.36 * theme::size::MONO_SMALL + 1.5;
 
-/// The parts of a handle at `x` over `ys` left drawn around `text`.
 fn handle_spans(x: f32, ys: Rangef, text: Rect) -> Vec<Rangef> {
     let away = (x - text.center().x).abs() - text.width() / 2.0 - 3.0;
     let near = (1.0 - away.max(0.0) / HANDLE_OPENS_WITHIN).clamp(0.0, 1.0);
@@ -517,12 +446,6 @@ fn handle_spans(x: f32, ys: Rangef, text: Rect) -> Vec<Rangef> {
     .collect()
 }
 
-/// A value shown as text in a field (a strip's volume under its fader, M4
-/// slice 5): click to type (Enter applies, Esc cancels), double-click to
-/// reset. A field of the design system: a well with a border that
-/// strengthens on hover, the digits in the monospace. It is a well on
-/// every surface, so the surface's `_controls` are not needed. Returns the
-/// value.
 pub fn value_field(
     ui: &mut Ui,
     rect: Rect,
@@ -582,8 +505,6 @@ pub fn value_field(
         ui.data_mut(|d| d.insert_temp(typing_id, kind.text(value).replace(" dB", "")));
     }
     let hover = motion::hover(ui.ctx(), id.with("hover"), response.hovered());
-    // A field, not a button: sunk in its well, with a `border` that
-    // strengthens to `border_strong` on hover (the Field card, ADR-0052).
     let rect = rect.round_to_pixels(ui.pixels_per_point());
     let radius = theme::radius::for_height(rect.height());
     let p = ui.painter();
@@ -599,8 +520,6 @@ pub fn value_field(
     out
 }
 
-/// A pitch shift in words: "+2 st", "−2.5 st", "0 st". Cents show after the
-/// point when there are some, with no trailing zeros.
 fn semitones_text(value: f32) -> String {
     if value.abs() < 0.005 {
         return "0 st".to_owned();
@@ -654,11 +573,8 @@ mod tests {
     #[test]
     fn a_handle_opens_around_the_value_as_it_nears_it() {
         let ys = Rangef::new(3.0, 17.0);
-        // A value centred in a 20 pt slider, as on a strip.
         let text = Rect::from_min_max(pos2(40.0, 4.5), pos2(80.0, 15.5));
-        // Far away: one solid line.
         assert_eq!(handle_spans(10.0, ys, text), vec![ys]);
-        // Over the text: a tick above and below, clear of the letters.
         let over = handle_spans(60.0, ys, text);
         assert_eq!(over.len(), 2, "{over:?}");
         let middle = text.center().y;
@@ -667,7 +583,6 @@ mod tests {
             "{over:?}"
         );
         assert!(over[0].span() >= 1.5 && over[1].span() >= 1.5, "{over:?}");
-        // Coming near, the gap grows with the closeness, never jumps.
         let gap = |x: f32| {
             let spans = handle_spans(x, ys, text);
             if spans.len() == 2 {

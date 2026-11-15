@@ -1,11 +1,3 @@
-//! [`MidiSystem`]: the worker thread behind the MIDI settings.
-//!
-//! The UI never waits on a driver. It sends commands (switch a port on or
-//! off, send a message) and reads a snapshot of the ports and a stream of
-//! [`PortEvent`]s. The worker polls the driver for ports coming and going,
-//! opens the ports the user switched on (again when a device is replugged),
-//! and drops connections for ports that went away.
-
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
@@ -17,52 +9,39 @@ use crate::activity::Activity;
 use crate::backend::{Backend, Connection, Output};
 use crate::types::{Direction, MidiError, PortId, PortInfo, Short, Timed, Use};
 
-/// How often the worker looks for plugged and unplugged devices.
 pub const POLL: Duration = Duration::from_millis(500);
 
-/// Called from a driver's thread after it counts a playing message, so an
-/// interface that sleeps when idle can wake and show it. It must be cheap
-/// and safe to call from any thread.
 pub type Waker = Arc<dyn Fn() + Send + Sync>;
 
-/// Room for messages between the drivers and whoever consumes them.
 const QUEUE: usize = 4096;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PortEvent {
     Added(PortInfo),
     Removed(PortInfo),
-    /// A port the user switched on would not open.
     Failed(PortId, String),
 }
 
-/// One present port, as the settings window shows it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PortState {
     pub info: PortInfo,
     pub using: Use,
     pub open: bool,
     pub error: Option<String>,
-    /// An input's slot in [`Timed`]; outputs have none.
     pub slot: Option<u16>,
 }
 
 #[derive(Default)]
 struct Shared {
     ports: Vec<PortState>,
-    /// Each present output's counter in [`Activity`].
     out_slots: HashMap<PortId, u16>,
     unavailable: Option<String>,
 }
 
-/// What MIDI says when its worker thread cannot start: what did not start,
-/// why, and the way forward.
 fn start_failed(error: &io::Error) -> String {
     format!("Could not start MIDI: {error}. Try again, or restart if this keeps happening.")
 }
 
-/// The worker a spawn gave, or none with the reason noted where
-/// [`MidiSystem::unavailable`] reads it.
 fn keep_worker(
     spawned: io::Result<JoinHandle<()>>,
     shared: &Arc<Mutex<Shared>>,
@@ -93,10 +72,6 @@ pub struct MidiSystem {
 }
 
 impl MidiSystem {
-    /// Starts the worker. `make` builds the backend on the worker thread
-    /// (drivers may be slow or fail); if it fails the system stays empty and
-    /// [`unavailable`](Self::unavailable) says why. `uses` is what the user
-    /// switched on in an earlier run.
     pub fn start(
         make: impl FnOnce() -> Result<Box<dyn Backend>, MidiError> + Send + 'static,
         uses: HashMap<PortId, Use>,
@@ -105,8 +80,6 @@ impl MidiSystem {
         Self::start_with_waker(make, uses, poll, None)
     }
 
-    /// As [`start`](Self::start), with a `waker` the drivers call after
-    /// each playing message they count (the activity lights' wake-up).
     pub fn start_with_waker(
         make: impl FnOnce() -> Result<Box<dyn Backend>, MidiError> + Send + 'static,
         uses: HashMap<PortId, Use>,
@@ -140,8 +113,6 @@ impl MidiSystem {
                         Err(e) => lock(&worker_shared).unavailable = Some(e.to_string()),
                     };
                 });
-            // A thread that cannot start leaves the system empty, as a driver
-            // that cannot open does, and says why (rule 5: errors are values).
             keep_worker(spawned, &shared)
         };
         Self {
@@ -154,17 +125,14 @@ impl MidiSystem {
         }
     }
 
-    /// Why MIDI could not start, if it could not.
     pub fn unavailable(&self) -> Option<String> {
         lock(&self.shared).unavailable.clone()
     }
 
-    /// The ports present now.
     pub fn ports(&self) -> Vec<PortState> {
         lock(&self.shared).ports.clone()
     }
 
-    /// The slot messages from `id` carry.
     pub fn slot_of(&self, id: &PortId) -> Option<u16> {
         lock(&self.shared)
             .ports
@@ -173,9 +141,6 @@ impl MidiSystem {
             .and_then(|p| p.slot)
     }
 
-    /// How many playing messages (notes, controllers, bend, pressure,
-    /// program; not clock) have passed through the port since start. A
-    /// change from one look to the next is a flash on the activity lights.
     pub fn activity(&self, id: &PortId) -> u32 {
         let shared = lock(&self.shared);
         match id.direction {
@@ -192,8 +157,6 @@ impl MidiSystem {
         }
     }
 
-    /// Whether a key is held down on an input port now (a light stays lit
-    /// for as long as it is).
     pub fn held(&self, id: &PortId) -> bool {
         if id.direction != Direction::Input {
             return false;
@@ -207,28 +170,22 @@ impl MidiSystem {
             .is_some_and(|s| self.activity.input_held(s))
     }
 
-    /// Plugging, unplugging and failures since the last call.
     pub fn events(&self) -> Vec<PortEvent> {
         self.events.try_iter().collect()
     }
 
-    /// Switches a port's uses; an input with either on is opened.
     pub fn set_use(&self, id: PortId, using: Use) {
         let _ = self.commands.send(Command::Use(id, using));
     }
 
-    /// Looks for devices now rather than at the next poll.
     pub fn rescan(&self) {
         let _ = self.commands.send(Command::Rescan);
     }
 
-    /// Sends a message to an output that is switched on for tracks.
     pub fn send(&self, id: PortId, message: Short) {
         let _ = self.commands.send(Command::Send(id, message));
     }
 
-    /// A handle that sends from other threads (a sender that times
-    /// messages against the audio clock).
     pub fn sender(&self) -> MidiSender {
         MidiSender {
             commands: self.commands.clone(),
@@ -236,13 +193,11 @@ impl MidiSystem {
         }
     }
 
-    /// The stream of messages from every open input, once.
     pub fn take_input(&mut self) -> Option<rtrb::Consumer<Timed>> {
         self.input.take()
     }
 }
 
-/// Sends to outputs from any thread; see [`MidiSystem::sender`].
 #[derive(Clone)]
 pub struct MidiSender {
     commands: Sender<Command>,
@@ -250,12 +205,10 @@ pub struct MidiSender {
 }
 
 impl MidiSender {
-    /// Sends a message to an output that is open for tracks.
     pub fn send(&self, id: PortId, message: Short) {
         let _ = self.commands.send(Command::Send(id, message));
     }
 
-    /// Whether the port is plugged in and open now.
     pub fn is_open(&self, id: &PortId) -> bool {
         lock(&self.shared)
             .ports
@@ -281,12 +234,10 @@ type Producer = Arc<Mutex<rtrb::Producer<Timed>>>;
 
 struct Worker {
     backend: Box<dyn Backend>,
-    /// What the user switched on, kept for ports that are not plugged in.
     uses: HashMap<PortId, Use>,
     present: Vec<PortInfo>,
     inputs: HashMap<PortId, Box<dyn Connection>>,
     outputs: HashMap<PortId, Box<dyn Output>>,
-    /// Ports that would not open; tried again when switched or replugged.
     failed: HashMap<PortId, String>,
     slots: HashMap<PortId, u16>,
     out_slots: HashMap<PortId, u16>,
@@ -344,7 +295,6 @@ impl Worker {
         }
     }
 
-    /// Returns false to stop.
     fn handle(&mut self, command: Command) -> bool {
         match command {
             Command::Quit => return false,
@@ -371,8 +321,6 @@ impl Worker {
         true
     }
 
-    /// Lets go of the keys held on an input that is closing: its note-offs
-    /// will not come.
     fn release(&self, id: &PortId) {
         if let Some(slot) = self.slots.get(id) {
             self.activity.release(*slot);
@@ -384,8 +332,6 @@ impl Worker {
         *self.slots.entry(id.clone()).or_insert(next)
     }
 
-    /// Brings the open ports and the snapshot in line with the driver and
-    /// the switches.
     fn refresh(&mut self) {
         let now = self.backend.ports();
         let before: HashSet<PortId> = self.present.iter().map(|p| p.id.clone()).collect();
@@ -655,8 +601,6 @@ mod tests {
         assert_eq!(fake.opens(Direction::Input, "Busy"), 0, "no retry loop");
         fake.refuse(Direction::Input, "Busy", false);
         midi.set_use(input("Busy"), ON);
-        // The fake opens the port first; the worker clears the error after:
-        // a slow machine can be read between the two.
         until("open, the error cleared", || {
             fake.open_inputs() == 1 && midi.ports()[0].error.is_none()
         });

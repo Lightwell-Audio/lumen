@@ -1,5 +1,3 @@
-//! What a scan learns about a module, from either source.
-
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -24,7 +22,6 @@ pub struct FactoryReport {
 }
 
 impl FactoryReport {
-    /// Classes that are plugins (instruments and effects), not controllers.
     pub fn audio_classes(&self) -> impl Iterator<Item = &ClassInfo> {
         self.classes
             .iter()
@@ -32,8 +29,6 @@ impl FactoryReport {
     }
 }
 
-/// Parses `moduleinfo.json`. The format is JSON5-flavoured; plain JSON is
-/// tried first, then a lenient pass that drops comments and trailing commas.
 pub fn parse_moduleinfo(text: &str) -> Result<FactoryReport, String> {
     let value: serde_json::Value = serde_json::from_str(text)
         .or_else(|_| serde_json::from_str(&relax_json5(text)))
@@ -112,7 +107,6 @@ fn relax_json5(text: &str) -> String {
                 }
             }
             ',' => {
-                // Drop the comma if the next significant character closes a container.
                 let rest: String = chars.clone().collect();
                 let next = rest.trim_start().chars().next();
                 if !matches!(next, Some('}') | Some(']')) {

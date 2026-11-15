@@ -1,14 +1,9 @@
-//! The info line (M4 slice 0, the owner's choice from the UX pass on
-//! hints): what is under the pointer and what can be done there, along the
-//! bottom of the window, with shortcuts from the keymap.
-
 use eframe::egui::{Event, Key, Modifiers, Pos2};
 use egui_kittest::kittest::Queryable;
 
 use super::properties::with_two_clips;
 use super::{Lumen, keys};
 
-/// Hovers the header of clip `index` on track `track`.
 fn hover_clip(lumen: &mut Lumen, track: usize) {
     let id = lumen.app().project().tracks[track].clips[0].id;
     let ctx = lumen.harness.ctx.clone();
@@ -37,7 +32,6 @@ fn the_info_line_names_what_is_under_the_pointer_with_its_keys() {
         "the strip is drawn and named for screen readers"
     );
 
-    // A changed shortcut shows in the info line too: it reads the keymap.
     lumen.key(Modifiers::COMMAND, Key::K);
     lumen
         .harness
@@ -63,7 +57,6 @@ fn the_empty_track_area_says_a_double_click_adds_a_track() {
     let (mut lumen, kick, _) = with_two_clips("info-headers");
     let ctx = lumen.harness.ctx.clone();
     let r = lumen.app().clip_rect(&ctx, kick).expect("in view");
-    // In the header column, below both tracks.
     lumen
         .harness
         .hover_at(Pos2::new(r.left() - 100.0, r.bottom() + 300.0));
@@ -103,9 +96,6 @@ fn show_info_line_hides_and_shows_the_strip() {
     );
 }
 
-/// Owner, after slice 0: hovering the time ruler's corner (which sets no
-/// info) moved the panels above the info line by a point. The strip keeps
-/// its height whatever it shows.
 #[test]
 fn the_panels_above_stay_put_whether_the_line_is_empty_or_not() {
     let (mut lumen, _, _) = with_two_clips("info-steady");

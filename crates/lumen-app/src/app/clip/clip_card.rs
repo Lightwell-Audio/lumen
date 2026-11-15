@@ -1,11 +1,3 @@
-//! Clip properties (M3 slice 6e): mute (0), lock, rename (Ctrl+R or F2, in
-//! the clip's title bar), colour, and the properties card. The card is the
-//! owner's P1: the hover card, pinned beside its clip and edited in place
-//! (Alt+Enter, or Properties in the right-click menu). Tab walks its fields,
-//! so fades and gain no longer need the mouse. Every change is one undo
-//! step; a lock keeps a clip in place, so locked clips can still be muted,
-//! renamed and recoloured.
-
 use std::sync::Arc;
 
 use eframe::egui::{self, FontId, Key, Pos2, Rect, RichText, Sense, Stroke, Vec2};
@@ -20,44 +12,28 @@ use crate::commands::Command;
 use crate::widgets;
 use crate::{App, lanes, theme};
 
-/// The card's width: its content wraps or truncates inside it.
 pub(crate) const CARD_WIDTH: f32 = 272.0;
-/// The labels' column.
 const LABEL_WIDTH: f32 = theme::size::LABEL_COLUMN_NARROW;
-/// A slider's height.
 const ROW: f32 = theme::size::CONTROL_SMALL;
-/// A colour swatch.
 const SWATCH: f32 = 14.0;
-/// A fade's shape dropdown in the card.
 const FADE_SHAPE: f32 = 76.0;
-/// The narrowest title-bar rename field.
 const RENAME_MIN_WIDTH: f32 = 120.0;
 
-/// What the clip properties need between frames (not saved).
 #[derive(Debug, Default)]
 pub(crate) struct ClipProps {
-    /// The clip whose card is pinned open.
     pinned: Option<Id>,
-    /// The name being typed in the card.
     name: Option<String>,
-    /// Focus the card's name field when it next shows.
     focus_name: bool,
-    /// The card's size last frame, to place it.
     size: Option<Vec2>,
-    /// The clip being renamed in its title bar, with the text so far.
     renaming: Option<(Id, String)>,
 }
 
 impl ClipProps {
-    /// The clip whose card is open, if any.
     pub(crate) fn pinned(&self) -> Option<Id> {
         self.pinned
     }
 }
 
-/// The clip `id`, and its track's colour.
-/// Shared (`Arc`), so a card can hold its clip while it edits the document
-/// without copying it each frame.
 fn find(project: &Project, id: Id) -> Option<(&Arc<Clip>, egui::Color32)> {
     project.tracks.iter().find_map(|t| {
         t.clips
@@ -67,10 +43,6 @@ fn find(project: &Project, id: Id) -> Option<(&Arc<Clip>, egui::Color32)> {
     })
 }
 
-/// Where the card goes: right of the clip's part in view, or left of it
-/// when there is no room, kept across the lanes and inside the window
-/// (`screen`), so a short window does not cut it off; at the top centre
-/// when the clip is out of view.
 pub(crate) fn card_place(clip: Option<Rect>, canvas: Rect, screen: Rect, size: Vec2) -> Pos2 {
     let gap = theme::space::S;
     let Some(clip) = clip
@@ -93,7 +65,6 @@ pub(crate) fn card_place(clip: Option<Rect>, canvas: Rect, screen: Rect, size: V
     )
 }
 
-/// One labelled row of the card.
 pub(crate) fn row(ui: &mut egui::Ui, label: &str, add: impl FnOnce(&mut egui::Ui)) {
     ui.horizontal(|ui| {
         ui.allocate_ui_with_layout(
@@ -108,8 +79,6 @@ pub(crate) fn row(ui: &mut egui::Ui, label: &str, add: impl FnOnce(&mut egui::Ui
     });
 }
 
-/// A colour swatch named `name`, ringed in the accent when `on`. The
-/// track's colour is round, the clip colours square.
 fn swatch(
     ui: &mut egui::Ui,
     fill: egui::Color32,
@@ -148,9 +117,6 @@ fn swatch(
     response
 }
 
-/// A round swatch in `dot` and its name `label`, on a pill that is ringed in
-/// the accent while it is `on`: the clip card's "Track color", the project
-/// settings' "Colors in turn".
 fn pill(ui: &mut egui::Ui, colour: egui::Color32, label: &str, on: bool) -> egui::Response {
     let palette = theme::p();
     let galley = ui.painter().layout_no_wrap(
@@ -196,20 +162,13 @@ fn pill(ui: &mut egui::Ui, colour: egui::Color32, label: &str, on: bool) -> egui
     response
 }
 
-/// What a set of colour swatches is called and how it is drawn: the clip
-/// card's follow their track, the project settings' follow the palette.
 #[derive(Clone, Copy)]
 pub(crate) struct Swatches<'a> {
-    /// The swatches are named "<name> 1", "<name> 2" and so on.
     pub(crate) name: &'a str,
-    /// Square for clips, round for tracks.
     pub(crate) round: bool,
-    /// The pill after them, standing for no colour of their own: its dot's
-    /// colour and its label.
     pub(crate) none: (egui::Color32, &'a str),
 }
 
-/// The clip card's swatches: the clip colours, then "Track color".
 fn clip_swatches(track: egui::Color32) -> Swatches<'static> {
     Swatches {
         name: "Color",
@@ -218,19 +177,14 @@ fn clip_swatches(track: egui::Color32) -> Swatches<'static> {
     }
 }
 
-/// The palette as swatches, then the pill of `look`; returns the one clicked
-/// (`Some(None)`: the pill, no colour of its own).
 pub(crate) fn swatches(
     ui: &mut egui::Ui,
     current: Option<Color>,
     look: Swatches<'_>,
 ) -> Option<Option<Color>> {
-    // Two even rows of six, then the pill (the interface audit's S6: the
-    // thirteen wrapped ten and three).
     let mut chosen = None;
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing = vec2(theme::space::S, theme::space::S);
-        // Rows as tall as a swatch, not a control.
         ui.spacing_mut().interact_size.y = SWATCH;
         for row in theme::CLIP_COLORS.chunks(6).enumerate() {
             ui.horizontal(|ui| {
@@ -252,7 +206,6 @@ pub(crate) fn swatches(
 }
 
 impl App {
-    /// The selected clip that comes first: top track first, then by time.
     pub(crate) fn first_selected_clip(&self) -> Option<Id> {
         self.document
             .project()
@@ -263,7 +216,6 @@ impl App {
             .map(|c| c.id)
     }
 
-    /// Mutes the selected clips, or unmutes them when all are muted.
     pub(crate) fn toggle_clip_mute(&mut self) {
         let ids: Vec<Id> = self.arrangement.clips.iter().copied().collect();
         let project = self.document.project();
@@ -273,7 +225,6 @@ impl App {
         self.document.set_clips_muted(&ids, !all);
     }
 
-    /// Locks the selected clips, or unlocks them when all are locked.
     pub(crate) fn toggle_clip_lock(&mut self) {
         let ids: Vec<Id> = self.arrangement.clips.iter().copied().collect();
         let project = self.document.project();
@@ -283,22 +234,17 @@ impl App {
         self.document.set_clips_locked(&ids, !all);
     }
 
-    /// Starts renaming `id` in its title bar.
     pub(crate) fn start_clip_rename(&mut self, id: Id) {
         if let Some((clip, _)) = find(self.document.project(), id) {
             self.clip_props.renaming = Some((id, clip.name.clone()));
         }
     }
 
-    /// The next Name field drawn (the card's, the editor's Clip chip's) takes
-    /// the keyboard.
     pub(crate) fn clip_props_focus_name(&mut self) {
         self.clip_props.name = None;
         self.clip_props.focus_name = true;
     }
 
-    /// The popover that held the name field closed: a name that was being
-    /// typed is applied, unless the closing was an Esc (`cancelled`).
     pub(crate) fn apply_pending_clip_name(&mut self, clip: &Clip, cancelled: bool) {
         if let Some(name) = self.clip_props.name.take()
             && !cancelled
@@ -308,7 +254,6 @@ impl App {
         }
     }
 
-    /// Pins the properties card open on `id`, its name field focused.
     pub(crate) fn open_clip_card(&mut self, id: Id) {
         let props = &mut self.clip_props;
         props.pinned = Some(id);
@@ -317,11 +262,6 @@ impl App {
         props.renaming = None;
     }
 
-    /// The clip entries of the lanes' menu, for the selected clips, in
-    /// groups (the interface audit's M5): name and colour; mute and lock;
-    /// the sound of audio clips (fades, crossfade, envelope); export; and
-    /// Properties last. Cut, copy and the clip edits (the Edit submenu)
-    /// come before it, in `lanes_menu`. Only what can apply is listed.
     pub(crate) fn clip_menu(&mut self, ui: &mut egui::Ui) {
         let Some(first) = self.first_selected_clip() else {
             return;
@@ -339,8 +279,6 @@ impl App {
         };
         let (muted, locked, crossfade) =
             (all(|c| c.muted), all(|c| c.locked), all(|c| c.crossfade));
-        // Short verbs (the interface audit's M5): the noun only for
-        // several, as the track menu's Delete.
         let name = |verb: &str| {
             if several {
                 format!("{verb} clips")
@@ -362,7 +300,6 @@ impl App {
         ui.separator();
         self.context_command(ui, Command::MuteClips, &mute);
         self.context_command(ui, Command::LockClips, &lock);
-        // The sound of audio clips: none of these is listed for MIDI.
         let audio = self.selection_has_audio();
         if audio {
             ui.separator();
@@ -386,14 +323,10 @@ impl App {
             self.context_command(ui, Command::ClipEnvelope, label);
         }
         ui.separator();
-        // Converting a clip's notes to another map (M8 D0): only for clips
-        // on a track that has a map, and left out when there is no other.
         if self.can_convert_drum_map() {
             self.context_command(ui, Command::ConvertDrumMap, "Convert drum map\u{2026}");
             ui.separator();
         }
-        // Listed only for MIDI clips (an audio selection never could be
-        // written), greyed while an export or a file dialog is under way.
         let export = if several {
             "Export MIDI clips\u{2026}"
         } else {
@@ -403,7 +336,6 @@ impl App {
         self.context_command(ui, Command::ClipProperties, "Properties\u{2026}");
     }
 
-    /// Where clip `id` is drawn, if it is in view.
     fn clip_on_screen(&self, ctx: &egui::Context, canvas: Rect, id: Id) -> Option<Rect> {
         self.arrangement
             .clip_rects(
@@ -418,9 +350,6 @@ impl App {
             .map(|(_, _, rect)| rect)
     }
 
-    /// The rename field in a clip's title bar, while it is renamed: Enter
-    /// or clicking away applies, Esc cancels. A clip out of view is renamed
-    /// in its card instead.
     pub(crate) fn clip_rename(&mut self, ui: &mut egui::Ui, canvas: Rect) {
         let Some(id) = self.clip_props.renaming.as_ref().map(|(id, _)| *id) else {
             return;
@@ -463,9 +392,6 @@ impl App {
         }
     }
 
-    /// The pinned properties card (P1), beside its clip. It follows the
-    /// selection: selecting another clip moves it there, selecting none
-    /// closes it, as do Esc and its close button.
     pub(crate) fn clip_card(&mut self, ctx: &egui::Context, canvas: Rect) {
         let Some(mut id) = self.clip_props.pinned else {
             return;
@@ -506,8 +432,6 @@ impl App {
             .order(egui::Order::Foreground)
             .fixed_pos(at)
             .show(ctx, |ui| {
-                // A floating card: radius XL; the pinned card keeps its
-                // accent outline (the owner's P1).
                 egui::Frame::popup(ui.style())
                     .corner_radius(theme::radius::XL)
                     .stroke(Stroke::new(theme::stroke::HAIRLINE, palette.accent))
@@ -517,18 +441,13 @@ impl App {
                     });
             });
         self.clip_props.size = Some(shown.response.rect.size());
-        // The lit top edge a floating window has (the design system).
         widgets::window_lip(ctx, shown.response.layer_id, shown.response.rect);
-        // Esc while typing cancels the typing; the next one closes.
         let typing = self.typing || ctx.text_edit_focused();
         if close || (!typing && ctx.input(|i| i.key_pressed(Key::Escape))) {
             self.clip_props = ClipProps::default();
         }
     }
 
-    /// The card's Name and Color rows, which the audio editor's Clip chip
-    /// shows too (M9.5 S3, D37). `place` tells the two apart: it is part of
-    /// the name field's id. `focus` puts the keyboard in the name field.
     pub(crate) fn name_and_color_rows(
         &mut self,
         ui: &mut egui::Ui,
@@ -558,8 +477,6 @@ impl App {
                 }
                 self.clip_props.name = None;
             } else if !response.has_focus() {
-                // Not being typed: follow the clip (an undo, a rename in
-                // its title bar).
                 props.name = None;
             }
         });
@@ -571,7 +488,6 @@ impl App {
         });
     }
 
-    /// What the card shows; true when its close button was clicked.
     fn card_contents(
         &mut self,
         ui: &mut egui::Ui,
@@ -628,11 +544,7 @@ impl App {
         close
     }
 
-    /// The card's Mute and Lock toggles.
     fn card_toggles(&mut self, ui: &mut egui::Ui, clip: &Clip) {
-        // Framed buttons that light when on (`Tone::On`), so off still reads
-        // as a control. They read "Mute" and "Lock" and are named for the
-        // clip, so they differ from the clip menu's rows while both are open.
         let named = |response: egui::Response, name: &'static str, on: bool| {
             response.widget_info(|| {
                 egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, name)
@@ -670,26 +582,21 @@ mod tests {
         let canvas = Rect::from_min_size(pos2(200.0, 100.0), vec2(800.0, 400.0));
         let screen = Rect::from_min_size(Pos2::ZERO, vec2(1000.0, 560.0));
         let size = vec2(280.0, 250.0);
-        // Room on the right.
         let clip = Rect::from_min_size(pos2(300.0, 150.0), vec2(100.0, 50.0));
         assert_eq!(
             card_place(Some(clip), canvas, screen, size),
             pos2(408.0, 150.0)
         );
-        // Not on the right: on the left.
         let clip = Rect::from_min_size(pos2(800.0, 150.0), vec2(150.0, 50.0));
         assert_eq!(
             card_place(Some(clip), canvas, screen, size),
             pos2(512.0, 150.0)
         );
-        // Neither: inside the right edge; low clips push it up, as far as
-        // the window's bottom (the card may cover the time ruler).
         let clip = Rect::from_min_size(pos2(250.0, 420.0), vec2(700.0, 50.0));
         assert_eq!(
             card_place(Some(clip), canvas, screen, size),
             pos2(712.0, 302.0)
         );
-        // Out of view: top centre.
         assert_eq!(card_place(None, canvas, screen, size), pos2(460.0, 108.0));
         let gone = Rect::from_min_size(pos2(0.0, 0.0), vec2(50.0, 50.0));
         assert_eq!(

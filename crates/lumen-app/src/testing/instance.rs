@@ -1,6 +1,3 @@
-//! The single instance from tests (M9 R8): requests as later starts send
-//! them, and what waits for a recording or an export.
-
 use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
 
@@ -8,11 +5,9 @@ use crate::App;
 use crate::association::{Hive, State};
 use crate::instance::{Instance, Reply, Request};
 
-/// A request sent as a later start would, and its answer once given.
 pub struct HandOver(Receiver<Reply>);
 
 impl HandOver {
-    /// "accepted", "rejected: <reason>" or "not answering", once answered.
     pub fn reply(&self) -> Option<String> {
         self.0.try_recv().ok().map(|reply| match reply {
             Reply::Accepted => "accepted".to_owned(),
@@ -23,8 +18,6 @@ impl HandOver {
 }
 
 impl App {
-    /// Sends what a later start sends: open `project`, or only come to the
-    /// front (`None`). The window answers on its next frame.
     pub fn hand_over(&mut self, project: Option<PathBuf>) -> HandOver {
         let request = project.map_or(Request::Show, Request::Open);
         HandOver(
@@ -34,8 +27,6 @@ impl App {
         )
     }
 
-    /// What the waiting notice says, while something waits for a recording
-    /// or an export.
     pub fn holding_words(&self) -> Option<String> {
         let held = self.holding.as_ref()?;
         let busy = self.busy_for_open()?;
@@ -46,14 +37,11 @@ impl App {
         ))
     }
 
-    /// Whether something waits to open.
     pub fn is_holding(&self) -> bool {
         self.holding.is_some()
     }
 
-    /// Who opens `.lumen` files: "off", "this" or "other: <path>".
     pub fn association(&self) -> String {
-        // A test may ask before the worker's first answer is in.
         let status = self
             .association_status()
             .cloned()
@@ -65,9 +53,6 @@ impl App {
         }
     }
 
-    /// The association's hive starts afresh: registered to `other` (another
-    /// copy), the person's "Open with" choice naming `chosen`, and writes
-    /// failing with `fail`.
     pub fn fake_association(
         &mut self,
         other: Option<&std::path::Path>,
@@ -84,16 +69,10 @@ impl App {
             }
             hive.fail = fail.map(str::to_owned);
         });
-        // The hive changed under the worker's feet: the answer it would give
-        // is taken at once, so the row and a normal start read it.
         let status = self.association.status();
         self.association_status.set(status);
     }
 
-    /// The hive changes without the app seeing it, as a change made in
-    /// Windows while Lumen runs would: the worker's cache is left as it is,
-    /// so a test tells a row that draws the cache from one that reads the
-    /// registry every frame.
     pub fn change_association_hive(&mut self, other: Option<&std::path::Path>) {
         self.association.seed(|hive| {
             if let Some(other) = other {
@@ -102,30 +81,23 @@ impl App {
         });
     }
 
-    /// What a normal start does with the association: registers this copy
-    /// when none is registered and the setting wants it.
     pub fn associate_as_a_normal_start(&mut self) {
         self.associate_at_start();
     }
 
-    /// Times Default apps was asked for.
     pub fn default_apps_asked(&self) -> usize {
         self.association.default_apps_asked
     }
 
-    /// Whether the settings want the association.
     pub fn wants_association(&self) -> bool {
         self.settings.projects.associate_files
     }
 
-    /// Whether the "Save changes to …?" prompt is showing.
     pub fn save_prompt_open(&self) -> bool {
         self.prompt.is_some()
     }
 }
 
-/// The small window of a later start the running Lumen did not take, for
-/// shots: refused with `why`, or not answering (`None`), in `appearance`.
 pub fn not_answering_window(
     ctx: &eframe::egui::Context,
     why: Option<&str>,
@@ -142,7 +114,6 @@ pub fn not_answering_window(
     ))
 }
 
-/// The window [`not_answering_window`] makes.
 pub struct NotAnswering(Box<dyn eframe::App>);
 
 impl eframe::App for NotAnswering {

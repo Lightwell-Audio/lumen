@@ -1,10 +1,3 @@
-//! The audio editor's envelopes and loop brace (M9.5 S2b, D20, D21, DR A,
-//! LB A, D28, D29): the Gain and Pan pills show one envelope at a time; a
-//! click adds a point; Draw (B) lights Gain and one stroke is one undo step;
-//! the editor's picks are its own; a click on the brace's band loops the
-//! clip and a drag of its end is one step; the envelope and the loop from
-//! the keyboard; a brace end dragged past the view scrolls it.
-
 use eframe::egui::{Key, Modifiers, Pos2};
 use egui_kittest::kittest::Queryable;
 use lumen_core::time::{PPQ, Ticks};
@@ -18,7 +11,6 @@ fn q(beats: f64) -> Ticks {
     Ticks((beats * PPQ as f64).round() as i64)
 }
 
-/// The points of the clip's `kind` envelope.
 fn points(lumen: &Lumen, id: Id, kind: Kind) -> Vec<(Ticks, f32)> {
     clip(lumen, id)
         .envelopes
@@ -27,13 +19,11 @@ fn points(lumen: &Lumen, id: Id, kind: Kind) -> Vec<(Ticks, f32)> {
         .unwrap_or_default()
 }
 
-/// Beat `q` on the wave, at a quarter of its height from the top.
 fn high(lumen: &Lumen, q: f64) -> Pos2 {
     let body = shown(lumen).body;
     Pos2::new(x_of(lumen, q), body.top() + body.height() * 0.25)
 }
 
-/// The middle of the brace's band at beat `q`.
 fn band_at(lumen: &Lumen, q: f64) -> Pos2 {
     Pos2::new(x_of(lumen, q), shown(lumen).band.center().y)
 }
@@ -42,7 +32,6 @@ fn looping(lumen: &Lumen, id: Id) -> Option<Ticks> {
     clip(lumen, id).loop_length.filter(|l| *l > Ticks::ZERO)
 }
 
-/// Presses Tab until the editor's stop `name` has the keyboard.
 fn tab_to_stop(lumen: &mut Lumen, name: &str) {
     let ctx = lumen.harness.ctx.clone();
     for _ in 0..90 {
@@ -158,7 +147,6 @@ fn a_click_on_the_band_loops_the_clip_and_an_end_drag_is_one_step() {
     assert_eq!(clip(&lumen, id).start, before.start, "the clip stays put");
     let (_, end) = shown(&lumen).brace.expect("the brace shows its ends");
 
-    // The end, dragged a beat earlier: a shorter loop, one undo step.
     let y = shown(&lumen).band.center().y;
     let grip = Pos2::new(end - 1.0, y);
     let to = Pos2::new(grip.x - (x_of(&lumen, 2.0) - x_of(&lumen, 1.5)), y);
@@ -178,8 +166,6 @@ fn the_envelope_and_the_loop_from_the_keyboard() {
     lumen.click("Gain envelope");
     lumen.harness.hover_at(Pos2::new(5.0, 5.0));
     to_the_detail_panel(&mut lumen);
-    // The cursor at the clip's start; Enter on the envelope adds a point
-    // there, at the envelope's value.
     tab_to_stop(&mut lumen, "wave");
     lumen.key(Modifiers::NONE, Key::Home);
     assert_eq!(lumen.app().audio_editor_cursor(), Some(q(1.0)));
@@ -204,7 +190,6 @@ fn the_envelope_and_the_loop_from_the_keyboard() {
     lumen.key(Modifiers::NONE, Key::Delete);
     assert_eq!(points(&lumen, id, Kind::Gain), [], "Delete takes it");
 
-    // Enter on the band loops the clip; Right moves the loop's end.
     tab_to_stop(&mut lumen, "loop");
     lumen.key(Modifiers::NONE, Key::Enter);
     let length = looping(&lumen, id).expect("Enter loops the clip");

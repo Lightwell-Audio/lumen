@@ -1,14 +1,9 @@
-//! Taking a new track list and carrying what sounds across it by track id.
-
 use super::super::Target;
 use super::super::hold::{self, Clock};
 use super::MidiPlayer;
 use super::set::MidiSet;
 
 impl MidiPlayer {
-    /// Takes the newest track list if one arrived. With `at` (the clock and
-    /// the position being played), notes are brought in line with it.
-    /// Real-time safe.
     pub(super) fn take_new(&mut self, at: Option<(Clock<'_>, i64)>) {
         if let Some(old) = self.stash.take() {
             self.retire(old);
@@ -19,15 +14,9 @@ impl MidiPlayer {
         let Ok(mut new) = self.incoming.pop() else {
             return;
         };
-        // Only the newest list matters.
-        // Skipping a list needs room for it and for the one it replaces
-        // in the end, or the stash would be overwritten and a list freed
-        // here; newer lists then wait a block.
         while self.retired.slots() >= 2
             && let Ok(mut newer) = self.incoming.pop()
         {
-            // A host the skipped list brought is the only handle to a
-            // running process: it goes to the newer list's stand-in.
             new.pass_hosts_to(&mut newer);
             self.retire(std::mem::replace(&mut new, newer));
         }
@@ -41,22 +30,15 @@ impl MidiPlayer {
         self.retire(old);
     }
 
-    /// Hands `old` back to be freed, keeping it if the queue is full. Only
-    /// called while the stash is empty.
     fn retire(&mut self, old: Box<MidiSet>) {
         if let Err(rtrb::PushError::Full(old)) = self.retired.push(old) {
             self.stash = Some(old);
         }
     }
 
-    /// Moves what sounds from the old list into the new: trackers and
-    /// voices carry by track id, notes that an edit removed or moved are
-    /// released (`hold::sync`),
-    /// and a track that left lets go of its notes.
     fn carry(&mut self, new: &mut MidiSet, at: Option<(Clock<'_>, i64)>) {
         let clock = self.clock;
         let old = &mut *self.current;
-        // Tracks that went away let go of their hardware notes.
         for track in &mut old.tracks {
             if new
                 .by_id
@@ -85,21 +67,15 @@ impl MidiPlayer {
                 (Some(a), Some(b)) if a.kind == b.kind
             );
             let rerouted = track.target != before.target || !same_kind;
-            // Live notes let go when the track stops listening or listens
-            // to something else (here, or on the old output if rerouted).
             if rerouted || track.listen != before.listen {
                 before.state.release_live();
             }
             if rerouted {
-                // What sounded on the old output lets go there.
                 let channel = before.channel();
                 before.state.release_all(channel);
                 match before.target {
                     Target::Port { .. } => self.out.forward(before, clock),
                     Target::Instrument => {
-                        // The releases go to the old instrument; a plugin's
-                        // only when it plays on (a host going away is not
-                        // waited for).
                         if let Some(spec) = before
                             .instrument
                             .as_mut()
@@ -109,9 +85,6 @@ impl MidiPlayer {
                             spec.instrument.render(0, &events, &mut [], &mut []);
                             before.state.events = events;
                         }
-                        // An instrument of another kind (or none) takes its
-                        // place: the old one plays its release out on the
-                        // new list. A plugin's host goes with the old list.
                         if !same_kind
                             && before
                                 .instrument
@@ -124,47 +97,32 @@ impl MidiPlayer {
                 }
                 before.state.events.clear();
             }
-            // One still ringing out from an earlier change rings on, unless a
-            // newer one took its place (then it goes with the old list).
             if track.leaving.is_none() {
                 track.leaving = before.leaving.take();
             }
             std::mem::swap(&mut track.state, &mut before.state);
-            // A host the new list brings (not one carried over below) has
-            // heard none of the notes held on the old instrument (a stand-in
-            // while the plugin loaded).
             let host_arrives = same_kind
                 && track.target == Target::Instrument
                 && track
                     .instrument
                     .as_ref()
                     .is_some_and(|spec| spec.instrument.hosted());
-            // The instrument the old list had plays on, except a host the
-            // new list brings: that one is attached now, and the old list's
-            // (a stand-in, or the host it replaces) goes with the old list.
             if same_kind
                 && let (Some(a), Some(b)) = (track.instrument.as_mut(), before.instrument.as_mut())
                 && !a.instrument.hosted()
             {
                 std::mem::swap(&mut a.instrument, &mut b.instrument);
-                // A built-in the new list builds is only the settings in a
-                // fresh voice table: what plays keeps its voices and is told
-                // the values the project now holds, so a knob moved under a
-                // sounding note glides there (M8 slice B4).
                 a.instrument.configure_values(&a.values);
                 if a.preset != b.preset {
                     a.instrument.configure(a.preset);
                 }
             }
             track.dirty = !track.same_as(before);
-            // Its held notes are forgotten, so the sync below strikes them
-            // on the new host.
             if host_arrives && !track.state.held.is_empty() {
                 track.state.held.clear();
                 track.dirty = true;
             }
         }
-        // Notes in line with the new data, at the position being played.
         if let Some((clock, pos)) = at {
             for track in &mut new.tracks {
                 if track.dirty && track.sounds() {

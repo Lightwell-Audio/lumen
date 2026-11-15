@@ -1,12 +1,3 @@
-//! Output tracks (M6 slice 6d, format v21): a plugin instrument with several
-//! audio outputs gets an audio track for each output that is turned on. The
-//! track is made for the output (named after it, in the instrument track's
-//! colour and group, right under it) and plays what comes out of it; the
-//! instrument's own track keeps the first output. Turning outputs on or off
-//! is one undo step, however many; an output that is turned off takes its
-//! track with it unless the track holds clips or devices, when the choice
-//! between removing it and keeping it is the caller's.
-
 use std::sync::Arc;
 
 use lumen_project::model::{Id, PluginOutput, Track, TrackKind};
@@ -14,37 +5,24 @@ use lumen_project::model::{Id, PluginOutput, Track, TrackKind};
 use super::Document;
 use super::devices::{Refusal, find_device};
 
-/// What to do with the track of an output that is turned off while it holds
-/// clips or devices.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Leave {
-    /// The track goes, and its clips with it (undo brings them back).
     Remove,
-    /// The track stays, with no input: it is an audio track like any other.
     Keep,
 }
 
-/// A change of the outputs of one instrument.
 #[derive(Debug, Clone, Copy)]
 pub struct OutputEdit<'a> {
-    /// Outputs to turn on: the bus, and the name of the track made for it. One
-    /// that is already on is left as it is.
     pub on: &'a [(u32, String)],
-    /// Outputs to turn off.
     pub off: &'a [u32],
-    /// What to do with a track that holds clips or devices (`None`: refuse and
-    /// say which, so the person can be asked).
     pub leave: Option<Leave>,
 }
 
-/// Whether an output track holds nothing of anyone's work.
 pub fn is_unused(track: &Track) -> bool {
     track.clips.is_empty() && track.devices.is_empty() && track.sends.is_empty()
 }
 
 impl Document {
-    /// The tracks that play outputs of `device`: its output bus and the track,
-    /// in bus order.
     pub fn output_tracks(&self, device: Id) -> Vec<(u32, Id)> {
         let mut found: Vec<(u32, Id)> = self
             .project()
@@ -60,7 +38,6 @@ impl Document {
         found
     }
 
-    /// Which of the outputs in `off` have a track that holds clips or devices.
     pub fn outputs_in_use(&self, device: Id, off: &[u32]) -> Vec<u32> {
         let tracks = &self.project().tracks;
         self.output_tracks(device)
@@ -76,10 +53,6 @@ impl Document {
             .collect()
     }
 
-    /// Turns outputs of the plugin instrument `device` on and off, as one
-    /// undo step. Returns the tracks made. Refused when `device` is not a
-    /// plugin instrument, or (with no `leave`) when an output to turn off has
-    /// a track with something in it.
     pub fn set_outputs(&mut self, device: Id, edit: OutputEdit<'_>) -> Result<Vec<Id>, Refusal> {
         let (owner, held) = find_device(self.project(), device).ok_or(Refusal::NoDevice)?;
         if !held.is_vst3() || !held.is_instrument() {
@@ -112,7 +85,6 @@ impl Document {
         let created: Vec<Id> = made.iter().map(|(id, _, _)| *id).collect();
         let leave = edit.leave;
         self.history.apply(&label, None, |project| {
-            // What goes: unused tracks always, the rest as asked.
             let mut gone = Vec::new();
             for &(_, id) in &drop {
                 let Some(track) = project.tracks.iter_mut().find(|t| t.id == id) else {
@@ -132,8 +104,6 @@ impl Document {
             };
             let (color, parent) = (project.tracks[at].color, project.tracks[at].parent);
             for (id, bus, name) in made {
-                // Right under the instrument's track, among its other output
-                // tracks in bus order.
                 let mut index = at + 1;
                 while project.tracks.get(index).is_some_and(|t| {
                     t.plugin_output
@@ -156,7 +126,6 @@ impl Document {
     }
 }
 
-/// The undo label of a change: what was turned on or off, in words.
 fn label_of(
     make: &[(u32, String)],
     drop: &[(u32, Id)],
@@ -198,8 +167,6 @@ mod tests {
         }
     }
 
-    /// A document with a MIDI track holding a plugin instrument, and an audio
-    /// track after it.
     fn doc() -> (Document, Id, Id, Id) {
         let mut doc = Document::new(crate::empty_project());
         let midi = doc.add_track(TrackKind::Midi, None);
@@ -355,7 +322,6 @@ mod tests {
         assert_eq!(doc.set_outputs(device, off), Err(Refusal::OutputHasContent));
         assert_eq!(doc.output_tracks(device).len(), 1, "nothing changed");
 
-        // Keep: the track stays, with no input.
         doc.set_outputs(
             device,
             OutputEdit {
@@ -372,7 +338,6 @@ mod tests {
                 .any(|t| t.id == track && t.plugin_output.is_none())
         );
         assert_eq!(doc.undo().as_deref(), Some("Detach output track K"));
-        // Remove: the track goes with its clip.
         doc.set_outputs(
             device,
             OutputEdit {
@@ -406,7 +371,6 @@ mod tests {
             .find(|t| t.id == midi)
             .and_then(|t| t.devices.iter().find(|d| !d.is_vst3()))
             .map(|d| d.id);
-        // The built-in synth (replaced by the plugin) is gone; nothing to refuse.
         assert!(synth.is_none());
     }
 

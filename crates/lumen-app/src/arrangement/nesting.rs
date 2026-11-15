@@ -1,10 +1,3 @@
-//! How group tracks look (M4 slice 3, the owner's choices from rendered
-//! specimens): H1, a group's tracks step in by `INDENT` a level with the
-//! colour rail of every group they are in running down beside them; L1, a
-//! group's lane shows a thin bar per track inside it, in that track's
-//! colour, wherever it has clips; and a group's arm button arms what is
-//! inside it, lit fully when all of it is armed and half when some is.
-
 use eframe::egui::{Painter, Rect, pos2, vec2};
 use lumen_project::groups;
 use lumen_project::model::{Id, Monitor, Project, Track, TrackKind};
@@ -13,37 +6,27 @@ use super::{clip_color, color_of, indent};
 use crate::theme;
 use crate::timeview::TimeView;
 
-/// The colour rail's width.
 pub(super) const RAIL: f32 = 4.0;
 
-/// Room above and below the bars in a group's lane.
 const BAR_PAD: f32 = 7.0;
-/// A bar's height, and the most room one takes with its gap.
 const BAR: f32 = 4.0;
 const BAR_PITCH: f32 = 7.0;
-/// Thinner than this, bars share rows.
 const BAR_MIN: f32 = 2.0;
 
-/// A group's arm button: what is inside it is all armed, partly, or not.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Arm {
     Off,
     Partly,
     All,
-    /// Not armed, but a MIDI track on Auto monitoring that plays what is
-    /// played because it is selected (M5 slice 2): a hollow ring.
     Listening,
 }
 
 impl Arm {
-    /// Whether the button reads as armed (and a click disarms).
     pub(super) fn on(self) -> bool {
         self == Arm::All
     }
 }
 
-/// What the arm button shows for the track at `index`: its arm state, or
-/// the hollow ring of a selected MIDI track that listens on Auto.
 pub(super) fn arm_look(project: &Project, index: usize, selected: &[Id]) -> Arm {
     let track = &project.tracks[index];
     match arm_state(project, index) {
@@ -58,8 +41,6 @@ pub(super) fn arm_look(project: &Project, index: usize, selected: &[Id]) -> Arm 
     }
 }
 
-/// The arm state of the track at `index`: its own, or for a group, that of
-/// the audio and MIDI tracks inside it.
 pub(super) fn arm_state(project: &Project, index: usize) -> Arm {
     let tracks = &project.tracks;
     let track = &tracks[index];
@@ -76,9 +57,6 @@ pub(super) fn arm_state(project: &Project, index: usize) -> Arm {
     }
 }
 
-/// The rails at the left of `rect` (a header): one for each group the
-/// track is in, at that group's indent, then its own (red while armed).
-/// Returns where the header's content starts.
 pub(super) fn draw_rails(
     painter: &Painter,
     rect: Rect,
@@ -108,9 +86,6 @@ pub(super) fn draw_rails(
     left
 }
 
-/// The lane of the group at `index`: a thin bar per track inside it that
-/// holds clips, in that track's colour, where its clips are. Only what is
-/// in view is drawn.
 pub(super) fn draw_group_lane(
     painter: &Painter,
     lane: Rect,
@@ -153,7 +128,6 @@ pub(super) fn draw_group_lane(
     }
 }
 
-/// Rows of bars in a group's lane: how many, their pitch and thickness.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct BarLayout {
     rows: usize,
@@ -161,8 +135,6 @@ struct BarLayout {
     bar: f32,
 }
 
-/// Bars for `count` tracks in `room` points: one row each, `BAR` thick,
-/// thinning as they crowd; below `BAR_MIN`, tracks share rows.
 fn bar_layout(count: usize, room: f32) -> Option<BarLayout> {
     if count == 0 || room < BAR_MIN {
         return None;
@@ -182,7 +154,6 @@ mod tests {
 
     #[test]
     fn bars_thin_as_tracks_crowd_then_share_rows() {
-        // A folded group's lane: 44 points, 30 for bars.
         let two = bar_layout(2, 30.0).unwrap();
         assert_eq!((two.rows, two.pitch, two.bar), (2, BAR_PITCH, BAR));
         let eight = bar_layout(8, 30.0).unwrap();

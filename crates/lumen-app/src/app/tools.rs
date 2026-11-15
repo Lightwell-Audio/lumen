@@ -1,5 +1,3 @@
-//! The six global arrangement tools and their switch (M7b E0).
-
 use eframe::egui::{self, Rect};
 
 use crate::icons::Icon;
@@ -37,8 +35,6 @@ impl ArrangementTool {
         }
     }
 
-    /// What the switch and its menu show for the tool (the interface
-    /// audit's M6).
     pub(crate) const fn icon(self) -> Icon {
         match self {
             Self::Pointer => Icon::Pointer,
@@ -50,8 +46,6 @@ impl ArrangementTool {
         }
     }
 
-    /// The command whose keys pick the tool: Draw's is B, which switches
-    /// between Draw and Pointer, so the menu shows B rather than nothing.
     pub(crate) const fn shortcut(self) -> Command {
         match self {
             Self::Draw => Command::DrawTool,
@@ -82,16 +76,11 @@ impl App {
         self.arrangement.tool.name()
     }
 
-    /// The tool piece of the ruler corner's well (the interface audit's
-    /// H1): the tool's icon and name, and its menu on click. The name goes
-    /// when the header column is too narrow for it.
     pub(crate) fn arrangement_tool_switch(&mut self, ui: &mut egui::Ui, rect: Rect) {
         let tool = self.arrangement.tool;
         let current = tool;
         let label = format!("Arrangement tool: {}", tool.name());
         let switch_id = ui.id().with("arrangement tool switch");
-        // Quiet at rest: only a tool other than Pointer is a mode worth
-        // lighting.
         let lit = motion::glide(
             ui.ctx(),
             switch_id.with("lit"),
@@ -140,7 +129,6 @@ impl App {
             );
         }
 
-        // One click picks and closes; the chosen tool is marked while open.
         let mut picked = None;
         widgets::Menu::below(&response).show(|ui| {
             for tool in ArrangementTool::ALL {

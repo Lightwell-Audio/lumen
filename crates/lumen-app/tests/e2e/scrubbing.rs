@@ -1,7 +1,3 @@
-//! The scrub strip: a click jumps (snapped); a drag plays the grid step
-//! under the pointer and leaves the playhead there; Alt scrubs like tape,
-//! unsnapped; while playing, a drag jumps playback.
-
 use eframe::egui::{Modifiers, Pos2};
 use egui_kittest::kittest::Queryable;
 use lumen_core::time::Ticks;
@@ -11,7 +7,6 @@ use super::{Lumen, keys};
 const STRIP: &str = "Scrub strip: click to jump, drag to listen";
 const BAR: i64 = Ticks::quarters(4).0;
 
-/// The point on the strip at `quarters` (the view starts at the song's start).
 fn at(lumen: &Lumen, quarters: f64) -> Pos2 {
     let strip = lumen.harness.get_by_label(STRIP).rect();
     Pos2::new(
@@ -20,8 +15,6 @@ fn at(lumen: &Lumen, quarters: f64) -> Pos2 {
     )
 }
 
-/// Drags on the strip from `from` to `to` (quarters), holding `modifiers`,
-/// and checks `during` before letting go.
 fn scrub(lumen: &mut Lumen, from: f64, to: f64, modifiers: Modifiers, during: impl Fn(&Lumen)) {
     let (a, b) = (at(lumen, from), at(lumen, to));
     lumen
@@ -62,8 +55,6 @@ fn dragging_plays_the_step_under_the_pointer_and_leaves_the_playhead_there() {
     let mut lumen = Lumen::start("scrub-loop");
     lumen.click("Grid: 1/8");
     lumen.click("1 bar");
-    // Into bar 4 (quarters 12 to 16): the step that plays starts at its
-    // start, not the nearest line.
     scrub(&mut lumen, 4.0, 15.2, Modifiers::NONE, |lumen| {
         assert!(!lumen.app().is_playing(), "scrubbing is not playing");
     });
@@ -79,7 +70,6 @@ fn alt_scrubs_like_tape_without_snapping() {
     lumen.click("Grid: 1/8");
     lumen.click("1 bar");
     scrub(&mut lumen, 4.0, 15.2, Modifiers::ALT, |_| {});
-    // Wherever the hand let go, not on a bar line.
     lumen.wait_for("the playhead under the pointer", |app| {
         let t = app.playhead().0;
         t > 3 * BAR && t < 4 * BAR
@@ -100,8 +90,6 @@ fn while_playing_a_drag_jumps_playback() {
     });
 }
 
-/// MT-APP-13 run 1 (owner): the scrub strip gave no hint of what a drag
-/// would do.
 #[test]
 fn the_strip_hints_what_a_drag_will_do() {
     let mut lumen = Lumen::start("scrub-hints");

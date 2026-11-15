@@ -1,8 +1,3 @@
-//! Templates in the app (M9 slice R4, ADR-0105): Save as template, New from
-//! template and the templates folder. The folder's rules and its listing are
-//! `folder.rs`; writing the template is the copy worker (`app::copies`),
-//! which takes every audio file along and leaves the open project as it is.
-
 mod folder;
 
 use std::path::{Path, PathBuf};
@@ -18,14 +13,12 @@ use crate::{App, files, theme};
 
 use self::folder::{LONGEST_NAME, Listing};
 
-/// How much audio a template would hold, read on a worker.
 enum Size {
     Reading(Receiver<(u64, usize)>),
     Known { bytes: u64, files: usize },
 }
 
 impl Size {
-    /// Starts reading the sizes of `files`.
     fn read(files: Vec<PathBuf>) -> Self {
         let (tx, rx) = mpsc::channel();
         let spawned = crate::spawn::spawn_named("lumen-template-size", move || {
@@ -37,8 +30,6 @@ impl Size {
             let _ = tx.send(total);
         });
         if let Err(error) = spawned {
-            // The line saying how much audio the template holds is a help,
-            // not part of saving it: with no worker it stays unsaid.
             crate::trace::log(|| {
                 format!(
                     "templates: {}",
@@ -58,27 +49,19 @@ impl Size {
     }
 }
 
-/// The window that names a template.
 struct Naming {
     name: String,
-    /// The field takes focus, with its text selected, on the first frame.
     fresh: bool,
-    /// The field takes focus again (Enter leaves it).
     refocus: bool,
-    /// The name is a template already and Enter was pressed once.
     confirming: bool,
     size: Size,
 }
 
-/// What the app keeps about templates.
 #[derive(Default)]
 pub(crate) struct Templates {
     pub(crate) listing: Listing,
     naming: Option<Naming>,
-    /// The project being opened is a template (New from template).
     pub(crate) opening: bool,
-    /// Whether "Open templates folder" shows a window of the file manager;
-    /// tests only note the folder (`revealed`).
     pub(crate) reveals: bool,
     pub(crate) revealed: Vec<PathBuf>,
 }
@@ -91,17 +74,12 @@ impl Templates {
         }
     }
 
-    /// Whether the naming window is showing.
     pub(crate) fn naming_open(&self) -> bool {
         self.naming.is_some()
     }
 }
 
 impl App {
-    /// Where templates are kept: `Documents/Lumen/Templates`, beside the
-    /// projects (the user folder). A run without one (a test, an isolated
-    /// run) keeps them beside the autosaves, in local data, else beside the
-    /// settings.
     pub(crate) fn templates_dir(&self) -> PathBuf {
         if let Some(user) = &self.user_dir {
             return user.join(projects::TEMPLATES);
@@ -117,8 +95,6 @@ impl App {
             )
     }
 
-    /// Whether a new project can start from a template now, or why not: a
-    /// copy under way belongs to the open project.
     pub(crate) fn new_unavailable(&self) -> Result<(), &'static str> {
         if self.collecting.is_some() {
             Err(crate::app::commands::wait::COPY)
@@ -127,7 +103,6 @@ impl App {
         }
     }
 
-    /// The listing's answers, and its first question. Call every frame.
     pub(crate) fn poll_templates(&mut self, ctx: &egui::Context) {
         if !self.templates.listing.asked_once() {
             self.templates.listing.ask(ctx, self.templates_dir(), false);
@@ -138,7 +113,6 @@ impl App {
         self.templates.listing.poll();
     }
 
-    /// Save as template: asks for a name in a small window.
     pub(crate) fn open_save_template(&mut self, ctx: &egui::Context) {
         if let Err(why) = self.copy_unavailable() {
             self.say(format!("{why}. Try again in a moment"));
@@ -152,11 +126,9 @@ impl App {
             confirming: false,
             size: Size::read(files),
         });
-        // The names that exist are read again before the person types one.
         self.templates.listing.ask(ctx, self.templates_dir(), true);
     }
 
-    /// The naming window. Call every frame.
     pub(crate) fn save_template_window(&mut self, ctx: &egui::Context) {
         let Some(mut naming) = self.templates.naming.take() else {
             return;
@@ -192,7 +164,6 @@ impl App {
                 });
                 if std::mem::take(&mut naming.fresh) {
                     field.request_focus();
-                    // The name offered is all selected: typing replaces it.
                     if let Some(mut edit) = egui::TextEdit::load_state(ui.ctx(), field.id) {
                         let end = egui::text::CCursor::new(naming.name.chars().count());
                         edit.cursor
@@ -283,8 +254,6 @@ impl App {
         self.templates.naming = Some(naming);
     }
 
-    /// New from template: another project replaces the open one, so unsaved
-    /// changes are offered a save first.
     pub(crate) fn new_from_listed_template(&mut self, ctx: &egui::Context, index: usize) {
         let Some(template) = self.templates.listing.found().get(index) else {
             return;
@@ -293,8 +262,6 @@ impl App {
         self.request(ctx, Next::Template(file));
     }
 
-    /// "New from template" in the app menu: the templates found, and the way
-    /// to the folder they are kept in.
     pub(crate) fn template_menu(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         widgets::submenu(ui, "New from template", |ui| {
@@ -320,8 +287,6 @@ impl App {
         });
     }
 
-    /// Open templates folder: shown in the system's file manager, made first
-    /// when no template has been saved yet.
     pub(crate) fn open_templates_folder(&mut self) {
         let dir = self.templates_dir();
         let reveals = self.templates.reveals;
@@ -341,7 +306,6 @@ impl App {
         self.templates.revealed.push(dir);
     }
 
-    /// What New from template says when the project is open.
     pub(crate) fn said_new_from(&mut self, file: &Path) {
         let called = file
             .file_stem()

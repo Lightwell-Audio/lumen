@@ -1,12 +1,3 @@
-//! Pitch (M9.5 S6, ADR-0137). The audio editor's Pitch chip sets a warped
-//! clip's transpose in semitones and cents and says what is set; the Pitch pill
-//! shows the pitch envelope over the wave, where a click adds a point; Transpose
-//! clip up and down move the selected clips by a semitone; the arrangement's
-//! clip carries the transpose as a small "+2" and says so on hover; and the
-//! chip is a page of the ⋯ menu when the strip is too narrow. Repitch and an
-//! unwarped clip say why the pitch cannot change. What is heard is tested
-//! where the audio is made (`lumen-media`, `media::warped`).
-
 use eframe::egui::{Key, Modifiers, Pos2, vec2};
 use egui_kittest::kittest::Queryable;
 use lumen_project::envelope::Kind;
@@ -31,7 +22,6 @@ fn shows(lumen: &Lumen, label: &str) -> bool {
         .is_some()
 }
 
-/// A warped clip in `mode`, opened in the Clip tab, with every popover closed.
 fn warped_in(name: &str, mode: &str) -> (Lumen, Id) {
     let (mut lumen, id) = opened_click_track(name);
     open_chip(&mut lumen);
@@ -43,7 +33,6 @@ fn warped_in(name: &str, mode: &str) -> (Lumen, Id) {
     (lumen, id)
 }
 
-/// The Pitch chip, opened.
 fn open_pitch(lumen: &mut Lumen) {
     lumen
         .harness
@@ -54,7 +43,6 @@ fn open_pitch(lumen: &mut Lumen) {
     lumen.frames(4);
 }
 
-/// Beat `q` on the wave, at a quarter of its height from the top.
 fn high(lumen: &Lumen, q: f64) -> Pos2 {
     let body = shown(lumen).body;
     Pos2::new(x_of(lumen, q), body.top() + body.height() * 0.25)
@@ -116,7 +104,6 @@ fn dragging_the_transpose_moves_it_and_is_one_undo_step() {
     lumen.key(Modifiers::COMMAND, Key::Z);
     lumen.frames(3);
     assert_eq!(transpose(&lumen, id), 0, "the whole drag is one undo step");
-    // With Shift the same drag moves a tenth as far (the popover is still open).
     let from = lumen
         .harness
         .get_by_label_contains("Transpose: ")
@@ -171,7 +158,6 @@ fn repitch_and_an_unwarped_clip_say_why_the_pitch_does_not_change() {
     );
     close_chip(&mut lumen);
 
-    // A transpose set in Melodic goes when the clip is set to Repitch.
     open_chip(&mut lumen);
     lumen.harness.get_by_label_contains("Warp mode: ").click();
     lumen.frames(3);
@@ -203,8 +189,6 @@ fn the_pitch_pill_shows_the_envelope_and_a_click_adds_a_point_in_semitones() {
         .cloned()
         .expect("a point was added");
     assert_eq!(lane.len(), 1, "{lane:?}");
-    // The lane shows two octaves either way, so a click high on the wave is an
-    // octave or so up, and inside the range.
     let value = lane.points()[0].value;
     assert!((9.0..=20.0).contains(&value), "{value} semitones");
     assert!(
@@ -313,9 +297,6 @@ fn save_shot(lumen: &mut Lumen, name: &str, scale: f32) {
         .expect("save");
 }
 
-/// The Pitch chip, its popover, the envelope and the transpose mark, rendered
-/// for a look by eye: `SHOTS=<folder> LOOK_SCALE=1.5 cargo test -p lumen-app
-/// --test e2e look_at_the_pitch -- --ignored` (the theme is the process's).
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn look_at_the_pitch() {

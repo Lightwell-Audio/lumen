@@ -1,25 +1,12 @@
-//! `lumen-render`: Lumen's own renderer, independent of any UI toolkit (ADR-0002).
-//!
-//! Dense content (clips, notes; later waveforms and automation) lives on the
-//! GPU as instanced rectangles, uploaded once and updated only on edits. A
-//! frame writes one small view uniform per layer. Vector graphics (curves,
-//! knobs, meters, icons) are rasterised by Vello into a texture and
-//! composited. A host (egui callback or a bare winit window) calls
-//! [`Renderer::prepare`] with the device and queue, then [`Renderer::paint`]
-//! inside its render pass.
-
 mod boxes;
 pub mod demo;
 mod waves;
 
-/// The WGSL shaders in `src/shaders`, compiled and checked by `build.rs`:
-/// each one's source, and the size of its uniform block.
-#[allow(dead_code)] // generated: not every shader has a uniform to check
+#[allow(dead_code)]
 mod shaders {
     include!(concat!(env!("OUT_DIR"), "/shaders.rs"));
 }
 
-// The uniform structs match their shaders, or the build fails.
 const _: () = assert!(size_of::<LayerUniform>() == shaders::RECTS_UNIFORM);
 
 pub use boxes::{BoxDraw, BoxInstance, BoxLayerId, BoxStyle, RowSlot, spanning};
@@ -32,20 +19,13 @@ use vello::wgpu;
 
 pub use vello;
 
-/// A position in timeline units (beats), split into whole and fractional
-/// parts so the GPU keeps sub-pixel precision at sample-level zoom deep into
-/// a long song (see [`beats`]).
 pub type Beats = [f32; 2];
 
-/// `b` as [`Beats`]: exact for whole parts below 2²⁴ (hours of music), and
-/// to about 10⁻⁷ of a beat in the fraction.
 pub fn beats(b: f64) -> Beats {
     let whole = b.floor();
     [whole as f32, (b - whole) as f32]
 }
 
-/// One rectangle: horizontal extent in timeline units (beats), a row index
-/// (track or pitch row) and a colour (`0xAABBGGRR`, as from RGBA bytes).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
 pub struct RectInstance {
@@ -70,7 +50,6 @@ pub fn rgba(r: u8, g: u8, b: u8, a: u8) -> u32 {
     u32::from_le_bytes([r, g, b, a])
 }
 
-/// Where a layer is drawn, in physical pixels of the host's canvas.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Area {
     pub x: f32,
@@ -79,10 +58,8 @@ pub struct Area {
     pub height: f32,
 }
 
-/// The scroll and zoom of a layer.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct View {
-    /// Timeline units at the area's left edge (f64: see [`Beats`]).
     pub left: f64,
     pub px_per_unit: f32,
     pub top_px: f32,
@@ -119,7 +96,6 @@ struct Prepared {
     vector: Option<(wgpu::Texture, wgpu::BindGroup)>,
 }
 
-/// Opaque handle to a rectangle layer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LayerId(usize);
 
@@ -134,7 +110,6 @@ pub struct Renderer {
     boxes: boxes::BoxPipeline,
     wave_pipeline: waves::WavePipeline,
     box_layers: Vec<boxes::BoxLayer>,
-    /// One prepared frame per drawing target (a host may draw several areas).
     targets: Vec<Option<Prepared>>,
 }
 
@@ -187,10 +162,6 @@ fn pipeline(
 }
 
 impl Renderer {
-    /// Creates pipelines for a host whose render target has `format`.
-    ///
-    /// `pipeline_cache` (Vulkan only) lets Vello reuse compiled shaders from a
-    /// previous run, which cuts start-up time.
     pub fn new(
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
@@ -275,7 +246,6 @@ impl Renderer {
         })
     }
 
-    /// Uploads a layer once. Call [`Renderer::update_layer`] after edits.
     pub fn add_layer(&mut self, device: &wgpu::Device, instances: &[RectInstance]) -> LayerId {
         use wgpu::util::DeviceExt;
         let instances_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -290,7 +260,6 @@ impl Renderer {
         LayerId(self.layers.len() - 1)
     }
 
-    /// Replaces a layer's contents (an edit). Reallocates only if it grew.
     pub fn update_layer(
         &mut self,
         device: &wgpu::Device,
@@ -315,8 +284,6 @@ impl Renderer {
         layer.count = instances.len() as u32;
     }
 
-    /// Prepares drawing target `target` of size `canvas` (physical pixels):
-    /// writes view uniforms and rasterises `vector` with Vello.
     pub fn prepare(
         &mut self,
         device: &wgpu::Device,
@@ -426,8 +393,6 @@ impl Renderer {
         self.targets[target] = Some(prepared);
     }
 
-    /// Draws a prepared target into the host's render pass. The pass's
-    /// viewport must cover the canvas given to [`Renderer::prepare`].
     pub fn paint(&self, target: usize, pass: &mut wgpu::RenderPass<'_>) {
         let Some(Some(prepared)) = self.targets.get(target) else {
             return;
@@ -448,7 +413,6 @@ impl Renderer {
     }
 }
 
-/// Whether a pipeline cache was available and already populated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CacheState {
     Unsupported,
@@ -456,15 +420,10 @@ pub enum CacheState {
     Warm,
 }
 
-/// Whether `device` can cache pipelines (Vulkan only; the device must have
-/// been created with [`wgpu::Features::PIPELINE_CACHE`]).
 pub fn caches_pipelines(device: &wgpu::Device) -> bool {
     device.features().contains(wgpu::Features::PIPELINE_CACHE)
 }
 
-/// Opens a shader pipeline cache from `data`, as [`pipeline_cache_data`]
-/// gave it at an earlier launch. The caller reads and writes the file, off
-/// the UI thread.
 pub fn open_pipeline_cache(
     device: &wgpu::Device,
     data: Option<Vec<u8>>,
@@ -477,8 +436,6 @@ pub fn open_pipeline_cache(
     } else {
         CacheState::Cold
     };
-    // SAFETY: the data was written by `save_pipeline_cache`; with `fallback`
-    // the driver ignores data that does not match this adapter or driver.
     let cache = unsafe {
         device.create_pipeline_cache(&wgpu::PipelineCacheDescriptor {
             label: Some("lumen pipeline cache"),
@@ -489,8 +446,6 @@ pub fn open_pipeline_cache(
     (Some(cache), state)
 }
 
-/// The cache's contents, to write back so the next start-up can reuse
-/// compiled shaders.
 pub fn pipeline_cache_data(cache: Option<&wgpu::PipelineCache>) -> Option<Vec<u8>> {
     cache.and_then(wgpu::PipelineCache::get_data)
 }
@@ -509,8 +464,6 @@ mod tests {
     fn beats_split_exactly_and_keep_the_fraction_fine() {
         assert_eq!(beats(12.25), [12.0, 0.25]);
         assert_eq!(beats(-0.5), [-1.0, 0.5]);
-        // An hour at 120 BPM, plus a fiftieth of a sample at 48 kHz: one
-        // f32 would round it away; the split keeps it.
         let b = 7_200.0 + 1.0 / 24_000.0 / 50.0;
         let [whole, frac] = beats(b);
         assert_eq!(whole, 7_200.0);

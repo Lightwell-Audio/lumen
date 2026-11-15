@@ -1,7 +1,4 @@
-//! A small VST3 host, just enough to drive the test plugins through their
-//! COM interfaces the way a real host does.
 #![allow(dead_code, reason = "each test binary uses some of these helpers")]
-// The bindings' enum constants are `i32` on Windows and `u32` elsewhere.
 #![allow(clippy::unnecessary_cast)]
 
 use std::ffi::c_void;
@@ -35,7 +32,6 @@ impl IEventListTrait for Notes {
     }
     unsafe fn getEvent(&self, index: int32, e: *mut Event) -> tresult {
         match self.0.get(index as usize) {
-            // SAFETY: the plugin passes a valid out pointer.
             Some(event) => unsafe { *e = *event },
             None => return kInvalidArgument,
         }
@@ -104,7 +100,6 @@ impl IParamValueQueueTrait for Queue {
     unsafe fn getPoint(&self, index: int32, at: *mut int32, value: *mut ParamValue) -> tresult {
         match self.points.get(index as usize) {
             Some(&(a, v)) => {
-                // SAFETY: valid out pointers from the plugin.
                 unsafe {
                     *at = a;
                     *value = v;
@@ -145,7 +140,6 @@ impl IParameterChangesTrait for Changes {
     }
 }
 
-/// `(parameter id, [(sample offset, normalized value)])` queues.
 pub fn changes(list: &[(ParamID, &[(i32, f64)])]) -> ComPtr<IParameterChanges> {
     let queues = list
         .iter()
@@ -163,7 +157,6 @@ pub fn changes(list: &[(ParamID, &[(i32, f64)])]) -> ComPtr<IParameterChanges> {
         .expect("listed")
 }
 
-/// The bytes of a stream and the read position, shared with the test.
 pub type Shared = Arc<Mutex<(Vec<u8>, usize)>>;
 
 pub struct Stream(Shared);
@@ -187,10 +180,8 @@ impl IBStreamTrait for Stream {
         let mut g = self.0.lock().unwrap();
         let (data, pos) = &mut *g;
         let n = (num.max(0) as usize).min(data.len() - *pos);
-        // SAFETY: the plugin's buffer holds `num` bytes and n <= num.
         unsafe { std::ptr::copy_nonoverlapping(data.as_ptr().add(*pos), buffer.cast::<u8>(), n) };
         *pos += n;
-        // SAFETY: valid out pointer.
         unsafe { *got = n as int32 };
         kResultOk
     }
@@ -199,12 +190,10 @@ impl IBStreamTrait for Stream {
         let (data, pos) = &mut *g;
         let n = num.max(0) as usize;
         data.resize((*pos + n).max(data.len()), 0);
-        // SAFETY: the plugin's buffer holds `num` bytes.
         unsafe {
             std::ptr::copy_nonoverlapping(buffer.cast::<u8>(), data.as_mut_ptr().add(*pos), n)
         };
         *pos += n;
-        // SAFETY: valid out pointer.
         unsafe { *put = n as int32 };
         kResultOk
     }
@@ -216,7 +205,6 @@ impl IBStreamTrait for Stream {
     }
 }
 
-/// What a host has been told by the plugin's controller.
 #[derive(Default)]
 pub struct Told {
     pub restarts: Mutex<Vec<i32>>,
@@ -242,7 +230,6 @@ impl IComponentHandlerTrait for Told {
     }
 }
 
-/// One loaded plugin: its component and controller.
 pub struct Plugin {
     pub component: ComPtr<IComponent>,
     pub processor: ComPtr<IAudioProcessor>,
@@ -263,8 +250,6 @@ impl Plugin {
         }
     }
 
-    /// Creates the plugin through the module's factory, so the environment's
-    /// faults apply, as they do for a host process.
     pub fn from_factory(kind: Kind) -> Self {
         let factory = lumen_test_plugin::factory();
         let (component_id, controller_id) = match kind {
@@ -279,7 +264,6 @@ impl Plugin {
         };
         let make = |cid: vst3::Steinberg::TUID, iid: &[u8; 16]| {
             let mut object = std::ptr::null_mut();
-            // SAFETY: valid ids; `object` receives an owned reference.
             let result =
                 unsafe { factory.createInstance(cid.as_ptr(), iid.as_ptr().cast(), &mut object) };
             assert_eq!(result, kResultOk);
@@ -287,7 +271,6 @@ impl Plugin {
         };
         let component = make(component_id, &IComponent::IID);
         let controller = make(controller_id, &IEditController::IID);
-        // SAFETY: owned references of the interfaces asked for.
         unsafe {
             let component = ComPtr::<IComponent>::from_raw(component.cast()).expect("component");
             Self {
@@ -300,9 +283,7 @@ impl Plugin {
         }
     }
 
-    /// Initializes, sets up at 48 kHz and activates.
     pub fn start(&self) {
-        // SAFETY: plain calls on live objects.
         unsafe {
             assert_eq!(self.component.initialize(std::ptr::null_mut()), kResultOk);
             assert_eq!(self.controller.initialize(std::ptr::null_mut()), kResultOk);
@@ -318,8 +299,6 @@ impl Plugin {
         }
     }
 
-    /// Runs one block; `input` is stereo or empty. Returns the result and
-    /// the stereo output.
     pub fn process(
         &self,
         frames: usize,
@@ -370,24 +349,19 @@ impl Plugin {
             outputEvents: std::ptr::null_mut(),
             processContext: std::ptr::null_mut(),
         };
-        // SAFETY: every pointer in `data` outlives the call.
         let result = unsafe { self.processor.process(&mut data) };
         (result, out)
     }
 
-    /// The component's saved state.
     pub fn save(&self) -> (tresult, Vec<u8>) {
         let (stream, shared) = Stream::open(vec![]);
-        // SAFETY: a live stream.
         let result = unsafe { self.component.getState(stream.as_ptr()) };
         let bytes = shared.lock().unwrap().0.clone();
         (result, bytes)
     }
 
-    /// Restores the component from saved state.
     pub fn load(&self, bytes: Vec<u8>) -> tresult {
         let (stream, _) = Stream::open(bytes);
-        // SAFETY: a live stream.
         unsafe { self.component.setState(stream.as_ptr()) }
     }
 }

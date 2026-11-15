@@ -1,7 +1,3 @@
-//! The warp markers' keyboard (M9.5 S5b): which marker has it among the Tab
-//! stops drawn last frame, the keys it answers, the stops themselves in time
-//! order, and bringing a marker the keys moved into view.
-
 use eframe::egui::{self, EventFilter, Key, Modifiers, Response, Sense, Ui};
 
 use lumen_project::edit::warp::{Refused, origin};
@@ -14,14 +10,10 @@ use crate::App;
 use crate::audio_editor::AudioEditor;
 use crate::audio_editor::warp_strip::WarpStrip;
 
-/// The marker with the keyboard, among the stops drawn last frame.
 pub(crate) fn focused(ctx: &egui::Context, ids: &[egui::Id]) -> Option<usize> {
     ids.iter().position(|id| ctx.memory(|m| m.has_focus(*id)))
 }
 
-/// Takes the keys a focused marker answers: Left and Right (with Alt for
-/// fine; with Shift they slide the audio under the marker instead), and
-/// Delete.
 pub(crate) fn take_keys(events: &mut Vec<egui::Event>) -> Vec<(Key, Modifiers)> {
     let mut taken = Vec::new();
     events.retain(|event| {
@@ -50,8 +42,6 @@ pub(crate) fn take_keys(events: &mut Vec<egui::Event>) -> Vec<(Key, Modifiers)> 
 }
 
 impl App {
-    /// The keys taken for the focused marker, run with the clip and the view
-    /// at hand.
     pub(crate) fn run_marker_keys(&mut self, clip: &Clip, ed: &mut AudioEditor) {
         let keys = std::mem::take(&mut ed.markers.keys);
         for (index, key, mods) in keys {
@@ -70,9 +60,6 @@ impl App {
         }
     }
 
-    /// Shift and Left or Right on a marker: the audio under it slides by the
-    /// grid (the marker stays), an undo step a press. The same edit as the
-    /// Shift and drag.
     fn slide_warp_marker(
         &mut self,
         id: Id,
@@ -95,8 +82,6 @@ impl App {
             return;
         };
         let direction = if key == Key::ArrowLeft { -1 } else { 1 };
-        // The step is a grid cell of the file's own beats; the audio moves
-        // the way the key points (a drag to the right moves it later).
         let here = origin(&clip) + marker.at;
         let step = self.key_step(ed.time.zoom, here, direction, fine) - here;
         let seconds = step.as_quarters() * 60.0 / bpm.max(1.0);
@@ -118,7 +103,6 @@ impl App {
         }
     }
 
-    /// Left or Right on a marker: it moves by the grid, an undo step a press.
     fn nudge_warp_marker(
         &mut self,
         id: Id,
@@ -165,8 +149,6 @@ impl App {
         }
     }
 
-    /// "Warp marker at bar 4 beat 2, before 112% after 94%": a marker's
-    /// accessible name.
     pub(crate) fn marker_name(&self, clip: &Clip, index: usize) -> String {
         let Some(marker) = clip.warp.as_ref().and_then(|w| w.markers.get(index)) else {
             return "Warp marker".to_owned();
@@ -177,8 +159,6 @@ impl App {
         format!("Warp marker at {at}{speed}")
     }
 
-    /// The markers' Tab stops, created in time order. Returns the one with
-    /// the keyboard.
     pub(crate) fn marker_stops(
         &mut self,
         ui: &mut Ui,
@@ -223,9 +203,6 @@ impl App {
         }
         ed.markers.keyboard = match focused.as_ref() {
             Some((index, _)) => Some(*index),
-            // The palette's field (or anything else outside the editor) taking
-            // it keeps the last marker: the command runs from there. Another
-            // of the editor's stops taking it drops the marker.
             None if crate::app::audio_editor::stops::focused(ui.ctx()).is_some() => None,
             None => ed.markers.keyboard,
         };
@@ -233,7 +210,6 @@ impl App {
         focused
     }
 
-    /// Brings the marker asked for into view.
     pub(crate) fn reveal_marker(
         &mut self,
         strip: &WarpStrip,

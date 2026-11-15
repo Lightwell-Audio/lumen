@@ -1,9 +1,3 @@
-//! What Export MIDI writes (M5 slice 7, ADR-0062): what plays, as
-//! `midi_runs` gives it to the engine. Only notes in a clip's window sound,
-//! muted notes do not, a note held across a seam sounds through it, and a
-//! looping clip's repeats are baked into real notes, each cut where its
-//! repeat ends, as the engine cuts them.
-
 use std::sync::Arc;
 
 use lumen_core::meter::MeterPoint;
@@ -14,11 +8,6 @@ use lumen_project::smf::{FileTrack, MidiFile};
 
 use crate::midi::runs::{Dest, Member, loop_fragment, loop_period, run_notes, runs};
 
-/// The notes and events `clips` (one track's, in start order) play, in
-/// arrangement time. `map` is the track's drum map, if any (M8 D0): what an
-/// exported part holds is what plays, the map's notes, not the ones stored.
-/// Every sound is written wherever it plays (M8 D4): a sound sent to another
-/// track is still part of this part.
 fn heard(clips: &[&Arc<Clip>], map: Option<&DrumMap>) -> (Vec<Note>, Vec<ClipEvent>) {
     let (mut notes, mut events) = (Vec::new(), Vec::new());
     let members = clips
@@ -56,7 +45,6 @@ fn heard(clips: &[&Arc<Clip>], map: Option<&DrumMap>) -> (Vec<Note>, Vec<ClipEve
     (notes, events)
 }
 
-/// A looping clip's repeats as real notes and events.
 fn bake_loop(
     clip: &Clip,
     length: Ticks,
@@ -108,12 +96,10 @@ fn bake_loop(
     }
 }
 
-/// The tempo map from `from` on, moved to start at zero.
 fn tempo_from(project: &Project, from: Ticks) -> Vec<TempoPoint> {
     let Ok(map) = TempoMap::new(project.tempo.clone()) else {
         return project.tempo.clone();
     };
-    // A file holds steps only: a ramp comes out as a run of short steps.
     let points = map.stepped();
     let first = points
         .iter()
@@ -130,7 +116,6 @@ fn tempo_from(project: &Project, from: Ticks) -> Vec<TempoPoint> {
     out
 }
 
-/// The time-signature changes from `from` on, moved to start at zero.
 fn meter_from(project: &Project, from: Ticks) -> Vec<MeterPoint> {
     let mut out = vec![MeterPoint {
         at: Ticks::ZERO,
@@ -149,9 +134,6 @@ fn meter_from(project: &Project, from: Ticks) -> Vec<MeterPoint> {
     out
 }
 
-/// The selected MIDI clips `ids` as one part (Export MIDI clip…, type 0):
-/// what they play, from the first one's start, named after it, with the
-/// tempo from there on. `None` when no MIDI clip is among them.
 pub fn clips_file(project: &Project, ids: &[Id]) -> Option<MidiFile> {
     let mut chosen: Vec<(usize, &Arc<Clip>)> = Vec::new();
     for (index, track) in project.tracks.iter().enumerate() {
@@ -205,10 +187,6 @@ pub fn clips_file(project: &Project, ids: &[Id]) -> Option<MidiFile> {
     })
 }
 
-/// The project's MIDI tracks (Export MIDI file…, type 1): a part per track
-/// that plays something, named after it, on its MIDI To channel (channel 1
-/// for the synth), with the tempo map and time signature. Muted clips are
-/// left out. `None` when no MIDI track plays anything.
 pub fn project_file(project: &Project) -> Option<MidiFile> {
     let tracks: Vec<FileTrack> = project
         .tracks
@@ -305,11 +283,8 @@ mod tests {
             vec![
                 Note::new(q(0), q(1), 60, 100),
                 muted,
-                // Longer than the loop: cut where each repeat ends.
                 Note::new(q(3), q(4), 64, 90),
-                // Past the loop's end, hidden.
                 Note::new(q(5), q(1), 72, 90),
-                // Before the clip's start, hidden.
                 Note::new(Ticks(-5), q(1), 48, 90),
             ],
         ))
@@ -335,7 +310,6 @@ mod tests {
                 (q(3), q(1), 64),
                 (q(4), q(1), 60),
                 (q(7), q(1), 64),
-                // The last repeat is cut by the clip's end at 10.
                 (q(8), q(1), 60),
             ]
         );
@@ -345,10 +319,6 @@ mod tests {
 
     #[test]
     fn a_sound_sent_to_another_track_stays_in_its_own_part() {
-        // Review L6: a mapped part writes every sound the map plays, wherever
-        // it is heard (`Dest::All`): a sound sent to another track is still
-        // part of the kit's file, and the track it plays on has no notes of
-        // its own to write.
         let mut kit = midi(
             10,
             "Drums",
@@ -363,7 +333,6 @@ mod tests {
             )],
         );
         let mut map = lumen_project::drums::presets::Preset::EIGHT_OH_EIGHT.map(Id(50));
-        // The kick goes to the other track (id 11, below).
         map.sounds[0].route = lumen_project::model::Route::Track(Id(11));
         kit.drum_map = Some(map.id);
         let other = midi(11, "Sub", Vec::new());
@@ -408,8 +377,6 @@ mod tests {
 
     #[test]
     fn a_note_held_across_a_seam_is_one_note_as_it_plays() {
-        // Clip 1 holds a note past its end; clip 2 begins there with the
-        // same note, carried on from before its start.
         let p = project(vec![midi(
             10,
             "Keys",

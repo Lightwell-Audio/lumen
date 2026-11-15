@@ -1,9 +1,3 @@
-//! The R2 spike (M7b E4, ADR-0096): can a plugin in its own host process be
-//! rendered without a device, with a result that is repeatable and equal to
-//! what real time plays? The test effect runs in a real host process behind
-//! the real mixer; the engine is driven as fast as it will go, with and
-//! without its offline mode.
-
 mod support;
 
 use std::time::Duration;
@@ -24,17 +18,13 @@ const RATE_HZ: u32 = 48_000;
 const MASTER: u64 = 100;
 const DEVICE: u64 = 7;
 
-/// What a run left behind.
 struct Run {
     out: Vec<f32>,
-    /// Blocks the host did not answer in time, and whether it was failed.
     late: u32,
     failed: bool,
-    /// Blocks rendered (a run stops at the first late or failed block).
     blocks: usize,
 }
 
-/// Audio whose every sample differs, to catch any misplaced frame.
 fn audio() -> Arc<ClipAudio> {
     let ramp: Vec<f32> = (0..480_000)
         .map(|i| ((i % 997) as f32 - 498.0) / 1e3)
@@ -45,7 +35,6 @@ fn audio() -> Arc<ClipAudio> {
     })
 }
 
-/// The test effect at -6 dB with 96 frames of latency, with `fault` on.
 fn start(fault: &str) -> lumen_hosting::Start {
     let mut start = effect(fault);
     start.values = vec![
@@ -55,8 +44,6 @@ fn start(fault: &str) -> lumen_hosting::Start {
     start
 }
 
-/// Renders `frames` of one track through the effect, in blocks of `block`.
-/// `offline` is how long the host is waited for per block, or real time.
 fn run(fault: &str, offline: Option<Duration>, block: usize, frames: usize) -> Run {
     let mut manager = Manager::new(|| {});
     manager.want(DEVICE, start(fault)).unwrap();
@@ -111,7 +98,6 @@ fn run(fault: &str, offline: Option<Duration>, block: usize, frames: usize) -> R
         out.extend_from_slice(&data[..n]);
         done += n;
         blocks += 1;
-        // An offline render ends at the first block the plugin missed.
         if offline.is_some() && (status.failed() || status.late_blocks() > 0) {
             break;
         }
@@ -137,9 +123,6 @@ fn an_offline_render_is_repeatable_and_the_block_size_changes_nothing_audible() 
         a.out, b.out,
         "a second render is the same, sample for sample"
     );
-    // Another block size lands the mixer's level glides on other chunk edges:
-    // a rounding of 3e-8 (-150 dB) on a few samples, nothing the plugin does.
-    // A render uses one block size, so it is exactly repeatable.
     let worst = a
         .out
         .iter()
@@ -151,9 +134,6 @@ fn an_offline_render_is_repeatable_and_the_block_size_changes_nothing_audible() 
 
 #[test]
 fn offline_equals_real_time_while_the_host_keeps_up() {
-    // The claim holds while the host keeps up. On a busy CI machine a real
-    // time run can miss blocks for reasons outside the plugin, so it is
-    // tried a few times for a run that kept up.
     let live = (0..5)
         .map(|_| run("", None, 256, 24_000))
         .find(|r| r.late == 0)
@@ -164,8 +144,6 @@ fn offline_equals_real_time_while_the_host_keeps_up() {
 
 #[test]
 fn a_plugin_too_slow_for_real_time_still_renders_offline_in_full() {
-    // 6 ms a block against the 4 ms (three quarters of 256 frames at 48 kHz)
-    // that real time allows.
     let reference = run("", FAST, 256, 24_000);
     let live = run("process_slow=6000", None, 256, 24_000);
     assert!(live.late > 0, "real time missed blocks");
@@ -184,9 +162,6 @@ fn a_plugin_that_crashes_mid_render_ends_it_with_a_result() {
 
 #[test]
 fn a_plugin_that_crashes_is_not_waited_for_until_the_end_of_a_long_wait() {
-    // A wait of minutes per block (as an offline render's, or a test
-    // device's, ADR-0122): the block the host died on ends when the host
-    // is seen gone, not when the wait runs out.
     let wait = Duration::from_secs(120);
     let waited = std::time::Instant::now();
     let r = run("process_crash@30", Some(wait), 256, 48_000);
@@ -216,8 +191,6 @@ fn a_plugin_that_hangs_ends_the_render_after_one_wait() {
     );
 }
 
-/// The test instrument playing three notes, through the MIDI player and the
-/// mixer; run as `run` is.
 fn run_instrument(fault: &str, offline: Option<Duration>, block: usize, frames: usize) -> Run {
     let mut manager = Manager::new(|| {});
     manager.want(DEVICE, instrument(fault)).unwrap();
@@ -298,8 +271,6 @@ fn run_instrument(fault: &str, offline: Option<Duration>, block: usize, frames: 
 fn an_instrument_renders_offline_repeatably_and_as_real_time_plays_it() {
     let a = run_instrument("", FAST, 256, 60_000);
     let b = run_instrument("", FAST, 256, 60_000);
-    // As in offline_equals_real_time_while_the_host_keeps_up: a real time
-    // run that kept up, of up to five on a busy CI machine.
     let live = (0..5)
         .map(|_| run_instrument("", None, 256, 60_000))
         .find(|r| r.late == 0)
