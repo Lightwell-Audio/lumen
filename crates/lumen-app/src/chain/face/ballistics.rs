@@ -184,7 +184,8 @@ pub(crate) fn db_of_level(level: f32) -> f32 {
 pub(crate) fn glow_share(awake: f32, energy: f32, hit: f32) -> f32 {
     let live = motion::GLOW_LIVE + motion::GLOW_ENERGY * energy.clamp(0.0, 1.0);
     let held = motion::GLOW_REST + (live - motion::GLOW_REST) * awake.clamp(0.0, 1.0);
-    held.max(hit.clamp(0.0, 1.0) * motion::GLOW_HIT).clamp(0.0, 1.0)
+    held.max(hit.clamp(0.0, 1.0) * motion::GLOW_HIT)
+        .clamp(0.0, 1.0)
 }
 
 #[cfg(test)]

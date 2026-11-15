@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use eframe::egui;
 
-use crate::chain::face::cadence;
+use crate::chain::cadence;
 
 pub fn face_repaint_ask(ctx: &egui::Context) -> Option<Duration> {
     cadence::asked(ctx)

@@ -6,10 +6,10 @@ use lumen_devices::reverb as device;
 
 use super::{Control, Drawing, Handle, Scene, Values, cadence};
 use crate::chain::geometry::Step;
+use crate::fonts;
 use crate::theme::personality as p;
 use crate::theme::personality::card;
 use crate::theme::stroke;
-use crate::fonts;
 
 const WHOLE: Vec2 = Vec2::new(300.0, 330.0);
 const SPECIMEN: Vec2 = Vec2::new(272.0, 176.0);

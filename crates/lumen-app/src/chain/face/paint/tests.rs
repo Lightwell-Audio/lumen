@@ -27,13 +27,19 @@ fn a_glow_is_one_small_mesh_that_fades_to_nothing_at_its_edge() {
     let found = meshes(&shapes);
     assert_eq!(found.len(), 1);
     let mesh = found[0];
-    assert_eq!(mesh.vertices.len(), 1 + (ladder::STOPS.len() - 1) * ladder::SIDES);
+    assert_eq!(
+        mesh.vertices.len(),
+        1 + (ladder::STOPS.len() - 1) * ladder::SIDES
+    );
     let centre = mesh.vertices[0].color;
     let edge = mesh.vertices.last().unwrap().color;
     assert!(centre.a() > edge.a());
     assert_eq!(edge.a(), 0);
     let ring = |k: usize| mesh.vertices[1 + k * ladder::SIDES].color.a();
-    assert!(ring(0) > ring(1) && ring(1) > ring(2), "stops fall in order");
+    assert!(
+        ring(0) > ring(1) && ring(1) > ring(2),
+        "stops fall in order"
+    );
 }
 
 #[test]

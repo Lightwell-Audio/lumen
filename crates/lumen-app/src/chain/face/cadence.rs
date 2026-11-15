@@ -18,12 +18,10 @@ fn asked_key() -> Id {
 pub(crate) fn wake(ctx: &Context, id: Id, level: f32, still: bool) -> f32 {
     let key = id.with("face rest");
     let now = ctx.input(|i| i.time);
-    let mut sleeper = ctx
-        .data(|d| d.get_temp::<Sleeper>(key))
-        .unwrap_or(Sleeper {
-            rest: Rest::default(),
-            at: now,
-        });
+    let mut sleeper = ctx.data(|d| d.get_temp::<Sleeper>(key)).unwrap_or(Sleeper {
+        rest: Rest::default(),
+        at: now,
+    });
     let dt = (now - sleeper.at) as f32;
     let awake = sleeper.rest.step(db_of_level(level), dt, still);
     sleeper.at = now;

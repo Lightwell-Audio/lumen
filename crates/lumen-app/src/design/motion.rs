@@ -273,7 +273,8 @@ mod tests {
 
     #[test]
     fn the_spring_presets_overshoot_as_named() {
-        let overshoot = |k: SpringKind| (-std::f32::consts::PI * k.zeta / (1.0 - k.zeta * k.zeta).sqrt()).exp();
+        let overshoot =
+            |k: SpringKind| (-std::f32::consts::PI * k.zeta / (1.0 - k.zeta * k.zeta).sqrt()).exp();
         assert!((overshoot(SNAP) - 0.126).abs() < 0.01);
         assert!((overshoot(POP) - 0.28).abs() < 0.02);
         assert_eq!(SOFT.zeta, 1.0);

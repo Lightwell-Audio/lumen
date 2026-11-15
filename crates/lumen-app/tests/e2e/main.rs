@@ -46,6 +46,8 @@ mod dynamics;
 mod editing;
 mod editors;
 mod eq;
+mod face_bench;
+mod face_cadence;
 mod fades;
 mod files;
 mod first_run;

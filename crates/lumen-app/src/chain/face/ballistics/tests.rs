@@ -16,14 +16,22 @@ fn a_spring_lands_on_its_target_and_the_presets_overshoot_by_their_names() {
         max = max.max(spring.step(1.0, dt, false));
     });
     assert!(spring.settled_on(1.0), "{}", spring.at());
-    assert!((max - 1.0 - 0.126).abs() < 0.01, "SNAP overshot {}", max - 1.0);
+    assert!(
+        (max - 1.0 - 0.126).abs() < 0.01,
+        "SNAP overshot {}",
+        max - 1.0
+    );
 
     let mut max = 0.0_f32;
     let mut pop = Spring::new(motion::POP, 0.0);
     run_at(240.0, 1.5, |_, dt| {
         max = max.max(pop.step(1.0, dt, false));
     });
-    assert!((max - 1.0 - 0.28).abs() < 0.02, "POP overshot {}", max - 1.0);
+    assert!(
+        (max - 1.0 - 0.28).abs() < 0.02,
+        "POP overshot {}",
+        max - 1.0
+    );
 
     let mut soft = Spring::new(motion::SOFT, 0.0);
     let mut max = 0.0_f32;
@@ -151,7 +159,10 @@ fn a_face_sleeps_after_the_hold_and_wakes_at_once() {
         quiet_for += 0.016;
         assert!(quiet_for < 3.0, "settles");
     }
-    assert!(quiet_for > motion::SLEEP_HOLD, "held for the pause: {quiet_for}");
+    assert!(
+        quiet_for > motion::SLEEP_HOLD,
+        "held for the pause: {quiet_for}"
+    );
     assert_eq!(rest.awake(), 0.0);
 }
 
