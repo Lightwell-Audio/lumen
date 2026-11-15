@@ -386,6 +386,12 @@ track.drum_route_all @m8
 track.drum_route_clear @m8
 devices.add_compressor @m8
 devices.add_limiter @m8
+devices.add_sampler @m8
+devices.sampler_load @m8
+devices.sampler_clear @m8
+devices.sampler_face @m8
+devices.sampler_loop @m8
+devices.sampler_reverse @m8
 view.drum_steps @m8
 view.steps_next_page @m8
 view.steps_previous_page @m8

@@ -188,7 +188,11 @@ impl Document {
             DeviceKind::Effect => TrackKind::Audio,
         };
         let id = self.fresh_id();
-        let device = with_values(fresh_device(id, plugin), values);
+        let mut device = with_values(fresh_device(id, plugin), values);
+
+        if device.is_sampler() {
+            device.sampler = Some(lumen_project::model::Sampler::empty(None));
+        }
         let track = self.insert_track(kind, after, Some(device));
         Ok((track, id))
     }
@@ -210,11 +214,17 @@ impl Document {
             return Err(Refusal::BadPlugin);
         }
         let current = find(self.project(), track).ok_or(Refusal::NoTrack)?;
+        let drum_map = current.drum_map;
         let kind = plugin.kind();
         let replaced = current.devices.iter().any(|d| d.is_instrument());
         let index = place_in(current, kind, slot)?;
         let id = self.fresh_id();
-        let device = with_values(fresh_device(id, plugin), values);
+        let mut device = with_values(fresh_device(id, plugin), values);
+
+        if device.is_sampler() {
+            let map = drum_map.and_then(|map| self.drum_map(map)).cloned();
+            device.sampler = Some(lumen_project::model::Sampler::empty(map.as_ref()));
+        }
         let name = name_of(&device);
         let label = match (kind, replaced) {
             (DeviceKind::Instrument, true) => format!("Replace instrument with {name}"),

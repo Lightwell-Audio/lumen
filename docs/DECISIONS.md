@@ -14960,6 +14960,218 @@ was within the 2 % threshold; the run also refreshed two that had become much
 cheaper since an earlier change (`engine_streamed_64` −24.97 %,
 `stream_plan_64` −30.70 %), so the gate measures against today's code and not
 a stale one. The macOS cross-target clippy still cannot run here.
+## ADR-0152 — Shutter, the built-in sampler (M8 slice B5)
+
+**Status.** Proposed (M8 slice B5). Brief:
+`docs/milestones/M8.md` §5 "B5 — Sampler"; the owner's SP A, CO A and RT in §2;
+decisions E1, E2, E5, E6 and E7 in §6; open risk 4 in §8.
+
+**Context.** M8's device lane gives Lumen its own instruments and effects. B0 built
+the effect path (ADR-0145) and the synth is Lumen's first instrument (ADR-0045);
+nothing yet plays a user's files. The sampler is the milestone's exit-criterion
+instrument ("drop their own one-shots on its pads"), so it has to load samples,
+play them sample-exactly, answer a drum map's sounds on pads, and be part of the
+project's media in a way save, Collect and save, Relink and the media pool already
+understand. It is also the first built-in *instrument* on the device path, and the
+first device whose sound is data a worker has to decode.
+
+**Options.**
+
+- **How the decoded audio reaches the audio thread.** (A) A per-device lock-free
+  queue into the running instrument, with the retired sound pushed back for the
+  interface to free (the pattern the mixer's built-in pool uses). (B) The sound
+  travels with the MIDI track list, and the engine hands it to the instrument
+  when the list arrives, keeping the replaced one in the retired list. (C) The
+  instrument is rebuilt whenever its sound changes, keyed by a revision in
+  `InstrumentSpec::kind`.
+- **Where a sound's data lives in the model.** (A) A `sampler` field on the
+  `Device`, naming media ids. (B) A project-level list of sounds devices point
+  at. (C) The audio in the project file.
+- **What is a parameter and what is model data.** (A) The shared behaviours
+  (level, pitch, envelope, filter, velocity) are parameters in the device's
+  table, and the regions, zones and pads are model data. (B) Every pad's every
+  control a parameter. (C) All model data.
+- **What a drum pad does with a note-off.** (A) A pad in a choke group fades over
+  its choke fade; one outside a group plays its sample to its end. (B) Every pad
+  fades at every note-off. (C) Every pad ignores note-offs.
+
+**Choices.**
+
+1. **The sound travels with the track list** (option 1B). `MidiTrack` gains
+   `sound: Option<Arc<Sound>>` and `values: Vec<(u32, f32)>`; `carry` hands the
+   sound to the instrument through a new defaulted
+   `Instrument::load_sound(Arc<Sound>) -> Option<Arc<Sound>>`, which returns the
+   one it played before, and that handle is put into the **old** list, which the
+   interface frees (`MidiHandle::collect_garbage`). So no allocation, no free and
+   no lock ever happens on the audio thread, and the interface's decoded buffer
+   is never the last owner of a sample. A queue per device (1A) needs a consumer
+   that survives the instrument being rebuilt on every project edit, which the
+   player's carry does not give it; rebuilding the instrument per revision (1C)
+   would restart every sounding note when a knob's *value* changed, and could
+   not carry the note-on state. `attach_sounds` (`midi/play.rs`) is the one place
+   a sound reaches a list, and a bounce, a freeze and an export call it with the
+   samples their job carried, so a render hears what playback did.
+2. **The sound is model data on the device** (option 2A). `Device.sampler:
+   Option<Sampler>` (format v37) holds the face and its regions, zones and pads;
+   every sample is a media id, so the media pool lists it, Relink finds it, and
+   Collect and save copies it with no new code — `edit::media::users` counts a
+   sampler's media as used, which is what keeps a purge from dropping a pad's
+   file. Region positions are frames of the **file's** rate, as a waveform shows
+   them, and are mapped to the decoded buffer's rate when a sound is built.
+3. **Parameters are the shared behaviours; pads are model data** (option 3A).
+   `lumen_devices::sampler::TABLE` holds eleven stable ids: Level, Pitch, Fine,
+   Attack, Decay, Sustain, Release, Filter (off/low/high), Cutoff, Res and
+   Vel>Level. Their values travel to the instrument in the block's `ParamBlock`
+   (the mixer's path for a built-in's values, B0 choice 3, extended to
+   instruments: `gather_track` opens a queue for each and then adds the track's
+   lanes), so a knob and a lane are the same code. A pad's level, pan, tune,
+   output pair and choke fade are model data, because there can be up to 128 pads
+   and a block's queue room is 64: a parameter table of 400 entries could not be
+   automated at all.
+4. **A pad in a choke group honours a note-off; one outside a group rings to the
+   end of its sample** (option 4A). CO A has the engine send a note-off at the
+   choking hit's sample, so a pad in a group must honour it; a drum sampler's
+   other pads play their one-shot to its end, which is what makes a crash or a
+   kick sound natural at any note length. A pad struck again always takes its own
+   earlier hit with it, over the same fade. The fade is the pad's `choke_fade`
+   (5 ms by default, the owner's CO A), so nothing clicks. The sampler also
+   enforces a group's choke itself from the map's groups, so the hit is
+   click-free even if only one of the two paths is in play. Being one-shots, a
+   pad's voices ring out after a Stop; Panic silences them at once.
+5. **A sample at its root key is the file's frames, to the bit.** At unity gain,
+   a zero attack, 100 % sustain, no filter and no pan the render path is one
+   multiply by 1.0: the test
+   `a_sample_at_its_root_key_is_the_file_sample_for_sample` compares every frame.
+   Away from the root, a 4-point Catmull-Rom reads between frames, and
+   `a_pitched_render_follows_the_resampler_s_reference` pins the error below 1e-6
+   against an independent `f64` reference written in the test. That is this
+   device's golden: the effects' hashed renders are not available to an
+   instrument, whose output depends on the notes, so the reference *is* the pin,
+   and it is computed in `f64` rather than stored, which keeps it the same on
+   every platform.
+6. **Transcendentals are `f64`.** The pitch ratio is `2^(st/12)` in `f64` and the
+   SVF filter's `tan` is `f64`; nothing on the render path calls an `f32` `sin`,
+   `cos`, `tan`, `exp`, `ln` or `powf` (B1's lesson). The envelope, the pan
+   (balance, which is arithmetic) and the interpolation are arithmetic in `f32`.
+   Block-size invariance holds at 64, 128, 512, 1024 and 97 frames because a
+   voice counts its own frames for its pitch and filter knots and reads the
+   block's curves by frame.
+7. **The face is not built here.** The device registers as the framework's plain
+   built-in card — its name, subtitle ("Sampler") and hue (`#6FA8FF`, its deep
+   shade `#1F6FD1` beside it in `theme::personality`) — and every behaviour is
+   reachable through the palette, its menus and All parameters. The drawn face
+   (SP A's One shot, Zones and Pads) is built next; the functions it calls are
+   `Document::{set_sampler_face, next_sampler_face, set_sampler_loop,
+   set_sampler_reverse, set_sampler_region, set_sampler_zone,
+   remove_sampler_zone, set_sampler_pad, clear_sampler, add_samples}`,
+   `Document::{sampler_map, sampler_sound}`, and
+   `App::{chosen_sampler, choose_samples, load_sample_files, poll_sampler,
+   next_sampler_face, set_sampler_loop, set_sampler_reverse, clear_sampler}`.
+8. **Per-pad output pairs are the instrument's auxiliary outputs** (the owner's
+   RT). `lumen_devices::sampler::PAIRS` is 8; a pad's `output` picks one, and the
+   voices of each pair are summed into the pair's own buffers, handed out through
+   `Instrument::output` exactly as a multi-output plugin's are. `midi/play.rs`
+   maps every pair to the audio track whose `plugin_output` names that bus, or to
+   the instrument's own track when no track does, so a pad routed to a pair is
+   heard rather than lost before D4 makes the tracks. **How D4 hooks in:** its
+   Output column lists `Main`, `Pair 1` … `Pair 8` for a sampler track (the same
+   names it lists for a plugin's buses), writing `Sound.output` through
+   `Document::set_sampler_pad`; its track creation writes `Track.plugin_output {
+   device, bus: pair }`, which the sampler's mapping already honours, and its
+   "route all sounds" step is the same edit for every pad of the map in one undo
+   step. Nothing else in this slice needs changing for D4.
+
+**Review round.** An independent review of the slice found eleven things; each
+is fixed here with the test that pins it.
+
+1. **A pad on an output pair is heard** (H1). `midi/play.rs`'s
+   `plugin_outputs` only built a plugin's pairs; it now answers a sampler's
+   through `sampler_outputs`, which maps every pair a pad uses — and every pair
+   a track of the project was made for — to that track, or to the instrument's
+   own track when no track plays it. E2E
+   `a_pad_on_an_output_pair_is_heard_on_the_track_that_plays_it` hears the hit
+   hard right on the sampler's own track with no track for the pair, and hard
+   left on the track the pair was made for.
+2. **A project with no sampler decodes nothing into it** (H2).
+   `Lanes::follow_samples` walked `project().media`; it now decodes only the
+   media a sampler device names. E2E
+   `a_project_without_a_sampler_decodes_no_samples` drops an audio file and
+   asserts `sample_memory() == 0`.
+3. **The card's values reach the instrument while stopped** (H3).
+   `lumen-engine/src/midi/tracks.rs` gave an instrument its values only in
+   `Mode::Play`; the values are now given in every mode and only the lanes stay
+   gated on Play (B4's synth reads the same block, so the one gate carries a
+   comment for it). Tests: the engine's
+   `a_samplers_level_is_heard_on_a_note_played_while_stopped` (a live note,
+   transport stopped, −20 dB a tenth) and the device's
+   `a_level_of_minus_twenty_decibels_is_a_tenth`, plus E2E
+   `the_level_set_while_stopped_is_heard_on_a_live_note`.
+4. **Pads follow a drum map attached after the device** (M1).
+   `Document::attach_drum_map_preset_to`, the attach of a held map, detach,
+   `make_drum_map_unique` and the import each call
+   `document::sampler::follow_drum_map` inside their own edit, so the pads and
+   the map are one undo step. Test
+   `a_map_attached_after_the_sampler_gives_it_its_pads`: General MIDI gives 47
+   pads, pad 36 keeps its file, and detaching gives the sixteen back.
+5. **A second file choice no longer drops the first** (M2). `Loading` holds a
+   queue of asks, each with its files' ids **and names**; they finish in order,
+   and a file that arrives for a later ask is pushed back for it. Tests
+   `a_second_choice_while_the_first_loads_gets_both_in_order` and, for the two
+   ways a file goes missing, `a_file_that_does_not_arrive_is_named_after_the_ask_gives_up`
+   and `a_decoder_that_vanishes_names_its_file` (L6).
+6. **A rate change never frees a ringing voice's sample on the audio thread**
+   (M3). `Library` keeps the retired generation in `stale` rather than
+   `clear()`ing it; `Lanes` frees it only after a successful `midi.set` followed
+   by `collect_garbage() > 0`, which proves the engine gave back the list that
+   held the old voices. A decode that finishes for the old rate is said so
+   rather than played at the wrong speed. Test
+   `crates/lumen-app/tests/sampler_realtime.rs`: the library's rate changes
+   while a voice rings, the voice ends under the allocation guard, and only
+   then are the buffers freed.
+7. **The device is split** (M4): `mod.rs` keeps `Sampler` and its
+   `impl Instrument`; `table.rs` the ids, the table and the words and parsing;
+   `voice.rs` the envelope, filter, voice, curves, pairs and their frame values;
+   `sound.rs` was already the model, as `synth/` is shaped.
+8. **One shot keeps one file** (M5). Only the file it plays becomes media of
+   the project, the notice says how many were skipped and offers Zones, and the
+   comment matches. Test
+   `one_shot_keeps_the_first_file_and_leaves_the_rest_out_of_the_project`.
+9. **The pitched reference covers the hard cases** (L1): a region starting
+   inside the file, reversed playback, and a file whose rate is not the
+   render's — each asserting the first frame is `tone[start]` (or the last frame,
+   reversed) and the rest within 1e-6 of an independent `f64` reference.
+10. **Dead code is gone** (L2, L3): `Voice.note` (the choke matches `key`), the
+    `let _ =` no-ops, the ignored `times`, and a duplicated `SHUTTER_DEEP` doc
+    (the merge's). `Sampler::output` zeroes `frames` on an empty block and
+    silences the samples past the block it last rendered (L5).
+11. **Zones are covered** (L4): the unit test
+    `zones_share_the_keyboard_and_play_from_their_middles` pins the share and
+    root arithmetic for one, two and three files, and the E2E
+    `zones_across_the_keyboard_play_their_own_files` loads three files through
+    the command and hears each at its own level. Dropping a file onto a pad and
+    auditioning a pad are the drawn face's gestures, not this slice's
+    (`docs/milestones/M8.md`, B5).
+
+**Not here.** A drawn face (the next slice); disk streaming of large sample sets
+(risk 4: everything is loaded in memory, and the library's `memory()` reports the
+total); MIDI-triggered slice maps; presets for the sampler beyond its parameters
+(B6 owns factory presets); a pad whose note length is overridden by the map
+(D0's `Sound.length` already does that); velocity layers beyond key and velocity
+zones (a zone is one file); looping points other than the region.
+
+**Consequences.** The model grows a device-local structure (format v36) whose
+media are ordinary project media, so nothing in the pool, Relink, Collect or the
+save path is new. The instrument path gains `load_sound` and values for a
+built-in instrument: the synth (B4) can use the same two for its own parameters
+without touching this code. A sampler's samples are held decoded for the session
+(a few hundred MB for a kit of long files), which the library's `memory()` makes
+visible. Voices are bounded at 64, and a voice keeps its own handle to its sample
+so a sound can be replaced under a sounding note.
+
+**Not run here.** The WSL performance gate and the macOS cross-target clippy
+cannot run on this machine; the device has no drawn face, so there are no
+screenshots at 100, 150 and 200 % in both themes.
+
 ## ADR-0153 — The drum editor's steps (M8 slice D3)
 
 **Status.** Proposed (M8 D3, `docs/milestones/M8.md` §5; the owner's SQ A and
@@ -15022,10 +15234,87 @@ Steps. Cost: a frame draws one page; its cells are gathered once per clip,
 step and page (bench `drum_lanes_bench`, release build, 100,000 hits: lanes p95
 0.98 ms, step grid 0.43 ms, roll 0.91 ms). The audio thread is not touched.
 
-## ADR-0152 — Parallax's ping-pong, and the clock its picture keeps (OR-8)
+## ADR-0155 — The shared face motion vocabulary and the repaint cadence (M8 round 4, F0)
 
-**Status.** Proposed (the owner's M8 review, round 1, OR-8; 0152 is free on
-main, where 0148 to 0151 and 0153 are taken). Branch
+**Context.** The owner found every face weak and lifeless (round 4,
+`docs/milestones/M8.md` §10). The notes
+(`docs/specimens/m8/round4-notes.md` §1 to §5) name the cause: one easing and
+one critically damped spring, meters that follow with one time constant, and a
+repaint every 33 ms (`METER_FRAME`) whenever a face asked. The owner adopted
+the shared motion vocabulary. This slice builds the tokens, the helpers and the
+cadence; no face is redesigned (F1 onwards).
+
+**Decision.**
+1. **Tokens** in `design/motion.rs`, named as the notes name them:
+   `METER_ATTACK` 4 ms and `METER_RELEASE` 160 ms (time constants),
+   `PEAK_HOLD` 0.70 s and `PEAK_FALL` 1.1 per s, `FLASH_RISE` 10 ms and
+   `FLASH_TAU` 120 ms, `SpringKind` with `SNAP` (46, 0.55), `POP` (34, 0.38)
+   and `SOFT` (32, 1), `GLOW_REST/LIVE/ENERGY/HIT` (0.10, 0.30, 0.50, 1.0),
+   `SILENCE_DB` -66, `SLEEP_HOLD` 0.45 s, `SLEEP_TAU` 0.30 s, `WAKE_TAU`
+   0.05 s, `DT_MAX` 1/20 s and `FACE_FRAME` 16 ms. Pure curves beside them:
+   `follow`, `ease_out_back`, `ease_out_expo`, `ease_in_out` and `flash`.
+   The glow ladder's stops (0, .35, .7, 1) and alphas (1, .42, .10, 0) are
+   `theme::glow`.
+2. **Helpers** in `chain/face/`, all driven by the seconds a frame took and
+   clamped to `DT_MAX`: `ballistics.rs` (`Spring`, evaluated in closed form so
+   how a frame is cut cannot change its shape; `Ballistic`, fast attack, eased
+   release and a peak that holds then falls; `Rest`, the sleep and wake blend;
+   `glow_share`), `cadence.rs` (the one place a face asks for a frame) and, in
+   `paint.rs`, `glow_ladder` (a radial mesh with the notes' stops, optionally
+   additive: premultiplied colour with zero alpha) and `smooth_path` (midpoint
+   quadratics, to feed the existing `line`). Each takes `still` (Reduce motion)
+   and then lands on its target at once.
+3. **Cadence.** Every face ask is `cadence::again`, which asks for
+   `FACE_FRAME` and, with Reduce motion, for nothing. The card calls
+   `cadence::wake` once a frame with the track's level: while the level is
+   above `SILENCE_DB`, or until `SLEEP_HOLD` after it, the face is awake and
+   asks for the next frame; once asleep and settled it asks for nothing and
+   drops its state. `METER_FRAME` stays for the input watch (it is not a face).
+   The EQ's analyser read in `chain/view/rows.rs` asks through the same call.
+4. **Drop-in.** The gain-reduction pull in `face/meter.rs` (Gravity and
+   Horizon) is a `Ballistic` (4 ms up, 160 ms down) instead of a 200 ms
+   exponential fall under an instant rise. Its test's tolerance moved from 1e-6
+   to 1e-3 because the first frame now rises over a 4 ms constant. Nothing else
+   is redrawn.
+5. **Silence is the meter's zero.** The card's level is the track peak over a
+   60 dB range, 0 below -60 dB, so `db_of_level(0)` is minus infinity and any
+   level above 0 is above `SILENCE_DB`. `-66` is the threshold for a caller
+   that feeds a raw decibel reading; through the card it means "the meter says
+   nothing".
+6. **Test accessors** (`testing::face_repaint_ask`,
+   `forget_face_repaint_asks`, `face_frame`): the shortest wait a face asked for
+   since it was forgotten.
+7. Tokens and helpers no face reads yet carry `#[allow(dead_code)]` until F1
+   uses them (`Spring`, `glow_share`, the easings, `glow_ladder`,
+   `smooth_path`); each is unit-tested.
+
+**Consequences.**
+- The repaint a face asks for is 16 ms, not 33 ms. In the running app the
+  window already repaints on every frame while meters move or the transport
+  plays (`lib.rs`), so the difference shows only where a face's own ask is the
+  shortest (a pull falling back, a reverb swell, a delay's pulse after the
+  meters settle) and in the new wake and sleep settle.
+- At rest nothing is asked: an E2E test (`face_cadence`) shows a stopped Horizon
+  asking for no frame, a playing one asking 16 ms, and the face asking nothing
+  again after the sleep hold; with Reduce motion, unit tests show no ask.
+- **Measured** (release build, the E2E harness, 300 frames per state, a card of
+  each of Horizon, Gravity, Afterglow and Parallax on a playing track; wall time
+  of a whole frame, `tests/e2e/face_bench.rs`, ignored): before, rest mean
+  0.227 to 0.261 ms and live mean 0.230 to 0.267 ms; after, rest mean 0.220 to
+  0.270 ms and live mean 0.228 to 0.270 ms, p95 under 0.38 ms and worst under
+  0.53 ms in the repeated runs. The difference is inside the run-to-run noise
+  (a first cold run read 0.09 ms higher everywhere, including at rest). The
+  frames per second of a face are not a cost the harness measures: it steps
+  back to back.
+- Idle is unchanged: a stopped project with a face on screen asks for no face
+  frame, and the window's own idle tick (`IDLE_TICK`, 1 s) is as before.
+- Not done: no face uses the springs, the energy glow or the easings (F1
+  onwards); `Scene` has no `awake` field yet (the first face to draw its rest
+  picture adds it from `cadence::wake`'s return); no GPU or hand check of the
+  timing at 120 Hz.
+## ADR-0159 — Parallax's ping-pong, and the clock its picture keeps (OR-8)
+
+**Status.** Proposed (the owner's M8 review, round 1, OR-8). Branch
 `fix/parallax-ping-pong`, from
 `origin/main`. Brief: `docs/milestones/M8.md` §10 OR-8; the device is
 ADR-0148's.

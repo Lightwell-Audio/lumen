@@ -3,7 +3,7 @@ use eframe::egui::{
 };
 use lumen_devices::delay as device;
 
-use super::{Aim, Also, Control, Drawing, Handle, Scene, Switch, Values};
+use super::{Aim, Also, Control, Drawing, Handle, Scene, Switch, Values, cadence};
 use crate::chain::geometry::Step;
 use crate::theme::personality as p;
 use crate::theme::personality::card;
@@ -310,10 +310,7 @@ fn floor(painter: &Painter, frame: &Frame, hue: Color32) {
 fn pulse<'a>(scene: &'a Scene<'_>, time: f32, count: usize) -> impl Fn(usize, f32) -> f32 + 'a {
     let playing = scene.level > 0.0 && !scene.still;
     let along = if playing {
-        scene
-            .painter
-            .ctx()
-            .request_repaint_after(motion::METER_FRAME);
+        cadence::again(scene.painter.ctx(), scene.still);
         let now = scene.painter.ctx().input(|i| i.time) as f32;
         (now / time.max(LEAST_BEAT)) % (count as f32 + PULSE_REST)
     } else {

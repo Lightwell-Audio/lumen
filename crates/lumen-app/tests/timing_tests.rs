@@ -8,6 +8,7 @@ const KNOWN: &[&str] = &[
     "crates/lumen-app/tests/e2e/audio_editor_handles.rs",
     "crates/lumen-app/tests/e2e/audio_editor_hearing.rs",
     "crates/lumen-app/tests/e2e/drum_lanes_bench.rs",
+    "crates/lumen-app/tests/e2e/face_bench.rs",
     "crates/lumen-app/tests/e2e/clips.rs",
     "crates/lumen-app/tests/e2e/cue.rs",
     "crates/lumen-app/tests/e2e/dropdown.rs",

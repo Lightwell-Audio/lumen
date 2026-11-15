@@ -1,3 +1,5 @@
+pub mod samples;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use eframe::egui::Color32;
@@ -5,7 +7,7 @@ use lumen_devices::analyzer;
 use lumen_devices::delay::Onset;
 use lumen_devices::dynamics::{compressor, limiter};
 use lumen_devices::params::{self, ParamInfo as Info};
-use lumen_devices::{Description, MeterReading, Reduction, eq, utility};
+use lumen_devices::{Description, MeterReading, Reduction, eq, sampler, utility};
 use lumen_engine::{MixerHandle, Routing, Slot};
 use lumen_hosting::{FLAG_CAN_AUTOMATE, ParamInfo};
 use lumen_project::model::{Device, Id, PluginRef, Project, Track};
@@ -36,6 +38,7 @@ pub fn track_tail_frames(project: &Project, track: Id, rate: u32) -> u64 {
 
 fn path_tail(project: &Project, track: &Track, master: Id, bpm: f32, rate: u32, depth: u32) -> u64 {
     let mut frames = chain_tail(track, bpm, rate);
+
     let mut parent = track.parent;
     let mut guard = 0;
     while let Some(id) = parent {
@@ -49,6 +52,7 @@ fn path_tail(project: &Project, track: &Track, master: Id, bpm: f32, rate: u32, 
         frames = frames.saturating_add(chain_tail(next, bpm, rate));
         parent = next.parent;
     }
+
     if depth < 8 {
         let returns = track
             .sends
@@ -59,6 +63,7 @@ fn path_tail(project: &Project, track: &Track, master: Id, bpm: f32, rate: u32, 
             .unwrap_or(0);
         frames = frames.saturating_add(returns);
     }
+
     if track.id != master
         && let Some(top) = all_tracks(project).find(|known| known.id == master)
     {
@@ -80,6 +85,7 @@ fn chain_tail(track: &lumen_project::model::Track, bpm: f32, rate: u32) -> u64 {
                 frames +=
                     u64::from(lumen_devices::effect_tail_at(name, &values, bpm, rate).unwrap_or(0));
             }
+
             PluginRef::Vst3 { .. } => frames += cap(rate),
         }
     }
@@ -103,9 +109,13 @@ fn slowest_bpm(project: &Project) -> f32 {
 #[derive(Clone, Copy)]
 pub struct Identity {
     pub name: &'static str,
+
     pub kind: &'static str,
+
     pub subtitle: &'static str,
+
     pub colour: Color32,
+
     pub timing: &'static Description,
 }
 
@@ -191,16 +201,28 @@ const IDENTITIES: &[(&str, Identity)] = &[
     ),
 ];
 
-const INSTRUMENTS: &[(&str, Identity)] = &[(
-    lumen_project::model::SYNTH,
-    Identity {
-        name: "Flare",
-        kind: "Polysynth",
-        subtitle: "Polysynth",
-        colour: theme::personality::SYNTH,
-        timing: &lumen_devices::synth::params::DESCRIPTION,
-    },
-)];
+const INSTRUMENTS: &[(&str, Identity)] = &[
+    (
+        lumen_project::model::SYNTH,
+        Identity {
+            name: "Flare",
+            kind: "Polysynth",
+            subtitle: "Polysynth",
+            colour: theme::personality::SYNTH,
+            timing: &lumen_devices::synth::params::DESCRIPTION,
+        },
+    ),
+    (
+        sampler::NAME,
+        Identity {
+            name: "Shutter",
+            kind: "Sampler",
+            subtitle: "Sampler",
+            colour: theme::personality::SHUTTER,
+            timing: &sampler::DESCRIPTION,
+        },
+    ),
+];
 
 #[cfg(test)]
 pub(crate) const TEST_DEVICE: &str = "test_timed";
@@ -363,6 +385,7 @@ fn describe(device: &Device) -> Vec<ParamInfo> {
                 units: info.unit.to_owned(),
                 steps: info.steps,
                 default: f64::from(info.normalised(info.default)),
+
                 flags: if lumen_devices::automatable(name_of(device), info.id) {
                     FLAG_CAN_AUTOMATE
                 } else {
@@ -397,17 +420,27 @@ pub fn choices(device: &Device, param: u32) -> Vec<String> {
 #[derive(Default)]
 pub struct Builtins {
     attached: BTreeMap<Id, String>,
+
     latency: BTreeMap<Id, u32>,
+
     params: BTreeMap<Id, Vec<ParamInfo>>,
+
     meters: BTreeMap<Id, Reduction>,
+
     readings: BTreeMap<Id, MeterReading>,
     clocks: BTreeMap<Id, Onset>,
     onsets: BTreeMap<Id, Option<f32>>,
+
     pretend: BTreeMap<Id, MeterReading>,
+
     waiting: Vec<(Id, Box<Slot>)>,
+
     spectrums: BTreeMap<Id, analyzer::Reader>,
+
     refused: BTreeSet<Id>,
+
     revision: u64,
+
     note: Option<String>,
 }
 
@@ -472,6 +505,7 @@ impl Builtins {
             self.follow(project, mixer);
             changed = true;
         }
+
         self.take_refused(mixer);
         self.attach_waiting(mixer);
         changed
@@ -499,6 +533,7 @@ impl Builtins {
                     continue;
                 }
                 let name = name_of(device);
+
                 let mut tap = None;
                 if lumen_devices::watches_spectrum(name) {
                     let (writer, reader) = analyzer::pair();
@@ -515,13 +550,17 @@ impl Builtins {
                 if let Some(clock) = published.onset {
                     self.clocks.insert(id, clock);
                 }
+
                 self.refused.remove(&id);
                 self.waiting.push((id, Slot::new(effect)));
             }
         }
+
         self.latency = sounding_latencies(project);
+
         self.refused
             .retain(|id| wanted.iter().any(|(known, _)| known == id));
+
         self.params
             .retain(|id, _| wanted.iter().any(|(known, _)| known == id));
         for track in all_tracks(project) {
@@ -556,6 +595,7 @@ impl Builtins {
             self.clocks.remove(&id);
             self.onsets.remove(&id);
             self.spectrums.remove(&id);
+
             mixer.detach_builtin(id.0);
         }
     }
@@ -624,6 +664,7 @@ pub fn attach_all(
                 continue;
             };
             let mut slot = Slot::new(effect);
+
             let mut rounds = 0;
             while let Err(back) = mixer.attach_builtin(device.id.0, slot) {
                 slot = back;
@@ -677,6 +718,7 @@ mod tests {
             let info = params::find(utility::TABLE, *id).unwrap();
             assert!((value - info.normalised(info.default)).abs() < 1e-6);
         }
+
         let gain = values
             .iter()
             .find(|(id, _)| *id == utility::GAIN)
@@ -695,6 +737,7 @@ mod tests {
             "the synth is an instrument, not an effect"
         );
         assert!(is_builtin(&device(utility::NAME)));
+
         let flare = identity(lumen_project::model::SYNTH).expect("Flare");
         assert_eq!((flare.name, flare.kind), ("Flare", "Polysynth"));
         assert!(has_table(&device(lumen_project::model::SYNTH)));
@@ -721,6 +764,7 @@ mod tests {
         assert_eq!(choices(&prism, utility::SWAP), ["Off", "On"]);
         assert_eq!(value_of(&prism, utility::SWAP, "on"), Some(1.0));
         assert!(value_of(&prism, utility::GAIN, "loud").is_none());
+
         let plugin = Device::vst3(
             Id(6),
             "00112233445566778899AABBCCDDEEFF",
@@ -803,6 +847,7 @@ mod tests {
         use crate::engine::routing::{Cue, Devices, routing};
         let mut project = crate::empty_project();
         let mut timed = device(TEST_DEVICE);
+
         timed.params.insert(utility::GAIN, 0.0);
         let mut track = Track::new(Id(1), "Audio".to_owned(), TrackKind::Audio, Color(0));
         track.devices = vec![timed.clone()];
@@ -881,6 +926,7 @@ mod tests {
         let mut builtins = Builtins::default();
         let project = project_with(&horizon_device);
         assert!(builtins.update(&project, &mut handle));
+
         assert_eq!(builtins.latencies().get(&horizon_device.id), Some(&72));
         assert_eq!(builtins.latencies(), &latencies(&project));
 
@@ -921,6 +967,7 @@ mod tests {
             Some(0.0),
             "nothing is playing, so nothing was taken away"
         );
+
         let mut prism = device(utility::NAME);
         for (id, value) in defaults(utility::NAME) {
             prism.params.insert(id, f64::from(value));
@@ -943,10 +990,26 @@ mod tests {
             assert_eq!(identity.timing.name, *name);
             if *name != TEST_DEVICE {
                 assert!(
-                    lumen_devices::effect_description(name).is_some(),
+                    lumen_devices::effect_description(name).is_some()
+                        || lumen_devices::instrument_params(name).is_some(),
                     "{name} is not a device"
                 );
             }
+        }
+
+        for (name, table) in lumen_devices::INSTRUMENTS {
+            if table.is_empty() {
+                continue;
+            }
+            let identity = identity(name).unwrap_or_else(|| panic!("{name} has no personality"));
+            let pinned: Vec<(u32, &str)> = identity
+                .timing
+                .table
+                .iter()
+                .map(|info| (info.id, info.name))
+                .collect();
+            let listed: Vec<(u32, &str)> = table.iter().map(|info| (info.id, info.name)).collect();
+            assert_eq!(pinned, listed);
         }
     }
 
@@ -972,6 +1035,7 @@ mod tests {
             !builtins.update(&project, &mut handle),
             "a still project changes nothing"
         );
+
         let mut loud = prism;
         loud.params.insert(utility::GAIN, 0.25);
         let mut track = Track::new(Id(1), "Audio".to_owned(), TrackKind::Audio, Color(0));
@@ -1012,6 +1076,7 @@ mod tests {
             tracks.push(std::sync::Arc::new(track));
         }
         project.tracks = tracks;
+
         let mut node = NodeSpec::unity(1, Destination::Hardware(0));
         node.devices = (0..total)
             .map(|k| lumen_engine::Device::Builtin {
@@ -1029,6 +1094,7 @@ mod tests {
         let (mut handle, mut source) = mixer(player);
         attach_all(&project, &routing, &mut handle, || source.idle(RATE, 256))
             .expect("every device attaches");
+
         source.idle(RATE, 256);
         let refused = handle.take_refused_builtins();
         assert_eq!(refused.len(), total - lumen_engine::MAX_BUILTINS);
@@ -1047,8 +1113,10 @@ mod tests {
             track.devices = vec![device(name)];
             project.tracks = vec![std::sync::Arc::new(track)];
         };
+
         one(&mut project, utility::NAME, 1);
         assert_eq!(tail_frames(&project, 48_000), 0);
+
         let mut reverb_of = |decay: f32| {
             let mut verb = device(reverb::NAME);
             verb.params.insert(
@@ -1069,6 +1137,7 @@ mod tests {
         assert!(short > 0, "a reverb rings on");
         assert!(long > short, "{short} then {long}");
         assert!(long <= 10 * 48_000, "{long}");
+
         let mut echo = device(delay::NAME);
         echo.params.insert(
             delay::TIME,
@@ -1085,6 +1154,7 @@ mod tests {
         let echoed = tail_frames(&project, 48_000);
         assert!(echoed > 48_000, "half a second of echoes: {echoed}");
         assert_eq!(track_tail_frames(&project, track, 48_000), echoed);
+
         let mut verb = device(reverb::NAME);
         verb.params.insert(
             reverb::DECAY,
