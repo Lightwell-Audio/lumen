@@ -15021,3 +15021,82 @@ the D2 end-to-end tests ask for Lanes first, as a fitting clip now opens in
 Steps. Cost: a frame draws one page; its cells are gathered once per clip,
 step and page (bench `drum_lanes_bench`, release build, 100,000 hits: lanes p95
 0.98 ms, step grid 0.43 ms, roll 0.91 ms). The audio thread is not touched.
+
+## ADR-XXXX — The shared face motion vocabulary and the repaint cadence (M8 round 4, F0)
+
+**Context.** The owner found every face weak and lifeless (round 4,
+`docs/milestones/M8.md` §10). The notes
+(`docs/specimens/m8/round4-notes.md` §1 to §5) name the cause: one easing and
+one critically damped spring, meters that follow with one time constant, and a
+repaint every 33 ms (`METER_FRAME`) whenever a face asked. The owner adopted
+the shared motion vocabulary. This slice builds the tokens, the helpers and the
+cadence; no face is redesigned (F1 onwards).
+
+**Decision.**
+1. **Tokens** in `design/motion.rs`, named as the notes name them:
+   `METER_ATTACK` 4 ms and `METER_RELEASE` 160 ms (time constants),
+   `PEAK_HOLD` 0.70 s and `PEAK_FALL` 1.1 per s, `FLASH_RISE` 10 ms and
+   `FLASH_TAU` 120 ms, `SpringKind` with `SNAP` (46, 0.55), `POP` (34, 0.38)
+   and `SOFT` (32, 1), `GLOW_REST/LIVE/ENERGY/HIT` (0.10, 0.30, 0.50, 1.0),
+   `SILENCE_DB` -66, `SLEEP_HOLD` 0.45 s, `SLEEP_TAU` 0.30 s, `WAKE_TAU`
+   0.05 s, `DT_MAX` 1/20 s and `FACE_FRAME` 16 ms. Pure curves beside them:
+   `follow`, `ease_out_back`, `ease_out_expo`, `ease_in_out` and `flash`.
+   The glow ladder's stops (0, .35, .7, 1) and alphas (1, .42, .10, 0) are
+   `theme::glow`.
+2. **Helpers** in `chain/face/`, all driven by the seconds a frame took and
+   clamped to `DT_MAX`: `ballistics.rs` (`Spring`, evaluated in closed form so
+   how a frame is cut cannot change its shape; `Ballistic`, fast attack, eased
+   release and a peak that holds then falls; `Rest`, the sleep and wake blend;
+   `glow_share`), `cadence.rs` (the one place a face asks for a frame) and, in
+   `paint.rs`, `glow_ladder` (a radial mesh with the notes' stops, optionally
+   additive: premultiplied colour with zero alpha) and `smooth_path` (midpoint
+   quadratics, to feed the existing `line`). Each takes `still` (Reduce motion)
+   and then lands on its target at once.
+3. **Cadence.** Every face ask is `cadence::again`, which asks for
+   `FACE_FRAME` and, with Reduce motion, for nothing. The card calls
+   `cadence::wake` once a frame with the track's level: while the level is
+   above `SILENCE_DB`, or until `SLEEP_HOLD` after it, the face is awake and
+   asks for the next frame; once asleep and settled it asks for nothing and
+   drops its state. `METER_FRAME` stays for the input watch (it is not a face).
+   The EQ's analyser read in `chain/view/rows.rs` asks through the same call.
+4. **Drop-in.** The gain-reduction pull in `face/meter.rs` (Gravity and
+   Horizon) is a `Ballistic` (4 ms up, 160 ms down) instead of a 200 ms
+   exponential fall under an instant rise. Its test's tolerance moved from 1e-6
+   to 1e-3 because the first frame now rises over a 4 ms constant. Nothing else
+   is redrawn.
+5. **Silence is the meter's zero.** The card's level is the track peak over a
+   60 dB range, 0 below -60 dB, so `db_of_level(0)` is minus infinity and any
+   level above 0 is above `SILENCE_DB`. `-66` is the threshold for a caller
+   that feeds a raw decibel reading; through the card it means "the meter says
+   nothing".
+6. **Test accessors** (`testing::face_repaint_ask`,
+   `forget_face_repaint_asks`, `face_frame`): the shortest wait a face asked for
+   since it was forgotten.
+7. Tokens and helpers no face reads yet carry `#[allow(dead_code)]` until F1
+   uses them (`Spring`, `glow_share`, the easings, `glow_ladder`,
+   `smooth_path`); each is unit-tested.
+
+**Consequences.**
+- The repaint a face asks for is 16 ms, not 33 ms. In the running app the
+  window already repaints on every frame while meters move or the transport
+  plays (`lib.rs`), so the difference shows only where a face's own ask is the
+  shortest (a pull falling back, a reverb swell, a delay's pulse after the
+  meters settle) and in the new wake and sleep settle.
+- At rest nothing is asked: an E2E test (`face_cadence`) shows a stopped Horizon
+  asking for no frame, a playing one asking 16 ms, and the face asking nothing
+  again after the sleep hold; with Reduce motion, unit tests show no ask.
+- **Measured** (release build, the E2E harness, 300 frames per state, a card of
+  each of Horizon, Gravity, Afterglow and Parallax on a playing track; wall time
+  of a whole frame, `tests/e2e/face_bench.rs`, ignored): before, rest mean
+  0.227 to 0.261 ms and live mean 0.230 to 0.267 ms; after, rest mean 0.220 to
+  0.270 ms and live mean 0.228 to 0.270 ms, p95 under 0.38 ms and worst under
+  0.53 ms in the repeated runs. The difference is inside the run-to-run noise
+  (a first cold run read 0.09 ms higher everywhere, including at rest). The
+  frames per second of a face are not a cost the harness measures: it steps
+  back to back.
+- Idle is unchanged: a stopped project with a face on screen asks for no face
+  frame, and the window's own idle tick (`IDLE_TICK`, 1 s) is as before.
+- Not done: no face uses the springs, the energy glow or the easings (F1
+  onwards); `Scene` has no `awake` field yet (the first face to draw its rest
+  picture adds it from `cadence::wake`'s return); no GPU or hand check of the
+  timing at 120 Hz.
