@@ -1,0 +1,1597 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Lumen · M8 faces, round 4 (pitch)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+@font-face{font-family:Inter;src:url(../../../site/assets/fonts/Inter.woff2) format("woff2");font-weight:100 900}
+@font-face{font-family:Unbounded;src:url(../../../site/assets/fonts/Unbounded.woff2) format("woff2");font-weight:100 900}
+@font-face{font-family:Mono;src:url(../../../site/assets/fonts/MartianMono.woff2) format("woff2");font-stretch:75% 112.5%}
+:root{--s:1}
+*{box-sizing:border-box}
+body{margin:0;padding:calc(26px*var(--s)) calc(32px*var(--s)) calc(60px*var(--s));font-family:Inter,sans-serif;width:calc(1340px*var(--s));font-size:calc(13px*var(--s));line-height:1.5}
+h1{font-family:Unbounded;font-weight:560;font-size:calc(22px*var(--s));margin:0 0 calc(4px*var(--s))}
+h1 small{font-family:Mono;font-size:calc(11px*var(--s));font-weight:400;opacity:.65;margin-left:calc(8px*var(--s))}
+h2{font-family:Unbounded;font-weight:560;font-size:calc(17px*var(--s));margin:calc(44px*var(--s)) 0 calc(4px*var(--s));display:flex;align-items:center;gap:calc(12px*var(--s))}
+h3{font-family:Unbounded;font-weight:560;font-size:calc(12.5px*var(--s));margin:0}
+p.lead{margin:0 0 calc(12px*var(--s));max-width:calc(1120px*var(--s));font-size:calc(13px*var(--s))}
+.bar{position:sticky;top:0;z-index:5;display:flex;gap:calc(18px*var(--s));align-items:center;flex-wrap:wrap;padding:calc(9px*var(--s)) 0;margin:calc(10px*var(--s)) 0 0}
+.grp{display:flex;align-items:center;gap:calc(7px*var(--s))}
+.grp>span{font-size:calc(11px*var(--s));opacity:.7}
+.seg{display:flex;border-radius:calc(9px*var(--s));padding:calc(2px*var(--s));gap:calc(2px*var(--s))}
+.seg button,.tog{font:inherit;font-size:calc(11.5px*var(--s));border:0;border-radius:calc(7px*var(--s));padding:calc(4px*var(--s)) calc(11px*var(--s));cursor:pointer;background:transparent;color:inherit}
+.row{display:flex;gap:calc(22px*var(--s));flex-wrap:wrap;align-items:flex-start;margin-top:calc(12px*var(--s))}
+figure{margin:0;display:flex;flex-direction:column;gap:calc(6px*var(--s))}
+.cap{display:flex;align-items:center;gap:calc(8px*var(--s))}
+.cap b{font-family:Unbounded;font-weight:560;font-size:calc(12px*var(--s))}
+.chip{font-size:calc(10px*var(--s));padding:calc(1px*var(--s)) calc(8px*var(--s));border-radius:calc(9px*var(--s));font-weight:560;white-space:nowrap}
+.note{font-size:calc(11.5px*var(--s));line-height:1.45;opacity:.9}
+.note i{font-style:normal;font-family:Mono;font-stretch:87.5%;font-size:calc(9.5px*var(--s));opacity:.75;display:block;margin-top:calc(3px*var(--s))}
+canvas.cv{display:block;border-radius:calc(14px*var(--s))}
+table{border-collapse:collapse;font-size:calc(11.5px*var(--s));margin-top:calc(8px*var(--s))}
+td,th{padding:calc(3px*var(--s)) calc(12px*var(--s)) calc(3px*var(--s)) 0;text-align:left;vertical-align:top}
+th{font-weight:560;font-size:calc(10.5px*var(--s));opacity:.7}
+td.k{font-family:Mono;font-stretch:87.5%;font-size:calc(10px*var(--s))}
+#err{position:fixed;left:0;bottom:0;right:0;background:#600;color:#fff;font:12px monospace;padding:6px 10px;z-index:99;display:none;white-space:pre-wrap}
+</style></head><body><div id="root"></div><div id="err"></div>
+<script>
+window.onerror = (m, s, l, c, e) => { const d = document.getElementById('err'); d.style.display = 'block'; d.textContent += m + ' @' + l + ':' + c + '\n' + (e && e.stack ? e.stack.split('\n').slice(0, 3).join('\n') : '') + '\n'; };
+// ============================================================================
+// Round 4 · the faces' pitch. One page, no network. Canvas 2D stands in for
+// egui's painter: every shape here is a line, polygon, arc, disc, a vertical or
+// radial gradient, or an additive blend (egui: Mesh with vertex colours).
+// ============================================================================
+const Q = new URLSearchParams(location.search);
+const ST = {
+  S: Math.max(.5, Math.min(3, +(Q.get('scale') || 1))),
+  light: Q.has('light'),
+  signal: Q.get('signal') || 'drums',
+  reduce: Q.has('reduce'),
+  freeze: Q.has('freeze') ? +(Q.get('freeze') || 2.4) : null,
+  paused: false,
+};
+const DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+
+// ---------- tokens: design/theme.rs DARK and LIGHT (docs/DESIGN.md §3) ----------
+const D = {app:'#17191D',canvas:'#1B1D22',raised:'#23262D',overlay:'#262A31',control:'#31353E',
+ control_hi:'#383C46',border:'#2E323A',border_strong:'#3C414B',text:'#E6E8EC',text2:'#9AA0AC',hint:'#6E7480',
+ accent:'#4FA3FF',accent_muted:'#243A55',on_accent:'#06182E',well:'#141619',ground:'#111316'};
+const L = {app:'#F1F2F4',canvas:'#FAFAFB',raised:'#E9EBEE',overlay:'#FFFFFF',control:'#E2E5E9',
+ control_hi:'#EEF0F3',border:'#DADDE2',border_strong:'#C3C8CF',text:'#1C1F24',text2:'#5A6170',hint:'#878D98',
+ accent:'#1F6FD1',accent_muted:'#D5E5FA',on_accent:'#FFFFFF',well:'#D6DAE0',ground:'#E7E9ED'};
+let C = ST.light ? L : D;
+// theme::personality
+const HUE = {iris:'#7C8CFF',gravity:'#B46CFF',horizon:'#FF8A4C',parallax:'#3FD6C6',afterglow:'#FF6FA8',flare:'#FFC23D',prism:'#9AA0AC'};
+const HUE2 = {iris:'#4A55C8',gravity:'#7A35C8',horizon:'#C4561F',parallax:'#178F84',afterglow:'#C23A74',flare:'#B07A00',prism:'#5A6170'};
+const DEEP = {iris:'#0B0D18',gravity:'#0B0912',horizon:'#0E0810',parallax:'#07100F',afterglow:'#120910',flare:'#110D05',prism:'#0C0E12'};
+const SWEEP = ['#FF5A6E','#FFB547','#5BE07F','#4FA3FF','#B07CFF'];
+const BANDS = ['#FF5A6E','#FFB547','#E6D64A','#5BE07F','#3FD6C6','#4FA3FF','#B07CFF','#E26FD0'];
+
+// ---------- small helpers ----------
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const sstep = (a, b, x) => { const t = clamp((x - a) / (b - a)); return t * t * (3 - 2 * t); };
+const hash = n => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
+function rgb(hex) { if (hex[0] === 'r') return hex.match(/\d+(\.\d+)?/g).slice(0, 3).map(Number); if (hex.length === 4) hex = '#' + hex[1] + hex[1] + hex[2] + hex[2] + hex[3] + hex[3]; const n = parseInt(hex.slice(1, 7), 16); return [n >> 16, (n >> 8) & 255, n & 255]; }
+const hexA = (hex, a) => { const [r, g, b] = rgb(hex); return `rgba(${r},${g},${b},${clamp(a)})`; };
+function mixc(a, b, t) { const A = rgb(a), B = rgb(b); return `rgb(${A.map((v, i) => Math.round(lerp(v, B[i], t))).join(',')})`; }
+const dbOf = x => 20 * Math.log10(Math.max(1e-6, x));
+const fmtDb = (d, p = 1) => (d < 0 ? '−' : d > 0 ? '+' : '') + Math.abs(d).toFixed(p);
+
+// ============================================================================
+// THE MOTION VOCABULARY (proposed tokens for design/motion.rs; see round4-notes.md)
+// Existing: FAST .10, BASE .18, GLIDE .22, spring() = critically damped, no
+// overshoot, ease_out(). New names below are proposals; nothing is edited.
+// ============================================================================
+const MO = {
+  // follower time constants (seconds): 1 - exp(-dt / tau) per frame
+  METER_ATTACK: .004, METER_RELEASE: .16,
+  PEAK_HOLD: .70, PEAK_FALL: 1.1,          // picture units per second after the hold
+  FLASH_RISE: .010, FLASH_TAU: .12,         // an impulse: rises in a frame, falls like a decay
+  // rest and wake
+  SILENCE_DB: -66, SLEEP_HOLD: .45, SLEEP_TAU: .30, WAKE_TAU: .05,
+  // springs {omega rad/s, zeta}
+  SNAP: {w: 46, z: .55},   // ~12 % overshoot: a handle, a dial head, a node
+  POP:  {w: 34, z: .38},   // ~28 % overshoot: one hero beat (a ball landing)
+  SOFT: {w: 32, z: 1.0},   // = today's spring(): critically damped, no overshoot
+  // glow, as a share of full: rest, live (+ energy), hit
+  GLOW_REST: .10, GLOW_LIVE: .30, GLOW_ENERGY: .50, GLOW_HIT: 1.0,
+  DT_MAX: 1 / 20,
+};
+const ease = {
+  out: t => { const u = 1 - clamp(t); return 1 - u * u * u; },
+  outExpo: t => t >= 1 ? 1 : 1 - Math.pow(2, -10 * clamp(t)),
+  outBack: t => { t = clamp(t); const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); },
+  inOut: t => { t = clamp(t); return t * t * t * (t * (t * 6 - 15) + 10); },
+};
+// Ballistic follower: fast up, eased down, frame-rate independent.
+function follow(cur, target, tauUp, tauDown, dt) {
+  const tau = target > cur ? tauUp : tauDown;
+  return tau <= 0 ? target : cur + (target - cur) * (1 - Math.exp(-dt / tau));
+}
+// A spring with sub-stepping so a slow frame cannot change its shape.
+class Spring {
+  constructor(kind = MO.SNAP, x = 0) { this.k = kind; this.x = x; this.v = 0; this.target = x; }
+  set(t) { this.target = t; }
+  snap(x) { this.x = this.target = x; this.v = 0; }
+  step(dt) {
+    if (ST.reduce) { this.x = this.target; this.v = 0; return this.x; }
+    const {w, z} = this.k; let n = Math.max(1, Math.ceil(dt / .004)); const h = dt / n;
+    for (let i = 0; i < n; i++) {
+      const a = -w * w * (this.x - this.target) - 2 * z * w * this.v;
+      this.v += a * h; this.x += this.v * h;
+    }
+    return this.x;
+  }
+}
+// Peak hold with a fall.
+class Peak {
+  constructor() { this.v = 0; this.age = 0; }
+  step(x, dt) {
+    if (x >= this.v) { this.v = x; this.age = 0; }
+    else { this.age += dt; if (this.age > MO.PEAK_HOLD) this.v = Math.max(x, this.v - MO.PEAK_FALL * dt); }
+    return this.v;
+  }
+}
+
+// ============================================================================
+// THE SIMULATED SIGNAL. Silence, a drum loop's envelopes, a sustained pad.
+// Stands for the track meter, the analyser, and the note stream. Deterministic.
+// ============================================================================
+const SIG = {
+  mode: ST.signal, T: 0, bpm: 100, frame: 0, events: [],
+  kick: 0, snare: 0, hat: 0, pad: 0, padGate: 0, level: 0, awake: 0, quiet: 9,
+  bands: new Float32Array(64), mid: 0, side: 0,
+  notes: [], // sounding notes {n, vel, t0, off}
+  step(dt) {
+    dt = Math.min(dt, MO.DT_MAX);
+    const b0 = this.T * this.bpm / 60; this.T += dt; const b1 = this.T * this.bpm / 60;
+    this.events = this.carry || []; this.carry = []; this.frame++;
+    const m = this.mode;
+    if (m === 'drums') {
+      for (let s = Math.floor(b0 * 4) + 1; s <= Math.floor(b1 * 4); s++) this.onStep(s);
+    } else if (m === 'pad') {
+      for (let k = Math.floor(b0 / 8) + 1; k <= Math.floor(b1 / 8); k++) {
+        [45, 52, 55, 60, 64].forEach((n, i) => this.noteOn(n, .55 + .05 * i, k * 8 + i * .06, 6.2));
+        this.events.push({type: 'pad', beat: k * 8});
+      }
+      if (this.T < dt * 2 && b0 === 0) { // first chord at once
+        [45, 52, 55, 60, 64].forEach((n, i) => this.noteOn(n, .55 + .05 * i, 0, 6.2));
+        this.events.push({type: 'pad', beat: 0});
+      }
+    }
+    // note-offs
+    for (const n of this.notes) if (n.off == null && b1 >= n.beatOff) { n.off = this.T; this.events.push({type: 'noteOff', n: n.n}); }
+    this.notes = this.notes.filter(n => n.off == null || this.T - n.off < 4);
+    // envelopes
+    this.kick *= Math.exp(-dt / .11); this.snare *= Math.exp(-dt / .09); this.hat *= Math.exp(-dt / .035);
+    const gate = m === 'pad' && this.notes.some(n => n.off == null) ? 1 : 0;
+    this.pad = follow(this.pad, gate, 1.1, 1.5, dt);
+    if (m === 'silence') { this.kick = this.snare = this.hat = 0; this.pad = follow(this.pad, 0, .01, .05, dt); }
+    // level: the instantaneous peak the meter would read
+    const wob = m === 'pad' ? .04 * Math.sin(this.T * 1.7) : 0;
+    this.level = clamp(Math.max(this.kick * .97, this.snare * .86, this.hat * .46) + this.pad * (.58 + wob));
+    this.mid = clamp(this.kick * 1 + this.snare * .7 + this.hat * .25 + this.pad * .5);
+    this.side = clamp(this.snare * .3 + this.hat * .9 + this.pad * .7);
+    // rest: below SILENCE_DB for SLEEP_HOLD, then the faces settle
+    if (dbOf(this.level) > MO.SILENCE_DB + 20) this.quiet = 0; else this.quiet += dt;
+    const awakeT = this.quiet < MO.SLEEP_HOLD ? 1 : 0;
+    this.awake = follow(this.awake, awakeT, MO.WAKE_TAU, MO.SLEEP_TAU, dt);
+    this.spectrum();
+  },
+  onStep(s) {
+    const st = ((s % 16) + 16) % 16, beat = s / 4;
+    const kick = [0, 6, 10].includes(st), snare = [4, 12].includes(st), hat = st % 2 === 0;
+    if (kick) { this.kick = .95; this.events.push({type: 'kick', vel: .95, beat, pan: 0}); }
+    if (snare) { this.snare = .86; this.events.push({type: 'snare', vel: .86, beat, pan: -.45}); }
+    if (hat) { const v = st % 4 === 2 ? .85 : .55; this.hat = Math.max(this.hat, v * .5); this.events.push({type: 'hat', vel: v, beat, pan: .5}); }
+    // a plucky line for the synths, over the drums
+    const line = {0: 45, 3: 57, 6: 52, 8: 48, 10: 57, 12: 55, 14: 52};
+    if (line[st] != null) this.noteOn(line[st], .5 + .4 * hash(s), beat, .42);
+  },
+  noteOn(n, vel, beat, dur) {
+    this.notes.push({n, vel, t0: this.T, off: null, beatOff: beat + dur});
+    this.events.push({type: 'noteOn', n, vel});
+  },
+  spectrum() {
+    const B = this.bands, g = (i, c, w) => Math.exp(-((i - c) * (i - c)) / (2 * w * w));
+    const pos = f => Math.log(f / 20) / Math.log(1000) * 63;
+    for (let i = 0; i < 64; i++) {
+      let a = 0;
+      a += this.kick * (g(i, pos(58), 3.2) * .95 + g(i, pos(2800), 4) * .12);
+      a += this.snare * (g(i, pos(190), 4.5) * .7 + sstep(pos(900), pos(2500), i) * (1 - sstep(pos(9000), pos(16000), i)) * .55);
+      a += this.hat * sstep(pos(5000), pos(9000), i) * .8;
+      if (this.pad > .002) for (const n of this.notes) {
+        const f0 = 440 * Math.pow(2, (n.n - 69) / 12);
+        for (let k = 1; k <= 10; k++) a += this.pad * .16 * g(i, pos(k * f0), .9) / Math.pow(k, .9);
+      }
+      // a real analyser flickers between frames
+      a *= .8 + .4 * hash(i * 13.7 + this.frame * 1.31);
+      B[i] = clamp(a);
+    }
+  },
+  warm(sec) { const n = Math.round(sec * 120); for (let i = 0; i < n; i++) this.step(1 / 120); },
+  setMode(m) {
+    this.mode = m; this.notes = []; this.quiet = 0;
+    if (m === 'silence') { this.kick = this.snare = this.hat = 0; }
+    this.carry = [];
+    if (m === 'pad') { const b = this.T * this.bpm / 60; [45, 52, 55, 60, 64].forEach((n, i) => this.noteOn(n, .55 + .05 * i, b + i * .06, 6.2)); this.carry = this.events.splice(0); this.carry.push({type: 'pad', beat: b}); }
+  },
+};
+
+// ============================================================================
+// Canvas kit and the card framework (chrome, screen, lit dials, interaction)
+// ============================================================================
+function rr(ctx, x, y, w, h, r) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); }
+function glowDisc(ctx, x, y, r, col, a = 1) {
+  if (r <= 0.5 || a <= 0) return;
+  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, hexA(col, a)); g.addColorStop(.35, hexA(col, a * .42));
+  g.addColorStop(.7, hexA(col, a * .1)); g.addColorStop(1, hexA(col, 0));
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, 6.2832); ctx.fill();
+}
+function pathPts(ctx, pts, close = false) { // a smooth line through points (midpoint quadratics)
+  if (pts.length < 2) return;
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length - 1; i++) {
+    const mx = (pts[i][0] + pts[i + 1][0]) / 2, my = (pts[i][1] + pts[i + 1][1]) / 2;
+    ctx.quadraticCurveTo(pts[i][0], pts[i][1], mx, my);
+  }
+  const l = pts[pts.length - 1]; ctx.lineTo(l[0], l[1]);
+}
+function polyline(ctx, pts) { ctx.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]); }
+function text(ctx, s, x, y, {font = '10px Inter', col = '#fff', a = 1, align = 'left', base = 'alphabetic', ls = 0} = {}) {
+  ctx.font = font; ctx.fillStyle = col; ctx.globalAlpha = a; ctx.textAlign = align; ctx.textBaseline = base;
+  ctx.letterSpacing = ls ? ls + 'px' : '0px'; ctx.fillText(s, x, y); ctx.globalAlpha = 1; ctx.letterSpacing = '0px';
+}
+const MONO = '9px "Mono"', UNB = '560 15px Unbounded';
+function addBlend(ctx, on) { ctx.globalCompositeOperation = on ? 'lighter' : 'source-over'; }
+
+// ---------- parameters (visual stand-ins: a value 0..1, a default, its words) ----------
+function P(name, v, fmt) { return {name, v, def: v, s: v, spring: new Spring(MO.SNAP, v), fmt}; }
+const f_pct = v => Math.round(v * 100) + '%';
+const f_db = (lo, hi) => v => fmtDb(lo + (hi - lo) * v) + ' dB';
+const f_hz = (lo, hi) => v => { const f = lo * Math.pow(hi / lo, v); return f >= 1000 ? (f / 1000).toFixed(f >= 10000 ? 0 : 1) + 'k' : Math.round(f) + ''; };
+const f_ms = (lo, hi) => v => { const t = lo * Math.pow(hi / lo, v); return t >= 1000 ? (t / 1000).toFixed(1) + ' s' : (t >= 100 ? Math.round(t) : t.toFixed(t < 10 ? 1 : 0)) + ' ms'; };
+const ms_of = (lo, hi, v) => lo * Math.pow(hi / lo, v);
+
+// ---------- the card ----------
+const CARDS = [];
+class Card {
+  constructor(o) {
+    Object.assign(this, {w: 300, h: 330, screenH: 176, hue: '#fff', hue2: '#888', deep: '#0C0E12', name: '', sub: '', params: {}, dials: [], pills: [], regions: [], extraH: 0}, o);
+    this.power = new Spring(MO.SOFT, 1); this.on = true;
+    this.canvas = document.createElement('canvas'); this.canvas.className = 'cv';
+    this.ctx = this.canvas.getContext('2d');
+    this.visible = true; this.t = 0; this.hit = []; this.drag = null; this.hoverId = null;
+    this.size(); CARDS.push(this);
+    this.canvas.addEventListener('pointerdown', e => this.down(e));
+    this.canvas.addEventListener('pointermove', e => this.move(e));
+    this.canvas.addEventListener('pointerup', e => this.up(e));
+    this.canvas.addEventListener('pointerleave', () => { this.hoverId = null; });
+    this.canvas.addEventListener('dblclick', e => this.dbl(e));
+    this.canvas.addEventListener('wheel', e => this.wheel(e), {passive: false});
+    if (this.init) this.init();
+  }
+  size() {
+    const px = ST.S * DPR; this.canvas.width = Math.round(this.w * px); this.canvas.height = Math.round(this.h * px);
+    this.canvas.style.width = this.w * ST.S + 'px'; this.canvas.style.height = this.h * ST.S + 'px';
+  }
+  pt(e) { const r = this.canvas.getBoundingClientRect(); return [(e.clientX - r.left) / ST.S, (e.clientY - r.top) / ST.S]; }
+  pick(x, y) { // topmost hit region
+    for (let i = this.hit.length - 1; i >= 0; i--) { const h = this.hit[i]; if (h.test(x, y)) return h; }
+    return null;
+  }
+  down(e) {
+    const [x, y] = this.pt(e), h = this.pick(x, y); if (!h) return;
+    this.canvas.setPointerCapture(e.pointerId);
+    if (h.kind === 'power') { this.on = !this.on; this.power.set(this.on ? 1 : 0); return; }
+    if (h.click) h.click(x, y, e);
+    if (h.kind === 'dial' || h.kind === 'drag') this.drag = {h, x, y, v0: h.key ? this.params[h.key].v : 0};
+  }
+  move(e) {
+    const [x, y] = this.pt(e);
+    if (this.drag) {
+      const d = this.drag, h = d.h;
+      if (h.drag) h.drag(x, y, e, d); else {
+        const p = this.params[h.key], k = e.shiftKey ? 1200 : 160;
+        p.v = clamp(d.v0 + (d.y - y) / k); p.s = p.v; p.spring.snap(p.v);
+      }
+    } else { const h = this.pick(x, y); this.hoverId = h ? h.id : null; this.canvas.style.cursor = h ? (h.kind === 'dial' ? 'ns-resize' : 'pointer') : 'default'; }
+  }
+  up() { this.drag = null; }
+  dbl(e) { const [x, y] = this.pt(e), h = this.pick(x, y); if (h && h.key) { const p = this.params[h.key]; p.v = p.def; p.spring.set(p.def); } }
+  wheel(e) {
+    const [x, y] = this.pt(e), h = this.pick(x, y);
+    if (h && h.key) { e.preventDefault(); const p = this.params[h.key]; p.v = clamp(p.v - Math.sign(e.deltaY) * (e.shiftKey ? .005 : .03)); p.spring.snap(p.v); p.s = p.v; }
+    else if (h && h.wheel) { e.preventDefault(); h.wheel(e); }
+  }
+
+  // ---- chrome ----
+  chrome(ctx) {
+    const {w, h, hue, hue2} = this, pw = this.power.x, dark = !ST.light;
+    rr(ctx, 1, 1, w - 2, h - 2, 14); ctx.fillStyle = C.raised; ctx.fill(); ctx.strokeStyle = C.border_strong; ctx.lineWidth = 1; ctx.stroke();
+    ctx.save(); rr(ctx, 1, 1, w - 2, 53, [14, 14, 0, 0]); ctx.clip();
+    const g = ctx.createLinearGradient(0, 0, 0, 54); g.addColorStop(0, hexA(hue, .30 * (.4 + .6 * pw))); g.addColorStop(1, hexA(hue, 0));
+    ctx.fillStyle = g; ctx.fillRect(0, 0, w, 54); ctx.restore();
+    // power
+    ctx.beginPath(); ctx.arc(22, 27, 9, 0, 6.2832); ctx.fillStyle = hexA(hue, .22 * pw + .04); ctx.fill();
+    ctx.strokeStyle = hexA(hue, .25 + .55 * pw); ctx.lineWidth = 1; ctx.stroke();
+    ctx.strokeStyle = ST.light ? mixc(hue2, '#8a8f99', 1 - pw) : mixc('#FFFFFF', '#6E7480', 1 - pw); ctx.lineWidth = 1.6; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(22, 22); ctx.lineTo(22, 27); ctx.stroke();
+    ctx.beginPath(); ctx.arc(22, 27.2, 5, -2.4, -0.74, true); ctx.stroke();
+    this.hit.push({id: 'power', kind: 'power', test: (x, y) => Math.hypot(x - 22, y - 27) < 12});
+    text(ctx, this.name, 40, 27, {font: UNB, col: C.text, ls: .4});
+    text(ctx, this.sub, 40, 43, {font: '11px Inter', col: C.text2});
+    rr(ctx, w - 66, 16, 54, 20, 10); ctx.fillStyle = hexA(hue, .16); ctx.fill(); ctx.strokeStyle = hexA(hue, .4); ctx.stroke();
+    text(ctx, 'Preset', w - 39, 30, {font: '11px Inter', col: C.text, align: 'center'});
+  }
+  screenRect() { return {x: 14, y: 60, w: this.w - 28, h: this.screenH}; }
+  screenBg(ctx, R) {
+    const g = ctx.createRadialGradient(R.x + R.w / 2, R.y, 0, R.x + R.w / 2, R.y, R.w * 1.1 * .9);
+    g.addColorStop(0, hexA(this.hue, .20)); g.addColorStop(1, this.deep);
+    rr(ctx, R.x, R.y, R.w, R.h, 10); ctx.fillStyle = this.deep; ctx.fill(); ctx.fillStyle = g; ctx.fill();
+  }
+  // ---- dials ----
+  dialRow(ctx, items, {x0 = 48, x1 = this.w - 48, cy = null, r = 15} = {}) {
+    cy = cy ?? (60 + this.screenH + 42);
+    const n = items.length;
+    items.forEach((it, i) => {
+      const cx = n === 1 ? (x0 + x1) / 2 : x0 + (x1 - x0) * i / (n - 1);
+      if (it.pill) this.pill(ctx, it, cx, cy);
+      else this.dial(ctx, it, cx, cy, r);
+    });
+  }
+  dial(ctx, it, cx, cy, r) {
+    const key = it.key, p = this.params[key], hue = it.hue || this.hue, dark = !ST.light;
+    const hot = this.hoverId === 'd:' + key || (this.drag && this.drag.h.key === key);
+    const sv = this.drag && this.drag.h.key === key ? p.v : p.spring.x;
+    const a0 = Math.PI * .75, a1 = Math.PI * 2.25, av = a0 + (a1 - a0) * clamp(sv);
+    const P_ = (an, rr_) => [cx + Math.cos(an) * rr_, cy + Math.sin(an) * rr_];
+    const arc = (s, e, rad, w, col) => { ctx.beginPath(); ctx.arc(cx, cy, rad, s, e); ctx.lineWidth = w; ctx.strokeStyle = col; ctx.lineCap = 'round'; ctx.stroke(); };
+    const f = ctx.createRadialGradient(cx - r * .25, cy - r * .35, 0, cx, cy, r * 1.1);
+    f.addColorStop(0, dark ? '#3A3F4A' : '#FFFFFF'); f.addColorStop(1, dark ? '#22252B' : '#E2E5E9');
+    ctx.beginPath(); ctx.arc(cx, cy, r - 4, 0, 6.2832); ctx.fillStyle = f; ctx.fill(); ctx.strokeStyle = dark ? 'rgba(0,0,0,.4)' : 'rgba(0,0,0,.12)'; ctx.lineWidth = 1; ctx.stroke();
+    arc(a0, a1, r, 3, hexA(hue, .22));
+    if (av > a0 + .01) {
+      ctx.save(); ctx.globalAlpha = (.6 + .3 * hot); ctx.shadowColor = hue; ctx.shadowBlur = 5; arc(a0, av, r, 4, hue); ctx.restore();
+      arc(a0, av, r, 2.5, hue);
+    }
+    const [hx, hy] = P_(av, r); ctx.beginPath(); ctx.arc(hx, hy, 3, 0, 6.2832); ctx.fillStyle = '#fff'; ctx.fill();
+    const [px, py] = P_(av, r - 9); ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(px, py); ctx.lineWidth = 2; ctx.strokeStyle = dark ? '#E6E8EC' : '#3A3F4A'; ctx.stroke();
+    text(ctx, it.name || p.name, cx, cy + r + 14, {font: '10.5px Inter', col: C.text2, align: 'center'});
+    text(ctx, it.fmt ? it.fmt(p.v) : p.fmt(p.v), cx, cy + r + 26, {font: MONO, col: C.text, align: 'center'});
+    this.hit.push({id: 'd:' + key, kind: 'dial', key, test: (x, y) => Math.hypot(x - cx, y - cy) < r + 6 || (Math.abs(x - cx) < 26 && y > cy && y < cy + r + 30)});
+  }
+  pill(ctx, it, cx, cy) {
+    const w = it.w || 44, h = 20, on = it.on ? it.on() : false, hue = it.hue || this.hue;
+    rr(ctx, cx - w / 2, cy - h / 2, w, h, 10);
+    ctx.fillStyle = hexA(hue, on ? .24 : .10); ctx.fill(); ctx.strokeStyle = on ? hue : hexA(hue, .45); ctx.lineWidth = 1; ctx.stroke();
+    text(ctx, it.label(), cx, cy + 3.6, {font: '600 10.5px Inter', col: C.text, align: 'center'});
+    this.hit.push({id: 'p:' + it.id, kind: 'pill', test: (x, y) => Math.abs(x - cx) < w / 2 && Math.abs(y - cy) < h / 2 + 2, click: () => it.click && it.click()});
+  }
+  drawDials(ctx) { this.dialRow(ctx, this.dials); }
+  // ---- frame ----
+  frame(dt) {
+    const ctx = this.ctx, px = ST.S * DPR;
+    ctx.setTransform(px, 0, 0, px, 0, 0); ctx.clearRect(0, 0, this.w, this.h);
+    this.hit = []; this.t += dt;
+    this.power.step(dt);
+    for (const k in this.params) { const p = this.params[k]; if (!(this.drag && this.drag.h.key === k)) p.spring.step(dt); }
+    this.chrome(ctx);
+    const R = this.screenRect(), pw = this.power.x;
+    ctx.save(); this.screenBg(ctx, R);
+    rr(ctx, R.x, R.y, R.w, R.h, 10); ctx.clip();
+    ctx.translate(R.x, R.y);
+    const env = {dt, T: SIG.T, awake: SIG.awake, rest: 1 - SIG.awake, still: ST.reduce, power: pw, w: R.w, h: R.h, card: this};
+    this.drawScreen(ctx, env);
+    ctx.translate(-R.x, -R.y);
+    if (pw < .999) { ctx.fillStyle = `rgba(14,16,20,${(1 - pw) * .72})`; ctx.fillRect(R.x, R.y, R.w, R.h); }
+    ctx.restore();
+    rr(ctx, R.x, R.y, R.w, R.h, 10); ctx.strokeStyle = hexA(this.hue, .35); ctx.lineWidth = 1; ctx.stroke();
+    if (this.drawOverScreen) this.drawOverScreen(ctx, R, env);
+    ctx.globalAlpha = 1;
+    this.drawDials(ctx);
+  }
+}
+function tickAll(dt) {
+  SIG.step(dt);
+  for (const c of CARDS) if (c.visible) c.frame(dt);
+}
+
+// ============================================================================
+// HORIZON (limiter) · 300 x 330, screen 272 x 176
+// What the real card gets: Scene.level (0..1), Scene.reading (gain reduction),
+// Scene.mist (the "present" fade). The simulation below recomputes a limiter
+// from the signal so the specimen is self-contained.
+// ============================================================================
+const HZ_TOP = 4, HZ_BOT = -36; // dB at the screen's top and bottom
+function limInit(c) { c.gr = 0; c.grS = 0; c.inS = HZ_BOT; c.outS = HZ_BOT; c.hist = []; c.acc = 0; c.accIn = HZ_BOT; c.accOut = HZ_BOT; c.peak = new Peak(); c.tp = true; c.flash = 0; }
+function limStep(c, dt) {
+  const ceil = -12 * (1 - c.params.ceiling.v), rel = ms_of(5, 500, c.params.release.v) / 1000;
+  const inDb = SIG.level > .004 ? Math.min(7, -44 + 58 * SIG.level) : HZ_BOT - 8;
+  const grT = Math.max(0, inDb - ceil);
+  c.gr = follow(c.gr, grT, .0008, rel, dt);            // look-ahead: attack is a frame
+  c.grS = follow(c.grS, c.gr, MO.METER_ATTACK, .12, dt); // the readout's ballistics
+  c.inS = follow(c.inS, inDb, MO.METER_ATTACK, MO.METER_RELEASE, dt);
+  c.outS = follow(c.outS, inDb - c.gr, MO.METER_ATTACK, MO.METER_RELEASE, dt);
+  c.flash = Math.max(c.flash * Math.exp(-dt / MO.FLASH_TAU), Math.min(1, c.gr / 5));
+  c.accIn = Math.max(c.accIn, inDb); c.accOut = Math.max(c.accOut, inDb - c.gr);
+  c.ceil = ceil; c.pk = c.peak.step(clamp((c.outS - HZ_BOT) / (HZ_TOP - HZ_BOT)), dt);
+}
+function limTake(c, dt, every) {
+  c.acc += dt;
+  while (c.acc >= every) { c.acc -= every; c.hist.push({i: c.accIn, o: c.accOut}); if (c.hist.length > c.N) c.hist.shift(); c.accIn = HZ_BOT; c.accOut = HZ_BOT; }
+}
+function limHandle(c, Y, h) {
+  const p = c.params.ceiling;
+  c.hit.push({id: 'line', kind: 'drag', test: (x, y) => Math.abs(y - 60 - Y(c.ceil)) < 8 && x > 14 && x < c.w - 14,
+    drag: (x, y) => { p.v = clamp(1 + (HZ_TOP - (y - 60) / h * (HZ_TOP - HZ_BOT)) / 12); p.spring.snap(p.v); }});
+}
+function limDials(c) {
+  c.dials = [{key: 'ceiling', name: 'Ceiling', fmt: v => fmtDb(-12 * (1 - v))}, {key: 'release', name: 'Release'}, {key: 'look', name: 'Look'},
+    {pill: true, id: 'true', label: () => 'True', on: () => c.tp, click: () => { c.tp = !c.tp; }, w: 44}];
+  c.drawDials = function (ctx) { this.dialRow(ctx, this.dials, {x0: 56, x1: 258}); };
+}
+const hzParams = () => ({ceiling: P('Ceiling', .975, v => fmtDb(-12 * (1 - v))), release: P('Release', .35, f_ms(5, 500)), look: P('Look', .4, f_ms(.2, 5))});
+const hzBase = {w: 300, name: 'Horizon', sub: 'Limiter', hue: HUE.horizon, hue2: HUE2.horizon, deep: DEEP.horizon};
+const hzReadout = (ctx, c, e, w, x, y, align = 'right') => {
+  const aw = e.awake, gr = c.grS;
+  rr(ctx, x - 84, y - 24, 90, 44, 10); ctx.fillStyle = 'rgba(8,5,3,.42)'; ctx.fill();
+  text(ctx, fmtDb(-gr), x, y, {font: '600 20px Unbounded', col: '#fff', a: aw * (.45 + .55 * clamp(gr / 1.2)), align});
+  text(ctx, gr > .05 ? 'dB limiting' : 'dB · clear', x, y + 14, {font: '9px "Mono"', col: HUE.horizon, a: aw, align});
+};
+const hzRest = (ctx, c, e, w, h, y) => {
+  text(ctx, 'waiting for signal', w / 2, y, {font: '9px "Mono"', col: '#FFD9BF', a: e.rest * .7, align: 'center'});
+};
+
+// ---------- A · Skyline: the level history as a soft area, the ceiling as the horizon ----------
+function HorizonA() {
+  return new Card({...hzBase, params: hzParams(), init() { this.N = 137; limInit(this); limDials(this); },
+    drawScreen(ctx, e) {
+      const {w, h} = e, c = this, aw = e.awake, rest = e.rest;
+      limStep(c, e.dt); limTake(c, e.dt, .033);
+      const Y = db => h * (HZ_TOP - db) / (HZ_TOP - HZ_BOT), yc = Y(c.ceil), glow = clamp(c.flash);
+      // the wall above the ceiling, and dusk light just under the line
+      ctx.fillStyle = 'rgba(0,0,0,.30)'; ctx.fillRect(0, 0, w, yc);
+      let g = ctx.createLinearGradient(0, yc, 0, yc + 78); g.addColorStop(0, hexA(HUE.horizon, MO.GLOW_REST + .3 * glow + .1 * aw)); g.addColorStop(1, hexA(HUE.horizon, 0));
+      ctx.fillStyle = g; ctx.fillRect(0, yc, w, 78);
+      // a quiet grid
+      for (const d of [-6, -12, -24]) { const y = Y(d); ctx.fillStyle = 'rgba(255,255,255,.06)'; ctx.fillRect(0, y, w, 1); text(ctx, fmtDb(d, 0), 6, y - 3, {font: '8px "Mono"', col: '#fff', a: .32}); }
+      // the history, scrolling by a fraction of a column so it never steps
+      const step = w / (c.N - 1), shift = (c.acc / .033) * step, n = c.hist.length;
+      if (n > 2 && aw > .01) {
+        const inP = [], outP = [];
+        c.hist.forEach((q, i) => { const x = w - (n - 1 - i) * step - shift + step; inP.push([x, clamp(Y(q.i), -4, h + 4)]); outP.push([x, Math.min(h + 2, Y(q.o))]); });
+        ctx.save(); ctx.globalAlpha = aw;
+        // the pressed gap: what the limiter took away, as warm light between the two lines
+        ctx.beginPath(); polyline(ctx, inP); for (let i = outP.length - 1; i >= 0; i--) ctx.lineTo(outP[i][0], outP[i][1]); ctx.closePath();
+        const pg = ctx.createLinearGradient(0, 0, 0, yc + 4); pg.addColorStop(0, 'rgba(255,238,220,.85)'); pg.addColorStop(1, 'rgba(255,170,110,.35)'); ctx.fillStyle = pg; ctx.fill();
+        // the limited output: a soft area under a hairline
+        ctx.beginPath(); pathPts(ctx, outP); ctx.lineTo(outP[n - 1][0], h); ctx.lineTo(outP[0][0], h); ctx.closePath();
+        const ag = ctx.createLinearGradient(0, yc, 0, h); ag.addColorStop(0, hexA(HUE.horizon, .62)); ag.addColorStop(1, hexA(HUE.horizon, .03)); ctx.fillStyle = ag; ctx.fill();
+        ctx.beginPath(); pathPts(ctx, outP); ctx.lineWidth = 1.5; ctx.strokeStyle = '#FFC49C'; ctx.lineJoin = 'round'; ctx.stroke();
+        ctx.restore();
+      }
+      // the ceiling: the horizon. It glows with what it holds back.
+      ctx.save(); ctx.shadowColor = HUE.horizon; ctx.shadowBlur = 4 + 12 * glow; ctx.fillStyle = mixc('#FFC49C', '#FFFFFF', glow * .8); ctx.fillRect(0, yc - .75, w, 1.5); ctx.restore();
+      text(ctx, 'ceiling ' + fmtDb(c.ceil) + ' dB', 8, yc - 6, {font: '8px "Mono"', col: '#FFD9BF', a: .85});
+      hzReadout(ctx, c, e, w, w - 10, 38);
+      text(ctx, '—', w - 10, 38, {font: '600 20px Unbounded', col: '#fff', a: rest * .35, align: 'right'});
+      ctx.save(); ctx.globalAlpha = rest * .45; ctx.setLineDash([2, 5]); ctx.strokeStyle = '#fff'; ctx.beginPath(); ctx.moveTo(8, h - 12); ctx.lineTo(w - 8, h - 12); ctx.stroke(); ctx.restore();
+      hzRest(ctx, c, e, w, h, h * .62);
+      limHandle(c, Y, h);
+    }});
+}
+
+// ---------- B · Dawn: the level rides an arc; the limiter holds the sun at the horizon notch ----------
+function HorizonB() {
+  return new Card({...hzBase, params: hzParams(), init() { limInit(this); limDials(this); this.rise = new Spring(MO.SNAP, 0); },
+    drawScreen(ctx, e) {
+      const {w, h} = e, c = this, aw = e.awake; limStep(c, e.dt);
+      const cx = w / 2, cy = h - 20, R = 100, ang = db => Math.PI + clamp((db - HZ_BOT) / (HZ_TOP - HZ_BOT)) * Math.PI;
+      const arcAt = (db, r) => [cx + Math.cos(ang(db)) * r, cy + Math.sin(ang(db)) * r];
+      const glow = clamp(c.flash);
+      // the horizon line, lit
+      let g = ctx.createLinearGradient(0, 0, w, 0); g.addColorStop(0, hexA(HUE.horizon, 0)); g.addColorStop(.5, hexA(HUE.horizon, .55)); g.addColorStop(1, hexA(HUE.horizon, 0));
+      ctx.fillStyle = g; ctx.fillRect(0, cy - .5, w, 1.2);
+      glowDisc(ctx, cx, cy, 150, HUE.horizon, .10 + .18 * aw * clamp(c.outS > HZ_BOT ? (c.outS - HZ_BOT) / 40 : 0));
+      // the track and its ticks
+      ctx.lineCap = 'round'; ctx.beginPath(); ctx.arc(cx, cy, R, Math.PI, 2 * Math.PI); ctx.lineWidth = 9; ctx.strokeStyle = 'rgba(255,255,255,.07)'; ctx.stroke();
+      for (const d of [-36, -24, -12, -6, -3, 0]) { const a = arcAt(d, R + 9), b = arcAt(d, R + 14), t = arcAt(d, R + 23);
+        ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(255,255,255,.28)'; ctx.stroke();
+        text(ctx, fmtDb(d, 0), t[0], t[1] + 3, {font: '8px "Mono"', col: '#fff', a: .32, align: 'center'}); }
+      // the level: a lit arc, brighter at its head
+      const aOut = ang(c.outS), aIn = ang(c.inS), aCeil = ang(c.ceil);
+      if (aw > .01 && aOut > Math.PI + .02) {
+        ctx.save(); ctx.globalAlpha = aw; ctx.shadowColor = HUE.horizon; ctx.shadowBlur = 8;
+        ctx.beginPath(); ctx.arc(cx, cy, R, Math.PI, aOut); ctx.lineWidth = 9; ctx.strokeStyle = hexA(HUE.horizon, .85); ctx.stroke(); ctx.restore();
+        ctx.save(); ctx.globalAlpha = aw; ctx.beginPath(); ctx.arc(cx, cy, R, Math.max(Math.PI, aOut - .35), aOut); ctx.lineWidth = 9; ctx.strokeStyle = '#FFE0C6'; ctx.stroke(); ctx.restore();
+      }
+      // the ceiling notch: the one place the sun cannot pass
+      const n0 = arcAt(c.ceil, R - 11), n1 = arcAt(c.ceil, R + 11);
+      ctx.save(); ctx.shadowColor = '#fff'; ctx.shadowBlur = 4 + 10 * glow; ctx.beginPath(); ctx.moveTo(n0[0], n0[1]); ctx.lineTo(n1[0], n1[1]); ctx.lineWidth = 2.5; ctx.strokeStyle = '#fff'; ctx.stroke(); ctx.restore();
+      // the input, if it wants to go further: a ring beyond the notch, tied back to the sun
+      const sun = arcAt(c.outS, R);
+      if (c.inS > c.ceil + .15 && aw > .05) {
+        const ghost = arcAt(Math.min(HZ_TOP, c.inS), R);
+        ctx.save(); ctx.globalAlpha = aw * .8; ctx.setLineDash([2, 3]); ctx.strokeStyle = '#FFE0C6'; ctx.beginPath(); ctx.moveTo(sun[0], sun[1]); ctx.lineTo(ghost[0], ghost[1]); ctx.stroke(); ctx.setLineDash([]);
+        ctx.beginPath(); ctx.arc(ghost[0], ghost[1], 5, 0, 6.2832); ctx.strokeStyle = '#FFE0C6'; ctx.lineWidth = 1.2; ctx.stroke(); ctx.restore();
+      }
+      // the sun: it sets to the left edge when nothing plays, and rises with the level
+      const sa = .3 + .7 * aw; glowDisc(ctx, sun[0], sun[1], 14 + 22 * glow + 8 * aw, '#FFB27A', sa * (.5 + .5 * glow));
+      ctx.beginPath(); ctx.arc(sun[0], sun[1], 3.6, 0, 6.2832); ctx.fillStyle = '#FFF4E8'; ctx.globalAlpha = sa; ctx.fill(); ctx.globalAlpha = 1;
+      // the held peak
+      const pk = HZ_BOT + c.pk * (HZ_TOP - HZ_BOT), pp = arcAt(pk, R + 0); if (aw > .05 && c.pk > .02) { ctx.beginPath(); ctx.arc(pp[0], pp[1], 2, 0, 6.2832); ctx.fillStyle = '#fff'; ctx.globalAlpha = aw * .8; ctx.fill(); ctx.globalAlpha = 1; }
+      // readout, in the middle of the arc
+      text(ctx, fmtDb(-c.grS), cx, cy - 34, {font: '600 26px Unbounded', col: '#fff', a: aw * (.4 + .6 * clamp(c.grS)), align: 'center'});
+      text(ctx, c.grS > .05 ? 'dB limiting' : 'dB · clear', cx, cy - 18, {font: '9px "Mono"', col: HUE.horizon, a: aw, align: 'center'});
+      text(ctx, 'quiet', cx, cy - 26, {font: '600 14px Unbounded', col: '#fff', a: e.rest * .4, align: 'center'});
+      hzRest(ctx, c, e, w, h, cy + 14);
+      c.hit.push({id: 'line', kind: 'drag', test: (x, y) => Math.hypot(x - 14 - n0[0], y - 60 - n0[1]) < 12,
+        drag: (x, y) => { const a = Math.atan2(y - 60 - cy, x - 14 - cx), t = a > 0 ? (x - 14 < cx ? 0 : 1) : (a + Math.PI) / Math.PI, db = HZ_BOT + t * (HZ_TOP - HZ_BOT), p = c.params.ceiling; p.v = clamp(1 + clamp(db, -12, 0) / 12); p.spring.snap(p.v); }});
+    }});
+}
+
+// ---------- C · Bars: a skyline of light, the peaks that pressed the ceiling capped in white ----------
+function HorizonC() {
+  return new Card({...hzBase, params: hzParams(), init() { this.N = 32; limInit(this); limDials(this); },
+    drawScreen(ctx, e) {
+      const {w, h} = e, c = this, aw = e.awake; limStep(c, e.dt); limTake(c, e.dt, .06);
+      const Y = db => h * (HZ_TOP - db) / (HZ_TOP - HZ_BOT), yc = Y(c.ceil), glow = clamp(c.flash);
+      // the wall: striped, and it lights where bars strike it
+      ctx.fillStyle = 'rgba(0,0,0,.34)'; ctx.fillRect(0, 0, w, yc);
+      ctx.save(); ctx.beginPath(); ctx.rect(0, 0, w, yc); ctx.clip(); ctx.strokeStyle = 'rgba(255,255,255,.035)'; ctx.lineWidth = 1;
+      for (let x = -h; x < w; x += 8) { ctx.beginPath(); ctx.moveTo(x, yc); ctx.lineTo(x + yc, 0); ctx.stroke(); } ctx.restore();
+      let g = ctx.createLinearGradient(0, yc - 26, 0, yc); g.addColorStop(0, hexA(HUE.horizon, 0)); g.addColorStop(1, hexA(HUE.horizon, .08 + .4 * glow)); ctx.fillStyle = g; ctx.fillRect(0, yc - 26, w, 26);
+      // bars
+      const pitch = 8, bw = 5.2, n = c.hist.length, shift = (c.acc / .06) * pitch;
+      for (let i = 0; i < n; i++) {
+        const q = c.hist[i], x = w - 8 - (n - i) * pitch - shift + pitch + 2.4;
+        if (x < -pitch) continue;
+        const age = (n - 1 - i) / c.N, a = aw * (1 - age * .55);
+        const yo = Math.min(h - 3, Y(q.o)), top = Math.max(yo, 0);
+        if (h - yo > 1) {
+          const bg = ctx.createLinearGradient(0, yo, 0, h); bg.addColorStop(0, hexA('#FFB27A', .95 * a)); bg.addColorStop(1, hexA(HUE.horizon, .18 * a));
+          rr(ctx, x, yo, bw, h - yo - 4, 2); ctx.fillStyle = bg; ctx.fill();
+        }
+        const over = q.i - c.ceil;
+        if (over > .25 && a > .02) { // the pressed part: a white cap that sits on the bar, taller the harder it was pressed
+          const ch = Math.min(26, 3 + over * 3.4); ctx.save(); ctx.shadowColor = '#FFD9BF'; ctx.shadowBlur = 6 * a; rr(ctx, x, yo - ch + 1, bw, ch, 2); ctx.fillStyle = hexA('#FFF1E4', .92 * a); ctx.fill(); ctx.restore();
+        }
+      }
+      ctx.save(); ctx.setLineDash([4, 3]); ctx.shadowColor = HUE.horizon; ctx.shadowBlur = 3 + 8 * glow; ctx.fillStyle = '#FFC49C'; ctx.globalAlpha = .9; ctx.fillRect(0, yc - .5, w, 1); ctx.restore();
+      text(ctx, 'ceiling ' + fmtDb(c.ceil) + ' dB', 8, yc - 6, {font: '8px "Mono"', col: '#FFD9BF', a: .85});
+      hzReadout(ctx, c, e, w, w - 10, 38);
+      // at rest: a row of dots where the bars will stand
+      ctx.save(); ctx.globalAlpha = e.rest * .5; ctx.fillStyle = '#fff';
+      for (let i = 0; i < c.N; i++) { ctx.beginPath(); ctx.arc(w - 8 - (c.N - i) * pitch + pitch + 2.4 + bw / 2, h - 10, 1.2, 0, 6.2832); ctx.fill(); } ctx.restore();
+      hzRest(ctx, c, e, w, h, h * .55);
+      limHandle(c, Y, h);
+    }});
+}
+
+// ============================================================================
+// GRAVITY (compressor) · 380 x 330, screen 352 x 176
+// Real card data: Scene.level, Scene.reading (gain reduction; exists), the
+// params. Below, a soft-knee compressor is simulated from the signal.
+// ============================================================================
+const grParams = () => ({
+  pull: P('Pull', .60, v => fmtDb(-45 * (1 - v), 0) + ' dB'),
+  ratio: P('Ratio', .45, v => (1 + 15 * v * v).toFixed(1) + ':1'),
+  attack: P('Attack', .2, f_ms(.5, 50)), release: P('Release', .5, f_ms(10, 1000)), makeup: P('Makeup', .7, () => 'auto'),
+});
+const grBase = {w: 380, name: 'Gravity', sub: 'Compressor', hue: HUE.gravity, hue2: HUE2.gravity, deep: DEEP.gravity,
+  dials: [{key: 'pull', name: 'Pull'}, {key: 'ratio', name: 'Ratio'}, {key: 'attack', name: 'Attack'}, {key: 'release', name: 'Release'}, {key: 'makeup', name: 'Makeup'}]};
+const KNEE = 6;
+function compGR(inDb, thr, ratio) {
+  const o = inDb - thr, k = 1 - 1 / ratio;
+  if (o <= -KNEE / 2) return 0;
+  if (o >= KNEE / 2) return k * o;
+  return k * (o + KNEE / 2) * (o + KNEE / 2) / (2 * KNEE);
+}
+function compInit(c) { c.gr = 0; c.grS = 0; c.inS = -60; c.outS = -60; c.prevGr = 0; c.dGR = 0; c.flash = 0; c.pk = new Peak(); c.grPk = 0; }
+function compStep(c, dt) {
+  const thr = -45 * (1 - c.params.pull.v), ratio = 1 + 15 * c.params.ratio.v ** 2;
+  const att = ms_of(.5, 50, c.params.attack.v) / 1000, rel = ms_of(10, 1000, c.params.release.v) / 1000;
+  const inDb = SIG.level > .004 ? -44 + 46 * SIG.level : -60;
+  c.prevGr = c.gr; c.gr = follow(c.gr, compGR(inDb, thr, ratio), att, rel, dt);
+  c.dGR = (c.gr - c.prevGr);
+  c.grS = follow(c.grS, c.gr, .006, .10, dt);
+  c.inS = follow(c.inS, inDb, MO.METER_ATTACK, MO.METER_RELEASE, dt); c.outS = follow(c.outS, inDb - c.gr, MO.METER_ATTACK, MO.METER_RELEASE, dt);
+  c.flash = Math.max(c.flash * Math.exp(-dt / MO.FLASH_TAU), clamp(c.dGR * 14));
+  c.thr = thr; c.ratio = ratio; c.grPk = c.pk.step(clamp(c.gr / 18), dt);
+}
+const grChip = (ctx, h) => {
+  rr(ctx, 12, h - 30, 150, 20, 10); ctx.fillStyle = '#0B0912'; ctx.fill(); ctx.strokeStyle = hexA(HUE.gravity, .6); ctx.lineWidth = 1; ctx.stroke();
+  text(ctx, 'Keyed by Kick · post', 22, h - 16, {font: '10px Inter', col: '#fff', a: .85});
+};
+const grReadout = (ctx, c, e, x, y, align = 'right') => {
+  const aw = e.awake;
+  text(ctx, fmtDb(-c.grS), x, y, {font: '600 26px Unbounded', col: '#fff', a: .35 + .65 * aw * clamp(c.grS / 1.5) + .0, align});
+  text(ctx, c.grS > .05 ? 'dB pulled' : 'dB · at rest', x, y + 16, {font: '9px "Mono"', col: HUE.gravity, a: .5 + .5 * aw, align});
+};
+
+// ---------- A · Well: the grid is a real membrane, the ball drops, and a hit sends rings across it ----------
+function GravityA() {
+  const NX = 23, NY = 12;
+  return new Card({...grBase, params: grParams(), init() {
+    compInit(this); this.hh = new Float32Array(NX * NY); this.vv = new Float32Array(NX * NY); this.ballY = new Spring(MO.POP, 0); this.sq = 0; this.lastBy = 0; this.rem = 0;
+  }, drawScreen(ctx, e) {
+    const {w, h} = e, c = this, aw = e.awake; compStep(c, e.dt);
+    const D = clamp(c.gr / 16), A = 40, cxg = (NX - 1) / 2, cyg = 6.2;
+    // the membrane: h' = c2 lap(h) - k (h - well) - d v, in fixed steps so a slow frame cannot blow it up
+    c.rem += e.dt; const st = 1 / 120; let n = 0;
+    if (c.dGR > .7 && !e.still) { for (let j = 5; j <= 7; j++) for (let i = 10; i <= 12; i++) c.vv[j * NX + i] -= c.dGR * 2.4; }
+    while (c.rem >= st && n++ < 8) {
+      c.rem -= st;
+      for (let j = 1; j < NY - 1; j++) for (let i = 1; i < NX - 1; i++) {
+        const k = j * NX + i, dx = (i - cxg) / 3.3, dy = (j - cyg) / 2.5, g = -D * Math.exp(-(dx * dx + dy * dy));
+        const lap = c.hh[k - 1] + c.hh[k + 1] + c.hh[k - NX] + c.hh[k + NX] - 4 * c.hh[k];
+        c.vv[k] += (1500 * lap - 42 * (c.hh[k] - g) - 5 * c.vv[k]) * st;
+      }
+      for (let k = 0; k < c.hh.length; k++) c.hh[k] += c.vv[k] * st;
+    }
+    if (c.rem > st * 8) c.rem = 0;
+    const pt = (i, j) => { const t = j / (NY - 1), s = .5 + .5 * Math.pow(t, .8), yR = 22 + 150 * Math.pow(t, 1.35), hv = c.hh[j * NX + i];
+      return [w / 2 + (i - cxg) * 15.5 * s, yR - hv * A * (.45 + .55 * t)]; };
+    const ctr = pt(11, 6), mem = (i, j) => Math.min(1, Math.abs(c.hh[j * NX + i]) * 2.2);
+    // glow in the well
+    glowDisc(ctx, ctr[0], ctr[1] + 10, 120, HUE.gravity, .10 + .18 * aw + .3 * D);
+    ctx.lineJoin = 'round'; ctx.lineWidth = 1;
+    for (let j = 0; j < NY; j++) { const t = j / (NY - 1); ctx.beginPath(); const pts = []; for (let i = 0; i < NX; i++) pts.push(pt(i, j)); pathPts(ctx, pts);
+      let m = 0; for (let i = 0; i < NX; i++) m = Math.max(m, mem(i, j)); ctx.strokeStyle = hexA(HUE.gravity, (.10 + .22 * t) + .5 * m); ctx.stroke(); }
+    for (let i = 0; i < NX; i += 1) { ctx.beginPath(); const pts = []; for (let j = 0; j < NY; j++) pts.push(pt(i, j)); pathPts(ctx, pts);
+      let m = 0; for (let j = 0; j < NY; j++) m = Math.max(m, mem(i, j)); ctx.strokeStyle = hexA(HUE.gravity, .10 + .5 * m); ctx.stroke(); }
+    // the event horizon: the threshold ring, lit as the ball drops through it
+    const rx = 54 + 40 * (1 - c.params.pull.v), ry = rx * .3;
+    ctx.save(); ctx.setLineDash([5, 4]); ctx.lineWidth = 1.2; ctx.strokeStyle = hexA('#E9D4FF', .22 + .6 * clamp(c.flash + D * .5)); ctx.beginPath(); ctx.ellipse(ctr[0], ctr[1] + 8, rx, ry, 0, 0, 6.2832); ctx.stroke(); ctx.restore();
+    text(ctx, fmtDb(c.thr, 0) + ' dB', ctr[0] + rx + 6, ctr[1] + 12, {font: '8.5px "Mono"', col: '#E9D4FF', a: .55});
+    // the ball: it rests on the membrane, springs down by the pull, rebounds on release
+    c.ballY.set(aw < .05 ? -12 : 0); const by = c.ballY.step(e.dt);
+    const vy = (ctr[1] - c.lastBy) / Math.max(e.dt, 1e-3); c.lastBy = ctr[1]; c.sq = follow(c.sq, clamp(vy / 260, -.28, .28), .02, .05, e.dt);
+    const bx = ctr[0], byy = ctr[1] - 2 + by, sy = 1 + (e.still ? 0 : c.sq), sx = 1 / sy, br = 15;
+    glowDisc(ctx, bx, byy, 44 + 30 * D + 16 * c.flash, HUE.gravity, .5 + .4 * c.flash);
+    ctx.save(); ctx.translate(bx, byy); ctx.scale(sx, sy);
+    const bg = ctx.createRadialGradient(-4, -5, 1, 0, 0, br); bg.addColorStop(0, '#FFFFFF'); bg.addColorStop(.35, '#E9D4FF'); bg.addColorStop(1, HUE.gravity);
+    ctx.beginPath(); ctx.arc(0, 0, br, 0, 6.2832); ctx.fillStyle = bg; ctx.fill(); ctx.restore();
+    grReadout(ctx, c, e, w - 14, 34); grChip(ctx, h);
+    text(ctx, 'nothing to pull', w - 14, 66, {font: '8.5px "Mono"', col: '#E9D4FF', a: e.rest * .6, align: 'right'});
+  }});
+}
+
+// ---------- B · Slope: the transfer curve, a bead riding it, the pulled amount as a lit bracket ----------
+function GravityB() {
+  return new Card({...grBase, params: grParams(), init() { compInit(this); this.trail = []; this.tk = 0; this.pop = new Spring(MO.POP, 0); },
+  drawScreen(ctx, e) {
+    const {w, h} = e, c = this, aw = e.awake; compStep(c, e.dt);
+    const X0 = 28, X1 = 186, Y0 = 156, Y1 = 14, xo = d => X0 + (d + 48) / 48 * (X1 - X0), yo = d => Y0 - (d + 48) / 48 * (Y0 - Y1);
+    // grid
+    for (let d = -48; d <= 0; d += 12) { ctx.fillStyle = 'rgba(255,255,255,.06)'; ctx.fillRect(xo(d), Y1, 1, Y0 - Y1); ctx.fillRect(X0, yo(d), X1 - X0, 1); if (d < 0) text(ctx, fmtDb(d, 0), xo(d), Y0 + 11, {font: '8px "Mono"', col: '#fff', a: .3, align: 'center'}); }
+    text(ctx, 'in', X1 + 2, Y0 + 11, {font: '8px "Mono"', col: '#fff', a: .4}); text(ctx, 'out', X0 - 6, Y1 - 3, {font: '8px "Mono"', col: '#fff', a: .4});
+    // unity, and the curve
+    ctx.save(); ctx.setLineDash([2, 4]); ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.beginPath(); ctx.moveTo(xo(-48), yo(-48)); ctx.lineTo(xo(0), yo(0)); ctx.stroke(); ctx.restore();
+    const pts = []; for (let d = -48; d <= 0; d += 1) pts.push([xo(d), yo(d - compGR(d, c.thr, c.ratio))]);
+    ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); for (let d = 0; d >= -48; d -= 4) ctx.lineTo(xo(d), yo(d)); ctx.closePath();
+    const pg = ctx.createLinearGradient(0, Y1, 0, Y0); pg.addColorStop(0, hexA(HUE.gravity, .38)); pg.addColorStop(1, hexA(HUE.gravity, .04)); ctx.fillStyle = pg; ctx.fill();
+    ctx.save(); ctx.shadowColor = HUE.gravity; ctx.shadowBlur = 6; ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.lineWidth = 2.2; ctx.strokeStyle = '#D8B5FF'; ctx.lineJoin = 'round'; ctx.stroke(); ctx.restore();
+    // threshold: a lit tick on the in axis that can be dragged
+    const tx = xo(c.thr); ctx.beginPath(); ctx.moveTo(tx, Y0 + 1); ctx.lineTo(tx - 4, Y0 + 8); ctx.lineTo(tx + 4, Y0 + 8); ctx.closePath(); ctx.fillStyle = '#E9D4FF'; ctx.fill();
+    ctx.save(); ctx.setLineDash([2, 3]); ctx.strokeStyle = hexA('#E9D4FF', .35); ctx.beginPath(); ctx.moveTo(tx, Y0); ctx.lineTo(tx, yo(c.thr)); ctx.stroke(); ctx.restore();
+    c.hit.push({id: 'thr', kind: 'drag', test: (x, y) => Math.abs(x - 14 - tx) < 9 && y - 60 > Y0 - 6 && y - 60 < Y0 + 14, drag: (x) => { const d = clamp((x - 14 - X0) / (X1 - X0)) * 48 - 48; const p = c.params.pull; p.v = clamp(1 + d / 45); p.spring.snap(p.v); }});
+    // the bead and its comet
+    c.tk += e.dt; if (c.tk > .028) { c.tk = 0; c.trail.push([c.inS, c.outS]); if (c.trail.length > 26) c.trail.shift(); }
+    if (c.dGR > .6) c.pop.x = Math.min(1.6, c.pop.x + .9 * clamp(c.dGR * 2)); c.pop.set(0); const pp = c.pop.step(e.dt);
+    if (aw > .02) {
+      c.trail.forEach(([i, o], k) => { const a = (k / c.trail.length) ** 2 * .5 * aw; glowDisc(ctx, xo(Math.min(0, i)), yo(Math.min(0, o)), 5, '#E9D4FF', a); });
+      const bi = clamp(c.inS, -48, 0), bo = clamp(c.outS, -48, 0), bx = xo(bi), by = yo(bo), uy = yo(bi);
+      if (c.gr > .1) { ctx.save(); ctx.setLineDash([2, 2]); ctx.strokeStyle = '#fff'; ctx.globalAlpha = .75 * aw; ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx, uy); ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle = '#fff'; ctx.fillRect(bx - 4, uy - .5, 8, 1.2); ctx.restore(); }
+      glowDisc(ctx, bx, by, 18 + 14 * c.flash, HUE.gravity, aw * (.7 + .3 * c.flash));
+      ctx.beginPath(); ctx.arc(bx, by, 4.2 + 2.6 * pp, 0, 6.2832); ctx.fillStyle = '#fff'; ctx.globalAlpha = aw; ctx.fill(); ctx.globalAlpha = 1;
+    } else { ctx.beginPath(); ctx.arc(xo(-47), yo(-47), 3.5, 0, 6.2832); ctx.fillStyle = hexA('#fff', .35); ctx.fill(); }
+    // the right column: the number, the in and out, a meter that falls from the top
+    grReadout(ctx, c, e, 300, 52);
+    text(ctx, 'in  ' + fmtDb(clamp(c.inS, -60, 0)) + ' dB', 214, 96, {font: MONO, col: '#fff', a: .35 + .5 * aw});
+    text(ctx, 'out ' + fmtDb(clamp(c.outS, -60, 0)) + ' dB', 214, 110, {font: MONO, col: '#E9D4FF', a: .35 + .5 * aw});
+    text(ctx, c.ratio.toFixed(1) + ':1 over ' + fmtDb(c.thr, 0), 214, 130, {font: '8.5px "Mono"', col: HUE.gravity, a: .8});
+    rr(ctx, 326, 14, 10, 148, 5); ctx.fillStyle = 'rgba(255,255,255,.07)'; ctx.fill();
+    const mh = 148 * clamp(c.grS / 18); if (mh > 1) { rr(ctx, 326, 14, 10, mh, 5); const mg = ctx.createLinearGradient(0, 14, 0, 14 + mh); mg.addColorStop(0, '#E9D4FF'); mg.addColorStop(1, HUE.gravity); ctx.fillStyle = mg; ctx.fill(); }
+    ctx.fillStyle = '#fff'; ctx.globalAlpha = .8 * aw; ctx.fillRect(324, 14 + 148 * c.grPk - 1, 14, 1.5); ctx.globalAlpha = 1;
+    
+  }});
+}
+
+// ---------- C · Press: a lit ball squashed by a plate; the squash is the gain reduction ----------
+function GravityC() {
+  return new Card({...grBase, params: grParams(), init() { compInit(this); this.ry = new Spring(MO.POP, 34); this.rings = []; this.rest = 0; },
+  drawScreen(ctx, e) {
+    const {w, h} = e, c = this, aw = e.awake; compStep(c, e.dt);
+    const cx = w / 2 + 6, floor = 140, R = 34, gn = clamp(c.gr / 14);
+    c.ry.set(R - 20 * gn); const ry = Math.max(10, c.ry.step(e.dt)), rx = Math.min(70, R * Math.sqrt(R / ry)), cy = floor - ry;
+    if (c.dGR > .6 && c.rings.length < 4 && !e.still) c.rings.push({t: 0, a: clamp(c.dGR * 2) });
+    // the floor, its light and rings
+    ctx.save(); ctx.translate(cx, floor); ctx.scale(1, .22); const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 150); g.addColorStop(0, hexA(HUE.gravity, .26 + .2 * aw)); g.addColorStop(1, hexA(HUE.gravity, 0)); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, 150, 0, 6.2832); ctx.fill(); ctx.restore();
+    ctx.fillStyle = 'rgba(255,255,255,.08)'; ctx.fillRect(10, floor, w - 20, 1);
+    c.rings.forEach(r => { r.t += e.dt; const p = ease.outExpo(r.t / .6); ctx.beginPath(); ctx.ellipse(cx, floor + 1, 30 + 130 * p, 5 + 30 * p, 0, 0, 6.2832); ctx.lineWidth = 1.4; ctx.strokeStyle = hexA('#E9D4FF', r.a * (1 - p) * .8); ctx.stroke(); });
+    c.rings = c.rings.filter(r => r.t < .6);
+    // the plate: it comes down to meet the ball; the threshold is where it rests
+    const plate = cy - ry - 3; ctx.save(); ctx.shadowColor = HUE.gravity; ctx.shadowBlur = 4 + 10 * gn;
+    rr(ctx, cx - 62, plate - 5, 124, 5, 2.5); const pgd = ctx.createLinearGradient(0, plate - 5, 0, plate); pgd.addColorStop(0, hexA('#E9D4FF', .9)); pgd.addColorStop(1, hexA(HUE.gravity, .8)); ctx.fillStyle = pgd; ctx.fill(); ctx.restore();
+    for (const sx of [-52, 52]) { ctx.fillStyle = 'rgba(255,255,255,.14)'; ctx.fillRect(cx + sx - 1, 18, 2, plate - 22); }
+    // the shadow and the ball
+    ctx.save(); ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.ellipse(cx, floor + 3, rx * .95, 4 + 2 * gn, 0, 0, 6.2832); ctx.fill(); ctx.restore();
+    glowDisc(ctx, cx, cy, 52 + 34 * gn, HUE.gravity, .55 * (.4 + .6 * aw) + .4 * c.flash);
+    ctx.save(); ctx.translate(cx, cy); ctx.scale(rx / R, ry / R);
+    const bg = ctx.createRadialGradient(-10, -13, 2, 0, 0, R); bg.addColorStop(0, '#FFFFFF'); bg.addColorStop(.3, '#E9D4FF'); bg.addColorStop(1, mixc(HUE.gravity, '#4A1F8A', .35 * gn));
+    ctx.beginPath(); ctx.arc(0, 0, R, 0, 6.2832); ctx.fillStyle = bg; ctx.fill(); ctx.restore();
+    // level columns: what comes in, what leaves
+    const col = (x, v, lab) => { rr(ctx, x, 30, 8, 108, 4); ctx.fillStyle = 'rgba(255,255,255,.07)'; ctx.fill(); const f = clamp((v + 48) / 48); if (f > .01) { rr(ctx, x, 30 + 108 * (1 - f), 8, 108 * f, 4); ctx.fillStyle = hexA(HUE.gravity, .85); ctx.fill(); } text(ctx, lab, x + 4, 150, {font: '8px "Mono"', col: '#fff', a: .4, align: 'center'}); };
+    col(14, c.inS, 'in'); col(w - 22, c.outS, 'out');
+    grReadout(ctx, c, e, w - 36, 34);
+  }});
+}
+
+// ============================================================================
+// PRISM (utility) · 300 x 290, screen 272 x 136
+// Real card data: Scene.level, the four dials, polarity. A stereo picture
+// (correlation, side energy) would be one new reading from the engine; the
+// fan and the ribbons need only the level.
+// ============================================================================
+const pmParams = () => ({
+  gain: P('Gain', .5, v => fmtDb(-18 + 36 * v)), pan: P('Pan', .5, v => Math.abs(v - .5) < .01 ? 'C' : (v < .5 ? 'L' : 'R') + Math.round(Math.abs(v - .5) * 200)),
+  width: P('Width', .65, v => Math.round(v * 200) + '%'), bass: P('Bass mono', .3, v => '<' + Math.round(40 + v * 267)),
+});
+const pmBase = {w: 300, h: 290, screenH: 136, name: 'Prism', sub: 'Utility · gain, width, mono', hue: HUE.prism, hue2: HUE2.prism, deep: DEEP.prism, init() { this.flash = 0; this.lv = 0; this.pol = true; this.bloom = new Spring(MO.POP, 0); this.hist = []; },
+  drawDials(ctx) {
+    this.dialRow(ctx, [{key: 'gain', name: 'Gain'}, {key: 'pan', name: 'Pan'}, {key: 'width', name: 'Width', hue: '#B07CFF'}, {key: 'bass', name: 'Bass mono'},
+      {pill: true, id: 'pol', label: () => 'Ø L', on: () => this.pol, click: () => { this.pol = !this.pol; }, w: 40}], {x0: 44, x1: 256, cy: 60 + 136 + 40, r: 14});
+  }};
+function pmLevel(c, dt) { c.lv = follow(c.lv, SIG.level, MO.METER_ATTACK, MO.METER_RELEASE, dt); c.flash = Math.max(c.flash * Math.exp(-dt / MO.FLASH_TAU), SIG.level > .6 ? 1 : 0); }
+const pmGain = c => Math.pow(10, (-18 + 36 * c.params.gain.v) / 20);
+const BEAMS = ['#FF5A6E', '#FFB547', '#5BE07F', '#4FA3FF', '#B07CFF'];
+
+// ---------- A · Fan: a real prism; the light leaves in five wedges that add back to white at 0 % ----------
+function PrismA() {
+  return new Card({...pmBase, params: pmParams(), drawScreen(ctx, e) {
+    const {w, h} = e, c = this, aw = e.awake; pmLevel(c, e.dt);
+    const gain = clamp(Math.pow(pmGain(c), .6), .25, 1.4), spread = c.params.width.v * .17, pan = (c.params.pan.v - .5) * 2;
+    const px = w * .33, py = h / 2 + pan * 12, ent = [px - 12, py + 12], O = [px + 13, py + 10], stem = 4 + c.params.bass.v * 34;
+    const O2 = [O[0] + stem, O[1] - stem * .02], Lb = w - 6 - O2[0], live = .14 + .6 * aw + .3 * aw * c.lv, a = clamp(live * gain);
+    // light in
+    ctx.save(); addBlend(ctx, true);
+    let g = ctx.createLinearGradient(0, 0, ent[0], 0); g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(1, `rgba(255,255,255,${.35 + .6 * a})`);
+    ctx.fillStyle = g; ctx.fillRect(0, ent[1] - 1.8, ent[0], 3.6);
+    glowDisc(ctx, ent[0] - 10, ent[1], 16 + 10 * c.lv, '#fff', .25 * a);
+    // five wedges, each a soft-edged triangle; their overlap is white
+    BEAMS.forEach((col, i) => {
+      const th = (i - 2) * spread, half = .035 + .012 * c.lv, dx = Math.cos(th), dy = Math.sin(th), nx = -dy, ny = dx, wd = 7 + 5 * c.lv * aw;
+      const tip = [O2[0] + dx * Lb, O2[1] + dy * Lb], gg = ctx.createLinearGradient(O2[0], 0, tip[0], 0);
+      gg.addColorStop(0, hexA(col, .78 * a)); gg.addColorStop(.55, hexA(col, .42 * a)); gg.addColorStop(1, hexA(col, .06 * a));
+      ctx.beginPath(); ctx.moveTo(O2[0], O2[1] - 1.2); ctx.lineTo(tip[0] + nx * wd, tip[1] + ny * wd); ctx.lineTo(tip[0] - nx * wd, tip[1] - ny * wd); ctx.lineTo(O2[0], O2[1] + 1.2); ctx.closePath(); ctx.fillStyle = gg; ctx.fill();
+      ctx.beginPath(); ctx.moveTo(O2[0], O2[1]); ctx.lineTo(tip[0], tip[1]); ctx.lineWidth = 1.4; ctx.strokeStyle = hexA(col, .95 * a); ctx.stroke();
+      // light packets running down the beam: they are the signal
+      if (aw > .02 && !e.still) for (let k = 0; k < 2; k++) {
+        const s = ((e.T * 150 + i * 31 + k * Lb * .5) % Lb) / Lb, x = O2[0] + dx * Lb * s, y = O2[1] + dy * Lb * s;
+        glowDisc(ctx, x, y, 7 + 5 * c.lv, col, aw * (.2 + .7 * c.lv) * (1 - s * .6));
+      }
+      // the tip is a handle: its dot
+      if (i === 0 || i === 4) { glowDisc(ctx, tip[0], tip[1], 6, '#fff', .35); }
+    });
+    ctx.restore();
+    // the stem: where the bass stays one beam
+    ctx.save(); addBlend(ctx, true); glowDisc(ctx, O2[0], O2[1], 12 + 14 * c.lv + 10 * c.bloom.x, '#fff', .35 * a + .15 * c.flash); ctx.restore();
+    // the glass: edges lit, the inside a faint gradient, a dispersion fringe on the exit face
+    const A_ = [px, py - 44], B_ = [px - 28, py + 36], C_ = [px + 28, py + 36];
+    ctx.beginPath(); ctx.moveTo(...A_); ctx.lineTo(...C_); ctx.lineTo(...B_); ctx.closePath();
+    const gl = ctx.createLinearGradient(px - 28, py - 40, px + 28, py + 36); gl.addColorStop(0, 'rgba(255,255,255,.20)'); gl.addColorStop(.5, 'rgba(255,255,255,.05)'); gl.addColorStop(1, 'rgba(255,255,255,.12)'); ctx.fillStyle = gl; ctx.fill();
+    ctx.lineJoin = 'round'; ctx.lineWidth = 1.2; ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(...A_); ctx.lineTo(...B_); ctx.lineWidth = 1.8; ctx.strokeStyle = `rgba(255,255,255,${.55 + .4 * a})`; ctx.stroke();
+    ctx.save(); addBlend(ctx, true); ctx.beginPath(); ctx.moveTo(ent[0], ent[1]); ctx.lineTo(O[0], O[1]); ctx.lineWidth = 2; ctx.strokeStyle = `rgba(255,255,255,${.25 + .5 * a})`; ctx.stroke(); ctx.restore();
+    text(ctx, 'width ' + c.params.width.fmt(c.params.width.v), w - 10, 18, {font: '9px "Mono"', col: '#fff', a: .85, align: 'right'});
+    text(ctx, spread < .006 ? 'mono' : 'stereo', w - 10, 30, {font: '8.5px "Mono"', col: '#fff', a: .4, align: 'right'});
+    const t0 = [O2[0] + Math.cos(-2 * spread) * Lb, O2[1] + Math.sin(-2 * spread) * Lb], t1 = [O2[0] + Math.cos(2 * spread) * Lb, O2[1] + Math.sin(2 * spread) * Lb];
+    c.hit.push({id: 'tip', kind: 'drag', test: (x, y) => x - 14 > w * .6 && (Math.abs(y - 60 - t0[1]) < 10 || Math.abs(y - 60 - t1[1]) < 10), drag: (x, y) => { const s = Math.abs(y - 60 - O2[1]) / (2 * Lb) ; const p = c.params.width; p.v = clamp(s / .17); p.spring.snap(p.v); }});
+    if (c.flash > .5) c.bloom.x = Math.min(1.5, c.bloom.x + .1); c.bloom.set(0); c.bloom.step(e.dt);
+  }});
+}
+
+// ---------- B · Field: a stereo scope: the picture is width and mono, measured ----------
+function PrismB() {
+  return new Card({...pmBase, params: pmParams(), init() { pmBase.init.call(this); this.corr = new Spring(MO.SNAP, 0); this.pts = []; this.cr = 0; },
+  drawScreen(ctx, e) {
+    const {w, h} = e, c = this, aw = e.awake; pmLevel(c, e.dt);
+    const cx = 92, cy = h / 2 + 2, R = 56, wd = c.params.width.v * 2, rot = (c.params.pan.v - .5) * .9, gain = clamp(Math.pow(pmGain(c), .5), .3, 1.4);
+    // the scope's frame: a ring, a diamond, the mid and side axes
+    ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(255,255,255,.10)'; ctx.beginPath(); ctx.arc(cx, cy, R, 0, 6.2832); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, cy, R * .5, 0, 6.2832); ctx.strokeStyle = 'rgba(255,255,255,.05)'; ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx, cy - R - 4); ctx.lineTo(cx, cy + R + 4); ctx.moveTo(cx - R - 4, cy); ctx.lineTo(cx + R + 4, cy); ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.stroke();
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(Math.PI / 4); ctx.strokeStyle = 'rgba(255,255,255,.06)'; ctx.strokeRect(-R * .7, -R * .7, R * 1.4, R * 1.4); ctx.restore();
+    for (const [t, x, y] of [['M', cx, cy - R - 7], ['L', cx - R * .72 - 8, cy - R * .72 + 2], ['R', cx + R * .72 + 8, cy - R * .72 + 2]]) text(ctx, t, x, y + 3, {font: '8px "Mono"', col: '#fff', a: .4, align: 'center'});
+    // this frame's samples (mid and side from the signal), kept a few frames so the trace glows and fades
+    if (!e.still && aw > .01) { const fr = []; for (let k = 0; k < 20; k++) { const ph = hash(SIG.frame * 7.3 + k * 1.9) * 6.2832, ph2 = hash(SIG.frame * 3.1 + k * 5.7) * 6.2832;
+      const m = SIG.mid * Math.sin(ph) * gain, s = SIG.side * wd * .6 * Math.sin(ph2) * gain; const x = s * 50, y = -m * 50; fr.push([x * Math.cos(rot) - y * Math.sin(rot), x * Math.sin(rot) + y * Math.cos(rot)]); }
+      c.hist.push(fr); if (c.hist.length > 10) c.hist.shift(); } else if (c.hist.length) c.hist.shift();
+    ctx.save(); addBlend(ctx, true);
+    c.hist.forEach((fr, i) => { const age = (i + 1) / c.hist.length, al = age * age * .55; ctx.fillStyle = hexA('#CFE3FF', al); fr.forEach(([x, y]) => { ctx.beginPath(); ctx.arc(cx + clamp(x, -R, R), cy + clamp(y, -R, R), 1.5, 0, 6.2832); ctx.fill(); }); });
+    // the low end: a bar on the mid axis, its length the bass-mono corner
+    const bl = 10 + c.params.bass.v * 34; const bg = ctx.createLinearGradient(0, cy - bl, 0, cy + bl); bg.addColorStop(0, 'rgba(255,255,255,0)'); bg.addColorStop(.5, `rgba(255,255,255,${.35 + .5 * c.lv * aw})`); bg.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = bg; ctx.fillRect(cx - 1.2, cy - bl, 2.4, bl * 2); glowDisc(ctx, cx, cy, 14 + 10 * c.lv, '#B9D6FF', .3 * aw + .08); ctx.restore();
+    // the correlation meter
+    const mx = 176, mw = 84, my = 46; const cT = clamp((SIG.mid * SIG.mid - (SIG.side * wd * .6) ** 2) / (SIG.mid * SIG.mid + (SIG.side * wd * .6) ** 2 + .02), -1, 1) * aw; c.corr.set(cT); const cv = c.corr.step(e.dt);
+    text(ctx, 'correlation', mx, my - 10, {font: '8.5px "Mono"', col: '#fff', a: .5});
+    rr(ctx, mx, my, mw, 6, 3); ctx.fillStyle = 'rgba(255,255,255,.08)'; ctx.fill(); ctx.fillStyle = 'rgba(255,255,255,.2)'; ctx.fillRect(mx + mw / 2 - .5, my - 3, 1, 12);
+    const bx = mx + mw / 2 + cv * mw / 2; glowDisc(ctx, bx, my + 3, 12, '#B9D6FF', .5 * (.3 + .7 * aw)); ctx.beginPath(); ctx.arc(bx, my + 3, 3.6, 0, 6.2832); ctx.fillStyle = '#fff'; ctx.fill();
+    text(ctx, '−1', mx, my + 22, {font: '8px "Mono"', col: '#fff', a: .35}); text(ctx, '+1', mx + mw, my + 22, {font: '8px "Mono"', col: '#fff', a: .35, align: 'right'});
+    text(ctx, 'width ' + c.params.width.fmt(c.params.width.v), mx, 96, {font: '9px "Mono"', col: '#fff', a: .85});
+    text(ctx, 'bass mono ' + c.params.bass.fmt(c.params.bass.v) + ' Hz', mx, 110, {font: '8.5px "Mono"', col: '#fff', a: .5});
+    text(ctx, 'no signal', cx, cy + R + 14 - 4, {font: '8.5px "Mono"', col: '#fff', a: e.rest * .5, align: 'center'});
+  }});
+}
+
+// ---------- C · Ribbons: left and right as two bands of light that part by the width and add to white at mono ----------
+function PrismC() {
+  return new Card({...pmBase, params: pmParams(), drawScreen(ctx, e) {
+    const {w, h} = e, c = this, aw = e.awake; pmLevel(c, e.dt);
+    const wd = c.params.width.v, pan = (c.params.pan.v - .5) * 2, gain = clamp(Math.pow(pmGain(c), .6), .3, 1.3), stem = 14 + c.params.bass.v * 70, sepMax = 6 + wd * 40, thick = 8 + 6 * gain + 6 * c.lv * aw;
+    const base = h / 2 + pan * 8, live = .16 + .64 * aw + .2 * aw * c.lv;
+    const ribbon = (sgn, col, kA) => {
+      const top = [], bot = [];
+      for (let x = 0; x <= w; x += 4) {
+        const u = clamp((x - stem) / (w - stem)), sep = sgn * sepMax * ease.inOut(u);
+        const wave = e.still ? 0 : Math.sin(x * .045 - e.T * 3.2 + sgn) * (1.2 + 7 * c.lv * aw) * u;
+        const y = base + sep + wave, t = thick * (.6 + .4 * Math.sin(x * .02 + 1));
+        top.push([x, y - t / 2]); bot.push([x, y + t / 2]);
+      }
+      ctx.beginPath(); pathPts(ctx, top); for (let i = bot.length - 1; i >= 0; i--) ctx.lineTo(bot[i][0], bot[i][1]); ctx.closePath();
+      const g = ctx.createLinearGradient(0, 0, w, 0); g.addColorStop(0, hexA(col, 0)); g.addColorStop(.22, hexA(col, .5 * live * kA)); g.addColorStop(.8, hexA(col, .75 * live * kA)); g.addColorStop(1, hexA(col, .1 * live * kA));
+      ctx.fillStyle = g; ctx.fill();
+      ctx.beginPath(); pathPts(ctx, top.map((p, i) => [p[0], (p[1] + bot[i][1]) / 2])); ctx.lineWidth = 1.2; ctx.strokeStyle = hexA(col, .9 * live * kA); ctx.stroke();
+    };
+    ctx.save(); addBlend(ctx, true);
+    glowDisc(ctx, w * .55, base, 120, '#fff', .06 + .08 * aw * c.lv);
+    ribbon(-1, '#6FD0FF', 1 - Math.max(0, pan) * .5); ribbon(1, '#FFAE6B', 1 + Math.min(0, pan) * .5);
+    // the core: the mono sum, a white line through the middle, lit by the bass
+    const cg = ctx.createLinearGradient(0, 0, w, 0); cg.addColorStop(0, 'rgba(255,255,255,0)'); cg.addColorStop(.1, `rgba(255,255,255,${.25 + .5 * live})`); cg.addColorStop(1, 'rgba(255,255,255,.1)');
+    ctx.fillStyle = cg; ctx.fillRect(0, base - .8, w, 1.6);
+    // bass stem marker
+    glowDisc(ctx, stem, base, 14 + 10 * c.lv, '#fff', .35 * live);
+    ctx.restore();
+    text(ctx, 'L', w - 8, base - sepMax - 8, {font: '8.5px "Mono"', col: '#6FD0FF', a: .8 * live, align: 'right'}); text(ctx, 'R', w - 8, base + sepMax + 14, {font: '8.5px "Mono"', col: '#FFAE6B', a: .8 * live, align: 'right'});
+    text(ctx, 'width ' + c.params.width.fmt(c.params.width.v), w - 10, 18, {font: '9px "Mono"', col: '#fff', a: .85, align: 'right'});
+    text(ctx, 'bass mono < ' + c.params.bass.fmt(c.params.bass.v).slice(1) + ' Hz', 10, 18, {font: '8.5px "Mono"', col: '#fff', a: .5});
+  }});
+}
+
+// ============================================================================
+// IRIS (parametric EQ) · 380 x 330, screen 352 x 176
+// The curve is the exact biquad response (same maths the engine runs),
+// sampled every 1.5 pt, so it is smooth by construction. The analyser is
+// smoothed in space (a 1-2-1 kernel twice) and in time (4-20 ms up, 280 ms
+// down), then drawn as a curve through the points, never as columns.
+// ============================================================================
+const FS = 48000;
+function coef(b) {
+  const A = Math.pow(10, b.g / 40), w0 = 2 * Math.PI * b.f / FS, cw = Math.cos(w0), sw = Math.sin(w0), al = sw / (2 * b.q), sA = Math.sqrt(A);
+  if (b.type === 'peak') return [1 + al * A, -2 * cw, 1 - al * A, 1 + al / A, -2 * cw, 1 - al / A];
+  if (b.type === 'hs') return [A * ((A + 1) + (A - 1) * cw + 2 * sA * al), -2 * A * ((A - 1) + (A + 1) * cw), A * ((A + 1) + (A - 1) * cw - 2 * sA * al), (A + 1) - (A - 1) * cw + 2 * sA * al, 2 * ((A - 1) - (A + 1) * cw), (A + 1) - (A - 1) * cw - 2 * sA * al];
+  return [(1 + cw) / 2, -(1 + cw), (1 + cw) / 2, 1 + al, -2 * cw, 1 - al]; // hp
+}
+function magDb(k, f) {
+  const w = 2 * Math.PI * f / FS, c1 = Math.cos(w), c2 = Math.cos(2 * w), [b0, b1, b2, a0, a1, a2] = k;
+  const n = b0 * b0 + b1 * b1 + b2 * b2 + 2 * (b0 * b1 + b1 * b2) * c1 + 2 * b0 * b2 * c2, d = a0 * a0 + a1 * a1 + a2 * a2 + 2 * (a0 * a1 + a1 * a2) * c1 + 2 * a0 * a2 * c2;
+  return 10 * Math.log10(n / d);
+}
+const irisBands = () => [
+  {type: 'hp', f: 32, g: 0, q: .71, on: true}, {type: 'peak', f: 180, g: 5, q: 1.1, on: true}, {type: 'peak', f: 520, g: -3, q: 1.6, on: true},
+  {type: 'peak', f: 1100, g: -4, q: 2.2, on: true}, {type: 'peak', f: 3400, g: 3, q: 1.0, on: true}, {type: 'hs', f: 9500, g: 2.5, q: .71, on: true},
+  {type: 'peak', f: 400, g: 0, q: 1, on: false}, {type: 'peak', f: 6000, g: 0, q: 1, on: false}];
+const fFromV = v => 20 * Math.pow(1000, v), vFromF = f => Math.log(f / 20) / Math.log(1000);
+const qFromV = v => .1 * Math.pow(100, v), vFromQ = q => Math.log(q / .1) / Math.log(100);
+const fWords = f => f >= 1000 ? (f / 1000).toFixed(f >= 10000 ? 1 : 2).replace(/0$/, '') + ' kHz' : Math.round(f) + ' Hz';
+
+function IrisCard(style) {
+  const PL = 26, PR = 8, PT = 12, PB = 18;
+  return new Card({w: 380, name: 'Iris', sub: 'Parametric EQ', hue: HUE.iris, hue2: HUE2.iris, deep: DEEP.iris,
+    params: {freq: P('Freq', .35, v => fWords(fFromV(v))), gain: P('Gain', .67, v => fmtDb(-15 + 30 * v)), q: P('Q', .5, v => qFromV(v).toFixed(1))},
+    init() { this.bands = irisBands(); this.sel = 1; this.an = new Float32Array(64).fill(-90); this.pk = new Float32Array(64).fill(-90); this.pkAge = new Float32Array(64); this.selSp = new Spring(MO.SNAP, 0); this.hov = -1; this.syncFrom(); },
+    syncFrom() { const b = this.bands[this.sel], P_ = this.params; P_.freq.spring.set(vFromF(b.f)); P_.gain.spring.set((b.g + 15) / 30); P_.q.spring.set(vFromQ(b.q)); P_.freq.v = vFromF(b.f); P_.gain.v = (b.g + 15) / 30; P_.q.v = vFromQ(b.q); },
+    drawDials(ctx) {
+      const b = this.bands[this.sel], col = BANDS[this.sel];
+      if (this.drag && this.drag.h.key) { // a dial edits the picked band
+        const P_ = this.params; b.f = fFromV(P_.freq.v); if (b.type !== 'hp') b.g = -15 + 30 * P_.gain.v; b.q = qFromV(P_.q.v);
+      }
+      this.dialRow(ctx, [{key: 'freq', name: 'Freq', hue: col}, {key: 'gain', name: 'Gain', hue: col}, {key: 'q', name: 'Q', hue: col}], {x0: 48, x1: 176});
+      for (let i = 0; i < 8; i++) { // the band pills
+        const x = 214 + i * 22.3, y = 278, on = this.bands[i].on, sel = i === this.sel, c = BANDS[i];
+        ctx.beginPath(); ctx.arc(x, y, 9, 0, 6.2832); ctx.fillStyle = sel ? hexA(c, .55) : hexA(c, on ? .16 : .04); ctx.fill(); ctx.lineWidth = sel ? 2 : 1.2; ctx.strokeStyle = hexA(c, on ? 1 : .4); ctx.stroke();
+        text(ctx, String(i + 1), x, y + 3.6, {font: '600 10px Inter', col: sel ? '#fff' : C.text, a: on ? 1 : .45, align: 'center'});
+        this.hit.push({id: 'pill' + i, kind: 'pill', test: (px, py) => Math.hypot(px - x, py - y) < 11, click: () => { this.sel = i; this.syncFrom(); }});
+      }
+    },
+    drawScreen(ctx, e) {
+      const {w, h} = e, c = this, aw = e.awake, bands = c.bands, x0 = PL, x1 = w - PR, y0 = PT, y1 = h - PB, pw = x1 - x0, ph = y1 - y0;
+      const fx = f => x0 + Math.log10(f / 20) / 3 * pw, yd = d => y0 + (15 - d) / 30 * ph, dOf = y => 15 - (y - y0) / ph * 30, fOf = x => 20 * Math.pow(1000, (x - x0) / pw);
+      const ks = bands.map(b => b.on ? coef(b) : null);
+      const bandDb = (i, f) => ks[i] ? magDb(ks[i], f) : 0, totalDb = f => { let s = 0; for (let i = 0; i < 8; i++) if (ks[i]) s += magDb(ks[i], f); return s; };
+      // analyser data: space, then time
+      const sm = new Float32Array(64); for (let i = 0; i < 64; i++) { const a = SIG.bands[Math.max(0, i - 1)], b = SIG.bands[i], d = SIG.bands[Math.min(63, i + 1)]; sm[i] = (a + 2 * b + d) / 4; }
+      const sm2 = new Float32Array(64); for (let i = 0; i < 64; i++) sm2[i] = (sm[Math.max(0, i - 1)] + 2 * sm[i] + sm[Math.min(63, i + 1)]) / 4;
+      for (let i = 0; i < 64; i++) { const db = Math.max(-90, dbOf(sm2[i] * 1.8 + 1e-5) - 4); c.an[i] = follow(c.an[i], db, .02, .28, e.dt);
+        if (c.an[i] >= c.pk[i]) { c.pk[i] = c.an[i]; c.pkAge[i] = 0; } else { c.pkAge[i] += e.dt; if (c.pkAge[i] > 1) c.pk[i] = Math.max(c.an[i], c.pk[i] - 22 * e.dt); } }
+      const ya = db => y1 - clamp((db + 80) / 70) * ph * .66;
+      const anPts = []; for (let i = 0; i < 64; i++) anPts.push([fx(20 * Math.pow(1000, i / 63)), ya(c.an[i])]);
+      const pkPts = []; for (let i = 0; i < 64; i++) pkPts.push([fx(20 * Math.pow(1000, i / 63)), ya(c.pk[i])]);
+      const N = Math.floor(pw / 1.5) + 1, F = [], tot = [];
+      for (let i = 0; i < N; i++) { const f = fOf(x0 + i * pw / (N - 1)); F.push(f); tot.push(totalDb(f)); }
+      const curve = tot.map((d, i) => [x0 + i * pw / (N - 1), yd(clamp(d, -15, 15))]);
+      const nodePos = i => { const b = bands[i], f = b.f, d = totalDb(f); return [fx(f), yd(clamp(d, -15, 15))]; };
+      const sw_ = ctx.createLinearGradient(x0, 0, x1, 0); SWEEP.forEach((cc, k) => sw_.addColorStop(k / 4, cc));
+
+      // ---- grid ----
+      const gridCol = (a) => `rgba(255,255,255,${a})`;
+      if (style === 'blue') { ctx.fillStyle = 'rgba(80,110,255,.05)'; ctx.fillRect(x0, y0, pw, ph); }
+      for (let dec = 10; dec <= 10000; dec *= 10) for (let m = 1; m <= 9; m++) { const f = m * dec; if (f < 20 || f > 20000) continue;
+        const major = m === 1; if (style === 'aurora' && !major) continue; ctx.fillStyle = gridCol(major ? .10 : .04); ctx.fillRect(Math.round(fx(f)), y0, 1, ph); }
+      for (const d of (style === 'blue' ? [-15, -12, -9, -6, -3, 0, 3, 6, 9, 12, 15] : [-12, -6, 0, 6, 12])) { ctx.fillStyle = gridCol(d === 0 ? .18 : .06); ctx.fillRect(x0, Math.round(yd(d)), pw, 1);
+        if (style !== 'aurora' || d === 0) text(ctx, (d > 0 ? '+' : d < 0 ? '−' : '') + Math.abs(d), x0 - 5, yd(d) + 3, {font: '8px "Mono"', col: '#fff', a: .34, align: 'right'}); }
+      for (const [f, t] of [[100, '100'], [1000, '1k'], [10000, '10k']]) text(ctx, t, fx(f), h - 5, {font: '8px "Mono"', col: '#fff', a: .34, align: 'center'});
+      text(ctx, 'Hz', x1, h - 5, {font: '8px "Mono"', col: '#fff', a: .22, align: 'right'});
+
+      // ---- analyser ----
+      if (aw > .01 || c.an.some(v => v > -89)) {
+        ctx.save(); ctx.globalAlpha = 1;
+        if (style === 'glass') {
+          ctx.beginPath(); pathPts(ctx, anPts); ctx.lineTo(x1, y1); ctx.lineTo(x0, y1); ctx.closePath(); const g = ctx.createLinearGradient(0, y1 - ph * .66, 0, y1); g.addColorStop(0, 'rgba(160,175,255,.34)'); g.addColorStop(1, 'rgba(160,175,255,.02)'); ctx.fillStyle = g; ctx.fill();
+          ctx.beginPath(); pathPts(ctx, anPts); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(205,215,255,.55)'; ctx.stroke();
+        } else if (style === 'aurora') {
+          for (let k = 3; k >= 0; k--) { ctx.beginPath(); pathPts(ctx, anPts.map(p => [p[0], p[1] + k * 4])); ctx.lineTo(x1, y1); ctx.lineTo(x0, y1); ctx.closePath(); const g = ctx.createLinearGradient(x0, 0, x1, 0); SWEEP.forEach((cc, j) => g.addColorStop(j / 4, hexA(cc, .13 + .02 * (3 - k)))); ctx.fillStyle = g; ctx.fill(); }
+          ctx.beginPath(); pathPts(ctx, anPts); ctx.lineWidth = 1.2; ctx.strokeStyle = sw_; ctx.globalAlpha = .6; ctx.stroke();
+        } else {
+          ctx.beginPath(); pathPts(ctx, anPts); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(190,205,255,.75)'; ctx.stroke();
+          ctx.beginPath(); pathPts(ctx, pkPts); ctx.setLineDash([1, 3]); ctx.strokeStyle = 'rgba(190,205,255,.35)'; ctx.stroke(); ctx.setLineDash([]);
+        }
+        ctx.restore();
+      }
+
+      // ---- the bell of each band, as a pool of its own colour under the curve ----
+      if (style === 'glass' || style === 'aurora') bands.forEach((b, i) => {
+        if (!b.on) return; const col = BANDS[i], sel = i === c.sel, pts = [];
+        for (let k = 0; k < N; k++) pts.push([x0 + k * pw / (N - 1), yd(clamp(bandDb(i, F[k]), -15, 15))]);
+        ctx.beginPath(); pathPts(ctx, pts); ctx.lineTo(x1, yd(0)); ctx.lineTo(x0, yd(0)); ctx.closePath();
+        ctx.save(); ctx.clip(); ctx.restore();
+        ctx.save(); if (style === 'aurora') addBlend(ctx, true); ctx.fillStyle = hexA(col, style === 'aurora' ? (sel ? .30 : .16) : (sel ? .20 : .09)); ctx.fill(); ctx.restore();
+      });
+
+      // ---- the curve ----
+      ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      if (style === 'glass') {
+        ctx.beginPath(); pathPts(ctx, curve); ctx.lineWidth = 6; ctx.globalAlpha = .22; ctx.strokeStyle = sw_; ctx.stroke(); ctx.globalAlpha = 1;
+        ctx.beginPath(); pathPts(ctx, curve); ctx.lineWidth = 2.1; ctx.strokeStyle = sw_; ctx.stroke();
+      } else if (style === 'aurora') {
+        ctx.save(); addBlend(ctx, true);
+        for (const [wd, al] of [[14, .10], [8, .18], [4.5, .35]]) { ctx.beginPath(); pathPts(ctx, curve); ctx.lineWidth = wd; ctx.globalAlpha = al; ctx.strokeStyle = sw_; ctx.stroke(); }
+        ctx.globalAlpha = 1; ctx.beginPath(); pathPts(ctx, curve); ctx.lineWidth = 2; ctx.strokeStyle = '#fff'; ctx.stroke(); ctx.restore();
+      } else { ctx.beginPath(); pathPts(ctx, curve); ctx.lineWidth = 1.3; ctx.strokeStyle = '#E8EDFF'; ctx.stroke(); }
+
+      // ---- the nodes ----
+      bands.forEach((b, i) => {
+        if (!b.on) return; const [nx, ny] = nodePos(i), col = BANDS[i], sel = i === c.sel, hov = c.hoverId === 'n' + i;
+        // the stem: tied to the zero line, so the node is part of the curve, not floating over it
+        if (style !== 'aurora' && b.type !== 'hp') { ctx.fillStyle = hexA(col, sel ? .55 : .28); const y2 = yd(0); ctx.fillRect(Math.round(nx), Math.min(ny, y2), 1, Math.abs(y2 - ny)); }
+        if (sel) { // the bandwidth: a bracket through the node, its ends at the -3 dB points
+          const Q = b.q, lo = b.f * (Math.sqrt(1 + 1 / (4 * Q * Q)) - 1 / (2 * Q)), hi = lo + b.f / Q, xa = fx(Math.max(20, lo)), xb = fx(Math.min(20000, hi));
+          ctx.strokeStyle = hexA(col, .85); ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(xa, ny); ctx.lineTo(xb, ny); ctx.moveTo(xa, ny - 4); ctx.lineTo(xa, ny + 4); ctx.moveTo(xb, ny - 4); ctx.lineTo(xb, ny + 4); ctx.stroke(); }
+        if (style === 'glass') {
+          if (sel || hov) glowDisc(ctx, nx, ny, 22, col, sel ? .5 : .3);
+          ctx.beginPath(); ctx.arc(nx, ny, sel ? 6.8 : 5, 0, 6.2832); ctx.fillStyle = sel ? col : '#0B0D18'; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = col; ctx.stroke();
+          if (sel) { ctx.beginPath(); ctx.arc(nx, ny, 2.2, 0, 6.2832); ctx.fillStyle = '#fff'; ctx.fill(); }
+        } else if (style === 'aurora') {
+          ctx.save(); addBlend(ctx, true); glowDisc(ctx, nx, ny, sel ? 34 : 22, col, sel ? .7 : .45); ctx.restore();
+          ctx.beginPath(); ctx.arc(nx, ny, sel ? 4.8 : 3.6, 0, 6.2832); ctx.fillStyle = '#fff'; ctx.fill();
+        } else { // blueprint: a small square on the curve; the picked band gets guides to both axes
+          if (sel) { ctx.save(); ctx.setLineDash([2, 3]); ctx.strokeStyle = hexA(col, .6); ctx.beginPath(); ctx.moveTo(nx, ny); ctx.lineTo(nx, y1); ctx.moveTo(nx, ny); ctx.lineTo(x0, ny); ctx.stroke(); ctx.restore();
+            rr(ctx, nx - 24, y1 - 11, 48, 11, 3); ctx.fillStyle = col; ctx.fill(); text(ctx, fWords(b.f), nx, y1 - 3, {font: '600 8px "Mono"', col: '#0B0D18', align: 'center'});
+            rr(ctx, x0 - 1, ny - 6, 30, 12, 3); ctx.fillStyle = col; ctx.fill(); text(ctx, fmtDb(b.g), x0 + 14, ny + 3, {font: '600 8px "Mono"', col: '#0B0D18', align: 'center'}); }
+          ctx.fillStyle = sel ? col : '#0B0D18'; ctx.strokeStyle = col; ctx.lineWidth = 1.6; ctx.fillRect(nx - 4, ny - 4, 8, 8); ctx.strokeRect(nx - 4, ny - 4, 8, 8);
+          text(ctx, String(i + 1), nx, ny - 8, {font: '600 8px Inter', col: col, align: 'center'});
+        }
+        c.hit.push({id: 'n' + i, kind: 'drag', test: (px, py) => Math.hypot(px - 14 - nx, py - 60 - ny) < 11,
+          click: () => { c.sel = i; c.syncFrom(); },
+          drag: (px, py) => { b.f = clamp(fOf(clamp(px - 14, x0, x1)), 20, 20000); if (b.type !== 'hp') b.g = clamp(dOf(py - 60), -15, 15); c.syncFrom(); },
+          wheel: ev => { b.q = clamp(b.q * (ev.deltaY < 0 ? 1.1 : .91), .1, 10); c.syncFrom(); }});
+      });
+      // the chip (glass): the picked band's numbers, above its node
+      if (style === 'glass') { const b = bands[c.sel], [nx, ny] = nodePos(c.sel), t = fWords(b.f) + (b.type === 'hp' ? '' : '  ' + fmtDb(b.g)), tw = 8 + t.length * 5.6, cxp = clamp(nx, x0 + tw / 2, x1 - tw / 2), cyp = ny - 22 < y0 + 8 ? ny + 22 : ny - 22;
+        rr(ctx, cxp - tw / 2, cyp - 9, tw, 18, 9); ctx.fillStyle = '#0B0D18'; ctx.fill(); ctx.strokeStyle = BANDS[c.sel]; ctx.lineWidth = 1; ctx.stroke(); text(ctx, t, cxp, cyp + 3.5, {font: '600 9px "Mono"', col: '#fff', align: 'center'}); }
+      text(ctx, 'no signal · analyser rests', x1 - 4, y0 + 10, {font: '8px "Mono"', col: '#fff', a: e.rest * .45, align: 'right'});
+    }});
+}
+const IrisA = () => IrisCard('glass'), IrisB = () => IrisCard('aurora'), IrisC = () => IrisCard('blue');
+
+// ============================================================================
+// FLARE (polysynth) · 380 x 330, screen 352 x 176
+// All 34 parameters (crates/lumen-devices/src/synth/params), organised into
+// seven pages of at most six controls. The page is chosen on the screen (a
+// tile, or a pill under the picture) and the dial row under it follows.
+//   Osc 1 5 · Osc 2 5 · Out 5 (noise, glide, voices, velocity, level)
+//   Filter 6 · Filter env 4 · Amp env 4 · LFO 5            = 34
+// What the real card needs beyond today's Scene: the sounding voices (note,
+// velocity, stage, age), as one small snapshot from the engine like the meter.
+// ============================================================================
+const SHP = ['sine', 'tri', 'saw', 'square'];
+const shapeW = v => SHP[Math.round(v * 3)];
+const f_oct = v => { const o = Math.round(v * 4) - 2; return (o > 0 ? '+' : '') + o; };
+const f_ct = v => { const c = Math.round((v - .5) * 100); return (c > 0 ? '+' : '') + c + ' ct'; };
+const f_pan = v => Math.abs(v - .5) < .01 ? 'C' : (v < .5 ? 'L' : 'R') + Math.round(Math.abs(v - .5) * 200);
+const f_oc = v => ((v - .5) * 8 > 0 ? '+' : '') + ((v - .5) * 8).toFixed(1);
+const f_hzr = (lo, hi) => v => { const f = lo * Math.pow(hi / lo, v); return f < 10 ? f.toFixed(2) + ' Hz' : f.toFixed(1) + ' Hz'; };
+const LFOT = ['Off', 'Pitch', 'Cutoff', 'Amp'], LFOD = ['1/4', '1/8', '1/16', '1/32'], FT = ['LP', 'BP', 'HP'];
+function flareParams() {
+  return {
+    o1shape: P('Shape', .667, shapeW), o1oct: P('Octave', .5, f_oct), o1det: P('Detune', .5, f_ct), o1lvl: P('Level', .8, f_pct), o1pan: P('Pan', .5, f_pan),
+    o2shape: P('Shape', 0, shapeW), o2oct: P('Octave', .25, f_oct), o2det: P('Detune', .57, f_ct), o2lvl: P('Level', .5, f_pct), o2pan: P('Pan', .5, f_pan),
+    noise: P('Noise', .08, f_pct), glide: P('Glide', .1, f_ms(1, 2000)), voices: P('Voices', .47, v => String(Math.round(1 + v * 15))), vel: P('Velocity', .5, f_pct), level: P('Level', .8, f_db(-24, 6)),
+    ftype: P('Type', 0, v => FT[Math.round(v * 2)]), cutoff: P('Cutoff', .774, f_hz(20, 20000)), reso: P('Reso', .24, f_pct), fenv: P('Env', .75, f_oc), fkey: P('Key', .3, f_pct), fvel: P('Vel', .35, f_pct),
+    aA: P('Attack', .24, f_ms(1, 4000)), aD: P('Decay', .55, f_ms(5, 4000)), aS: P('Sustain', .65, f_pct), aR: P('Release', .61, f_ms(5, 6000)),
+    fA: P('Attack', .2, f_ms(1, 4000)), fD: P('Decay', .5, f_ms(5, 4000)), fS: P('Sustain', .25, f_pct), fR: P('Release', .5, f_ms(5, 6000)),
+    lfoSync: P('Sync', 0, v => v > .5 ? 'Sync' : 'Free'), lfoRate: P('Rate', .5, f_hzr(.05, 20)), lfoDiv: P('Div', .33, v => LFOD[Math.round(v * 3)]), lfoTgt: P('Target', .667, v => LFOT[Math.round(v * 3)]), lfoDepth: P('Depth', .35, f_pct),
+  };
+}
+const FPAGES = {
+  osc1: {name: 'Osc 1', keys: ['o1shape', 'o1oct', 'o1det', 'o1lvl', 'o1pan']}, osc2: {name: 'Osc 2', keys: ['o2shape', 'o2oct', 'o2det', 'o2lvl', 'o2pan']},
+  filter: {name: 'Filter', keys: ['cutoff', 'reso', 'fenv', 'fkey', 'fvel'], pill: 'ftype'}, fenv: {name: 'Filter env', short: 'F env', keys: ['fA', 'fD', 'fS', 'fR']},
+  amp: {name: 'Amp env', short: 'Amp', keys: ['aA', 'aD', 'aS', 'aR']}, lfo: {name: 'LFO', keys: ['lfoRate', 'lfoDepth', 'lfoDiv'], pills: ['lfoSync', 'lfoTgt']},
+  out: {name: 'Out', keys: ['noise', 'glide', 'voices', 'vel', 'level']},
+};
+const FORDER = ['osc1', 'osc2', 'filter', 'fenv', 'amp', 'lfo', 'out'];
+const midiHz = n => 440 * Math.pow(2, (n - 69) / 12), NOTE = n => ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'][n % 12] + (Math.floor(n / 12) - 1);
+
+// ---- the voices: an envelope per note, from the real parameters ----
+function envAt(a, d, s, r, t, off) {
+  if (off != null && t > off) return envAt(a, d, s, r, off, null) * Math.exp(-(t - off) * 4 / r);
+  if (t < a) return t / a; return s + (1 - s) * Math.exp(-(t - a) * 4 / d);
+}
+function flareInit(c) {
+  c.voices = []; c.lfoPh = 0; c.energy = 0; c.fOpen = 0; c.page = 'filter'; c.sp = {}; c.pulses = []; c.lastX = null;
+  ['osc1', 'osc2', 'filter', 'amp', 'lfo', 'out'].forEach(k => c.sp[k] = new Spring(MO.POP, 0));
+}
+function flareStep(c, dt) {
+  const p = c.params, ev = SIG.events;
+  const adsr = (A, D, S, R) => [ms_of(1, 4000, p[A].v) / 1000, ms_of(5, 4000, p[D].v) / 1000, p[S].v, ms_of(5, 6000, p[R].v) / 1000];
+  const aa = adsr('aA', 'aD', 'aS', 'aR'), ff = adsr('fA', 'fD', 'fS', 'fR');
+  for (const e of ev) {
+    if (e.type === 'noteOn') {
+      c.voices.push({n: e.n, vel: e.vel, t: 0, off: null, x: c.lastX, a: 0, f: 0, slot: c.voices.length});
+      const maxV = Math.round(1 + p.voices.v * 15); while (c.voices.filter(v => v.off == null || v.a > .02).length > maxV) { const o = c.voices.find(v => true); c.voices.shift(); }
+      c.spawn && c.spawn(e);
+    }
+    if (e.type === 'noteOff') { const v = c.voices.find(v => v.n === e.n && v.off == null); if (v) v.off = v.t; }
+  }
+  let en = 0, fo = 0;
+  for (const v of c.voices) { v.t += dt; v.a = envAt(...aa, v.t, v.off); v.f = envAt(...ff, v.t, v.off); en += v.a * v.vel; fo = Math.max(fo, v.f * v.a); }
+  c.voices = c.voices.filter(v => !(v.off != null && v.t - v.off > aa[3] * 1.3 + .1 && v.a < .004));
+  c.energy = follow(c.energy, clamp(en * .6), MO.METER_ATTACK, MO.METER_RELEASE, dt); c.fOpen = fo;
+  const rate = ms_of(1, 1, 1) * .05 * Math.pow(400, p.lfoRate.v); c.lfoPh += rate * dt; c.lfo = Math.sin(c.lfoPh * 6.2832);
+  for (const k in c.sp) { c.sp[k].set(0); c.sp[k].step(dt); }
+  c.tgtI = Math.round(p.lfoTgt.v * 3);
+  c.aa = aa; c.ff = ff;
+}
+function flareFilterDb(c, f, fc) {
+  const x = f / fc, Q = .6 + c.params.reso.v * 9, t = Math.round(c.params.ftype.v * 2), den = (1 - x * x) * (1 - x * x) + (x / Q) * (x / Q);
+  const m = t === 0 ? 1 / den : t === 2 ? x * x * x * x / den : (x / Q) * (x / Q) / den; return 10 * Math.log10(m + 1e-9);
+}
+function flareCutoff(c) { // the live cutoff: knob, envelope of the newest voice, LFO if aimed there
+  const p = c.params; let oct = (p.fenv.v - .5) * 8 * c.fOpen; if (c.tgtI === 2) oct += (c.lfo || 0) * p.lfoDepth.v * 2;
+  return clamp(fFromV(p.cutoff.v) * Math.pow(2, oct), 20, 20000);
+}
+function flarePageDials(c) {
+  const pg = FPAGES[c.page], p = c.params, items = pg.keys.map(k => ({key: k, name: p[k].name}));
+  const pills = (pg.pills || (pg.pill ? [pg.pill] : [])).map(k => ({pill: true, id: k, label: () => p[k].fmt(p[k].v), w: k === 'lfoTgt' ? 56 : 44, on: () => p[k].v > .01 && k !== 'ftype',
+    click: () => { const n = k === 'ftype' ? 3 : k === 'lfoTgt' ? 4 : 2; p[k].v = (Math.round(p[k].v * (n - 1)) + 1) % n / (n - 1); p[k].spring.set(p[k].v); }}));
+  return items.concat(pills);
+}
+function flareDrawDials(ctx) {
+  const c = this, items = flarePageDials(c), pg = FPAGES[c.page];
+  text(ctx, (pg.name + ' · ' + items.length + ' controls').toUpperCase(), 16, 256, {font: '8.5px "Mono"', col: ST.light ? HUE2.flare : HUE.flare, a: .95});
+  FORDER.forEach((k, i) => { ctx.beginPath(); ctx.arc(c.w - 16 - (6 - i) * 9, 252.5, k === c.page ? 3 : 2, 0, 6.2832); ctx.fillStyle = k === c.page ? HUE.flare : hexA(C.text2, .5); ctx.fill(); });
+  c.dialRow(ctx, items, {x0: 40, x1: c.w - 40});
+}
+const flBase = () => ({w: 380, name: 'Flare', sub: 'Polysynth', hue: HUE.flare, hue2: HUE2.flare, deep: DEEP.flare, params: flareParams(), drawDials: flareDrawDials});
+function flarePills(ctx, c, e, y) { // the page pills, inside the screen's foot
+  const n = FORDER.length, pw = 44, gap = (e.w - 16 - n * pw) / (n - 1);
+  FORDER.forEach((k, i) => { const x = 8 + i * (pw + gap), sel = k === c.page; rr(ctx, x, y, pw, 18, 9); ctx.fillStyle = sel ? hexA(HUE.flare, .30) : 'rgba(255,255,255,.06)'; ctx.fill(); ctx.strokeStyle = sel ? HUE.flare : 'rgba(255,255,255,.16)'; ctx.lineWidth = 1; ctx.stroke();
+    text(ctx, FPAGES[k].short || FPAGES[k].name, x + pw / 2, y + 12.4, {font: (sel ? '600 ' : '') + '9.5px Inter', col: sel ? '#fff' : '#E8D9A8', a: sel ? 1 : .75, align: 'center'});
+    c.hit.push({id: 'pg' + k, kind: 'pill', test: (px, py) => px - 14 > x && px - 14 < x + pw && py - 60 > y && py - 60 < y + 18, click: () => { c.page = k; }}); });
+}
+const wave = (t, ph) => { ph = ph - Math.floor(ph); return t === 0 ? Math.sin(6.2832 * ph) : t === 1 ? 4 * Math.abs(ph - .5) - 1 : t === 2 ? 2 * ph - 1 : (ph < .5 ? 1 : -1); };
+function harm(t, k) { if (t === 0) return k === 1 ? 1 : 0; if (t === 2) return 1 / k; const o = k % 2 === 1; return o ? (t === 1 ? 1 / (k * k) * 1.2 : 1 / k) : 0; }
+
+// ---------- A · Path: the signal's route drawn as a lit circuit; each note sends light down it ----------
+function FlareA() {
+  const R = {osc1: {x: 10, y: 10, w: 96, h: 48}, osc2: {x: 10, y: 64, w: 96, h: 48}, out: {x: 10, y: 118, w: 96, h: 48}, lfo: {x: 140, y: 8, w: 104, h: 28}, filter: {x: 140, y: 44, w: 104, h: 84}, amp: {x: 268, y: 44, w: 76, h: 84}};
+  const J = [124, 87], route = {osc1: [[106, 34], J], osc2: [[106, 88], J], out: [[106, 142], J]}, tail = [[140, 87], [244, 87], [268, 87], [344, 87]];
+  return new Card({...flBase(), init() { flareInit(this); this.spawn = (e) => { const p = this.params; if (this.params.o1lvl.v > .02) this.pulses.push({k: 'osc1', s: 0, a: e.vel, f: 0, g: 0}); if (p.o2lvl.v > .02) this.pulses.push({k: 'osc2', s: 0, a: e.vel * .8, f: 0, g: 0}); if (p.noise.v > .04) this.pulses.push({k: 'out', s: 0, a: e.vel * .5, f: 0, g: 0}); }; },
+  drawScreen(ctx, e) {
+    const {w, h} = e, c = this, aw = e.awake, p = c.params; flareStep(c, e.dt);
+    const hue = HUE.flare, pale = '#FFE6A3';
+    const path = k => route[k].concat(tail), len = pts => { let L = 0; for (let i = 1; i < pts.length; i++) L += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); return L; };
+    const at = (pts, s) => { let L = s * len(pts); for (let i = 1; i < pts.length; i++) { const d = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); if (L <= d) return [lerp(pts[i - 1][0], pts[i][0], L / d), lerp(pts[i - 1][1], pts[i][1], L / d)]; L -= d; } return pts[pts.length - 1]; };
+    // wires
+    ctx.lineWidth = 1.5; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    for (const k of ['osc1', 'osc2', 'out']) { ctx.beginPath(); polyline(ctx, route[k]); ctx.strokeStyle = hexA(hue, .22 + .1 * aw); ctx.stroke(); }
+    ctx.beginPath(); polyline(ctx, tail); ctx.strokeStyle = hexA(hue, .22 + .1 * aw); ctx.stroke();
+    ctx.save(); ctx.setLineDash([2, 3]); ctx.beginPath(); ctx.moveTo(192, 36); ctx.lineTo(192, 44); ctx.strokeStyle = hexA(hue, p.lfoTgt.v > .2 ? .6 : .15); ctx.stroke(); ctx.restore();
+    // the pulses: light packets that travel the wires and wake each tile as they arrive
+    if (!e.still) for (const q of c.pulses) { q.s += e.dt / .46; const pts = path(q.k), pos = at(pts, ease.inOut(clamp(q.s)) * .999);
+      if (q.s > .42 && !q.f) { q.f = 1; c.sp.filter.x += .9 * q.a; } if (q.s > .78 && !q.g) { q.g = 1; c.sp.amp.x += .9 * q.a; }
+      glowDisc(ctx, pos[0], pos[1], 12, pale, .75 * q.a * (1 - Math.max(0, q.s - .85) * 5)); ctx.beginPath(); ctx.arc(pos[0], pos[1], 2.2, 0, 6.2832); ctx.fillStyle = '#fff'; ctx.fill(); }
+    c.pulses = c.pulses.filter(q => q.s < 1.0);
+    if (e.still) c.pulses.length = 0;
+    // tiles
+    const tile = (k, label, body, extra) => { const r = R[k], sel = c.page === k || (k === 'filter' && c.page === 'fenv'), f = Math.max(0, c.sp[k].x), cxm = r.x + r.w / 2, cym = r.y + r.h / 2;
+      ctx.save(); ctx.translate(cxm, cym); ctx.scale(1 + .035 * f, 1 + .035 * f); ctx.translate(-cxm, -cym);
+      if (sel || f > .05) glowDisc(ctx, cxm, cym, Math.max(r.w, r.h) * .8, hue, (sel ? .16 : 0) + .3 * f);
+      rr(ctx, r.x, r.y, r.w, r.h, 8); ctx.fillStyle = hexA('#FFE6A3', .035 + .07 * f); ctx.fill(); ctx.strokeStyle = hexA(hue, sel ? .95 : .28 + .4 * f); ctx.lineWidth = sel ? 1.6 : 1; ctx.stroke();
+      text(ctx, label, r.x + 7, r.y + 12, {font: '7.5px "Mono"', col: pale, a: sel ? 1 : .7, ls: .4});
+      ctx.save(); rr(ctx, r.x + 1, r.y + 1, r.w - 2, r.h - 2, 7); ctx.clip(); body(r, f); ctx.restore(); ctx.restore();
+      c.hit.push({id: 't' + k, kind: 'pill', test: (px, py) => px - 14 > r.x && px - 14 < r.x + r.w && py - 60 > r.y && py - 60 < r.y + r.h, click: () => { c.page = k; }}); };
+    const oscBody = (n) => (r, f) => { const sh = Math.round(p['o' + n + 'shape'].v * 3), oc = Math.round(p['o' + n + 'oct'].v * 4) - 2, det = (p['o' + n + 'det'].v - .5) * 100, lv = p['o' + n + 'lvl'].v, act = (.28 + .72 * aw) * (.3 + .7 * lv) * (1 + .5 * c.energy);
+      const bx = r.x + 6, bw = r.w - 12, by = r.y + 15, bh = r.h - 20, per = 2.2 * Math.pow(1.35, oc), sp = e.still ? 0 : e.T * (.8 + c.energy);
+      for (const [dd, al, wd] of [[det * .004, .4, 1], [0, 1, 1.6]]) { ctx.beginPath(); for (let i = 0; i <= 48; i++) { const ph = i / 48 * per - sp + dd * e.T * 8 * (al < 1), x = bx + i / 48 * bw, y = by + bh / 2 - wave(sh, ph) * bh * .38 * (.4 + .6 * lv); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+        ctx.strokeStyle = hexA(pale, act * al); ctx.lineWidth = wd * (1 + f * .5); ctx.stroke(); }
+      text(ctx, shapeW(p['o' + n + 'shape'].v), r.x + r.w - 7, r.y + 12, {font: '7.5px "Mono"', col: hue, a: .9, align: 'right'}); };
+    tile('osc1', 'OSC 1', oscBody(1)); tile('osc2', 'OSC 2', oscBody(2));
+    tile('lfo', 'LFO', (r, f) => { const act = LFOT[c.tgtI] !== 'Off' ? 1 : .3; ctx.beginPath(); for (let i = 0; i <= 40; i++) { const x = r.x + 30 + i / 40 * (r.w - 86), y = r.y + 15 + Math.sin(i / 40 * 12.5 - (e.still ? 0 : c.lfoPh * 6.2832)) * 5 * (.2 + p.lfoDepth.v); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); } ctx.strokeStyle = hexA(pale, .35 + .5 * act * (.3 + .7 * aw)); ctx.lineWidth = 1.2; ctx.stroke();
+      text(ctx, LFOT[c.tgtI], r.x + r.w - 7, r.y + 12, {font: '7.5px "Mono"', col: hue, a: .9, align: 'right'}); });
+    tile('filter', 'FILTER', (r, f) => { const bx = r.x + 6, bw = r.w - 12, by = r.y + 18, bh = r.h - 40, fc = flareCutoff(c), base = fFromV(p.cutoff.v);
+      const pts = (fcv) => { const o = []; for (let i = 0; i <= 44; i++) { const fr = 20 * Math.pow(1000, i / 44), d = clamp(flareFilterDb(c, fr, fcv), -40, 16); o.push([bx + i / 44 * bw, by + bh - (d + 40) / 56 * bh]); } return o; };
+      ctx.beginPath(); pathPts(ctx, pts(base)); ctx.strokeStyle = 'rgba(255,230,163,.3)'; ctx.lineWidth = 1; ctx.stroke();
+      const lp = pts(fc); ctx.beginPath(); pathPts(ctx, lp); ctx.lineTo(bx + bw, by + bh); ctx.lineTo(bx, by + bh); ctx.closePath(); const g = ctx.createLinearGradient(0, by, 0, by + bh); g.addColorStop(0, hexA(hue, .5 * (.4 + .6 * aw))); g.addColorStop(1, hexA(hue, .03)); ctx.fillStyle = g; ctx.fill();
+      ctx.beginPath(); pathPts(ctx, lp); ctx.strokeStyle = '#FFF3D1'; ctx.lineWidth = 1.6; ctx.stroke();
+      const cx_ = bx + Math.log10(fc / 20) / 3 * bw; glowDisc(ctx, cx_, by + bh - 4, 9, '#fff', .5 * aw); text(ctx, FT[Math.round(p.ftype.v * 2)] + ' ' + p.cutoff.fmt(p.cutoff.v), r.x + r.w - 7, r.y + 12, {font: '7.5px "Mono"', col: hue, a: .9, align: 'right'});
+      rr(ctx, r.x + r.w - 38, r.y + r.h - 17, 32, 12, 6); ctx.fillStyle = c.page === 'fenv' ? hexA(hue, .4) : 'rgba(255,255,255,.07)'; ctx.fill(); ctx.strokeStyle = hexA(hue, .6); ctx.lineWidth = .8; ctx.stroke(); text(ctx, 'ENV', r.x + r.w - 22, r.y + r.h - 8, {font: '600 7.5px "Mono"', col: '#fff', align: 'center'});
+      c.hit.push({id: 'tenv', kind: 'pill', test: (px, py) => px - 14 > r.x + r.w - 38 && px - 14 < r.x + r.w - 6 && py - 60 > r.y + r.h - 17 && py - 60 < r.y + r.h - 5, click: () => { c.page = 'fenv'; }}); });
+    tile('amp', 'AMP', (r, f) => { const [a, d, s, rl] = c.aa, bx = r.x + 6, bw = r.w - 18, by = r.y + 18, bh = r.h - 26, tt = x => Math.sqrt(x), ta = tt(a), td = tt(d), tr = tt(rl), tot = ta + td + .5 * (ta + td) + tr, X = u => bx + u / tot * bw, Y = v => by + bh - v * bh;
+      const pts = [[X(0), Y(0)], [X(ta), Y(1)], [X(ta + td), Y(s)], [X(ta + td + .5 * (ta + td)), Y(s)], [X(tot), Y(0)]];
+      ctx.beginPath(); polyline(ctx, pts); ctx.lineTo(bx, by + bh); ctx.closePath(); const g = ctx.createLinearGradient(0, by, 0, by + bh); g.addColorStop(0, hexA(hue, .4 * (.4 + .6 * aw))); g.addColorStop(1, hexA(hue, .02)); ctx.fillStyle = g; ctx.fill();
+      ctx.beginPath(); polyline(ctx, pts); ctx.strokeStyle = '#FFF3D1'; ctx.lineWidth = 1.5; ctx.stroke();
+      const v = c.voices[c.voices.length - 1]; if (v && !e.still) { // the newest voice's place on its own envelope
+        const tn = v.off != null ? Math.min(tot, ta + td + .5 * (ta + td) + tt(v.t - v.off)) : Math.min(ta + td + .25 * (ta + td), tt(v.t) ), u = v.off != null ? tn : (v.t < a ? tt(v.t) : tt(v.t)), px = X(Math.min(tot, u)), py = Y(clamp(v.a));
+        glowDisc(ctx, px, py, 10, '#fff', .8); ctx.beginPath(); ctx.arc(px, py, 2.4, 0, 6.2832); ctx.fillStyle = '#fff'; ctx.fill(); }
+      rr(ctx, r.x + r.w - 9, by, 4, bh, 2); ctx.fillStyle = 'rgba(255,255,255,.08)'; ctx.fill(); rr(ctx, r.x + r.w - 9, by + bh * (1 - c.energy), 4, bh * c.energy, 2); ctx.fillStyle = pale; ctx.fill(); });
+    tile('out', 'OUT', (r, f) => { // noise grain above, the voices as dots
+      const nz = p.noise.v, n = Math.round(1 + p.voices.v * 15), sh = c.voices.length;
+      for (let i = 0; i < 20; i++) { const hh = (2 + 6 * hash(i * 3.3 + (e.still ? 0 : Math.floor(e.T * 14)))) * Math.min(1, nz * 6 + .08) * (.4 + .6 * aw); ctx.fillStyle = hexA(pale, .2 + .5 * nz * 4); ctx.fillRect(r.x + 8 + i * 4.4, r.y + 24 - hh, 2.4, hh); }
+      const cols = Math.min(n, 16), step = (r.w - 16) / Math.max(1, cols - 1 || 1);
+      for (let i = 0; i < cols; i++) { const v = c.voices.filter(q => q.off == null || q.a > .02)[i], a = v ? v.a : 0, x = r.x + 8 + (cols === 1 ? 0 : i * (r.w - 16) / (cols - 1)), y = r.y + 33; glowDisc(ctx, x, y, 7, hue, a * .9); ctx.beginPath(); ctx.arc(x, y, 2, 0, 6.2832); ctx.fillStyle = a > .02 ? '#fff' : hexA(pale, .3); ctx.fill(); }
+      text(ctx, 'noise · ' + p.voices.fmt(p.voices.v) + ' voices', r.x + 7, r.y + r.h - 3, {font: '6.5px "Mono"', col: pale, a: .6}); });
+    text(ctx, c.voices.length ? c.voices.filter(v => v.off == null).map(v => NOTE(v.n)).slice(0, 4).join(' · ') : 'play or hold a note', 300, 156, {font: '8.5px "Mono"', col: pale, a: c.voices.length ? .9 : e.rest * .6, align: 'right'});
+    glowDisc(ctx, 344, 87, 14, hue, .6 * c.energy); text(ctx, 'out', 348, 99, {font: '6.5px "Mono"', col: pale, a: .5, align: 'right'});
+  }});
+}
+
+// ---------- B · Harmonics: what the oscillators make, and what the filter lets through ----------
+function FlareB() {
+  return new Card({...flBase(), init() { flareInit(this); this.bins = new Float32Array(96).fill(0); this.raw = new Float32Array(96); this.ghost = new Float32Array(96); },
+  drawScreen(ctx, e) {
+    const {w, h} = e, c = this, aw = e.awake, p = c.params; flareStep(c, e.dt);
+    const x0 = 10, x1 = w - 10, y0 = 14, y1 = 136, pw = x1 - x0, ph = y1 - y0, fx = f => x0 + Math.log10(f / 20) / 3 * pw, hue = HUE.flare, NB = 96, bin = f => (Math.log10(f / 20) / 3) * (NB - 1);
+    const sh1 = Math.round(p.o1shape.v * 3), sh2 = Math.round(p.o2shape.v * 3), l1 = p.o1lvl.v, l2 = p.o2lvl.v, oc1 = Math.round(p.o1oct.v * 4) - 2, oc2 = Math.round(p.o2oct.v * 4) - 2, d2 = (p.o2det.v - .5) * 100, d1 = (p.o1det.v - .5) * 100;
+    const fc = flareCutoff(c); c.raw.fill(0); c.ghost.fill(0);
+    for (const v of c.voices) { const g = v.a * v.vel; if (g < .002) continue;
+      for (const [sh, lv, oc, dt_] of [[sh1, l1, oc1, d1], [sh2, l2, oc2, d2]]) { const f0 = midiHz(v.n) * Math.pow(2, oc + dt_ / 1200);
+        for (let k = 1; k <= 28; k++) { const f = f0 * k; if (f > 20000) break; const a = harm(sh, k) * lv * g; if (a < .002) continue; const b = bin(f), bi = Math.round(b); for (let j = -1; j <= 1; j++) { const ii = bi + j; if (ii < 0 || ii >= NB) continue; const wgt = Math.exp(-((ii - b) ** 2) / .9); c.ghost[ii] += a * wgt; c.raw[ii] += a * wgt * Math.pow(10, clamp(flareFilterDb(c, f, fc), -60, 18) / 20); } } } }
+    const nz = p.noise.v * .35 * c.energy; for (let i = 0; i < NB; i++) { const f = 20 * Math.pow(1000, i / (NB - 1)); c.raw[i] += nz * Math.pow(10, clamp(flareFilterDb(c, f, fc), -60, 18) / 20) * .5; c.ghost[i] += nz * .5; }
+    for (let i = 0; i < NB; i++) c.bins[i] = follow(c.bins[i], c.raw[i], MO.METER_ATTACK, .14, e.dt);
+    const yA = a => y1 - clamp((dbOf(a + 1e-5) + 54) / 54) * ph;
+    // grid
+    for (const [f, t] of [[100, '100'], [1000, '1k'], [10000, '10k']]) { ctx.fillStyle = 'rgba(255,255,255,.07)'; ctx.fillRect(Math.round(fx(f)), y0, 1, ph); text(ctx, t, fx(f), y1 + 10, {font: '8px "Mono"', col: '#fff', a: .32, align: 'center'}); }
+    ctx.fillStyle = 'rgba(255,255,255,.14)'; ctx.fillRect(x0, y1, pw, 1);
+    // ghost: what the oscillators make before the filter; bars: what is left
+    ctx.save(); addBlend(ctx, true);
+    for (let i = 0; i < NB; i++) { const x = x0 + i / (NB - 1) * pw, g = c.ghost[i] * .95; if (g > .004) { ctx.fillStyle = hexA('#FFE6A3', .13); const yy = yA(g); ctx.fillRect(x - 1, yy, 2, y1 - yy); } }
+    for (let i = 0; i < NB; i++) { const x = x0 + i / (NB - 1) * pw, a = c.bins[i]; if (a < .004) continue; const yy = yA(a), gg = ctx.createLinearGradient(0, yy, 0, y1); gg.addColorStop(0, '#FFF6DC'); gg.addColorStop(.25, hexA(hue, .95)); gg.addColorStop(1, hexA(hue, .25));
+      ctx.fillStyle = gg; ctx.fillRect(x - 1.1, yy, 2.2, y1 - yy); glowDisc(ctx, x, yy, 7, hue, .45); }
+    ctx.restore();
+    // the filter, live
+    const pts = []; for (let i = 0; i <= 120; i++) { const f = 20 * Math.pow(1000, i / 120), d = clamp(flareFilterDb(c, f, fc), -48, 14); pts.push([x0 + i / 120 * pw, y1 - ((d + 48) / 62) * ph * .78 - 4]); }
+    ctx.beginPath(); pathPts(ctx, pts); ctx.lineTo(x1, y1); ctx.lineTo(x0, y1); ctx.closePath(); const fg = ctx.createLinearGradient(0, y0, 0, y1); fg.addColorStop(0, hexA(hue, .22)); fg.addColorStop(1, hexA(hue, 0)); ctx.fillStyle = fg; ctx.fill();
+    ctx.save(); ctx.shadowColor = hue; ctx.shadowBlur = 6; ctx.beginPath(); pathPts(ctx, pts); ctx.lineWidth = 1.8; ctx.strokeStyle = '#FFF3D1'; ctx.stroke(); ctx.restore();
+    const cx_ = fx(fc); ctx.save(); ctx.setLineDash([2, 3]); ctx.strokeStyle = hexA(hue, .5); ctx.beginPath(); ctx.moveTo(cx_, y0); ctx.lineTo(cx_, y1); ctx.stroke(); ctx.restore();
+    text(ctx, FT[Math.round(p.ftype.v * 2)] + ' ' + (fc >= 1000 ? (fc / 1000).toFixed(1) + 'k' : Math.round(fc)), cx_ + 4, y0 + 8, {font: '600 8.5px "Mono"', col: '#FFF3D1', a: .95});
+    c.hit.push({id: 'fil', kind: 'drag', test: (px, py) => Math.abs(px - 14 - cx_) < 10 && py - 60 > y0 && py - 60 < y1, drag: (px, py) => { const q = c.params; q.cutoff.v = clamp((px - 14 - x0) / pw); q.cutoff.spring.snap(q.cutoff.v); q.reso.v = clamp(1 - (py - 60 - y0) / ph); q.reso.spring.snap(q.reso.v); }});
+    text(ctx, c.voices.length ? c.voices.filter(v => v.off == null).map(v => NOTE(v.n)).slice(0, 4).join(' · ') : 'play or hold a note', x0 + 2, y0 + 8, {font: '8.5px "Mono"', col: '#FFE6A3', a: c.voices.length ? .85 : e.rest * .6});
+    flarePills(ctx, c, e, 152);
+  }});
+}
+
+// ---------- C · Constellation: every note is a star; the envelope is its light, the filter its rays ----------
+function FlareC() {
+  return new Card({...flBase(), init() { flareInit(this); this.trails = new Map(); },
+  drawScreen(ctx, e) {
+    const {w, h} = e, c = this, aw = e.awake, p = c.params, hue = HUE.flare; flareStep(c, e.dt);
+    const xN = n => 22 + (n - 33) / 51 * (w - 44), tau = Math.max(.004, ms_of(1, 2000, p.glide.v) / 1000), det = (p.o1det.v - .5) * 100, oc2 = Math.round(p.o2oct.v * 4) - 2, d2 = (p.o2det.v - .5) * 100;
+    // keyboard ticks: pitch is the horizontal axis
+    for (let n = 36; n <= 84; n += 12) { const x = xN(n); ctx.fillStyle = 'rgba(255,255,255,.09)'; ctx.fillRect(Math.round(x), 120, 1, 14); text(ctx, NOTE(n), x, 146, {font: '8px "Mono"', col: '#fff', a: .32, align: 'center'}); }
+    ctx.fillStyle = 'rgba(255,255,255,.08)'; ctx.fillRect(10, 134, w - 20, 1);
+    // a little dust that sparkles when noise is up
+    const nd = Math.round(p.noise.v * 90 + 6); for (let i = 0; i < nd; i++) { const x = hash(i * 1.7) * w, y = hash(i * 9.1) * 130 + 4, tw = e.still ? .5 : .5 + .5 * Math.sin(e.T * (2 + hash(i) * 5) + i); ctx.fillStyle = `rgba(255,236,190,${(.12 + .35 * tw * p.noise.v * 3) * (.3 + .7 * aw)})`; ctx.fillRect(x, y, 1.2, 1.2); }
+    ctx.save(); addBlend(ctx, true);
+    const live = c.voices.filter(v => v.a > .01).map(v => { const tx = xN(v.n); if (v.x == null) v.x = tx; v.x = follow(v.x, tx, tau, tau, e.dt); c.lastX = v.x; return v; });
+    // lines between notes sounding together
+    const srt = [...live].sort((a, b) => a.x - b.x); ctx.lineWidth = 1; for (let i = 1; i < srt.length; i++) { ctx.strokeStyle = hexA('#FFE6A3', .18 * Math.min(srt[i].a, srt[i - 1].a)); ctx.beginPath(); ctx.moveTo(srt[i - 1].x, yOf(srt[i - 1])); ctx.lineTo(srt[i].x, yOf(srt[i])); ctx.stroke(); }
+    function yOf(v) { return 112 - v.vel * 66 + (c.tgtI === 1 || c.tgtI === 3 ? (c.lfo || 0) * p.lfoDepth.v * 9 : 0); }
+    for (const v of live) {
+      const y = yOf(v), a = v.a, rad = 3 + 8 * a, ray = (6 + 44 * clamp(p.cutoff.v * .55 + p.fenv.v * v.f * .6)) * (.25 + .75 * a) * (1 + (c.tgtI === 2 ? (c.lfo || 0) * p.lfoDepth.v * .5 : 0));
+      glowDisc(ctx, v.x, y, 16 + 34 * a, hue, .55 * a + .1); // halo
+      ctx.lineWidth = 1.2; for (let k = 0; k < 4; k++) { const an = k * Math.PI / 2, gg = ctx.createLinearGradient(v.x, y, v.x + Math.cos(an) * ray, y + Math.sin(an) * ray); gg.addColorStop(0, hexA('#FFF3D1', .8 * a)); gg.addColorStop(1, hexA(hue, 0)); ctx.strokeStyle = gg; ctx.beginPath(); ctx.moveTo(v.x, y); ctx.lineTo(v.x + Math.cos(an) * ray, y + Math.sin(an) * ray); ctx.stroke(); }
+      ctx.lineWidth = .8; for (let k = 0; k < 4; k++) { const an = k * Math.PI / 2 + Math.PI / 4, r2 = ray * .45; ctx.strokeStyle = hexA('#FFE6A3', .45 * a); ctx.beginPath(); ctx.moveTo(v.x, y); ctx.lineTo(v.x + Math.cos(an) * r2, y + Math.sin(an) * r2); ctx.stroke(); }
+      ctx.beginPath(); ctx.arc(v.x, y, rad * .55, 0, 6.2832); ctx.fillStyle = '#fff'; ctx.fill();
+      // osc 2: a smaller twin that orbits by the detune and sits where its octave puts it
+      if (p.o2lvl.v > .03) { const tx2 = xN(v.n + 12 * oc2 + d2 / 100), ox = Math.cos(e.T * 2.1 + v.n) * (3 + Math.abs(det) * .12), oy = Math.sin(e.T * 2.1 + v.n) * 2; const x2 = clamp(lerp(v.x, tx2, .85), 8, w - 8) + (e.still ? 0 : ox), y2 = y + 6 + (e.still ? 0 : oy);
+        glowDisc(ctx, x2, y2, 12 + 12 * a, '#FFE6A3', .3 * a * p.o2lvl.v * 2); ctx.beginPath(); ctx.arc(x2, y2, 1.4 + 2 * a, 0, 6.2832); ctx.fillStyle = '#FFE6A3'; ctx.globalAlpha = .85; ctx.fill(); ctx.globalAlpha = 1; }
+    }
+    ctx.restore();
+    // the ground glow follows the energy
+    glowDisc(ctx, w / 2, 140, 160, hue, .06 + .14 * c.energy);
+    text(ctx, live.length ? live.filter(v => v.off == null).map(v => NOTE(v.n)).slice(0, 4).join(' · ') : 'play or hold a note', w - 10, 18, {font: '8.5px "Mono"', col: '#FFE6A3', a: live.length ? .85 : e.rest * .6, align: 'right'});
+    if (!live.length) { glowDisc(ctx, w / 2, 90, 18, hue, .18 * e.rest); ctx.beginPath(); ctx.arc(w / 2, 90, 2.2, 0, 6.2832); ctx.fillStyle = hexA('#FFF3D1', .5 * e.rest); ctx.fill(); }
+    flarePills(ctx, c, e, 152);
+  }});
+}
+
+// ============================================================================
+// AFTERGLOW (reverb) and PARALLAX (delay) · 300 x 330, screen 272 x 176
+// Both read time: Afterglow's tail is the real decay; Parallax's echoes land on
+// the audio clock. Event-driven pictures are CLOSED-FORM FUNCTIONS OF AGE
+// (now - event time): no per-frame state to drift, so they stay in step at any
+// frame rate and at any frame drop.
+// ============================================================================
+const COOL = '#F6EEFF', WARM = '#FFB36B';
+function agParams() { return {size: P('Space', .62, f_pct), decay: P('Fade', .55, f_ms(300, 8000)), damp: P('Warmth', .4, f_pct), mix: P('Mix', .35, f_pct)}; }
+const agDials = [{key: 'size', name: 'Space'}, {key: 'decay', name: 'Fade'}, {key: 'damp', name: 'Warmth'}, {key: 'mix', name: 'Mix'}];
+function agStep(c, e) {
+  const p = c.params, dt = e.dt; c.decay = ms_of(300, 8000, p.decay.v) / 1000;
+  const lv = e.still ? 0 : SIG.level * (.6 + .4 * p.mix.v * 2.5);
+  // a tail that rises in a frame and falls at the real decay (-60 dB at `decay`)
+  c.tail = lv > c.tail ? follow(c.tail, lv, .012, .012, dt) : c.tail * Math.exp(-dt * 6.9 / c.decay);
+  if (c.tail < .003 && lv < .003) c.tail = 0;
+  c.core = Math.max(0, c.core * Math.exp(-dt / MO.FLASH_TAU));
+  for (const ev of SIG.events) {
+    if (e.still) break;
+    if (ev.type === 'kick') { c.rings.push({t: 0, v: ev.vel, life: clamp(c.decay * .55, .5, 3.6), warm: 0}); c.core = Math.max(c.core, ev.vel); if (c.mode === 'motes') c.burst(ev.vel, 10); }
+    if (ev.type === 'snare') { c.rings.push({t: 0, v: ev.vel * .9, life: clamp(c.decay * .7, .6, 4.5), warm: .5}); c.core = Math.max(c.core, ev.vel); if (c.mode === 'motes') c.burst(ev.vel, 14); }
+    if (ev.type === 'pad') { c.rings.push({t: 0, v: .8, life: clamp(c.decay * .9, 1, 6), warm: .2}); c.core = Math.max(c.core, .6); if (c.mode === 'motes') c.burst(.8, 22); }
+    if (ev.type === 'hat' && c.mode === 'motes' && ev.vel > .7) c.burst(.3, 3);
+  }
+  for (const r of c.rings) r.t += dt; c.rings = c.rings.filter(r => r.t < r.life);
+  if (e.still) c.rings.length = 0;
+  c.glowAmt = MO.GLOW_REST + (1 - MO.GLOW_REST) * clamp(c.tail * 1.1);
+}
+function agGlow(ctx, e, c, cx, cy, gx, gy) {
+  const p = c.params, k = c.tail, warm = p.damp.v, coreCol = mixc(COOL, WARM, warm * .85), hue = HUE.afterglow;
+  const wide = 1 + .16 * k; ctx.save(); ctx.translate(cx, cy); ctx.scale(gx * wide, gy * wide);
+  addBlend(ctx, true);
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+  const a = (.14 + .86 * c.glowAmt) * (.88 + .12 * p.mix.v * 2.5);
+  g.addColorStop(0, hexA(coreCol, .95 * a + .3 * c.core)); g.addColorStop(.18, hexA(coreCol, .55 * a)); g.addColorStop(.5, hexA(hue, .62 * a * .55)); g.addColorStop(1, hexA(hue, 0));
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, 1, 0, 6.2832); ctx.fill(); ctx.restore(); addBlend(ctx, false);
+}
+function agRing(ctx, c, cx, cy, gx, gy, r, e) { // one ring: born at the core, thrown outward with a fast start and a long ease
+  const u = r.t / r.life, s = ease.outExpo(clamp(u * 1.0)), fade = Math.pow(1 - u, 1.6), col = mixc(COOL, WARM, clamp(c.params.damp.v * (.4 + u) + r.warm * .3));
+  const rx = gx * (.14 + 1.4 * s) * (.6 + .6 * c.params.size.v), ry = gy * (.14 + 1.4 * s) * (.6 + .6 * c.params.size.v);
+  ctx.save(); addBlend(ctx, true); ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, 6.2832); ctx.lineWidth = lerp(2.4, .7, u); ctx.strokeStyle = col; ctx.globalAlpha = clamp(fade * r.v * .6); ctx.stroke(); ctx.restore();
+}
+function agRestRings(ctx, c, cx, cy, gx, gy, e) { // the picture at rest: the room's own extent, a still outline, no motion
+  const k = c.params.decay.v, s = c.params.size.v;
+  for (let i = 0; i < 4; i++) { const r = (.45 + i * .3) * (.6 + .6 * s) * (.6 + .5 * k); ctx.beginPath(); ctx.ellipse(cx, cy, gx * r, gy * r, 0, 0, 6.2832); ctx.lineWidth = 1; ctx.strokeStyle = hexA(HUE.afterglow, (.27 - .045 * i) * .55 * (.5 + .5 * e.rest + .5 * c.tail)); ctx.stroke(); }
+}
+function agWords(ctx, c, e) {
+  text(ctx, (c.decay < 10 ? c.decay.toFixed(1) : Math.round(c.decay)) + ' s', e.w - 12, 30, {font: '560 22px Unbounded', col: '#fff', a: .96, align: 'right'});
+  text(ctx, 'to silence', e.w - 12, 46, {font: '10px Inter', col: '#fff', a: .6, align: 'right'});
+}
+function agHit(c, cx, cy, gx, gy) { // dragging the glow is Space; the rest of the picture is Fade
+  c.hit.push({id: 'glow', kind: 'drag', test: (x, y) => Math.abs(x - 14 - cx) < gx * .9 && Math.abs(y - 60 - cy) < gy * .9, drag: (x, y) => { const q = c.params.size; q.v = clamp((Math.abs(x - 14 - cx) / (gx * .75) - .5) / .82); q.spring.snap(q.v); }});
+}
+// ---- A1 · Bloom: every hit throws a ring out of the glow; the tail is the real decay ----
+function AfterglowA() {
+  return new Card({w: 300, h: 330, screenH: 176, name: 'Afterglow', sub: 'Reverb', hue: HUE.afterglow, hue2: HUE2.afterglow, deep: DEEP.afterglow, params: agParams(), dials: agDials,
+  init() { this.tail = 0; this.core = 0; this.rings = []; this.glowAmt = MO.GLOW_REST; this.mode = 'bloom'; },
+  drawScreen(ctx, e) {
+    const c = this, p = c.params; agStep(c, e);
+    const cx = e.w * .42, cy = e.h * .55, gx = 118 * (.5 + .82 * p.size.v), gy = 72 * (.5 + .82 * p.size.v);
+    agRestRings(ctx, c, cx, cy, gx, gy, e);
+    agGlow(ctx, e, c, cx, cy, gx, gy);
+    // the core's flash: a small bright disc that is tiny at rest and pops on a hit
+    glowDisc(ctx, cx, cy, 10 + 26 * c.core, '#fff', .35 + .65 * c.core);
+    for (const r of c.rings) agRing(ctx, c, cx, cy, gx, gy, r, e);
+    agWords(ctx, c, e); agHit(c, cx, cy, gx, gy);
+    text(ctx, c.tail > .02 ? 'ringing' : 'at rest', 12, e.h - 10, {font: '9px "Mono"', col: '#fff', a: .4});
+  }});
+}
+// ---- A2 · Motes: the room's energy as light dust that drifts out and goes dark ----
+function AfterglowB() {
+  return new Card({w: 300, h: 330, screenH: 176, name: 'Afterglow', sub: 'Reverb', hue: HUE.afterglow, hue2: HUE2.afterglow, deep: DEEP.afterglow, params: agParams(), dials: agDials,
+  init() { this.tail = 0; this.core = 0; this.rings = []; this.glowAmt = MO.GLOW_REST; this.mode = 'motes'; this.motes = []; this.acc = 0;
+    this.burst = (v, n) => { for (let i = 0; i < n; i++) { const an = hash(this.motes.length * 7.3 + SIG.T * 91 + i) * 6.2832, sp = .35 + .9 * hash(i * 3.1 + SIG.T * 17); this.motes.push({a: an, sp, t: 0, life: this.decay * (.55 + .5 * hash(i + SIG.T * 5)), sz: 1.1 + 2.2 * hash(i * 1.7 + SIG.T * 9) * v}); } if (this.motes.length > 130) this.motes.splice(0, this.motes.length - 130); }; },
+  drawScreen(ctx, e) {
+    const c = this, p = c.params; agStep(c, e);
+    const cx = e.w * .42, cy = e.h * .55, s = .5 + .82 * p.size.v, gx = 118 * s * .8, gy = 72 * s * .8;
+    if (SIG.mode === 'pad' && c.tail > .08 && !e.still) { c.acc += e.dt * 16; while (c.acc >= 1) { c.acc--; c.burst(.5, 1); } }
+    agGlow(ctx, e, c, cx, cy, gx, gy);
+    for (const r of c.rings) { r.t += 0; } // the rings are not drawn here; the motes carry the tail
+    ctx.save(); addBlend(ctx, true);
+    for (const m of c.motes) { m.t += e.dt; const u = m.t / m.life; if (u >= 1) continue; const d = ease.out(u) * m.sp * Math.max(gx, gy) * 1.5, col = mixc(COOL, WARM, clamp(p.damp.v * (.3 + u))), al = Math.pow(1 - u, 1.3) * (.35 + .65 * p.mix.v * 2);
+      const x = cx + Math.cos(m.a) * d * 1.3 + Math.sin(e.T * .6 + m.a * 5) * 2 * u, y = cy + Math.sin(m.a) * d * .8 - 6 * u * u * 10;
+      glowDisc(ctx, x, y, m.sz * 2.6 * (.7 + .3 * (1 - u)), col, al * .9); ctx.beginPath(); ctx.arc(x, y, m.sz * .55, 0, 6.2832); ctx.fillStyle = hexA('#FFFFFF', al); ctx.fill(); }
+    c.motes = c.motes.filter(m => m.t < m.life); if (e.still) c.motes.length = 0;
+    ctx.restore();
+    glowDisc(ctx, cx, cy, 10 + 24 * c.core, '#fff', .3 + .6 * c.core);
+    agWords(ctx, c, e); agHit(c, cx, cy, gx, gy);
+  }});
+}
+
+// ============================================================================
+// PARALLAX (delay). The picture is a function of the SONG CLOCK, not of the
+// frame: each hit stores its time; echo i is due at hit + (i + 1) * delay;
+// the ball flies for exactly one delay and lands on the due instant.
+// ============================================================================
+const PNOTES = [['1/16', .25], ['1/8', .5], ['1/8.', .75], ['1/4', 1], ['1/4.', 1.5], ['1/2', 2], ['1', 4]];
+const pIdx = v => Math.round(v * 6);
+function paParams() {
+  let self; const p = {
+    time: P('Time', .5, v => self.sync() ? PNOTES[pIdx(v)][0] : Math.round(ms_of(30, 2000, v)) + ' ms'), feedback: P('Feedback', .5, f_pct), mix: P('Mix', .32, f_pct),
+    sync: P('Sync', 1, v => v > .5 ? 'On' : 'Off'), ping: P('Ping', 1, v => v > .5 ? 'On' : 'Off')};
+  p.time.v = p.time.def = p.time.s = 2 / 6; p.time.spring.snap(2 / 6); Object.defineProperty(p, '_bind', {value: c => { self = c; }, enumerable: false}); return p;
+}
+function paDelay(c) { return c.params.sync.v > .5 ? PNOTES[pIdx(c.params.time.v)][1] * 60 / SIG.bpm : ms_of(30, 2000, c.params.time.v) / 1000; }
+function paEchoes(fb) { return clamp(Math.ceil(Math.log(.015) / Math.log(Math.max(.05, fb))), 2, 12); }
+function paStep(c, e) {
+  const T = SIG.T, dly = paDelay(c), fb = c.params.feedback.v, n = paEchoes(fb); c.dly = dly; c.n = n;
+  if (!e.still) for (const ev of SIG.events) if (ev.type === 'kick' || ev.type === 'snare' || (ev.type === 'noteOn' && ev.vel > .55)) c.hits.push({T, v: ev.vel * (ev.type === 'noteOn' ? .75 : 1)});
+  c.hits = c.hits.filter(h => T - h.T < (n + 1) * dly + .6); if (c.hits.length > 24) c.hits.splice(0, c.hits.length - 24);
+  c.pingS = (c.pingS ?? 1); c.pingS = follow(c.pingS, c.params.ping.v > .5 ? 1 : 0, .06, .06, e.dt);
+  c.laneW = .12 + .40 * clamp(Math.log(clamp(dly, .03, 4) / .03) / Math.log(4 / .03));
+  return {T, dly, fb, n};
+}
+const paSide = (i, c) => (i % 2 === 0 ? -1 : 1) * c.pingS;
+// squash and glow as pure functions of age since the landing
+const landScale = s => s < 0 ? 1 : 1 + .55 * Math.exp(-s / .09) * Math.cos(s * 24);
+const landFlash = s => s < 0 ? 0 : Math.exp(-s / MO.FLASH_TAU);
+function paPills(ctx, c) {
+  const p = c.params; ['sync', 'ping'].forEach((k, i) => c.pill(ctx, {id: k, label: () => k === 'sync' ? 'Sync' : 'Ping', on: () => p[k].v > .5, w: 58, click: () => { p[k].v = p[k].v > .5 ? 0 : 1; }}, 250, 290 - i * 26));
+}
+function paDrawDials(ctx) { const c = this; [['time', 56], ['feedback', 118], ['mix', 180]].forEach(([k, x]) => c.dial(ctx, {key: k}, x, 278, 15)); paPills(ctx, c); }
+const paBase = () => ({w: 300, h: 330, screenH: 176, name: 'Parallax', sub: 'Stereo delay', hue: HUE.parallax, hue2: HUE2.parallax, deep: DEEP.parallax, params: paParams(), drawDials: paDrawDials});
+function paWords(ctx, c, e) {
+  const p = c.params; text(ctx, 'L', 10, 15, {font: '9px "Mono"', col: HUE.parallax, a: .8}); text(ctx, 'R', e.w - 16, 15, {font: '9px "Mono"', col: HUE.parallax, a: .8});
+  text(ctx, p.sync.v > .5 ? PNOTES[pIdx(p.time.v)][0] : Math.round(c.dly * 1000) + ' ms', e.w - 12, e.h - 9, {font: '560 13px Unbounded', col: '#fff', a: .95, align: 'right'});
+  if (p.sync.v > .5 && !e.still) text(ctx, 'locked to the song', 12, e.h - 9, {font: '8.5px "Mono"', col: '#fff', a: .38});
+}
+function paDragTime(c, e) { // the same gesture as today: across is Time, up is Feedback
+  c.hit.push({id: 'trail', kind: 'drag', test: (x, y) => x > 18 && x < 14 + e.w - 4 && y > 64 && y < 60 + e.h - 4, drag: (x, y) => { const q = c.params, t = clamp((x - 14) / e.w), f = clamp(1 - (y - 60) / e.h); q.time.v = t; q.time.spring.snap(t); q.feedback.v = f; q.feedback.spring.snap(f); }});
+}
+// ---- A · Court (keeps today's floor and lanes; adds the flying ball) ----
+function ParallaxA() {
+  return new Card({...paBase(), init() { this.hits = []; this.params._bind(this); this.sync = () => this.params.sync.v > .5; },
+  drawScreen(ctx, e) {
+    const c = this, {T, dly, fb, n} = paStep(c, e), w = e.w, h = e.h, vpY = 28, floorY = h - 10, cx = w / 2, hue = HUE.parallax;
+    const near = i => .86 - i * Math.min(1 / 8.2, .8 / (n - 1)); // slot i's depth, as today
+    const yOf = d => vpY + (floorY - vpY) * Math.pow(d, 1.5), sOf = d => .3 + .7 * Math.pow(d, 1.2);
+    const at = (d, side) => [cx + side * (w * .5 - 22) * (.25 + .7 * c.laneW * 1.4) * sOf(d), yOf(d)];
+    // the floor
+    ctx.lineWidth = 1; for (let i = -4; i <= 4; i++) { ctx.beginPath(); ctx.moveTo(cx, vpY); ctx.lineTo(cx + i * w * .13, h); ctx.strokeStyle = hexA(hue, .12); ctx.stroke(); }
+    for (let i = 0; i < 6; i++) { const d = Math.pow(i / 5, .7), y = vpY + (floorY - vpY) * Math.pow(d, 1.5) + 6; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.strokeStyle = hexA(hue, .10 * (.5 + d)); ctx.stroke(); }
+    glowDisc(ctx, cx, vpY, 70, hue, .18);
+    // ghost slots: where each echo will land, dim by what feedback leaves of it
+    const slots = []; for (let i = 0; i < n; i++) { const d = near(i), s = paSide(i, c), [x, y] = at(d, s); slots.push({x, y, d, s, i}); }
+    const lit = new Array(n).fill(0), pop = new Array(n).fill(1), rip = [];
+    for (const hh of c.hits) for (let i = 0; i < n; i++) { const age = T - (hh.T + (i + 1) * dly); if (age < 0) continue; const g = hh.v * Math.pow(fb, i); lit[i] = Math.max(lit[i], landFlash(age) * g); pop[i] = Math.max(pop[i], 1 + (landScale(age) - 1) * g); if (age < .5) rip.push({i, age, g}); }
+    for (let i = n - 1; i >= 0; i--) { const sl = slots[i], r = 13 * sOf(sl.d) * pop[i], base = (.12 + .1 * c.hits.length / 8) * Math.pow(fb, i) * (.4 + .6 * e.awake) + .05 * e.rest;
+      ctx.beginPath(); ctx.ellipse(sl.x, sl.y + r * .55, r * 1.05, r * .3, 0, 0, 6.2832); ctx.fillStyle = hexA('#000', .35); ctx.fill();
+      ctx.save(); addBlend(ctx, true); glowDisc(ctx, sl.x, sl.y, r * (1.8 + 2.2 * lit[i]), hue, base + .75 * lit[i]); ctx.restore();
+      ctx.beginPath(); ctx.arc(sl.x, sl.y, r * .5, 0, 6.2832); ctx.fillStyle = hexA('#D8FFF8', .22 + base * 1.6 + lit[i]); ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = hexA(hue, .3 + .6 * lit[i]); ctx.stroke(); }
+    for (const q of rip) { const sl = slots[q.i], u = q.age / .5, r = 13 * sOf(sl.d) * (.6 + 2.4 * ease.out(u)); ctx.beginPath(); ctx.ellipse(sl.x, sl.y + 4, r, r * .32, 0, 0, 6.2832); ctx.strokeStyle = hexA(hue, (1 - u) * .6 * q.g); ctx.lineWidth = 1.4; ctx.stroke(); }
+    // the balls in flight: ball i leaves slot i-1 at hit + i*delay and lands on slot i at hit + (i+1)*delay
+    ctx.save(); addBlend(ctx, true);
+    for (const hh of c.hits) for (let i = 0; i < n; i++) { const t0 = hh.T + i * dly, u = (T - t0) / dly; if (u < 0 || u > 1) continue;
+      const A = i === 0 ? {d: 1.02, s: 0} : slots[i - 1], B = slots[i], g = hh.v * Math.pow(fb, i);
+      for (let k = 0; k < 6; k++) { const uu = u - k * .03; if (uu < 0) break; const d = lerp(A.d, B.d, uu), s = lerp(i === 0 ? 0 : A.s, B.s, ease.inOut(uu) * .4 + uu * .6), [x, y0] = at(d, s), lift = Math.sin(Math.PI * uu) * 30 * sOf(d), rr_ = (5.4 - k * .5) * sOf(d) * (1 + .12 * Math.sin(Math.PI * uu));
+        glowDisc(ctx, x, y0 - lift, rr_ * (k ? 1.6 : 3), '#FFFFFF', (k ? .12 : .65) * g * (1 - k / 7)); if (!k) { ctx.beginPath(); ctx.arc(x, y0 - lift, rr_ * .6, 0, 6.2832); ctx.fillStyle = hexA('#fff', .9 * g + .1); ctx.fill(); ctx.beginPath(); ctx.ellipse(x, y0 + 4, rr_ * (1 - lift / 90), rr_ * .3, 0, 0, 6.2832); ctx.fillStyle = hexA(hue, .35 * g); ctx.fill(); } } }
+    ctx.restore();
+    paWords(ctx, c, e); paDragTime(c, e);
+  }});
+}
+// ---- B · Zigzag: the same schedule on a flat ladder; one row per echo ----
+function ParallaxB() {
+  return new Card({...paBase(), init() { this.hits = []; this.params._bind(this); this.sync = () => this.params.sync.v > .5; },
+  drawScreen(ctx, e) {
+    const c = this, {T, dly, fb, n} = paStep(c, e), w = e.w, h = e.h, hue = HUE.parallax, xl = 34, xr = w - 34, xc = w / 2, rows = Math.min(n, 7), top = 28, rowH = (h - top - 22) / Math.max(1, rows - 1);
+    const rowY = i => top + Math.min(i, rows - 1) * rowH;
+    const X = (side) => xc + side * (xr - xc) * c.pingS * (.55 + .45 * c.laneW * 1.7);
+    for (let i = 0; i < rows; i++) { ctx.beginPath(); ctx.moveTo(xl - 8, rowY(i)); ctx.lineTo(xr + 8, rowY(i)); ctx.strokeStyle = hexA(hue, .12 + .1 * Math.pow(fb, i)); ctx.lineWidth = 1; ctx.stroke(); }
+    // posts L and R, lit by the latest landing on that side
+    const postLit = [0, 0]; const lit = new Array(n).fill(0);
+    for (const hh of c.hits) for (let i = 0; i < n; i++) { const age = T - (hh.T + (i + 1) * dly); if (age < 0) continue; const g = hh.v * Math.pow(fb, i), f = landFlash(age) * g; lit[i] = Math.max(lit[i], f); const sd = i % 2 === 0 ? 0 : 1; postLit[sd] = Math.max(postLit[sd], f * (1 + .4 * Math.cos(age * 24) * Math.exp(-age / .09))); }
+    [[xl - 8, 0], [xr + 8, 1]].forEach(([x, k]) => { ctx.save(); addBlend(ctx, true); glowDisc(ctx, x, h / 2, 60, hue, .08 + .45 * postLit[k]); ctx.restore(); rr(ctx, x - 3, top - 10, 6, h - top - 6, 3); ctx.fillStyle = hexA(hue, .25 + .6 * postLit[k]); ctx.fill(); });
+    // slot marks
+    for (let i = 0; i < n; i++) { const y = rowY(i), x = X(paSide(i, c)); ctx.beginPath(); ctx.arc(x, y, 3.2 + 3 * lit[i], 0, 6.2832); ctx.strokeStyle = hexA(hue, .3 + .7 * lit[i]); ctx.lineWidth = 1; ctx.stroke(); ctx.fillStyle = hexA('#D8FFF8', .1 + .8 * lit[i]); ctx.fill(); }
+    ctx.save(); addBlend(ctx, true);
+    for (const hh of c.hits) for (let i = 0; i < n; i++) { const u = (T - hh.T - i * dly) / dly; if (u < 0 || u > 1) continue; const g = hh.v * Math.pow(fb, i), sa = i === 0 ? 0 : paSide(i - 1, c), sb = paSide(i, c);
+      for (let k = 0; k < 7; k++) { const uu = u - k * .035; if (uu < 0) break; const x = lerp(X(sa), X(sb), uu), y = lerp(rowY(Math.max(0, i - 1)), rowY(i), ease.inOut(uu)), rd = 4.6 - k * .4; glowDisc(ctx, x, y, rd * (k ? 1.7 : 3.2), '#fff', (k ? .1 : .6) * g * (1 - k / 8)); if (!k) { ctx.beginPath(); ctx.arc(x, y, rd * .65, 0, 6.2832); ctx.fillStyle = hexA('#fff', .9 * g + .1); ctx.fill(); } } }
+    ctx.restore();
+    paWords(ctx, c, e); paDragTime(c, e);
+  }});
+}
+
+window.SECTIONS = [
+ {title: 'Horizon · limiter', blurb: 'OR-2: the level graph shows with no signal, and the sun is boring. All three directions rest as a calm, still horizon when nothing plays (no graph, no repaint), wake in 50 ms on audio, and press the ceiling with a visible, eased squeeze. Level and gain reduction are the data the card has today.', options: [
+  {label: 'A · Skyline', make: HorizonA, rec: 'the history reads at a glance, the ceiling is the horizon itself, and the pressed band between the level and the line is the limiter at work.', text: 'The last few seconds of level as a soft area under a glowing ceiling line. Where the limiter acts, a lit band hangs from the line and the peak flashes white. A sun sits on the horizon and rises with the level.', needs: 'Painter: filled meshes, lines, glow discs. Needs only level and gain reduction.'},
+  {label: 'B · Dawn', make: HorizonB, text: 'The level rides an arc like a sun climbing; the limiter holds it at a notch on the horizon and the held amount fans out as rays. More poster than meter.', needs: 'Painter: arcs, rays, glow discs. Needs only level and gain reduction.'},
+  {label: 'C · Bars', make: HorizonC, text: 'A skyline of light bars rolling left, the ones that pressed the ceiling capped in white. The loudest read, the least graceful.', needs: 'Painter: rectangles, glow discs. Needs only level and gain reduction.'}]},
+ {title: 'Flare · polysynth', blurb: 'OR-3: the controls are a strip of knobs, labels are cut ("Oscillat…"), and 34 parameters have no order. All three directions organise the 34 into <b>seven pages of at most six controls</b> (Osc 1 5 · Osc 2 5 · Out 5 · Filter 6 · Filter env 4 · Amp env 4 · LFO 5), pick the page on the screen, and show a hero animation driven by the notes you play. The dial row under the screen follows the page and every label fits. Click a page or a tile; drag a dial, or the filter on the screen.', options: [
+  {label: 'A · Path', make: FlareA, rec: 'it draws the synth as a signal route, so the page choice is the picture, and every note sends a visible packet of light from oscillator to filter to amp. The most welcoming and the clearest teacher.', text: 'Oscillators, noise, LFO, filter and amp are tiles on a lit circuit. Each note sends light down the wires and every tile pops as it arrives (a spring with overshoot). The oscillator tiles draw their own wave, shape and octave; the filter tile is the live response (cutoff, resonance, type, the envelope’s sweep); the amp tile draws the real ADSR with the newest note riding it. The selected tile’s controls are the dial row.', needs: 'Painter: rounded rects, lines, discs, meshes. New engine read: the sounding voices (note, velocity, stage) as one small snapshot, like the meter. Everything else is the parameter values.'},
+  {label: 'B · Harmonics', make: FlareB, text: 'The oscillators’ harmonics as bars of light (before the filter as a faint ghost), shaped by the live filter, with the filter drawn over them and draggable. What you hear is what you see. Pages are the pills under the picture.', needs: 'Painter: rects with gradients, glow discs, curves. Voice snapshot as in A. Cost: up to 96 bars, one mesh.'},
+  {label: 'C · Constellation', make: FlareC, text: 'Each note is a star: pitch across, velocity up, the amp envelope its brightness, the filter its rays, osc 2 a small twin that orbits by the detune, noise as dust. Glide slides the star; the LFO makes it drift. The most expressive, the least informative.', needs: 'Painter: glow discs, lines, gradients. Voice snapshot as in A.'}]},
+ {title: 'Gravity · compressor', blurb: 'OR-4: needs more life. Every direction reads the gain reduction that exists today and gives it weight: the squeeze is a thing you can see move, with a fast attack and an eased release.', options: [
+  {label: 'A · Well', make: GravityA, rec: 'a membrane that a hit presses down makes the compressor’s job physical, and rings crossing it give every hit a beat of life even in a steady groove.', text: 'The grid is a membrane. The signal is a ball that rides over it; the gain reduction is how far the membrane is pressed, and each hit sends rings across it.', needs: 'Painter: meshes (the pressed grid), discs, rings. Needs level and gain reduction.'},
+  {label: 'B · Slope', make: GravityB, text: 'The transfer curve with a bead riding it and the pulled amount as a lit bracket. The most exact.', needs: 'Painter: curves, bracket, glow. Needs level and gain reduction.'},
+  {label: 'C · Press', make: GravityC, text: 'A lit ball squashed by a plate; the squash is the gain reduction. Pure character.', needs: 'Painter: discs, a rounded plate, glow. Needs level and gain reduction.'}]},
+ {title: 'Prism · utility', blurb: 'OR-5: the beams are weak and poorly designed. Each direction ties the picture to what the dials do (gain, pan, width, bass mono), with the light adding back to white at mono.', options: [
+  {label: 'A · Fan', make: PrismA, rec: 'a real prism: the white beam goes in, five wedges come out, and they fold back to one white beam as width goes to 0 %. Width is the angle you can see.', text: 'A beam enters a glass prism and leaves as five coloured wedges that spread by Width, shift by Pan and brighten with level. A short stem on the left is the Bass mono.', needs: 'Painter: filled wedges, additive blends. Needs only level.'},
+  {label: 'B · Field', make: PrismB, text: 'A stereo scope: width and mono, measured as a field of light.', needs: 'Painter: points and glow. Wants a stereo correlation read (one new value) to be truthful.'},
+  {label: 'C · Ribbons', make: PrismC, text: 'Left and right as two ribbons of light that part by the width and add to white at mono.', needs: 'Painter: gradient meshes. Needs only level.'}]},
+ {title: 'Iris · parametric EQ', blurb: 'OR-6: rays disconnected from the node, a jagged curve. The curve is the exact filter response sampled every 1.5 pt and drawn with the same smooth line; the analyser is smoothed in space and time and drawn as a curve through points; every ray starts at its node. (A separate change smooths the data; the pictures here already assume it.)', options: [
+  {label: 'A · Glass', make: IrisA, rec: 'the clearest, most precise display: a crisp curve on glass with each band’s influence as a soft fill and the selected node carrying its value.', text: 'A crisp white curve over a quiet grid, the analyser as a smooth filled curve, each band’s influence a soft hue-coloured fill, the selected node with a readout pill.', needs: 'Painter: meshes, curves. Needs the spectrum and the band values.'},
+  {label: 'B · Aurora', make: IrisB, text: 'The same curve with additive glow: bands as overlapping light, no grid but the zero line.', needs: 'Painter: additive blends (egui Mesh vertex colours). Needs the spectrum and the band values.'},
+  {label: 'C · Blue', make: IrisC, text: 'A denser technical view: a blue field, a ±15 dB grid, thin lines. For someone who wants to read exact numbers.', needs: 'Painter: lines and meshes. Needs the spectrum and the band values.'}]},
+ {title: 'Afterglow · reverb', blurb: 'OR-8: animate it better. The tail is the real decay, so the picture falls at the speed the room does. The glow rises in a frame, each hit throws light outward, and when nothing plays it is a still, dim outline. Dials keep the four controls (Space, Fade, Warmth, Mix); drag the glow for Space.', options: [
+  {label: 'A1 · Bloom', make: AfterglowA, rec: 'it keeps today’s glow and rings but lets each hit throw a ring outward (fast start, long ease) so the tail you hear is a ring you watch leaving. Cheapest to build.', text: 'Kicks throw a ring, snares a warmer one, a pad chord one long slow ring. The glow swells with the level and falls at the real decay time (the hero number). Warmth tints rings from cool white to amber as they age.', needs: 'Painter: one gradient mesh, up to a handful of ring strokes. Needs level and the hit onsets (a rising level read; no new engine data).'},
+  {label: 'A2 · Motes', make: AfterglowB, text: 'The same glow with the tail as light dust that drifts out and goes dark, each mote living a share of the decay. Richer, fuller, costs more (up to 130 small discs).', needs: 'Painter: one mesh of small quads with vertex colours (one draw). Needs level and onsets.'}]},
+ {title: 'Parallax · delay (with ping-pong)', blurb: 'OR-9: keep it, add L/R ping-pong, and say how the picture stays in step with the repeats. <b>How it stays in step.</b> The picture is not animated by the frame; it is computed from the song clock. Each input hit is stored with its time; echo <i>i</i> is due at <code>hit + (i + 1) · delay</code>; the ball for that echo flies for exactly one delay interval and lands on the due instant, so a landing flash, squash and ripple are pure functions of <code>now − due</code> (no state to drift, any frame rate). With Sync the delay is note-length × the project tempo; without it, the milliseconds. The clock is the audio frame count read with the meter (minus the output latency), so a pause, loop or tempo change moves the picture with the audio. The ping switch slides the lanes, not jumps them.', options: [
+  {label: 'A · Court', make: ParallaxA, rec: 'it keeps today’s floor, lanes and light, and adds one thing: a ball that bounces from slot to slot, left then right, landing exactly when each echo sounds.', text: 'Echoes sit on a floor that recedes to a vanishing point, alternating L and R. A hit sends a ball that arcs L, R, L… deeper each time; every landing squashes the slot (spring), flashes it and sends a ripple. Slots show what feedback leaves of each echo. Ping off: the ball bounces straight down the middle. Drag across for Time, up for Feedback.', needs: 'Painter: ellipses, glow discs, lines. Needs input onsets and the audio clock with the meter read (one new field; today’s card uses wall time). Without them: onsets from the level stream, accurate to a meter frame.'},
+  {label: 'B · Zigzag', make: ParallaxB, text: 'The same schedule on a flat ladder: one row per echo, the ball zigzags between the L and R posts. Easiest to read, least depth.', needs: 'Painter: lines, discs. Same data as A.'}]},
+];
+window.FOOT = '<p><b>Not shown.</b> Real audio: the signal is simulated (a drum loop at 100 bpm, a pad, silence) and stands for the meter, the analyser and the note stream. Real egui rendering: the page uses Canvas 2D, whose lines, polygons, arcs, discs, gradients and additive blends map to egui’s painter shapes and vertex-coloured meshes; nothing here needs a custom shader. Cost: each face’s drawing is budgeted under 0.3 ms a frame (see the notes); the page itself was not timed in egui. Real hardware latency, the engine reads listed under each card, and Reduce motion beyond a static picture were not tested.</p>';
+
+// ============================================================================
+// The page: toolbar, the motion vocabulary, one section per device
+// ============================================================================
+const SECTIONS = window.SECTIONS || [];
+const el = (tag, attrs = {}, kids = []) => { const e = document.createElement(tag); for (const k in attrs) { if (k === 'html') e.innerHTML = attrs[k]; else if (k === 'class') e.className = attrs[k]; else e.setAttribute(k, attrs[k]); } [].concat(kids).forEach(k => k && e.appendChild(typeof k === 'string' ? document.createTextNode(k) : k)); return e; };
+const root = document.getElementById('root');
+
+function applyTheme() {
+  C = ST.light ? L : D;
+  document.body.style.background = C.ground; document.body.style.color = C.text;
+  document.querySelectorAll('.seg').forEach(s => s.style.background = C.well);
+  document.querySelectorAll('.seg button').forEach(b => { const on = b.dataset.on === '1'; b.style.background = on ? (ST.light ? '#fff' : C.control_hi) : 'transparent'; b.style.color = on ? C.text : C.text2; b.style.fontWeight = on ? 600 : 400; });
+  document.querySelectorAll('.tog').forEach(b => { const on = b.dataset.on === '1'; b.style.background = on ? C.accent_muted : C.well; b.style.color = on ? C.accent : C.text2; });
+  document.querySelectorAll('.sub').forEach(s => s.style.color = C.text2);
+  document.querySelectorAll('.chip.rec').forEach(s => { s.style.background = C.accent_muted; s.style.color = C.accent; });
+  document.querySelectorAll('.chip.plain').forEach(s => { s.style.background = C.well; s.style.color = C.text2; });
+  document.querySelectorAll('.bar').forEach(b => b.style.background = C.ground);
+  document.querySelectorAll('th,td.k').forEach(s => s.style.color = C.text2);
+  document.querySelectorAll('td').forEach(s => { if (!s.classList.contains('k')) s.style.color = C.text; });
+  document.querySelectorAll('.vocab').forEach(v => { v.style.background = C.raised; v.style.border = '1px solid ' + C.border; });
+}
+function applyScale() { document.documentElement.style.setProperty('--s', ST.S); CARDS.forEach(c => c.size()); VOCAB.size(); }
+function seg(label, items, get, set) {
+  const wrap = el('div', {class: 'grp'}, [el('span', {}, label)]), s = el('div', {class: 'seg'}); wrap.appendChild(s);
+  const paint = () => [...s.children].forEach((b, i) => b.dataset.on = get() === items[i][1] ? '1' : '0');
+  items.forEach(([t, v]) => { const b = el('button', {}, t); b.onclick = () => { set(v); paint(); applyTheme(); refreshFrame(); }; s.appendChild(b); }); paint(); return wrap;
+}
+function tog(label, get, set) {
+  const b = el('button', {class: 'tog'}, label); b.dataset.on = get() ? '1' : '0';
+  b.onclick = () => { set(!get()); b.dataset.on = get() ? '1' : '0'; applyTheme(); refreshFrame(); }; return b;
+}
+function refreshFrame() { if (ST.paused || ST.freeze != null) tickAll(1 / 240); }
+
+// ---------- the motion vocabulary panel ----------
+const VOCAB = {
+  w: 1276, h: 232, canvas: null, ctx: null, t: 0, raw: [], sym: [], ar: [], aw: [], flip: 0, tgt: 0,
+  sp: [new Spring(MO.SOFT), new Spring(MO.SNAP), new Spring(MO.POP)], sA: 0, sB: 0, awake: 0,
+  size() { const px = ST.S * DPR; this.canvas.width = Math.round(this.w * px); this.canvas.height = Math.round(this.h * px); this.canvas.style.width = this.w * ST.S + 'px'; this.canvas.style.height = this.h * ST.S + 'px'; },
+  init() { this.canvas = el('canvas', {class: 'cv'}); this.ctx = this.canvas.getContext('2d'); this.size(); return this.canvas; },
+  frame(dt) {
+    const ctx = this.ctx, px = ST.S * DPR; ctx.setTransform(px, 0, 0, px, 0, 0); ctx.clearRect(0, 0, this.w, this.h);
+    this.t += dt; rr(ctx, 0, 0, this.w, this.h, 12); ctx.fillStyle = C.raised; ctx.fill(); ctx.strokeStyle = C.border; ctx.stroke();
+    const col = HUE.flare, pw = 300, x0 = 20;
+    // 1 · springs
+    this.flip -= dt; if (this.flip <= 0) { this.flip = 1.5; this.tgt = 1 - this.tgt; this.sp.forEach(s => s.set(this.tgt)); this.t0 = this.t; }
+    this.sp.forEach(s => s.step(dt));
+    text(ctx, 'Springs', x0, 26, {font: UNB.replace('15', '12'), col: C.text});
+    text(ctx, 'one step, three ways of arriving', x0, 41, {font: '10px Inter', col: C.text2});
+    [['SOFT · today, no overshoot', 0], ['SNAP · ζ .55, ~12 %', 1], ['POP · ζ .38, ~28 %', 2]].forEach(([n, i]) => {
+      const y = 78 + i * 46, a = x0, b = x0 + 250;
+      ctx.fillStyle = hexA(C.text2, .25); ctx.fillRect(a, y, 250, 2); ctx.fillRect(a, y - 6, 1, 14); ctx.fillRect(b, y - 6, 1, 14);
+      const x = lerp(a, b, this.sp[i].x); glowDisc(ctx, x, y + 1, 12, col, .5); ctx.beginPath(); ctx.arc(x, y + 1, 5, 0, 6.2832); ctx.fillStyle = col; ctx.fill();
+      text(ctx, n, a, y + 20, {font: '8.5px "Mono"', col: C.text2});
+    });
+    // 2 · meter ballistics, on the live signal
+    const bx = 350; this.raw.push(SIG.level); this.sA = follow(this.sA, SIG.level, .08, .08, dt); this.sB = follow(this.sB, SIG.level, MO.METER_ATTACK, MO.METER_RELEASE, dt);
+    this.sym.push(this.sA); this.ar.push(this.sB); [this.raw, this.sym, this.ar].forEach(a => { while (a.length > 150) a.shift(); });
+    text(ctx, 'Meter ballistics', bx, 26, {font: UNB.replace('15', '12'), col: C.text});
+    text(ctx, 'fast attack, eased release (green) vs symmetric', bx, 41, {font: '10px Inter', col: C.text2});
+    const gy = 56, gh = 118, gw = 250;
+    ctx.save(); rr(ctx, bx, gy, gw, gh, 8); ctx.fillStyle = C.well; ctx.fill(); ctx.clip();
+    const plot = (arr, colr, wd, fill) => { ctx.beginPath(); arr.forEach((v, i) => { const x = bx + 4 + i / 150 * (gw - 8), y = gy + gh - 6 - v * (gh - 14); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.lineWidth = wd; ctx.strokeStyle = colr; ctx.stroke(); };
+    plot(this.raw, hexA(C.text2, .55), 1); plot(this.sym, '#E26F6F', 1.4); plot(this.ar, '#5BE07F', 2); ctx.restore();
+    text(ctx, 'raw', bx, gy + gh + 14, {font: '8.5px "Mono"', col: C.text2}); text(ctx, 'tau .08 both ways (lifeless)', bx + 30, gy + gh + 14, {font: '8.5px "Mono"', col: '#E26F6F'});
+    text(ctx, 'tau 4 ms up / 160 ms down', bx, gy + gh + 28, {font: '8.5px "Mono"', col: '#2FB65A'});
+    // 3 · rest and wake
+    const rx = 660; this.awake = SIG.awake;
+    text(ctx, 'Rest and wake', rx, 26, {font: UNB.replace('15', '12'), col: C.text});
+    text(ctx, 'silent for .45 s: settle; a hit: wake in 50 ms', rx, 41, {font: '10px Inter', col: C.text2});
+    const cx = rx + 70, cy = 112, aw = this.awake;
+    glowDisc(ctx, cx, cy, 46 + 26 * aw * (.4 + SIG.level), col, MO.GLOW_REST + (MO.GLOW_LIVE - MO.GLOW_REST) * aw + MO.GLOW_ENERGY * SIG.level * aw);
+    ctx.beginPath(); ctx.arc(cx, cy, 6 + 3 * aw, 0, 6.2832); ctx.fillStyle = mixc('#8a7a55', '#FFF3D1', aw); ctx.fill();
+    text(ctx, aw < .08 ? 'resting · nothing repaints' : 'awake · ' + (aw > .95 ? 'drawing' : 'waking'), cx, cy + 66, {font: '9px "Mono"', col: C.text2, align: 'center'});
+    this.aw.push(aw); while (this.aw.length > 130) this.aw.shift();
+    ctx.beginPath(); this.aw.forEach((v, i) => { const x = rx + 150 + i / 130 * 130, y = 170 - v * 70; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.lineWidth = 2; ctx.strokeStyle = col; ctx.stroke();
+    ctx.fillStyle = hexA(C.text2, .25); ctx.fillRect(rx + 150, 170, 130, 1); text(ctx, 'awake', rx + 150, 186, {font: '8.5px "Mono"', col: C.text2});
+    // 4 · easing and glow
+    const ex = 990; text(ctx, 'Curves and glow', ex, 26, {font: UNB.replace('15', '12'), col: C.text});
+    text(ctx, 'ease_out today; back and expo are new', ex, 41, {font: '10px Inter', col: C.text2});
+    [[ease.out, '#9AA0AC', 'out'], [ease.outBack, HUE.flare, 'out_back'], [ease.outExpo, '#5BE07F', 'out_expo']].forEach(([f, cc, n], k) => {
+      ctx.beginPath(); for (let i = 0; i <= 40; i++) { const t = i / 40, x = ex + t * 120, y = 140 - f(t) * 58; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); } ctx.lineWidth = 1.6; ctx.strokeStyle = cc; ctx.stroke();
+      text(ctx, n, ex + 128, 90 + k * 12, {font: '8.5px "Mono"', col: cc});
+    });
+    ctx.fillStyle = hexA(C.text2, .25); ctx.fillRect(ex, 140, 120, 1); ctx.fillRect(ex, 82, 120, 1);
+    [['rest', MO.GLOW_REST], ['live', MO.GLOW_LIVE + .15], ['hit', MO.GLOW_HIT]].forEach(([n, a], i) => { const x = ex + 24 + i * 78; ctx.fillStyle = '#0E0B07'; rr(ctx, x - 26, 160, 52, 52, 10); ctx.fill(); glowDisc(ctx, x, 186, 24, col, a); ctx.beginPath(); ctx.arc(x, 186, 3, 0, 6.2832); ctx.fillStyle = '#fff'; ctx.fill(); text(ctx, n + ' ' + a.toFixed(2).replace(/^0/, ''), x, 224, {font: '8.5px "Mono"', col: C.text2, align: 'center'}); });
+  },
+};
+
+function build() {
+  root.appendChild(el('h1', {html: 'Faces, round 4 <small>M8 pitch · OR-2, OR-3, OR-5, OR-6, OR-7, OR-9</small>'}));
+  root.appendChild(el('p', {class: 'lead sub', html: 'Every card below is live and at its real size. Pick a signal, turn Reduce motion on, scale to 150 or 200 %, drag a dial, a node or a line. Each device has two or three directions; one is marked <b>Recommended</b>. All are drawn with lines, polygons, arcs, discs, gradients and additive blends: <b>none needs a shader</b> (the card that comes closest says so).'}));
+  const bar = el('div', {class: 'bar'}, [
+    seg('Theme', [['Dark', false], ['Light', true]], () => ST.light, v => ST.light = v),
+    seg('Scale', [['100%', 1], ['150%', 1.5], ['200%', 2]], () => ST.S, v => { ST.S = v; applyScale(); }),
+    seg('Signal', [['Silence', 'silence'], ['Drum loop', 'drums'], ['Sustained pad', 'pad']], () => SIG.mode, v => SIG.setMode(v)),
+    tog('Reduce motion', () => ST.reduce, v => ST.reduce = v),
+    tog('Pause', () => ST.paused, v => ST.paused = v),
+  ]); root.appendChild(bar);
+
+  // vocabulary
+  const vs = el('div'); vs.appendChild(el('h2', {html: 'Shared motion vocabulary'}));
+  vs.appendChild(el('p', {class: 'lead sub', html: 'One kit for every face (and for Shutter and the chain after them). Tokens, how audio drives them, and the rest state are in <code>round4-notes.md</code> §2. Below: the pieces running on the live signal.'}));
+  const vc = VOCAB.init(); vc.className = 'cv vocab'; vs.appendChild(vc); root.appendChild(vs);
+
+  for (const sec of SECTIONS) {
+    const h2 = el('h2', {html: sec.title}); root.appendChild(h2);
+    root.appendChild(el('p', {class: 'lead sub', html: sec.blurb}));
+    const row = el('div', {class: 'row'});
+    for (const o of sec.options) {
+      const card = o.make(); const fig = el('figure'); fig.style.width = card.w * ST.S + 'px'; fig.dataset.w = card.w;
+      fig.appendChild(el('div', {class: 'cap'}, [el('b', {}, o.label), o.rec ? el('span', {class: 'chip rec'}, 'Recommended') : null, o.tag ? el('span', {class: 'chip plain'}, o.tag) : null]));
+      fig.appendChild(card.canvas);
+      fig.appendChild(el('div', {class: 'note sub', html: (o.rec ? '<b>Why: </b>' + o.rec + '<br>' : '') + o.text + '<i>' + o.needs + '</i>'}));
+      row.appendChild(fig); card.fig = fig;
+    }
+    root.appendChild(row);
+  }
+  const f = el('div', {class: 'note sub', html: '<h2>What this page does not show</h2>' + (window.FOOT || '')}); root.appendChild(f);
+  applyTheme();
+}
+
+let last = performance.now();
+function loop(now) {
+  let dt = Math.min((now - last) / 1000, MO.DT_MAX); last = now;
+  if (!ST.paused && ST.freeze == null) { tickAll(dt); VOCAB.frame(dt); }
+  requestAnimationFrame(loop);
+}
+Promise.all(['560 15px Unbounded', '11px Inter', '600 11px Inter', '9px Mono'].map(f => document.fonts.load(f))).catch(() => {}).then(() => {
+  build(); applyScale();
+  const io = new IntersectionObserver(es => es.forEach(e => { const c = CARDS.find(c => c.canvas === e.target); if (c) c.visible = e.isIntersecting; }), {rootMargin: '200px'});
+  CARDS.forEach(c => io.observe(c.canvas));
+  SIG.setMode(ST.signal);
+  document.querySelectorAll('.seg').forEach(s => { /* paint the signal choice */ });
+  if (ST.freeze != null) { // a deterministic still: run the simulation, then stop
+    const n = Math.round(ST.freeze * 60); for (let i = 0; i < n; i++) { tickAll(1 / 60); VOCAB.frame(1 / 60); }
+    document.title += ' [still]';
+  }
+  applyTheme(); requestAnimationFrame(loop);
+});
+
+</script></body></html>
