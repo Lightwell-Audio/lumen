@@ -449,6 +449,30 @@ not travel.
 - **Costs:** an animation requests frames only while it runs. When the last
   one settles, the app returns to its idle repaint rate.
 
+### Face motion (M8 round 4, F0)
+
+The built-in faces share one vocabulary (`design/motion.rs`; the helpers are
+`chain/face/ballistics.rs`, `cadence.rs` and `paint.rs`; ADR-XXXX). Every
+follower is driven by the seconds a frame took, never by the frames, and a
+frame's step is at most `DT_MAX`.
+
+| Token | Value | Use |
+|---|---|---|
+| `METER_ATTACK` / `METER_RELEASE` | 4 ms / 160 ms (time constants) | A meter follows fast up and eases down |
+| `PEAK_HOLD` / `PEAK_FALL` | 0.70 s / 1.1 per s | The peak marker |
+| `FLASH_RISE` / `FLASH_TAU` | 10 ms / 120 ms | An impulse (`flash(age)`): up in a frame, falls like a decay |
+| `SNAP` | omega 46, zeta 0.55 (about 12 % overshoot) | A handle, node, dial head or tile |
+| `POP` | omega 34, zeta 0.38 (about 28 % overshoot) | One hero beat: a ball landing |
+| `SOFT` | omega 32, zeta 1 | `spring()`: critically damped, no overshoot |
+| `ease_out_back`, `ease_out_expo`, `ease_in_out` | | A beat that lands; a ring thrown outward; a ball travelling one delay |
+| `GLOW_REST` / `LIVE` / `ENERGY` / `HIT` | 0.10 / 0.30 / +0.50 x energy / 1.0 | A glow's share of full strength; stops and alphas are `theme::glow` |
+| `SILENCE_DB`, `SLEEP_HOLD`, `SLEEP_TAU`, `WAKE_TAU` | -66 dB, 0.45 s, 0.30 s, 0.05 s | A face with no signal for the hold goes to its rest picture, settles, and wakes within a few frames |
+| `FACE_FRAME` | 16 ms | The repaint a face asks for while it has a signal; at rest it asks for nothing |
+
+With Reduce motion every follower and spring snaps to its target and no face
+asks for a frame.
+
+
 ## 6a. Light (ADR-0043, approved from the identity canvas)
 
 The theme of the product is light. It is one layer over the tokens, in
