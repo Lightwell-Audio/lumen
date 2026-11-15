@@ -95,26 +95,56 @@ pub fn effect(name: &str) -> Option<Box<dyn Effect>> {
 }
 
 pub fn effect_with_meter(name: &str) -> Option<(Box<dyn Effect>, Option<Reduction>)> {
-    effect_built(name, None)
+    effect_built(name, None).map(|(effect, published)| (effect, published.meter))
 }
 
 pub fn effect_tapped(name: &str, tap: Option<Tap>) -> Option<Box<dyn Effect>> {
     effect_built(name, tap).map(|(effect, _)| effect)
 }
 
-pub fn effect_built(name: &str, tap: Option<Tap>) -> Option<(Box<dyn Effect>, Option<Reduction>)> {
+pub struct Published {
+    pub meter: Option<Reduction>,
+    pub onset: Option<delay::Onset>,
+}
+
+pub fn effect_built(name: &str, tap: Option<Tap>) -> Option<(Box<dyn Effect>, Published)> {
+    let nothing = Published {
+        meter: None,
+        onset: None,
+    };
     match name {
-        utility::NAME => Some((Box::new(Utility::new()), None)),
-        eq::NAME => Some((Box::new(Eq::with_tap(tap)), None)),
-        delay::NAME => Some((Box::new(delay::Delay::new()), None)),
-        reverb::NAME => Some((Box::new(reverb::Reverb::new()), None)),
+        utility::NAME => Some((Box::new(Utility::new()), nothing)),
+        eq::NAME => Some((Box::new(Eq::with_tap(tap)), nothing)),
+        delay::NAME => {
+            let (device, onset) = delay::Delay::build();
+            Some((
+                Box::new(device),
+                Published {
+                    meter: None,
+                    onset: Some(onset),
+                },
+            ))
+        }
+        reverb::NAME => Some((Box::new(reverb::Reverb::new()), nothing)),
         dynamics::compressor::NAME => {
             let (device, meter) = Compressor::build();
-            Some((Box::new(device), Some(meter)))
+            Some((
+                Box::new(device),
+                Published {
+                    meter: Some(meter),
+                    ..nothing
+                },
+            ))
         }
         dynamics::limiter::NAME => {
             let (device, meter) = Limiter::build();
-            Some((Box::new(device), Some(meter)))
+            Some((
+                Box::new(device),
+                Published {
+                    meter: Some(meter),
+                    ..nothing
+                },
+            ))
         }
         _ => None,
     }
@@ -162,10 +192,26 @@ mod tests {
     #[test]
     fn a_device_with_a_meter_hands_out_its_handle() {
         for name in [dynamics::compressor::NAME, dynamics::limiter::NAME] {
-            let (effect, meter) = effect_with_meter(name).expect("a device");
-            let meter = meter.expect("a meter");
+            let (effect, published) = effect_built(name, None).expect("a device");
+            let meter = published.meter.expect("a meter");
             assert_eq!(meter.take().reduction_db, 0.0);
+            assert!(published.onset.is_none());
             drop(effect);
+        }
+        let (effect, published) = effect_built(delay::NAME, None).expect("a device");
+        assert!(
+            published.meter.is_none(),
+            "a delay has no gain-reduction meter"
+        );
+        assert_eq!(
+            published.onset.expect("a repeat clock").seconds(),
+            None,
+            "nothing has entered it"
+        );
+        drop(effect);
+        for name in [utility::NAME, eq::NAME, reverb::NAME] {
+            let (_, published) = effect_built(name, None).expect("a device");
+            assert!(published.onset.is_none(), "{name} publishes no clock");
         }
 
         assert!(takes_sidechain(dynamics::compressor::NAME));
