@@ -105,6 +105,7 @@ mod returns;
 mod revert;
 mod rulers;
 mod safe_mode;
+mod sampler;
 mod scrubbing;
 mod sends;
 mod shortcuts;

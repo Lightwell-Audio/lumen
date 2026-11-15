@@ -67,6 +67,12 @@ impl App {
                 FileDialog::Place(None) => self.browser.files.finding = None,
                 FileDialog::DrumMapExport(path) => self.drum_map_export_chosen(path),
                 FileDialog::DrumMapImport(path) => self.drum_map_import_chosen(path),
+                FileDialog::SamplerFiles { paths, device } => {
+                    if !paths.is_empty() {
+                        self.load_sample_files(device, paths);
+                    }
+                }
+
                 FileDialog::SaveAs(None) | FileDialog::Open(None) => self.after_save = None,
                 FileDialog::PluginFolder(None)
                 | FileDialog::SaveCopy(None)
@@ -95,6 +101,7 @@ impl App {
                         1 => " (1 audio file copied in)".into(),
                         n => format!(" ({n} audio files copied in)"),
                     };
+
                     let unread = match self.hosting.unread() {
                         0 => String::new(),
                         1 => ". A plugin could not be read: only its parameter values are current"
@@ -108,6 +115,7 @@ impl App {
                         Instant::now(),
                     ));
                     self.file_notice = None;
+
                     if let Some(why) = &saved.backup_error {
                         self.file_notice =
                             Some(format!("Saved, but {why}. Your project itself was saved."));
@@ -126,6 +134,7 @@ impl App {
             self.opening = None;
             let template = std::mem::take(&mut self.templates.opening);
             let reverting = self.revert.reloading.take();
+
             let busy = self.busy_for_open();
             let changed = self.document.change_mark() != self.opening_mark;
             match result {
@@ -147,6 +156,7 @@ impl App {
                         when_done(busy),
                     ));
                 }
+
                 Ok(opened) if busy.is_some() || changed => {
                     let next = if template {
                         Next::Template(opened.path)
@@ -163,10 +173,12 @@ impl App {
                 Ok(opened) => {
                     let view = opened.project.view.clone();
                     let file = opened.path.clone();
+
                     if !template {
                         files::remember(&mut self.settings.projects.recent, &opened.path);
                         self.settings_changed = Some(Instant::now());
                     }
+
                     self.file_notice = None;
                     let recovered = self.recovering.is_some();
                     match self.recovering.take() {
@@ -239,6 +251,7 @@ impl App {
                 }
             }
         }
+
         if ctx.input(|i| i.viewport().close_requested())
             && !self.quitting
             && self.document.is_dirty()

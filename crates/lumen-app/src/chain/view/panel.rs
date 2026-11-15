@@ -276,6 +276,7 @@ impl App {
                         (Command::AddReverb, "Add Afterglow (reverb)"),
                         (Command::AddCompressor, "Add Gravity (compressor)"),
                         (Command::AddLimiter, "Add Horizon (limiter)"),
+                        (Command::AddSampler, "Add Shutter (sampler)"),
                     ] {
                         self.menu_command(ui, command, label);
                     }

@@ -537,6 +537,11 @@ pub mod personality {
     pub const REVERB_CORE: Color32 = Color32::from_rgb(0xFF, 0xF1, 0xD6);
     pub const REVERB_WARM: Color32 = Color32::from_rgb(0xFF, 0xC0, 0x8A);
 
+    pub const SHUTTER: Color32 = Color32::from_rgb(0x6F, 0xA8, 0xFF);
+
+    #[allow(dead_code, reason = "read by Shutter's face when it is built")]
+    pub const SHUTTER_DEEP: Color32 = Color32::from_rgb(0x1F, 0x6F, 0xD1);
+
     pub const GRAVITY: Color32 = Color32::from_rgb(0xB4, 0x6C, 0xFF);
 
     pub const HORIZON: Color32 = Color32::from_rgb(0xFF, 0x8A, 0x4C);

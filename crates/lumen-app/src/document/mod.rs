@@ -34,6 +34,7 @@ mod notes;
 mod outputs;
 mod overrides;
 mod record;
+mod sampler;
 mod settings;
 mod song_maps;
 mod split;

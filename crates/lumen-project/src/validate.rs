@@ -16,11 +16,15 @@ pub(crate) fn within(t: Ticks) -> bool {
 }
 
 pub const MOST_BUSES: u32 = 31;
+
 pub const MAX_INPUT_CHANNELS: u16 = 256;
 
 const MOST_PARAMS: usize = 16_384;
+
 const MOST_SHOWN: usize = 256;
+
 const MOST_VIEWED: usize = 65_536;
+
 const MOST_DRUM_MAPS: usize = 256;
 const MOST_SOUNDS: usize = 256;
 
@@ -70,6 +74,38 @@ fn device_data(device: &Device) -> Result<(), String> {
             {
                 return Err("a built-in's parameter values are out of range".into());
             }
+        }
+    }
+    Ok(())
+}
+
+fn sampler_data(device: &Device, project: &Project) -> Result<(), &'static str> {
+    let Some(sampler) = &device.sampler else {
+        return Ok(());
+    };
+    if !device.is_sampler() {
+        return Err("a device that is not a sampler holds a sampler's sound");
+    }
+    if !sampler.valid() {
+        return Err("the sampler's ranges, levels or times are out of range");
+    }
+    let frames = |id: Id| project.media.iter().find(|m| m.id == id).map(|m| m.frames);
+    for region in sampler.one_shot.region.iter() {
+        let Some(frames) = frames(region.media) else {
+            return Err("the sampler's sample is missing from the media");
+        };
+        if !region.fits(frames) {
+            return Err("the sampler's region is outside its file");
+        }
+    }
+    for zone in &sampler.zones {
+        if frames(zone.media).is_none() {
+            return Err("a zone's sample is missing from the media");
+        }
+    }
+    for pad in &sampler.pads {
+        if pad.media.is_some_and(|id| frames(id).is_none()) {
+            return Err("a pad's sample is missing from the media");
         }
     }
     Ok(())
@@ -203,6 +239,7 @@ pub fn validate(project: &Project) -> Result<(), String> {
                     map.name
                 ));
             }
+
             if let Route::Track(to) = sound.route {
                 match kinds.get(&to) {
                     Some(TrackKind::Midi) => {}
@@ -235,6 +272,7 @@ pub fn validate(project: &Project) -> Result<(), String> {
     }
     for track in crate::routing::all_tracks(project) {
         let at = || format!("track {:?}", track.name);
+
         if !track.gain_db.is_finite()
             || !track.pan.is_finite()
             || !(-1.0..=1.0).contains(&track.pan)
@@ -326,6 +364,7 @@ pub fn validate(project: &Project) -> Result<(), String> {
                 if track.kind != TrackKind::Midi {
                     return Err(format!("{}: a synth on a track that is not MIDI", at()));
                 }
+
                 if !device.state.is_empty()
                     && !device
                         .preset()
@@ -334,6 +373,7 @@ pub fn validate(project: &Project) -> Result<(), String> {
                     return Err(format!("{}: the synth's preset is unreadable", at()));
                 }
             }
+
             if device.is_instrument() {
                 if track.kind != TrackKind::Midi {
                     return Err(format!(
@@ -347,6 +387,8 @@ pub fn validate(project: &Project) -> Result<(), String> {
                 }
             }
             device_data(device).map_err(|why| format!("{}: {why}", at()))?;
+            sampler_data(device, project).map_err(|why| format!("{}: {why}", at()))?;
+
             if device.sidechain.is_some_and(|s| s.from == track.id) {
                 return Err(format!("{}: its sidechain is its own track", at()));
             }
@@ -631,6 +673,7 @@ mod tests {
             }),
             Ok(())
         );
+
         assert!(
             check(&|d: &mut Device| {
                 d.params.insert(1, 1.5);
@@ -638,6 +681,7 @@ mod tests {
             .unwrap_err()
             .contains("out of range")
         );
+
         assert!(
             check(&|d: &mut Device| {
                 d.plugin_version = "1.0".to_owned();
@@ -645,6 +689,7 @@ mod tests {
             .unwrap_err()
             .contains("plugin-only data")
         );
+
         assert_eq!(
             check(&|d: &mut Device| {
                 d.sidechain = Some(crate::model::Sidechain {
@@ -682,6 +727,7 @@ mod tests {
                 .unwrap_err()
                 .contains("does not exist")
         );
+
         assert!(
             check(&set(0, Output::Track(group)))
                 .unwrap_err()

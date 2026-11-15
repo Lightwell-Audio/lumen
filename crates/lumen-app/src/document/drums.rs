@@ -36,10 +36,14 @@ impl Document {
         }
         let id = self.fresh_id();
         self.history.apply("Attach drum map", None, |project| {
-            project.drum_maps.push(preset.map(id));
+            let map = preset.map(id);
+            project.drum_maps.push(map.clone());
             for track in &targets {
                 if let Some(slot) = project.tracks.iter_mut().find(|t| t.id == *track) {
-                    Arc::make_mut(slot).drum_map = Some(id);
+                    let track = Arc::make_mut(slot);
+                    track.drum_map = Some(id);
+
+                    super::sampler::follow_drum_map(track, Some(&map));
                 }
             }
         });
@@ -68,10 +72,14 @@ impl Document {
         if targets.is_empty() {
             return false;
         }
+        let held = self.drum_map(map).cloned();
         self.history.apply("Attach drum map", None, |project| {
             for track in &targets {
                 if let Some(slot) = project.tracks.iter_mut().find(|t| t.id == *track) {
-                    Arc::make_mut(slot).drum_map = Some(map);
+                    let track = Arc::make_mut(slot);
+                    track.drum_map = Some(map);
+
+                    super::sampler::follow_drum_map(track, held.as_ref());
                 }
             }
         })
@@ -99,7 +107,10 @@ impl Document {
         self.history.apply("Detach drum map", None, |project| {
             for track in &targets {
                 if let Some(slot) = project.tracks.iter_mut().find(|t| t.id == *track) {
-                    Arc::make_mut(slot).drum_map = None;
+                    let track = Arc::make_mut(slot);
+                    track.drum_map = None;
+
+                    super::sampler::follow_drum_map(track, None);
                 }
             }
         });

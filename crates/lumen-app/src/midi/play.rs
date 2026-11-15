@@ -44,11 +44,26 @@ fn instrument(track: &model::Track, hosts: &mut dyn Hosts) -> Option<InstrumentS
     {
         return Some(hosts.instrument(track.id));
     }
+
+    if track
+        .sound_source()
+        .is_some_and(|device| device.is_sampler())
+    {
+        return Some(InstrumentSpec {
+            kind: lumen_devices::sampler::KIND,
+            preset: 0,
+
+            values: Vec::new(),
+            instrument: Box::new(lumen_devices::Sampler::silent()),
+        });
+    }
     let device = track.instrument()?;
+
     let preset = device
         .preset()
         .and_then(Preset::from_id)
         .unwrap_or_default();
+
     let values = if device.params.is_empty() {
         preset.values()
     } else {
@@ -124,16 +139,22 @@ impl Hosts for NoHosts {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Inputs {
     pub selected: Vec<Id>,
+
     pub ports: Vec<(String, u16)>,
+
     pub replacing: Vec<Replacing>,
+
     pub record_window: Option<(Ticks, Ticks)>,
+
     pub record_timing: Option<lumen_engine::RecordTiming>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Replacing {
     pub track: Id,
+
     pub from: Ticks,
+
     pub until: Option<Ticks>,
 }
 
@@ -261,13 +282,16 @@ pub fn with_lanes(
             continue;
         };
         let lanes = crate::lane_bake::device_lanes(held, over, &tempo, rate, |d| {
-            d.is_instrument() && (d.is_vst3() || d.is_synth())
+            (d.is_instrument() && (d.is_vst3() || d.is_synth())) || d.is_sampler()
         });
         track.set_automation(lanes.into_iter().map(|(_, lane)| lane).collect());
     }
 }
 
 fn plugin_outputs(project: &Project, track: &model::Track, hosts: &dyn Hosts) -> Vec<(u32, u64)> {
+    if let Some(device) = track.sound_source().filter(|d| d.is_sampler()) {
+        return sampler_outputs(project, track, device);
+    }
     let Some(device) = track.sound_source().filter(|d| d.is_vst3()) else {
         return Vec::new();
     };
@@ -289,6 +313,41 @@ fn plugin_outputs(project: &Project, track: &model::Track, hosts: &dyn Hosts) ->
         .collect()
 }
 
+fn sampler_outputs(
+    project: &Project,
+    track: &model::Track,
+    device: &model::Device,
+) -> Vec<(u32, u64)> {
+    let mut pairs: Vec<u32> = device
+        .sampler()
+        .map(|held| held.pads.iter().map(|pad| pad.output).collect())
+        .unwrap_or_default();
+    pairs.extend(
+        project
+            .tracks
+            .iter()
+            .filter_map(|t| t.plugin_output.filter(|o| o.device == device.id))
+            .map(|o| o.bus),
+    );
+    pairs.retain(|pair| (1..=lumen_devices::sampler::PAIRS as u32).contains(pair));
+    pairs.sort_unstable();
+    pairs.dedup();
+    pairs
+        .into_iter()
+        .map(|bus| {
+            let own = project
+                .tracks
+                .iter()
+                .find(|t| {
+                    t.plugin_output
+                        .is_some_and(|o| o.device == device.id && o.bus == bus)
+                })
+                .map_or(track.id, |t| t.id);
+            (bus, own.0)
+        })
+        .collect()
+}
+
 fn kit_of(project: &Project, track: &model::Track) -> Option<Box<lumen_engine::DrumKit>> {
     let map = project.drum_map_of(track)?;
     let mut kit = lumen_engine::DrumKit::new();
@@ -302,6 +361,7 @@ fn kit_of(project: &Project, track: &model::Track) -> Option<Box<lumen_engine::D
             },
         );
     }
+
     for output in 0..=u8::MAX {
         let group = map.choke_of_output(output);
         if group != 0 {
@@ -309,6 +369,25 @@ fn kit_of(project: &Project, track: &model::Track) -> Option<Box<lumen_engine::D
         }
     }
     Some(Box::new(kit))
+}
+
+pub type SoundLookup<'a> = &'a dyn Fn(
+    &model::Device,
+    Option<&lumen_project::model::DrumMap>,
+) -> Option<std::sync::Arc<lumen_devices::sampler::Sound>>;
+
+pub fn attach_sounds(tracks: &mut [MidiTrack], project: &Project, sounds: SoundLookup<'_>) {
+    for track in tracks {
+        let Some(held) = project.tracks.iter().find(|t| t.id.0 == track.id) else {
+            continue;
+        };
+        let Some(device) = held.sound_source().filter(|d| d.is_sampler()) else {
+            continue;
+        };
+        let map = project.drum_map_of(held);
+        track.set_values(crate::builtin::values(device));
+        track.sound = sounds(device, map);
+    }
 }
 
 pub fn engine_midi_with(
@@ -336,15 +415,18 @@ pub fn engine_midi_with(
             ),
             None => (Target::Instrument, false),
         };
+
         let map = project.drum_map_of(track);
         let held = crate::midi::sends::playable_map(project, track);
         let own_map = held.as_ref().or(map);
         let mut clips = translated(inputs, cache, track, own_map, silent, Dest::Own);
+
         if heard.of(track.id).sends {
             for send in sends.iter().filter(|send| send.to == track.id) {
                 let Some(sender) = project.tracks.iter().find(|t| t.id == send.from) else {
                     continue;
                 };
+
                 let sender_map = project.drum_map_of(sender);
                 clips.extend(translated(
                     inputs,
@@ -464,6 +546,7 @@ mod tests {
         clip.length = q(2);
         let (project, track) = project_with(clip);
         let mut doc = Document::new(project);
+
         let base = doc.project().clone();
         doc.move_clips(
             &base,
@@ -619,9 +702,12 @@ mod tests {
         with_lanes(&mut tracks, doc.project(), &Default::default(), 48_000);
         assert_eq!(tracks[0].automation.len(), 1);
         assert_eq!(tracks[0].automation[0].param, 6);
+
         assert_eq!(tracks[0].automation[0].lane.points()[1].at, 96_000);
+
         with_lanes(&mut tracks, doc.project(), &Default::default(), 44_100);
         assert_eq!(tracks[0].automation[0].lane.points()[1].at, 88_200);
+
         doc.override_param(synth, 6);
         with_lanes(&mut tracks, doc.project(), doc.overrides(), 48_000);
         assert!(tracks[0].automation.is_empty(), "taken over");
@@ -744,7 +830,9 @@ mod tests {
         clip.length = Ticks::quarters(8);
         clip.id = Id(7);
         let mut inputs = Inputs::default();
+
         assert_eq!(inputs.playing_length(Id(5), &clip), Some(clip.length));
+
         inputs.replacing = vec![Replacing {
             track: Id(5),
             from: Ticks::quarters(6),
@@ -754,10 +842,12 @@ mod tests {
             inputs.playing_length(Id(5), &clip),
             Some(Ticks::quarters(2))
         );
+
         inputs.replacing[0].from = Ticks::quarters(4);
         assert_eq!(inputs.playing_length(Id(5), &clip), None);
         inputs.replacing[0].from = Ticks::ZERO;
         assert_eq!(inputs.playing_length(Id(5), &clip), None);
+
         assert_eq!(inputs.playing_length(Id(6), &clip), Some(clip.length));
     }
 
@@ -802,6 +892,7 @@ mod tests {
             t.armed = true;
         });
         assert_eq!(listening(&off, &sel, false), Listen::OFF);
+
         assert_eq!(listening(&on, &sel, true), Listen::OFF);
     }
 
@@ -895,6 +986,7 @@ mod tests {
         };
         let pads = listening(&port("Pads", Some(2)), &sel, false);
         assert_eq!((pads.sources, pads.channel), (1 << 3, Some(2)));
+
         assert_eq!(listening(&port("Gone", None), &sel, false).sources, 0);
     }
 
@@ -993,6 +1085,7 @@ mod tests {
     #[test]
     fn a_looping_clip_sounds_its_notes_in_each_repeat_and_never_past_one() {
         let q = Ticks::quarters;
+
         let mut clip = midi_clip(
             vec![
                 Note::new(q(0), q(1), 60, 100),
@@ -1003,8 +1096,10 @@ mod tests {
         clip.loop_length = Some(q(2));
         let (project, _) = project_with(clip);
         let track = &project.tracks[0];
+
         assert_eq!(sounding_keys(&project, track, q(4)), vec![60]);
         assert_eq!(sounding_keys(&project, track, q(5)), vec![64]);
+
         assert_eq!(sounding_keys(&project, track, q(6)), vec![60]);
         assert_eq!(sounding_keys(&project, track, q(7)), vec![64]);
         assert!(
@@ -1144,6 +1239,7 @@ mod send_tests {
     #[test]
     fn a_sound_sent_to_another_track_plays_that_tracks_instrument_and_not_its_own() {
         let (mut doc, kit, other, map) = kit();
+
         let kick = input_of(&doc, map, 36);
         let done = doc
             .route_drum_sound(kit, map, kick, Route::Track(other))
@@ -1162,6 +1258,7 @@ mod send_tests {
             vec![(q(0), 36), (q(4), 36)],
             "the kick's notes play on the other track's instrument"
         );
+
         assert!(tracks.iter().all(|t| t.id == kit.0 || t.id == other.0));
     }
 
@@ -1174,6 +1271,7 @@ mod send_tests {
         doc.route_drum_sound(kit, map, kick, Route::Track(other))
             .unwrap();
         let after = engine(&doc);
+
         let mut all: Vec<(Ticks, u8)> = notes_of(&after, kit);
         all.extend(notes_of(&after, other));
         all.sort();
@@ -1189,6 +1287,7 @@ mod send_tests {
         let kick = input_of(&doc, map, 36);
         doc.route_drum_sound(kit, map, kick, Route::Track(other))
             .unwrap();
+
         doc.set_mute(&[other], true);
         let tracks = engine(&doc);
         assert_eq!(notes_of(&tracks, other), Vec::new(), "the other is muted");
@@ -1197,6 +1296,7 @@ mod send_tests {
             vec![(q(2), 38)],
             "and the kit still keeps its snare"
         );
+
         doc.set_mute(&[other], false);
         doc.set_mute(&[kit], true);
         let tracks = engine(&doc);
@@ -1222,6 +1322,7 @@ mod send_tests {
             notes_of(&engine(&doc), target),
             vec![(q(0), 36), (q(4), 36)]
         );
+
         let device = doc
             .project()
             .tracks
@@ -1243,6 +1344,7 @@ mod send_tests {
             vec![(q(0), 36), (q(2), 38), (q(4), 36)],
             "the kick is back on the kit's own"
         );
+
         let mut project = doc.project().clone();
         let route = project
             .tracks
@@ -1264,6 +1366,7 @@ mod send_tests {
         }
         .expect("a route that cannot be honoured");
         assert_eq!(held.sound(kick).map(|s| s.route), Some(Route::Main));
+
         let (clean, _, _, _) = kit();
         let first = clean.project().tracks[0].as_ref();
         assert!(crate::midi::sends::playable_map(clean.project(), first).is_none());
@@ -1275,10 +1378,12 @@ mod send_tests {
         let kick = input_of(&doc, map, 36);
         doc.route_drum_sound(kit, map, kick, Route::Track(other))
             .unwrap();
+
         doc.set_solo(&[kit], true, true);
         let tracks = engine(&doc);
         assert_eq!(notes_of(&tracks, other), Vec::new(), "the kit's solo holds");
         assert_eq!(notes_of(&tracks, kit), vec![(q(2), 38)]);
+
         doc.set_solo(&[other], true, true);
         let tracks = engine(&doc);
         assert_eq!(
@@ -1315,6 +1420,7 @@ mod send_tests {
     fn a_sound_sent_to_another_track_keeps_its_key_channel_and_length() {
         let (mut doc, kit, other, map) = kit();
         let kick = input_of(&doc, map, 36);
+
         doc.set_sound_output(map, kick, 40);
         doc.set_sound_channel(map, kick, Some(9));
         doc.set_sound_length(map, kick, Some(Ticks(q(1).0 / 2)));
@@ -1351,6 +1457,7 @@ mod send_tests {
         let track = doc.project().tracks.iter().find(|t| t.id == kit).unwrap();
         let pads = pad_outputs(doc.project(), track);
         assert_eq!(pads.pair_of(kick), 0, "everything on the track's own");
+
         let before = doc.project().tracks.len();
         assert!(
             doc.route_drum_sound(kit, map, kick, Route::Output(3))
@@ -1366,6 +1473,7 @@ mod send_tests {
         let pads = pad_outputs(doc.project(), track);
         assert_eq!(pads.pair_of(kick), 3);
         assert_eq!(pads.pair_of(snare), 1);
+
         let bare = doc.add_track(TrackKind::Midi, None);
         let track = doc.project().tracks.iter().find(|t| t.id == bare).unwrap();
         let pads = pad_outputs(doc.project(), track);
