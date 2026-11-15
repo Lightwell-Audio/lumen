@@ -139,13 +139,18 @@ impl Rig {
     }
 
     fn run(&mut self, frames: usize, block: usize) -> Vec<f32> {
+        self.run_stereo(frames, block).0
+    }
+
+    fn run_stereo(&mut self, frames: usize, block: usize) -> (Vec<f32>, Vec<f32>) {
         let mut data = vec![0.0; 2 * block];
-        let mut out = Vec::with_capacity(frames);
+        let mut out = (Vec::with_capacity(frames), Vec::with_capacity(frames));
         let mut done = 0;
         while done < frames {
             let n = block.min(frames - done);
             self.engine.process(RATE, &mut data[..2 * n], 2, n);
-            out.extend_from_slice(&data[..n]);
+            out.0.extend_from_slice(&data[..n]);
+            out.1.extend_from_slice(&data[n..2 * n]);
             done += n;
         }
         out
@@ -534,6 +539,45 @@ fn reverb_golden_render() -> Vec<f32> {
     );
     rig.play();
     rig.run(5_000, 128)
+}
+
+#[test]
+fn ping_pong_bounces_a_centred_clip_between_the_sides() {
+    let clip = impulses(TRACK, &[(2_000, 1.0)]);
+    let values = delay_values(&[
+        (delay::TIME, value(delay::TABLE, delay::TIME, 100.0)),
+        (delay::NOTE, 0.0),
+        (delay::FEEDBACK, value(delay::TABLE, delay::FEEDBACK, 50.0)),
+        (delay::PING, value(delay::TABLE, delay::PING, 1.0)),
+    ]);
+    let routing = routing(values, None);
+    let mut rig = rig(
+        &Timeline::default(),
+        clip,
+        &routing,
+        Box::new(delay::Delay::new()),
+    );
+    rig.play();
+    let (left, right) = rig.run_stereo(30_000, 256);
+    let time = 4_800;
+    for (step, want, first) in [(1usize, 1.0f32, 0usize), (2, 0.5, 1), (3, 0.25, 0)] {
+        let at = 2_000 + step * time;
+        let (near, far) = if first == 0 {
+            (&left, &right)
+        } else {
+            (&right, &left)
+        };
+        assert!(
+            (near[at] - want).abs() < 1e-3,
+            "repeat {step} on its side: {} (wanted {want})",
+            near[at]
+        );
+        assert!(
+            far[at].abs() < 1e-4,
+            "repeat {step} on the other side: {}",
+            far[at]
+        );
+    }
 }
 
 #[test]
