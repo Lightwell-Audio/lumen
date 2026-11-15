@@ -83,7 +83,7 @@ pub(crate) fn hits(painter: &Painter, view: &EditorView, scene: &Scene<'_>) {
         let top = view.body.top() + cell.row as f32 * view.row_height - view.scroll;
 
         let r = geometry::hit_radius(view, scene.step).min(column.max(LEAST_CELL));
-        let centre = pos2(cell.x + r, top + view.row_height / 2.0);
+        let centre = pos2(cell.x, top + view.row_height / 2.0);
         let colour = if cell.muted {
             p.text_secondary.gamma_multiply(theme::alpha::EDGE)
         } else {

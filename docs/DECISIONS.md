@@ -13818,7 +13818,9 @@ of them (E5: a fork is a review finding).
    column and P's lane card, the same column in both views — and a lane is 28
    pt, `2 × space::M + space::XS`, D1's table row. The hit's half-width is the
    row's third at most and half the grid step at most (so neighbours part), at
-   least 1.5 pt; its left tip is the onset.
+   least 1.5 pt. Its middle is the onset, so the grid line runs through it
+   (owner, 2026-11-14; it was the left tip, as the specimen drew it, which
+   read as half a diamond late against the grid and the velocity stems).
 5. **Only the hits in view are drawn, gathered per picture column.** A lane
    gathers the hits that share a pixel column (2 pt, widened until the frame's
    cells fit `MAX_CELLS`), keeping the leftmost onset and the loudest velocity,

@@ -6,21 +6,32 @@ use crate::note_editor::view::EditorView;
 use crate::theme;
 
 pub(crate) const ROW: f32 = theme::size::LANE_ROW;
+
 pub(crate) const NAME: f32 = theme::size::LANE_NAME;
+
 pub(crate) const BAR: f32 = theme::size::LANE_BAR;
+
 pub(crate) const ICON: f32 = theme::size::LANE_ICON;
 pub(crate) const ICON_X: f32 = theme::size::LANE_ICON_X;
+
 pub(crate) const NAME_X: f32 = theme::size::LANE_NAME_X;
+
 pub(crate) const BUTTON_W: f32 = theme::size::LANE_BUTTON_W;
 pub(crate) const BUTTON_H: f32 = theme::size::LANE_BUTTON_H;
 const BUTTON_GAP: f32 = theme::size::LANE_BUTTON_GAP;
 const BUTTONS_RIGHT: f32 = theme::size::LANE_BUTTONS_RIGHT;
 const BUTTONS: f32 = 2.0 * BUTTON_W + BUTTON_GAP;
+
 const HIT_ROW: f32 = theme::size::LANE_HIT_ROW;
+
 const HIT_STEP: f32 = theme::size::LANE_HIT_STEP;
+
 const HIT_LEAST: f32 = 1.5;
+
 const BUCKET: f32 = 2.0;
+
 pub(crate) const MAX_CELLS: usize = 2400;
+
 pub(crate) const LENGTH_LINE: f32 = 2.0;
 
 pub(crate) fn hit_radius(view: &EditorView, step: Ticks) -> f32 {
@@ -33,10 +44,10 @@ pub(crate) fn hit_radius(view: &EditorView, step: Ticks) -> f32 {
 pub(crate) fn hit_rect(view: &EditorView, note: Note, step: Ticks) -> Rect {
     let r = hit_radius(view, step);
     let top = view.row_top(i32::from(note.pitch()));
-    let left = view.x_of(note.start());
+    let onset = view.x_of(note.start());
     Rect::from_min_max(
-        pos2(left, top + view.row_height / 2.0 - r),
-        pos2(left + 2.0 * r, top + view.row_height / 2.0 + r),
+        pos2(onset - r, top + view.row_height / 2.0 - r),
+        pos2(onset + r, top + view.row_height / 2.0 + r),
     )
 }
 
@@ -75,10 +86,14 @@ pub(crate) fn row_rect(view: &EditorView, row: usize) -> Rect {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Cell {
     pub row: usize,
+
     pub x: f32,
     pub velocity: u8,
+
     pub picked: bool,
+
     pub muted: bool,
+
     pub note: usize,
 }
 
@@ -131,9 +146,11 @@ pub(crate) fn cells_into(
             continue;
         }
         let x = view.x_of(note.start());
-        if x < view.body.left() - 2.0 || x > view.body.right() {
+
+        if x < view.body.left() - view.row_height || x > view.body.right() + view.row_height {
             continue;
         }
+
         let col = (((x - view.body.left()) / bucket).floor() as isize).clamp(0, cols as isize - 1)
             as usize;
         let slot = &mut seen[(row - first) * cols + col];
@@ -176,7 +193,7 @@ pub(crate) fn hit_at_cells(
     let r = hit_radius(view, step);
     cells.iter().rev().find_map(|cell| {
         let top = view.body.top() + cell.row as f32 * view.row_height - view.scroll;
-        let centre = pos2(cell.x + r, top + view.row_height / 2.0);
+        let centre = pos2(cell.x, top + view.row_height / 2.0);
         let d = Rect::from_center_size(centre, vec2(2.0 * r, 2.0 * r));
         inside_diamond(d, p).then_some(cell.note)
     })
@@ -234,20 +251,22 @@ mod tests {
     }
 
     #[test]
-    fn a_hit_is_a_diamond_whose_left_tip_is_the_onset() {
+    fn a_hit_is_a_diamond_centred_on_the_onset() {
         let rows = Rows::lanes([36_u8, 38]);
         let step = Ticks(PPQ / 4);
         let mut v = view(rows);
+
         v.time.zoom = 400.0;
         let note = Note::new(q(1), q(0), 36, 100);
         let rect = hit_rect(&v, note, step);
-        assert_eq!(rect.left(), v.x_of(q(1)));
         let r = rect.width() / 2.0;
+        assert_eq!(rect.left(), v.x_of(q(1)) - r);
         assert!(
             (r - (v.row_height * HIT_ROW)).abs() < 1e-4,
             "a third of the row: {r}"
         );
         assert_eq!(rect.center().y, v.body.top() + ROW / 2.0);
+
         let c = hit_centre(rect);
         assert!(inside_diamond(rect, c));
         assert!(inside_diamond(rect, pos2(c.x - r, c.y)));
@@ -255,8 +274,10 @@ mod tests {
             rect,
             pos2(rect.left() + 0.5, rect.top() + 0.5)
         ));
+
         assert_eq!(hit_at(&v, &[note], step, c), Some(0));
         assert_eq!(hit_at(&v, &[note], step, c + vec2(0.0, ROW)), None);
+
         let mut near = view(Rows::lanes([36_u8, 38]));
         near.time.zoom = 10.0;
         let expected = (10.0 * 0.25 * HIT_STEP).max(HIT_LEAST);
@@ -274,6 +295,7 @@ mod tests {
             "three rows, not four"
         );
         assert_eq!(row_rect(&v, 1).top(), v.body.top() + ROW);
+
         let mut scrolled = view(Rows::lanes([36_u8, 38, 42]));
         scrolled.scroll = ROW / 2.0;
         assert_eq!(row_rect(&scrolled, 0).top(), v.body.top() - ROW / 2.0);
@@ -299,21 +321,25 @@ mod tests {
         assert_eq!(all[0].note, 0, "the leftmost onset's note");
         assert_eq!(all[1].row, 2);
         assert!(!all[1].picked);
+
         assert!(all.iter().all(|c| c.velocity != 120 || c.row != 1));
-        let r = hit_radius(&v, Ticks::quarters(1));
-        let centre = pos2(all[0].x + r, v.body.top() + ROW / 2.0);
+
+        let centre = pos2(all[0].x, v.body.top() + ROW / 2.0);
         assert_eq!(
             hit_at_cells(&v, &all, Ticks::quarters(1), centre),
             Some(all[0].note)
         );
+
         let capacity = seen.capacity();
         cells_into(&v, &notes, &[1], &[], &mut seen, &mut all);
         assert_eq!(seen.capacity(), capacity.max(seen.capacity()));
         assert_eq!(all.len(), 2);
+
         let mut scrolled = view(Rows::lanes([36_u8, 38, 42]));
         scrolled.scroll = 3.0 * ROW;
         cells_into(&scrolled, &notes, &[], &[], &mut seen, &mut all);
         assert!(all.is_empty());
+
         let many: Vec<Note> = (0..100_000)
             .map(|i| Note::new(Ticks(i * 4), Ticks(10), 36, (i % 127) as u8))
             .collect();
@@ -335,12 +361,26 @@ mod tests {
     }
 
     #[test]
+    fn a_hit_is_centred_on_its_onset_so_the_grid_line_runs_through_it() {
+        let v = view(Rows::lanes([36_u8]));
+        let note = Note::new(q(1), q(1), 36, 100);
+        let rect = hit_rect(&v, note, Ticks(240));
+        assert_eq!(hit_centre(rect).x, v.x_of(q(1)));
+        assert!(rect.left() < v.x_of(q(1)) && rect.right() > v.x_of(q(1)));
+
+        let on = pos2(v.x_of(q(1)), rect.center().y);
+        assert_eq!(hit_at(&v, &[note], Ticks(240), on), Some(0));
+        let left = pos2(v.x_of(q(1)) - rect.width() / 4.0, rect.center().y);
+        assert_eq!(hit_at(&v, &[note], Ticks(240), left), Some(0));
+    }
+
+    #[test]
     fn a_length_bar_runs_from_the_hit_to_the_notes_end() {
         let v = view(Rows::lanes([36_u8]));
         let note = Note::new(q(1), q(2), 36, 100);
         let (from, to) = length_bar(&v, note, Ticks(240)).expect("a bar");
         let rect = hit_rect(&v, note, Ticks(240));
-        assert_eq!(from, hit_centre(rect).x);
+        assert_eq!(from, rect.right(), "from the right tip");
         assert_eq!(to, v.x_of(q(3)));
         assert!(
             length_bar(&v, Note::new(q(1), Ticks(1), 36, 100), Ticks(240)).is_none(),
