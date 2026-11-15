@@ -32,6 +32,8 @@ pub struct Job {
     pub tail: bool,
     pub file: PathBuf,
     pub stem: Option<Id>,
+
+    pub samples: Vec<(Id, crate::builtin::samples::Source)>,
 }
 
 pub struct Prepared {
@@ -211,6 +213,10 @@ pub fn prepare(job: &Job, cancel: &AtomicBool) -> Result<Option<Prepared>, Strin
         &mut hosts,
     );
     midi_play::with_lanes(&mut tracks, &job.project, &Default::default(), job.rate);
+    let samples = crate::builtin::samples::Library::from_snapshot(job.rate, job.samples.clone());
+    midi_play::attach_sounds(&mut tracks, &job.project, &|device, map| {
+        samples.sound(device, map)
+    });
     midi.set(tracks)
         .map_err(|_| "The engine could not take the export MIDI".to_owned())?;
     if !mixer_control
@@ -446,6 +452,7 @@ mod tests {
             tail: false,
             file: file.clone(),
             stem,
+            samples: Vec::new(),
         };
         let cancel = AtomicBool::new(false);
         let mut progress = |_| {};
@@ -548,6 +555,7 @@ mod tests {
             tail: false,
             file: file.clone(),
             stem: None,
+            samples: Vec::new(),
         };
         let mut progress = |_| {};
         assert!(render_job(job, &AtomicBool::new(false), &mut progress).is_err());

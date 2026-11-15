@@ -48,6 +48,7 @@ fn playing(clips: usize, routed_mix: bool) -> Engine<Mixer<ClipPlayer>> {
     let (mut transport, mut engine) = engine(Timeline::default(), source, 48_000);
     transport.send(Command::Play).unwrap();
     let mut data = vec![0.0; 256];
+
     for _ in 0..10 {
         engine.process(48_000, &mut data, 2, 128);
     }
@@ -169,10 +170,75 @@ fn builtin_64(
     let (mut transport, mut engine) = engine(Timeline::default(), source, 48_000);
     transport.send(Command::Play).unwrap();
     let mut data = vec![0.0; 256];
+
     for _ in 0..400 {
         engine.process(48_000, &mut data, 2, 128);
     }
     bencher.bench_local(|| engine.process(48_000, divan::black_box(&mut data), 2, 128));
+}
+
+#[divan::bench]
+fn sampler_64_voices_at_128_frames(bencher: divan::Bencher<'_, '_>) {
+    use lumen_core::midi::Event;
+    use lumen_devices::sampler::{self, Sample, Sampler, Sound};
+    use lumen_devices::{Instrument, ParamBlock};
+    use std::sync::Arc;
+
+    let frames = 48_000;
+    let sample = Arc::new(
+        Sample::new(
+            48_000,
+            2,
+            frames,
+            (0..frames * 2)
+                .map(|k| (k as f32 * 0.001).sin() * 0.3)
+                .collect(),
+        )
+        .expect("a stereo sample"),
+    );
+    let mut sound = Sound {
+        face: sampler::Face::Pads,
+        ..Sound::default()
+    };
+    for note in 0..64u8 {
+        sound.pads.push(sampler::Pad::new(
+            note,
+            Some(sampler::Region {
+                looping: true,
+                ..sampler::Region::whole(Arc::clone(&sample), note)
+            }),
+        ));
+    }
+    let mut device = Sampler::new(Arc::new(sound));
+
+    let mut events = ParamBlock::new();
+    events.start(128);
+    for info in sampler::TABLE {
+        events.open(info.id);
+        events.point(0, f64::from(info.normalised(info.default)));
+    }
+    let mut struck = true;
+    let mut data = vec![0.0; 256];
+    bencher.bench_local(|| {
+        let mut left = [0.0_f32; 256];
+        let mut right = [0.0_f32; 256];
+        device.automate(&events);
+        let notes: Vec<Event> = if struck {
+            struck = false;
+            (0..64)
+                .map(|note| Event {
+                    offset: 0,
+                    msg: lumen_core::midi::Msg::note_on(0, note, 100),
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        device.render(48_000, &notes, &mut left[..128], &mut right[..128]);
+        data[0] = left[0];
+        data[1] = right[0];
+        divan::black_box(&data);
+    });
 }
 
 #[divan::bench]
@@ -224,6 +290,7 @@ fn engine_flare_64(bencher: divan::Bencher<'_, '_>) {
     let (mut transport, mut engine) = engine(Timeline::default(), source, 48_000);
     transport.send(Command::Play).unwrap();
     let mut data = vec![0.0; 256];
+
     for _ in 0..100 {
         engine.process(48_000, &mut data, 2, 128);
     }
@@ -259,6 +326,7 @@ fn engine_eq_64(bencher: divan::Bencher<'_, '_>) {
         .unwrap();
     let (mut routing, source) = mixer(player);
     let mut plan = routed(TRACKS, 0);
+
     let band = |number: u32| {
         let mut values = Vec::new();
         let mut set = |id: u32, units: f32| {

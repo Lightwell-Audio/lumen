@@ -16,8 +16,8 @@ fn q(n: i64) -> Ticks {
 
 fn as_v35(project: &Project) -> Vec<u8> {
     let text = String::from_utf8(to_bytes(project).unwrap()).unwrap();
-    text.replace("\"version\": 36", "\"version\": 35")
-        .into_bytes()
+    let current = format!("\"version\": {}", lumen_project::migrate::CURRENT_VERSION);
+    text.replace(&current, "\"version\": 35").into_bytes()
 }
 
 fn midi_track(devices: Vec<Device>) -> Track {

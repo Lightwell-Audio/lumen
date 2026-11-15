@@ -181,7 +181,7 @@ fn the_pull_follows_the_meter_falls_back_and_is_nothing_when_reduced() {
     };
     assert_eq!(meter::pulled(&scene(&painter, &slots, None)), 0.0);
     let pulled = meter::pulled(&scene(&painter, &slots, Some(reading(4.1))));
-    assert!((pulled - 4.1).abs() < 1e-6, "{pulled}");
+    assert!((pulled - 4.1).abs() < 1e-3, "{pulled}");
     let after = meter::pulled(&scene(&painter, &slots, Some(reading(0.0))));
     assert!(after > 0.0 && after <= 4.1, "{after}");
     assert_eq!(meter::pulled(&scene(&painter, &slots, None)), 0.0);

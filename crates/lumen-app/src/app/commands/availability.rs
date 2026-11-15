@@ -370,6 +370,16 @@ impl App {
             | Command::AddReverb
             | Command::AddCompressor
             | Command::AddLimiter => Ok(()),
+
+            Command::AddSampler => Ok(()),
+            Command::SamplerLoadSample
+            | Command::SamplerClearSamples
+            | Command::SamplerNextFace
+            | Command::SamplerToggleLoop
+            | Command::SamplerToggleReverse => need(
+                self.has_sampler(),
+                "Choose Shutter's card first, in the Devices tab",
+            ),
             Command::TransposeClipUp | Command::TransposeClipDown => self.transpose_unavailable(),
             Command::SetTempoFromClip | Command::DoubleClipTempo | Command::HalveClipTempo => {
                 self.warped_unavailable()

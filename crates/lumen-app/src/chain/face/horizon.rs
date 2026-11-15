@@ -5,7 +5,7 @@ use eframe::egui::{
 use lumen_devices::dynamics::limiter as device;
 
 use super::paint::{self, glow};
-use super::{Control, Drawing, Handle, Scene, Values, meter};
+use super::{Control, Drawing, Handle, Scene, Values, cadence, meter};
 use crate::chain::card::gradient_panel;
 use crate::chain::geometry::Step;
 use crate::motion;
@@ -170,7 +170,7 @@ fn heard(scene: &Scene<'_>) -> ([f32; COLUMNS], f32) {
             run.1 = now;
             ctx.data_mut(|d| d.insert_temp(key, run));
         }
-        ctx.request_repaint_after(motion::METER_FRAME);
+        cadence::again(ctx, scene.still);
     } else if flow <= 0.0 {
         ctx.data_mut(|d| d.remove::<([f32; COLUMNS], f64)>(key));
     }

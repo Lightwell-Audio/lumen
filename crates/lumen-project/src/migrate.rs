@@ -40,6 +40,7 @@ pub const MIGRATIONS: &[Migration] = &[
     v33_to_v34,
     add_drum_maps,
     add_synth_parameters,
+    add_sampler_samples,
 ];
 
 fn v1_to_v2(mut document: Value) -> Result<Value, String> {
@@ -47,6 +48,7 @@ fn v1_to_v2(mut document: Value) -> Result<Value, String> {
         .get_mut("project")
         .and_then(Value::as_object_mut)
         .ok_or("missing project")?;
+
     project.insert(
         "transport".into(),
         serde_json::json!({
@@ -118,6 +120,7 @@ fn v3_to_v4(mut document: Value) -> Result<Value, String> {
     }
     if let Some(view) = project.get_mut("view").and_then(Value::as_object_mut) {
         view.entry("grid").or_insert(serde_json::json!({
+
             "fixed": false,
             "width": "narrow",
             "size": { "note": 16 },
@@ -204,6 +207,7 @@ fn v6_to_v7(mut document: Value) -> Result<Value, String> {
         .position(|t| t.get("kind").and_then(Value::as_str) == Some("master"));
     let mut master = match found {
         Some(index) => tracks.remove(index),
+
         None => serde_json::json!({
             "id": format!("{next_id:016x}"),
             "name": "Master",
@@ -260,6 +264,7 @@ fn v7_to_v8(mut document: Value) -> Result<Value, String> {
         .filter(|t| text(t, "kind").as_deref() == Some("group"))
         .filter_map(|t| text(t, "id"))
         .collect();
+
     let parents: Vec<Option<String>> = tracks
         .iter()
         .map(|t| text(t, "parent").filter(|p| groups.contains(p)))
@@ -282,6 +287,7 @@ fn v7_to_v8(mut document: Value) -> Result<Value, String> {
                 .filter(|&j| parents[j].is_some() && parents[j] == id),
         );
     }
+
     order.extend((0..tracks.len()).filter(|&i| !placed[i]));
     let mut old: Vec<Option<Value>> = tracks.drain(..).map(Some).collect();
     tracks.extend(order.into_iter().filter_map(|i| old[i].take()));
@@ -444,6 +450,7 @@ fn add_synth_parameters(mut document: Value) -> Result<Value, String> {
     let Some(project) = document.get_mut("project").and_then(Value::as_object_mut) else {
         return Ok(document);
     };
+
     fn track_values(track: &mut Value, values_of: fn(&str) -> &'static [(u32, f64)]) {
         let Some(devices) = track.get_mut("devices").and_then(Value::as_array_mut) else {
             return;
@@ -452,6 +459,7 @@ fn add_synth_parameters(mut document: Value) -> Result<Value, String> {
             let Some(device) = device.as_object_mut() else {
                 continue;
             };
+
             let is_synth = device.get("plugin").is_some_and(|plugin| {
                 plugin.get("format").and_then(Value::as_str) == Some("builtin")
                     && plugin.get("name").and_then(Value::as_str) == Some(SYNTH)
@@ -692,6 +700,10 @@ const PAD: [(u32, f64); 34] = [
     (33, 1.000_000_000),
     (34, 0.140_000_001),
 ];
+
+fn add_sampler_samples(document: Value) -> Result<Value, String> {
+    Ok(document)
+}
 
 fn highest_id(document: &Value) -> Result<u64, String> {
     fn walk(value: &Value, highest: &mut u64) -> Result<(), String> {

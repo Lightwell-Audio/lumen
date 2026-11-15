@@ -46,6 +46,8 @@ pub struct Job {
     pub file: PathBuf,
     pub media: Id,
     pub unread: Unread,
+
+    pub samples: Vec<(Id, crate::builtin::samples::Source)>,
 }
 
 #[derive(Debug, Clone)]
@@ -186,6 +188,7 @@ pub fn render_job(
         file,
         media,
         unread,
+        samples: decoded,
     } = job;
     if let Some(parent) = file.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent)
@@ -254,6 +257,10 @@ pub fn render_job(
     if effects {
         midi_play::with_lanes(&mut midi_tracks, &project, &Default::default(), rate);
     }
+    let samples = crate::builtin::samples::Library::from_snapshot(rate, decoded);
+    crate::midi::play::attach_sounds(&mut midi_tracks, &project, &|device, map| {
+        samples.sound(device, map)
+    });
     let mine: Vec<Clip> = clips.into_iter().filter(|c| c.track == track.0).collect();
     if clip_handle.set(mine).is_err() || midi_handle.set(midi_tracks).is_err() {
         return Err("The engine could not take the track".to_owned());
@@ -528,6 +535,7 @@ mod tests {
             file: dir.join("bounce.wav"),
             media: Id(777),
             unread: Default::default(),
+            samples: Vec::new(),
         }
     }
 

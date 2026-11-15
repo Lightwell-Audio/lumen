@@ -12,7 +12,9 @@ pub struct Mark {
 pub struct ParamBlock {
     queues: Vec<(u32, u32, bool)>,
     points: Vec<(u32, f64)>,
+
     frames: u32,
+
     dropped: u32,
 }
 
@@ -48,6 +50,10 @@ impl ParamBlock {
 
     pub fn is_empty(&self) -> bool {
         self.queues.is_empty()
+    }
+
+    pub fn frames(&self) -> usize {
+        self.frames as usize
     }
 
     pub fn len(&self) -> usize {

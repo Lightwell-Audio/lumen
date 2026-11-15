@@ -38,6 +38,7 @@ pub struct MidiNote {
     pub length: Ticks,
     pub pitch: u8,
     pub velocity: u8,
+
     pub channel: Option<u8>,
 }
 
@@ -61,10 +62,13 @@ pub fn control_list(mut controls: Vec<MidiControl>) -> Arc<[MidiControl]> {
 pub struct MidiClip {
     pub id: u64,
     pub start: Ticks,
+
     pub length: Ticks,
+
     pub period: Option<Ticks>,
     pub notes: Arc<[MidiNote]>,
     pub controls: Arc<[MidiControl]>,
+
     pub seams: Arc<[Ticks]>,
 }
 
@@ -83,33 +87,53 @@ impl MidiClip {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Target {
     Instrument,
+
     Port { port: u16, channel: u8 },
 }
 
 pub struct InstrumentSpec {
     pub kind: u32,
+
     pub preset: u32,
+
     pub values: Vec<(u32, f32)>,
     pub instrument: Box<dyn Instrument>,
 }
 
 pub struct MidiTrack {
     pub id: u64,
+
     pub clips: Vec<MidiClip>,
     pub instrument: Option<InstrumentSpec>,
     pub target: Target,
+
     pub outputs: Vec<(u32, u64)>,
+
     pub listen: Listen,
+
     pub record: Listen,
+
     pub record_window: (Ticks, Ticks),
+
     pub record_timing: Option<RecordTiming>,
+
     pub automation: Vec<ParamLane>,
+
+    pub values: Vec<(u32, f32)>,
+
+    pub sound: Option<Arc<lumen_devices::sampler::Sound>>,
+
     params: Option<Box<ParamBlock>>,
     state: Box<TrackState>,
+
     index: Vec<index::ClipIndex>,
+
     dirty: bool,
+
     begun: bool,
+
     leaving: Option<InstrumentSpec>,
+
     pub(super) kit: Option<Box<kit::DrumKit>>,
 }
 
@@ -134,6 +158,8 @@ impl MidiTrack {
             record_window: hold::ALWAYS,
             record_timing: None,
             automation: Vec::new(),
+            values: Vec::new(),
+            sound: None,
             params: None,
             state: Box::new(TrackState::new()),
             dirty: true,
@@ -179,8 +205,25 @@ impl MidiTrack {
     }
 
     pub fn set_automation(&mut self, lanes: Vec<ParamLane>) {
-        self.params = (!lanes.is_empty()).then(|| Box::new(ParamBlock::new()));
+        self.params =
+            (!lanes.is_empty() || !self.values.is_empty()).then(|| Box::new(ParamBlock::new()));
         self.automation = lanes;
+    }
+
+    pub fn with_values(mut self, values: Vec<(u32, f32)>) -> Self {
+        self.set_values(values);
+        self
+    }
+
+    pub fn set_values(&mut self, values: Vec<(u32, f32)>) {
+        self.params = (!values.is_empty() || !self.automation.is_empty())
+            .then(|| Box::new(ParamBlock::new()));
+        self.values = values;
+    }
+
+    pub fn playing_sound(mut self, sound: Option<Arc<lumen_devices::sampler::Sound>>) -> Self {
+        self.sound = sound;
+        self
     }
 
     fn channel(&self) -> u8 {
@@ -208,5 +251,6 @@ impl MidiTrack {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MidiOut {
     At { frame: u64, port: u16, msg: Msg },
+
     Flush,
 }
