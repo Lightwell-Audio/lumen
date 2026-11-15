@@ -125,7 +125,7 @@ impl App {
             }
         }
         if !live.is_empty() && self.chain.pretend_spectrum.is_none() {
-            ctx.request_repaint_after(crate::motion::METER_FRAME);
+            crate::chain::face::cadence::again(ctx, crate::motion::reduced());
         }
     }
 

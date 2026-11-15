@@ -4,7 +4,7 @@ use eframe::egui::{self, Color32, CornerRadius, Rect, Response, Shadow, Stroke, 
 use lumen_devices::params::ParamInfo;
 
 use super::{Face, Look, Out};
-use crate::chain::face::{Drawing, Parts, Scene, Values};
+use crate::chain::face::{Drawing, Parts, Scene, Values, cadence};
 use crate::chain::geometry::Step;
 use crate::chain::strip::{self, Output};
 use crate::theme::personality::card as c;
@@ -128,6 +128,7 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body
         parts::points(ui, &plan, drawing, p, &values, picked, id, &mut asked)
     });
     let still = motion::reduced();
+    cadence::wake(&ctx, id, personal.level, still);
     let mist = motion::fade(&ctx, id.with("mist"), personal.spectrum.is_some() && !still);
     let picture = painter.with_clip_rect(plan.picture);
     (drawing.draw)(&Scene {

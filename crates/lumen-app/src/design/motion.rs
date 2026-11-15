@@ -31,6 +31,50 @@ pub const DEVICE_POLL: std::time::Duration = std::time::Duration::from_millis(30
 pub const IDLE_TICK: std::time::Duration = std::time::Duration::from_secs(1);
 pub const AGE_FRAME: std::time::Duration = std::time::Duration::from_secs(1);
 
+pub const FACE_FRAME: std::time::Duration = std::time::Duration::from_millis(16);
+
+pub const METER_ATTACK: f32 = 0.004;
+pub const METER_RELEASE: f32 = 0.16;
+pub const PEAK_HOLD: f32 = 0.70;
+pub const PEAK_FALL: f32 = 1.1;
+#[allow(dead_code)]
+pub const FLASH_RISE: f32 = 0.010;
+#[allow(dead_code)]
+pub const FLASH_TAU: f32 = 0.12;
+
+pub const SILENCE_DB: f32 = -66.0;
+pub const SLEEP_HOLD: f32 = 0.45;
+pub const SLEEP_TAU: f32 = 0.30;
+pub const WAKE_TAU: f32 = 0.05;
+pub const DT_MAX: f32 = 1.0 / 20.0;
+
+pub const GLOW_REST: f32 = 0.10;
+pub const GLOW_LIVE: f32 = 0.30;
+pub const GLOW_ENERGY: f32 = 0.50;
+pub const GLOW_HIT: f32 = 1.0;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SpringKind {
+    pub omega: f32,
+    pub zeta: f32,
+}
+
+#[allow(dead_code)]
+pub const SNAP: SpringKind = SpringKind {
+    omega: 46.0,
+    zeta: 0.55,
+};
+#[allow(dead_code)]
+pub const POP: SpringKind = SpringKind {
+    omega: 34.0,
+    zeta: 0.38,
+};
+#[allow(dead_code)]
+pub const SOFT: SpringKind = SpringKind {
+    omega: 32.0,
+    zeta: 1.0,
+};
+
 static REDUCED: AtomicBool = AtomicBool::new(false);
 
 pub fn set_reduced(reduced: bool) {
@@ -55,6 +99,48 @@ pub fn spring(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
     let raw = |t: f32| 1.0 - (1.0 + OMEGA * t) * (-OMEGA * t).exp();
     raw(t) / raw(1.0)
+}
+
+#[allow(dead_code)]
+pub fn ease_out_back(t: f32) -> f32 {
+    const C1: f32 = 1.70158;
+    const C3: f32 = C1 + 1.0;
+    let u = t.clamp(0.0, 1.0) - 1.0;
+    1.0 + C3 * u * u * u + C1 * u * u
+}
+
+#[allow(dead_code)]
+pub fn ease_out_expo(t: f32) -> f32 {
+    if t >= 1.0 {
+        1.0
+    } else {
+        1.0 - 2.0_f32.powf(-10.0 * t.clamp(0.0, 1.0))
+    }
+}
+
+#[allow(dead_code)]
+pub fn ease_in_out(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
+}
+
+pub fn follow(current: f32, target: f32, tau_up: f32, tau_down: f32, dt: f32) -> f32 {
+    let tau = if target > current { tau_up } else { tau_down };
+    if tau <= 0.0 {
+        return target;
+    }
+    current + (target - current) * (1.0 - (-dt.max(0.0) / tau).exp())
+}
+
+#[allow(dead_code)]
+pub fn flash(age: f32) -> f32 {
+    if age <= 0.0 {
+        0.0
+    } else if age < FLASH_RISE {
+        age / FLASH_RISE
+    } else {
+        (-(age - FLASH_RISE) / FLASH_TAU).exp()
+    }
 }
 
 pub fn fade(ctx: &egui::Context, id: Id, visible: bool) -> f32 {
@@ -142,6 +228,55 @@ mod tests {
             }
         }
         assert!(spring(0.33) > 0.6 && ease_out(0.33) > 0.6);
+    }
+
+    #[test]
+    fn the_landing_curves_start_at_zero_and_end_on_one() {
+        for curve in [ease_out_back, ease_out_expo, ease_in_out] {
+            assert!(curve(0.0).abs() < 1e-3, "{}", curve(0.0));
+            assert!((curve(1.0) - 1.0).abs() < 1e-6);
+        }
+        assert!(
+            (0..100).any(|i| ease_out_back(i as f32 / 100.0) > 1.0),
+            "out_back overshoots"
+        );
+        assert!(ease_out_expo(0.2) > 0.7, "thrown outward, then long settle");
+        assert!((ease_in_out(0.5) - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn follow_is_fast_up_slow_down_and_frame_rate_independent() {
+        let up = follow(0.0, 1.0, METER_ATTACK, METER_RELEASE, 0.016);
+        let down = follow(1.0, 0.0, METER_ATTACK, METER_RELEASE, 0.016);
+        assert!(up > 0.95, "{up}");
+        assert!(down > 0.85 && down < 0.95, "{down}");
+        let mut slow = 1.0;
+        for _ in 0..10 {
+            slow = follow(slow, 0.0, METER_ATTACK, METER_RELEASE, 0.02);
+        }
+        let mut fast = 1.0;
+        for _ in 0..40 {
+            fast = follow(fast, 0.0, METER_ATTACK, METER_RELEASE, 0.005);
+        }
+        assert!((slow - fast).abs() < 1e-5, "{slow} vs {fast}");
+        assert_eq!(follow(0.3, 0.8, 0.0, 0.1, 0.01), 0.8);
+    }
+
+    #[test]
+    fn a_flash_rises_in_a_frame_and_falls_like_a_decay() {
+        assert_eq!(flash(-0.1), 0.0);
+        assert_eq!(flash(0.0), 0.0);
+        assert!((flash(FLASH_RISE) - 1.0).abs() < 1e-6);
+        let later = flash(FLASH_RISE + FLASH_TAU);
+        assert!((later - (-1.0_f32).exp()).abs() < 1e-6, "{later}");
+    }
+
+    #[test]
+    fn the_spring_presets_overshoot_as_named() {
+        let overshoot = |k: SpringKind| (-std::f32::consts::PI * k.zeta / (1.0 - k.zeta * k.zeta).sqrt()).exp();
+        assert!((overshoot(SNAP) - 0.126).abs() < 0.01);
+        assert!((overshoot(POP) - 0.28).abs() < 0.02);
+        assert_eq!(SOFT.zeta, 1.0);
     }
 
     #[test]

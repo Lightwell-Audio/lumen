@@ -1,5 +1,7 @@
 use eframe::egui::{Color32, Mesh, Painter, Pos2, Shape, Stroke, pos2, vec2};
 
+use crate::theme::glow as ladder;
+
 const FEATHER: f32 = 0.6;
 const SIDES: usize = 28;
 
@@ -98,6 +100,84 @@ pub(super) fn glow(painter: &Painter, centre: Pos2, radius: f32, colour: Color32
     painter.add(Shape::mesh(mesh));
 }
 
+#[allow(dead_code)]
+pub(super) fn glow_ladder(
+    painter: &Painter,
+    centre: Pos2,
+    radius: f32,
+    colour: Color32,
+    share: f32,
+    additive: bool,
+) {
+    if radius <= 0.0 || share <= 0.0 {
+        return;
+    }
+    let tint = |alpha: f32| {
+        let lit = colour.gamma_multiply(alpha * share.clamp(0.0, 1.0));
+        if additive {
+            Color32::from_rgba_premultiplied(lit.r(), lit.g(), lit.b(), 0)
+        } else {
+            lit
+        }
+    };
+    let sides = ladder::SIDES;
+    let mut mesh = Mesh::default();
+    mesh.colored_vertex(centre, tint(ladder::ALPHAS[0]));
+    for (stop, alpha) in ladder::STOPS.iter().zip(ladder::ALPHAS).skip(1) {
+        let out = radius * stop;
+        for side in 0..sides {
+            let angle = std::f32::consts::TAU * side as f32 / sides as f32;
+            mesh.colored_vertex(
+                pos2(centre.x + out * angle.cos(), centre.y + out * angle.sin()),
+                tint(alpha),
+            );
+        }
+    }
+    let ring_at = |ring: usize, side: usize| 1 + (ring * sides + side % sides) as u32;
+    for side in 0..sides {
+        mesh.add_triangle(0, ring_at(0, side), ring_at(0, side + 1));
+    }
+    for ring in 0..ladder::STOPS.len() - 2 {
+        for side in 0..sides {
+            let (a, b) = (ring_at(ring, side), ring_at(ring, side + 1));
+            let (c, d) = (ring_at(ring + 1, side), ring_at(ring + 1, side + 1));
+            mesh.add_triangle(a, c, d);
+            mesh.add_triangle(a, d, b);
+        }
+    }
+    painter.add(Shape::mesh(mesh));
+}
+
+#[allow(dead_code)]
+pub(super) fn smooth_path(points: &[Pos2], steps: usize) -> Vec<Pos2> {
+    let n = points.len();
+    if n < 3 || steps == 0 {
+        return points.to_vec();
+    }
+    let mid = |a: Pos2, b: Pos2| pos2((a.x + b.x) / 2.0, (a.y + b.y) / 2.0);
+    let mut path = Vec::with_capacity((n - 2) * steps + 2);
+    path.push(points[0]);
+    for i in 1..n - 1 {
+        let (from, control, to) = (
+            mid(points[i - 1], points[i]),
+            points[i],
+            mid(points[i], points[i + 1]),
+        );
+        path.push(from);
+        for k in 1..=steps {
+            let t = k as f32 / steps as f32;
+            let u = 1.0 - t;
+            path.push(pos2(
+                u * u * from.x + 2.0 * u * t * control.x + t * t * to.x,
+                u * u * from.y + 2.0 * u * t * control.y + t * t * to.y,
+            ));
+        }
+    }
+    path.push(points[n - 1]);
+    path.dedup_by(|a, b| (a.x - b.x).abs() < 1e-4 && (a.y - b.y).abs() < 1e-4);
+    path
+}
+
 pub(super) fn dashed_ellipse(
     painter: &Painter,
     centre: Pos2,
@@ -145,3 +225,6 @@ pub(super) fn dashed_ellipse(
         painter.line_segment([a, b], stroke);
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -18,6 +18,8 @@ mod drum_icons;
 mod drum_routing;
 mod drums;
 mod editor;
+mod faces;
+pub use faces::{face_frame, face_repaint_ask, forget_face_repaint_asks};
 mod instance;
 mod launch;
 mod steps;

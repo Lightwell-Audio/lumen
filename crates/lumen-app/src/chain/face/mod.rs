@@ -5,6 +5,9 @@ use super::geometry::Step;
 use super::strip::Slot;
 
 pub(crate) mod afterglow;
+#[allow(dead_code)]
+pub(crate) mod ballistics;
+pub(crate) mod cadence;
 pub(crate) mod eq;
 pub(crate) mod gravity;
 pub(crate) mod horizon;

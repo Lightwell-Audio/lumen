@@ -461,6 +461,12 @@ pub mod alpha {
     pub const STEP_PAST_END: f32 = 0.35;
 }
 
+pub mod glow {
+    pub const STOPS: [f32; 4] = [0.0, 0.35, 0.7, 1.0];
+    pub const ALPHAS: [f32; 4] = [1.0, 0.42, 0.10, 0.0];
+    pub const SIDES: usize = 24;
+}
+
 pub fn meter(db: f32, base: Color32) -> Color32 {
     let c = p();
     if db > 0.0 {
