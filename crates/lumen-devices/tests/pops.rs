@@ -482,6 +482,98 @@ fn no_built_in_clicks_on_a_tone_when_anything_moves() {
     }
 }
 
+/// Flare, the synth, is an instrument rather than an effect: it is not on the
+/// mixer's built-in path, so OR-4's (c) to (g) do not apply to it, but its
+/// parameters do arrive the same way while it plays. This holds the one thing
+/// that could click — a value the interface sends, and the same value again
+/// every block — against the sound it was making.
+#[test]
+fn flare_does_not_click_when_its_values_move() {
+    use lumen_core::midi::{Event, Msg};
+    use lumen_devices::synth::params;
+    use lumen_devices::{Instrument, Synth};
+
+    let synth = |values: &[(u32, f32)], steps: Option<(u32, f32)>| {
+        let mut synth = Synth::new(lumen_devices::Preset::Poly);
+        synth.configure_values(values);
+        let mut left = vec![0.0f32; FRAMES];
+        let mut right = vec![0.0f32; FRAMES];
+        let mut sent = values.to_vec();
+        let mut done = 0;
+        let mut first = true;
+        while done < FRAMES {
+            let n = 256.min(FRAMES - done);
+            let mut events = Vec::new();
+            if first {
+                events.push(Event {
+                    offset: 0,
+                    msg: Msg::note_on(0, 60, 100),
+                });
+                first = false;
+            }
+            if let Some((id, to)) = steps
+                && done >= EVENT
+                && sent
+                    .iter()
+                    .any(|(known, value)| *known == id && *value != to)
+            {
+                for (known, value) in &mut sent {
+                    if *known == id {
+                        *value = to;
+                    }
+                }
+                synth.configure_values(&sent);
+            }
+            Instrument::render(
+                &mut synth,
+                RATE,
+                &events,
+                &mut left[done..done + n],
+                &mut right[done..done + n],
+            );
+            done += n;
+        }
+        left
+    };
+    let values: Vec<(u32, f32)> = params::TABLE
+        .iter()
+        .map(|p| (p.id, p.normalised(p.default)))
+        .collect();
+    let steady = synth(&values, None);
+    for info in params::TABLE {
+        let to = if info.is_choice() {
+            if info.normalised(info.default) >= 0.5 {
+                0.0
+            } else {
+                1.0
+            }
+        } else if info.normalised(info.default) < 0.5 {
+            0.85
+        } else {
+            0.15
+        };
+        let moved = synth(&values, Some((info.id, to)));
+        let floor = |x: &[f32]| {
+            0.01 * x[EVENT - 2_400..EVENT + 4_800]
+                .iter()
+                .fold(0.0f32, |m, s| m.max(s.abs()))
+        };
+        // A step in the sound is a jump from one frame to the next, and the
+        // frame it would happen on is the change's own: what a parameter does
+        // over the frames after it — a filter shape crossing over for 20 ms —
+        // changes the wave's shape without ever jumping, and two filters'
+        // outputs summed read a little steeper than either alone.
+        let jump = worst_step_over_level(&moved, EVENT, EVENT + 8, floor(&moved));
+        let flat = worst_step_over_level(&steady, EVENT - 2_400, EVENT + 4_800, floor(&steady));
+        let db = 20.0 * (jump.max(1e-9) / flat.max(1e-9)).log10();
+        assert!(
+            db < 6.0,
+            "Flare: {} stepped jumps {db:+.1} dB against its own steady sound",
+            info.name
+        );
+    }
+}
+
 #[test]
 #[ignore = "a measurement, not a check: prints the table"]
 fn the_pop_table() {

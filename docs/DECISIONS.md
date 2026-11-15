@@ -15089,6 +15089,14 @@ The sidechain and its high-pass were already covered
 (`a_key_ducks_the_input_and_listen_plays_the_key`,
 `the_key_high_pass_takes_the_low_end_out_of_the_key`) and still hold.
 
+**Flare**, the instrument, is not on the mixer's effect path, so (c) to (g) do
+not apply to it; its parameters arrive the same way while it plays, so
+`flare_does_not_click_when_its_values_move` plays a note and steps every one of
+them. None jumps from one frame to the next (under 6 dB against the sound it was
+making); a filter shape crosses over for 20 ms from a filter of its own state, as
+B4 left it, and the two summed read a little steeper in the second difference —
+a change of timbre, not a step.
+
 **What is left, and why it was not changed.** Gravity's peak-mode curve
 shortfall could be removed by detecting on a peak *envelope* instead of the
 wave, but every envelope that holds a 20 Hz wave's peak needs a hold of 25 ms or
@@ -15116,8 +15124,9 @@ the loudness of a mix does not change when the ratio does"), and it is a default
 value, so it is the owner's: a mix with Gravity on a track can clip a converter
 that has no headroom. Recorded as a question in KNOWN_ISSUES.
 
-**Tests added.** `lumen-devices/tests/pops.rs` (the harness and
-`no_built_in_clicks_on_a_tone_when_anything_moves`), `lumen-engine/tests/
+**Tests added.** `lumen-devices/tests/pops.rs` (the harness,
+`no_built_in_clicks_on_a_tone_when_anything_moves` and
+`flare_does_not_click_when_its_values_move`), `lumen-engine/tests/
 builtin_pops.rs` (the harness, `nothing_the_engine_does_to_a_chain_clicks`,
 `connecting_a_key_does_not_click`, `the_harness_sees_a_click_it_is_given`,
 `an_unattached_device_plays_the_wave_through`), `lumen-engine/src/declick.rs`
