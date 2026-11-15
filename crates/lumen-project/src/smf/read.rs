@@ -1,5 +1,3 @@
-//! Reading a Standard MIDI File.
-
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
 
@@ -10,12 +8,9 @@ use midly::{Format, MetaMessage, MidiMessage, Smf, Timing, TrackEventKind};
 use super::{FileTrack, MidiFile};
 use crate::model::{ClipEvent, EventKind, Note, TimeSignature};
 
-/// Why a file could not be read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReadError {
-    /// Not a MIDI file, or damaged past what lenient reading accepts.
     Malformed(String),
-    /// A type 2 file: its tracks are separate songs, not parts of one.
     Sequential,
 }
 
@@ -32,24 +27,13 @@ impl fmt::Display for ReadError {
 
 impl std::error::Error for ReadError {}
 
-/// The tempo SMF assumes until a file sets one.
 const DEFAULT_MICROS: u32 = 500_000;
 
-/// Reads a `.mid` file's bytes. Ticks are rescaled to [`PPQ`]: the common
-/// divisions (96 to 960 and others dividing 1,411,200) come in exactly,
-/// others round to the nearest tick. SMPTE-timed files are converted
-/// through their own tempo.
-///
-/// A note-on with velocity 0 is a note-off; overlapping strikes of the same
-/// key are paired with note-offs in start order; notes still on at the end
-/// of their track end there. A bank select (CC 0 and 32) at the same tick as a program
-/// change on its channel becomes the change's bank.
 pub fn read(bytes: &[u8]) -> Result<MidiFile, ReadError> {
     let smf = Smf::parse(bytes).map_err(|e| ReadError::Malformed(e.to_string()))?;
     if smf.header.format == Format::Sequential {
         return Err(ReadError::Sequential);
     }
-    // Every event's absolute tick, per track.
     let tracks: Vec<Vec<(u64, TrackEventKind<'_>)>> = smf
         .tracks
         .iter()
@@ -82,9 +66,7 @@ pub fn read(bytes: &[u8]) -> Result<MidiFile, ReadError> {
             }
         }
     }
-    // Stable, so of two at one tick the later in the file wins.
     signatures.sort_by_key(|&(at, _)| at);
-    // Sorted by tick, the file's order kept at the same tick; the last wins.
     changes.sort_by_key(|&(at, _)| at);
     changes.dedup_by(|later, earlier| {
         if later.0 == earlier.0 {
@@ -95,7 +77,6 @@ pub fn read(bytes: &[u8]) -> Result<MidiFile, ReadError> {
         }
     });
     let base = Timebase::new(smf.header.timing, &changes)?;
-    // Times only grow, so the last tick is the furthest (review M5 M3).
     let last = tracks
         .iter()
         .filter_map(|track| track.last().map(|&(at, _)| at))
@@ -155,7 +136,6 @@ pub fn read(bytes: &[u8]) -> Result<MidiFile, ReadError> {
     })
 }
 
-/// One file track's parts, one per channel used, in channel order.
 fn read_track(
     source: usize,
     track: &[(u64, TrackEventKind<'_>)],
@@ -201,15 +181,11 @@ fn read_track(
         .collect()
 }
 
-/// One channel of a track being read.
 #[derive(Default)]
 struct Part {
-    /// Per key, unmatched note-ons in start order: tick and velocity.
     sounding: BTreeMap<u8, VecDeque<(u64, u8)>>,
     notes: Vec<Note>,
     events: Vec<ClipEvent>,
-    /// A bank select waiting for a program change at its tick: the tick,
-    /// MSB, LSB, and where their controller events are in `events`.
     bank: Option<Bank>,
 }
 
@@ -285,7 +261,6 @@ impl Part {
                     base,
                 );
             }
-            // Polyphonic aftertouch has no place in the model.
             MidiMessage::Aftertouch { .. } => {}
         }
     }
@@ -297,7 +272,6 @@ impl Part {
         });
     }
 
-    /// Ends `key`'s oldest unmatched note, if any, at `at`.
     fn end_note(&mut self, key: u8, at: u64, base: &Timebase) {
         let Some(queue) = self.sounding.get_mut(&key) else {
             return;
@@ -307,14 +281,11 @@ impl Part {
             self.sounding.remove(&key);
         }
         let begin = base.at(start);
-        // A note on and off at one tick is a trigger: it lasts one tick of
-        // the file.
         let end = base.at(at.max(start + 1));
         let length = Ticks((end - begin).0.max(1));
         self.notes.push(Note::new(begin, length, key, velocity));
     }
 
-    /// Ends every sounding note at the track's end.
     fn close(&mut self, end: u64, base: &Timebase) {
         let keys: Vec<u8> = self.sounding.keys().copied().collect();
         for key in keys {
@@ -325,12 +296,8 @@ impl Part {
     }
 }
 
-/// A file's clock: its ticks to Lumen's.
 enum Timebase {
-    /// Ticks per quarter note.
     Beats(i64),
-    /// Ticks per second, and the tempo in seconds: where each tempo starts,
-    /// in seconds and in quarters, and its quarters per second.
     Seconds {
         per_second: f64,
         segments: Vec<(f64, f64, f64)>,
@@ -370,7 +337,6 @@ impl Timebase {
         }
     }
 
-    /// Where a file tick is, in Lumen's ticks, rounded to the nearest.
     fn at(&self, tick: u64) -> Ticks {
         match self {
             Timebase::Beats(division) => {
@@ -398,13 +364,10 @@ fn quarters_per_second(micros: u32) -> f64 {
     1_000_000.0 / f64::from(micros)
 }
 
-/// Beats per minute from microseconds per quarter, inside Lumen's range.
 fn bpm(micros: u32) -> f64 {
     (60_000_000.0 / f64::from(micros)).clamp(MIN_BPM, MAX_BPM)
 }
 
-/// A time signature from its meta event (the denominator as a power of 2),
-/// if Lumen can show it.
 fn signature(numerator: u8, power: u8) -> Option<TimeSignature> {
     (numerator >= 1 && power <= 6).then(|| TimeSignature {
         numerator,
@@ -416,14 +379,11 @@ fn signature(numerator: u8, power: u8) -> Option<TimeSignature> {
 mod tests {
     use super::*;
 
-    /// Review M5 M3: a file whose events lie past the longest song is
-    /// refused, not saturated into ticks that overflow later.
     #[test]
     fn a_file_reaching_past_the_longest_song_is_refused() {
         let file = |events: usize| {
             let mut track = Vec::new();
             for _ in 0..events {
-                // The longest delta, then a note-on (running status after).
                 track.extend_from_slice(&[0xFF, 0xFF, 0xFF, 0x7F, 0x90, 60, 100]);
             }
             track.extend_from_slice(&[0x00, 0xFF, 0x2F, 0x00]);
@@ -445,8 +405,6 @@ mod tests {
             key: 60.into(),
             vel: velocity.into(),
         };
-        // An unmatched off is harmless. Later overlapping notes remain
-        // open until their own off, or until the track ends.
         part.take(0, on(0_u8), &base);
         part.take(0, on(100), &base);
         part.take(960, on(90), &base);
@@ -474,7 +432,6 @@ mod tests {
                 assert_eq!(base.at(tick), exact, "{tick} at {division}");
             }
         }
-        // 1,411,200 / 1000 = 1411.2: one tick rounds down, three up.
         let base = Timebase::Beats(1000);
         assert_eq!(base.at(1), Ticks(1411));
         assert_eq!(base.at(3), Ticks(4234));

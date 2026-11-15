@@ -1,7 +1,3 @@
-//! The transport, view, mixer and track commands of M9 R7 part 1: each runs
-//! from the palette, and End goes to the end of the song except while a
-//! browser list has the keyboard, which keeps End for its last row.
-
 use eframe::egui::{Key, Modifiers};
 use lumen_project::model::TrackKind;
 
@@ -60,13 +56,11 @@ fn go_to_end_moves_to_the_last_clip_or_a_later_loop_end() {
         app.playhead() == end
     });
 
-    // The plain key does the same.
     lumen.key(Modifiers::NONE, Key::Home);
     lumen.wait_for("the playhead at the start", |app| app.playhead().0 == 0);
     lumen.key(Modifiers::NONE, Key::End);
     lumen.wait_for("End at the last clip's end", |app| app.playhead() == end);
 
-    // The default loop runs past the two short clips.
     let loop_end = lumen.app().project().transport.loop_end;
     assert!(loop_end > end, "the loop ends after the clips");
     run_command(&mut lumen, "Loop on or off");
@@ -94,7 +88,6 @@ fn go_to_end_says_why_it_cannot_run_in_an_empty_song() {
 #[test]
 fn end_in_the_browser_list_goes_to_its_last_row_and_leaves_the_playhead() {
     let (mut lumen, _, _) = with_two_clips("commands-end-browser");
-    // F6 goes to the arrangement, the detail panel, then the browser.
     for _ in 0..3 {
         lumen.key(Modifiers::NONE, Key::F6);
     }
@@ -166,7 +159,6 @@ fn add_group_track_goes_after_the_selected_track_as_the_menu_does() {
         "and selected"
     );
 
-    // The Add track button's menu, the same path: after the selection.
     lumen.click("Add track");
     lumen.click("Add group track");
     lumen.frames(30);

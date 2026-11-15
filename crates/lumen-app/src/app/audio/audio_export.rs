@@ -1,6 +1,3 @@
-//! The Export window and its task. Choices are session state, shared by the
-//! command palette and app-menu command. Export never edits the document.
-
 mod window;
 
 use std::path::PathBuf;
@@ -98,8 +95,6 @@ impl App {
         None
     }
 
-    /// A file dialog runs on its own thread; tests supply its answer through
-    /// the same route as other save commands.
     pub(crate) fn choose_export_destination(&mut self, ctx: &egui::Context) {
         let options = self.export.options;
         if let Some(why) = self.export_unavailable(options) {
@@ -200,8 +195,6 @@ impl App {
         }
         let mut project = waiting.project;
         self.hosting.stamp(&mut project);
-        // A real-time source runs at the device's rate. Only this snapshot's
-        // rate changes; the open project and output-file rate stay as chosen.
         if options.realtime {
             project.sample_rate = self.transport.state().sample_rate;
         }

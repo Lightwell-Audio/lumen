@@ -1,11 +1,3 @@
-//! The open project (M3 slice 3): the model with its undo history, where it
-//! is saved, and whether it has changed since.
-//!
-//! Every edit is a named method here that goes through the history's
-//! `apply`, so it is one undo step (ADR-0024); UI code never edits the
-//! project in a closure of its own (M3 review M2). The loop and punch are edits too (slice 5c);
-//! view state is not: it is stamped into the project when it is saved.
-
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -15,7 +7,6 @@ use lumen_project::History;
 use lumen_project::automation::Target;
 use lumen_project::model::{Color, Device, Id, Marker, Monitor, Project, Track, TrackKind};
 
-/// The most beats a bar may have (`lumen_project::validate`).
 pub const MAX_BEATS_PER_BAR: u32 = 64;
 
 mod audio_takes;
@@ -64,63 +55,30 @@ pub use overrides::Overrides;
 pub use record::Recording;
 pub use settings::RATES;
 
-/// The colour of a new track: the one the project's settings choose
-/// (`Project::new_track_color`), else the palette in turn
-/// (`Color::PALETTE`) by how many tracks there are.
 fn track_color(chosen: Option<Color>, index: usize) -> Color {
     chosen.unwrap_or_else(|| Color::in_turn(index))
 }
 
 pub struct Document {
     history: History,
-    /// The `.lumen` file, once saved or opened.
     pub path: Option<PathBuf>,
-    /// The history state that matches the file on disk.
     saved: u64,
-    /// Changes made inside plugins (no edit, so no history state): how many
-    /// there have been, how many the file on disk has, and how many there
-    /// were when the save under way began.
     inside: u64,
     inside_saved: u64,
     inside_at_save: u64,
     next_id: u64,
-    /// Where each media file actually is on this machine.
     pub media_files: HashMap<Id, PathBuf>,
-    /// Which document this is: a new one (another project, opened or new)
-    /// has another, though its history counts from the start again.
     session: u64,
-    /// The lanes the user has taken over (M7 slice A4a): session state.
     overrides: Overrides,
-    /// The controls the user moved since the recorder last looked (A4b).
     touched: Vec<(Id, Target)>,
-    /// What each of those controls held before its first move (A4b): the
-    /// value a Touch returns to when no lane says otherwise.
     rests: BTreeMap<(Id, Target), f32>,
-    /// Track automation stays where it is when clips move, are copied or are
-    /// deleted (M7 slice A7, the owner's E3: off by default, so automation
-    /// follows its clip). The app sets it from the settings.
     lock_envelopes: bool,
-    /// Inputs the audio device has open (M9 slice R1): arming an audio track
-    /// that has none gives it the first free one. Set by the app each frame.
     open_inputs: u16,
-    /// What new tracks start with (the New tracks preferences, M9 R7). Set
-    /// by the app each frame.
     new_tracks: NewTracks,
-    /// Whether new audio clips follow the song's tempo (the New audio clips
-    /// preference, M9.5 S4d). Set by the app each frame.
     follow_tempo: FollowTempo,
-    /// Imported clips whose file states no tempo, waiting for the app to
-    /// listen to the file (M9.5 S5a): [`Document::take_awaiting_follow`].
     awaiting_follow: Vec<import::Awaiting>,
 }
 
-/// What a new track starts with: an audio track's monitoring, and the
-/// instrument on a MIDI track (none, or the synth on a preset). Every way a
-/// track is made reads it: the menus and commands, a device dropped on the
-/// empty space (which brings its own instrument), and importing audio or
-/// MIDI files. Tracks made to hold sound that already exists (a bounce, a
-/// take moved off a locked clip, an instrument's extra output) keep Auto:
-/// monitoring In would put the live input over that sound.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NewTracks {
     pub monitor: Monitor,
@@ -128,16 +86,12 @@ pub struct NewTracks {
 }
 
 impl NewTracks {
-    /// Gives a new audio track its monitoring. A MIDI track's instrument is
-    /// placed where the track is made, since it needs a fresh device id.
     pub(crate) fn give(&self, track: &mut Track) {
         if track.kind == TrackKind::Audio {
             track.monitor = self.monitor;
         }
     }
 
-    /// The devices a new MIDI track starts with: the synth with id `id`
-    /// on the chosen preset, or none.
     pub(crate) fn instrument(&self, id: Id) -> Vec<Device> {
         self.instrument
             .map(|preset| instrument::synth_device(id, preset))
@@ -157,8 +111,6 @@ impl Default for NewTracks {
 
 impl Document {
     pub fn new(mut project: Project) -> Self {
-        // A synth's sound is its values: one a project holds none for plays
-        // its preset's (M8 slice B4), and what the controls show is the same.
         instrument::fill_synth_values(&mut project);
         let next_id = highest_id(&project) + 1;
         let history = History::new(project);
@@ -184,28 +136,22 @@ impl Document {
         }
     }
 
-    /// How many inputs the audio device has open, for arming to route.
     pub fn set_open_inputs(&mut self, open: u16) {
         self.open_inputs = open;
     }
 
-    /// Whether clip edits leave the track's automation where it is.
     pub fn set_lock_envelopes(&mut self, lock: bool) {
         self.lock_envelopes = lock;
     }
 
-    /// What new tracks start with.
     pub fn set_new_tracks(&mut self, new_tracks: NewTracks) {
         self.new_tracks = new_tracks;
     }
 
-    /// Whether new audio clips (imported or recorded) follow the song's tempo.
     pub fn set_follow_tempo(&mut self, follow: FollowTempo) {
         self.follow_tempo = follow;
     }
 
-    /// Keeps at most `steps` undo steps. Set on a document just made or
-    /// opened, so no step it holds is dropped (the Undo steps preference).
     pub fn set_undo_limit(&mut self, steps: usize) {
         self.history.set_limit(steps);
     }
@@ -214,7 +160,6 @@ impl Document {
         self.history.limit()
     }
 
-    /// Which document this is (see `state` for which version of it).
     pub fn session(&self) -> u64 {
         self.session
     }
@@ -227,38 +172,28 @@ impl Document {
         &self.history
     }
 
-    /// Identifies the current project state (changes with every edit, undo
-    /// and redo).
     pub fn state(&self) -> u64 {
         self.history.state()
     }
 
-    /// Unsaved changes.
     pub fn is_dirty(&self) -> bool {
         self.history.state() != self.saved || self.inside != self.inside_saved
     }
 
-    /// A plugin changed inside (a patch, a preset: nothing the project's
-    /// parameters show). The project has unsaved changes, though there is
-    /// nothing to undo.
     pub fn mark_changed_inside(&mut self) {
         self.inside += 1;
     }
 
-    /// A save is starting: what it writes holds the plugins as they are now.
     pub fn begin_save(&mut self) {
         self.inside_at_save = self.inside;
     }
 
-    /// Identifies the project as an autosave would write it: the history's
-    /// state and the changes inside plugins, which the history does not see.
     pub fn change_mark(&self) -> u64 {
         self.history
             .state()
             .wrapping_add(self.inside.wrapping_mul(0x9E37_79B9_7F4A_7C15))
     }
 
-    /// The project's name for the title bar: its file name, or "Untitled".
     pub fn name(&self) -> String {
         self.path
             .as_deref()
@@ -269,8 +204,6 @@ impl Document {
             )
     }
 
-    /// The window title: name, a dot while there are unsaved changes, and
-    /// the product.
     pub fn title(&self) -> String {
         let dot = if self.is_dirty() { " •" } else { "" };
         format!(
@@ -280,15 +213,11 @@ impl Document {
         )
     }
 
-    /// Records that `state` is what is on disk now (the state when a save
-    /// started: edits made during the save stay unsaved).
     pub fn mark_saved_at(&mut self, state: u64) {
         self.saved = state;
         self.inside_saved = self.inside_at_save;
     }
 
-    /// A document recovered from an autosave: it belongs to `path` (if the
-    /// project had been saved) and has unsaved changes.
     pub fn recovered(
         project: Project,
         path: Option<PathBuf>,
@@ -297,12 +226,10 @@ impl Document {
         let mut doc = Self::new(project);
         doc.path = path;
         doc.media_files = media_files;
-        // No history state is ever this: the recovered changes are unsaved.
         doc.saved = u64::MAX;
         doc
     }
 
-    /// A document for a project read from `path`.
     pub fn opened(project: Project, path: PathBuf, media_files: HashMap<Id, PathBuf>) -> Self {
         let mut doc = Self::new(project);
         doc.path = Some(path);
@@ -310,25 +237,18 @@ impl Document {
         doc
     }
 
-    /// A document for a project read from a template (M9 slice R4): unsaved
-    /// and untitled, with no changes yet. Its audio is in the template's
-    /// folder until the first Save copies it in.
     pub fn from_template(project: Project, media_files: HashMap<Id, PathBuf>) -> Self {
         let mut doc = Self::new(project);
         doc.media_files = media_files;
         doc
     }
 
-    /// A new id, unique in this project for its lifetime (never reused,
-    /// even after undo).
     pub fn fresh_id(&mut self) -> Id {
         let id = Id(self.next_id);
         self.next_id += 1;
         id
     }
 
-    /// One undo step; see [`History::apply`]. Tests only, to set up a
-    /// project: the app edits through named methods (M3 review M2).
     #[cfg(test)]
     pub fn apply(
         &mut self,
@@ -339,7 +259,6 @@ impl Document {
         self.history.apply(label, merge, edit)
     }
 
-    /// Ends the gesture in progress (call when no pointer button is down).
     pub fn seal(&mut self) {
         self.history.seal();
     }
@@ -357,18 +276,11 @@ impl Document {
     }
 }
 
-/// Track operations (M3 slice 4a), called from the track headers.
 impl Document {
-    /// Adds an empty track of `kind` after `after` and what is inside it
-    /// (or at the end), in `after`'s group, named "Audio 3", "MIDI 1" and
-    /// so on. Returns its id.
     pub fn add_track(&mut self, kind: TrackKind, after: Option<Id>) -> Id {
         self.insert_track(kind, after, None)
     }
 
-    /// The one way a track is made. `first` is a device it starts with
-    /// instead of the MIDI track's synth (one undo step, the owner's D3);
-    /// the label then names it.
     pub(super) fn insert_track(
         &mut self,
         kind: TrackKind,
@@ -381,11 +293,9 @@ impl Document {
             TrackKind::Midi => ("MIDI", "Add MIDI track"),
             TrackKind::Group => ("Group", "Add group track"),
             TrackKind::Return => ("Return", "Add return track"),
-            // One master per project, kept apart from the tracks.
             TrackKind::Master => return self.project().master.id,
         };
         if kind == TrackKind::Return && self.returns_full() {
-            // Callers check first (the menu is greyed); nothing changes.
             let last = self.project().tracks.iter().rev();
             return last
                 .clone()
@@ -396,8 +306,6 @@ impl Document {
             Some(device) => format!("Add {} on a new track", devices::name_of(device)),
             None => label.to_owned(),
         };
-        // A MIDI track starts with the synth on the chosen preset (format
-        // v12; Poly unless the New tracks preference says otherwise).
         let new_tracks = self.new_tracks;
         let synth = new_tracks
             .instrument
@@ -429,17 +337,11 @@ impl Document {
         id
     }
 
-    /// Whether the project holds as many return tracks as it can.
     pub fn returns_full(&self) -> bool {
         let returns = self.project().tracks.iter();
         returns.filter(|t| t.kind == TrackKind::Return).count() >= mixer::MAX_RETURNS
     }
 
-    /// Deletes tracks, and everything inside the groups among them (ungrouping
-    /// keeps a group's tracks). Their clips go with
-    /// them; their media stays in the project (the media pool, M9).
-    /// Outputs to deleted tracks go back to automatic, and sends to them go
-    /// (M4 slice 2). The master is never deleted.
     pub fn delete_tracks(&mut self, ids: &[Id]) {
         let ids = lumen_project::groups::with_contents(&self.project().tracks, ids);
         let label = plural(ids.len(), "Delete track", "Delete {} tracks");
@@ -449,12 +351,8 @@ impl Document {
         });
     }
 
-    /// Duplicates tracks with their clips (new ids), each placed right
-    /// after its original; a group comes with everything inside it.
-    /// Returns the copies' ids (the groups', not what is inside them).
     pub fn duplicate_tracks(&mut self, ids: &[Id]) -> Vec<Id> {
         let mut heads = lumen_project::groups::outermost(&self.project().tracks, ids);
-        // Returns past the cap are not copied.
         let tracks = &self.project().tracks;
         let mut room = mixer::MAX_RETURNS.saturating_sub(
             tracks
@@ -497,7 +395,6 @@ impl Document {
         new_ids
     }
 
-    /// Renames a track (empty names are ignored).
     pub fn rename_track(&mut self, id: Id, name: &str) {
         let name = name.trim();
         if name.is_empty() {
@@ -518,8 +415,6 @@ impl Document {
         self.edit_tracks(label, ids, |t| t.mute = mute);
     }
 
-    /// Solos `ids`. `exclusive` unsolos every other track first (a plain
-    /// click on Solo; Ctrl+click adds to the soloed set).
     pub fn set_solo(&mut self, ids: &[Id], solo: bool, exclusive: bool) {
         let label = if solo { "Solo" } else { "Unsolo" };
         self.history.apply(label, None, |project| {
@@ -538,7 +433,6 @@ impl Document {
         });
     }
 
-    /// Unsolos every track (the transport's S chip, the palette).
     pub fn clear_solos(&mut self) {
         self.history.apply("Clear solos", None, |project| {
             for track in &mut project.tracks {
@@ -549,8 +443,6 @@ impl Document {
         });
     }
 
-    /// Arms or disarms tracks. A group stands for every audio and MIDI
-    /// track inside it (the owner's choice, M4 slice 3).
     pub fn set_armed(&mut self, ids: &[Id], armed: bool) {
         let label = if armed { "Arm for recording" } else { "Disarm" };
         let ids = self.armable(ids);
@@ -567,10 +459,6 @@ impl Document {
         });
     }
 
-    /// Arms tracks and disarms every other track, in one step: pressing a
-    /// record arm records on that track alone, as the arm of a track does
-    /// in a mixer. Holding Ctrl while pressing it adds the track instead
-    /// ([`Document::set_armed`]).
     pub fn arm_only(&mut self, ids: &[Id]) {
         let ids = self.armable(ids);
         let open = self.open_inputs;
@@ -585,8 +473,6 @@ impl Document {
         });
     }
 
-    /// The tracks that can be armed among `ids`: a group stands for the
-    /// tracks inside it, and is not armed itself.
     fn armable(&self, ids: &[Id]) -> Vec<Id> {
         let tracks = &self.project().tracks;
         lumen_project::groups::with_contents(tracks, ids)
@@ -599,8 +485,6 @@ impl Document {
             .collect()
     }
 
-    /// Track volume in dB (−60 to +6), the master's too. A drag merges
-    /// into one undo step per track.
     pub fn set_volume(&mut self, id: Id, db: f32) {
         let db = db.clamp(-60.0, 6.0);
         self.moved(id, Target::Volume);
@@ -612,8 +496,6 @@ impl Document {
             });
     }
 
-    /// Track pan, −1 (left) to +1 (right), the master's too. A drag merges
-    /// into one undo step per track.
     pub fn set_pan(&mut self, id: Id, pan: f32) {
         let pan = pan.clamp(-1.0, 1.0);
         self.moved(id, Target::Pan);
@@ -625,9 +507,6 @@ impl Document {
             });
     }
 
-    /// Sets the loop brace, as one step named `label` (`merge` joins the
-    /// moves of one drag into one step). A region that ends before it
-    /// starts is ignored.
     pub fn set_loop(
         &mut self,
         label: &str,
@@ -647,7 +526,6 @@ impl Document {
         });
     }
 
-    /// Turns looping on or off.
     pub fn set_loop_enabled(&mut self, enabled: bool) {
         let label = if enabled { "Loop on" } else { "Loop off" };
         self.history.apply(label, None, |project| {
@@ -655,7 +533,6 @@ impl Document {
         });
     }
 
-    /// Turns punch in and punch out on or off (at the loop's edges).
     pub fn set_punch(&mut self, punch_in: bool, punch_out: bool) {
         self.history.apply("Punch", None, |project| {
             project.transport.punch_in = punch_in;
@@ -663,8 +540,6 @@ impl Document {
         });
     }
 
-    /// Adds a locator at `at` (M3 slice 5d), named "Locator 1", "Locator 2"
-    /// and so on when `name` is `None`. Returns its id.
     pub fn add_marker(&mut self, at: Ticks, name: Option<&str>) -> Id {
         let id = self.fresh_id();
         let at = at.max(Ticks::ZERO);
@@ -676,7 +551,6 @@ impl Document {
         id
     }
 
-    /// Moves a locator (`merge` joins the moves of one drag into one step).
     pub fn move_marker(&mut self, id: Id, at: Ticks, merge: Option<&str>) {
         let at = at.max(Ticks::ZERO);
         self.history.apply("Move locator", merge, |project| {
@@ -687,7 +561,6 @@ impl Document {
         });
     }
 
-    /// Renames a locator (empty names are ignored).
     pub fn rename_marker(&mut self, id: Id, name: &str) {
         let name = name.trim();
         if name.is_empty() {
@@ -706,7 +579,6 @@ impl Document {
         });
     }
 
-    /// Changes the given tracks, as one step named `label`.
     fn edit_tracks(&mut self, label: &str, ids: &[Id], change: impl Fn(&mut Track)) {
         self.history.apply(label, None, |project| {
             for track in &mut project.tracks {
@@ -722,7 +594,6 @@ impl Document {
     }
 }
 
-/// "Delete track" or "Delete 3 tracks".
 fn plural(n: usize, one: &str, many: &str) -> String {
     if n == 1 {
         one.to_owned()
@@ -731,9 +602,6 @@ fn plural(n: usize, one: &str, many: &str) -> String {
     }
 }
 
-/// Whether a track's own output is heard: not muted, and on a soloed
-/// track's path while anything is soloed (`lumen_project::solo`, the rules
-/// the owner agreed in M4 slice 4).
 pub fn audible(project: &Project) -> impl Fn(&Track) -> bool + use<> {
     let heard = lumen_project::solo::hearing(project);
     move |t: &Track| heard.of(t.id).output
@@ -751,13 +619,10 @@ fn ticks_at_seconds(project: &Project, seconds: f64) -> Ticks {
     tempo_map(project).map_or(Ticks::ZERO, |m| m.ticks_at_seconds(seconds))
 }
 
-/// The highest id used anywhere in `project`.
-/// Locators stay in time order (equal times keep their order).
 fn sort_markers(markers: &mut [Marker]) {
     markers.sort_by_key(|m| m.at);
 }
 
-/// "Locator N", one past the highest number in use.
 fn next_marker_name(markers: &[Marker]) -> String {
     let n = markers
         .iter()
@@ -794,7 +659,6 @@ mod tests {
         assert!(doc.is_dirty(), "a patch is a change");
         assert_eq!(doc.history().state(), undoable, "but nothing to undo");
         let before = doc.change_mark();
-        // A save begins, and the plugin changes again while it is written.
         doc.begin_save();
         let state = doc.state();
         doc.mark_changed_inside();
@@ -806,9 +670,6 @@ mod tests {
         assert!(!doc.is_dirty());
     }
 
-    /// The New tracks preferences (M9 R7) reach every way a track is made:
-    /// the menus and commands, a device dropped on the empty space, and
-    /// imported audio. Imported MIDI is in `midi_import`'s tests.
     #[test]
     fn new_tracks_start_with_the_chosen_monitoring_and_instrument() {
         use lumen_devices::Preset;
@@ -822,7 +683,6 @@ mod tests {
                 .cloned()
                 .unwrap()
         };
-        // Today's defaults: Auto, and the synth on Poly.
         let audio = doc.add_track(TrackKind::Audio, None);
         let midi = doc.add_track(TrackKind::Midi, None);
         assert_eq!(track(&doc, audio).monitor, Monitor::Auto);
@@ -838,7 +698,6 @@ mod tests {
         let midi = doc.add_track(TrackKind::Midi, None);
         assert_eq!(track(&doc, audio).monitor, Monitor::In);
         assert_eq!(track(&doc, midi).devices[0].state, b"pad");
-        // An effect dropped on the empty space makes an audio track.
         let (dropped, _) = doc
             .add_device_on_new_track(
                 PluginRef::Vst3 {
@@ -851,7 +710,6 @@ mod tests {
             )
             .unwrap();
         assert_eq!(track(&doc, dropped).monitor, Monitor::In);
-        // Imported audio on new tracks.
         doc.import(vec![file(Id(900), "drums", Ticks::ZERO)]);
         let imported = doc.project().tracks.last().unwrap();
         assert_eq!(imported.name, "drums");
@@ -863,13 +721,11 @@ mod tests {
         });
         let midi = doc.add_track(TrackKind::Midi, None);
         assert!(track(&doc, midi).devices.is_empty(), "no instrument");
-        // A group or return has no monitoring of its own to change.
         let group = doc.add_track(TrackKind::Group, None);
         assert_eq!(track(&doc, group).monitor, Monitor::Auto);
         assert_eq!(lumen_project::validate(doc.project()), Ok(()));
     }
 
-    /// The Undo steps preference: the document keeps at most that many.
     #[test]
     fn the_undo_limit_drops_the_oldest_steps_past_it() {
         let mut doc = Document::new(crate::empty_project());
@@ -930,7 +786,6 @@ mod tests {
             a,
             "the drag undoes as one step"
         );
-        // Ids survive reopening: a new id never repeats a locator's.
         let reopened = Document::new(doc.project().clone()).fresh_id();
         assert!(reopened.0 > a.0.max(b.0));
     }
@@ -947,7 +802,6 @@ mod tests {
         let project = doc.project();
         assert_eq!(project.tracks.len(), 2);
         assert_eq!(project.media.len(), 2);
-        // Two seconds at 120 BPM is four quarter notes.
         assert_eq!(project.tracks[0].clips[0].length, Ticks::quarters(4));
         assert_eq!(project.tracks[1].clips[0].start, Ticks::quarters(4));
         assert_eq!(lumen_project::validate(project), Ok(()));
@@ -1047,7 +901,6 @@ mod tests {
         assert_eq!(heard(&doc), [false, true, true]);
         doc.set_solo(&ids[1..2], true, true);
         assert_eq!(heard(&doc), [false, true, false]);
-        // Ctrl+click adds a solo; a plain click makes it exclusive.
         doc.set_solo(&ids[2..], true, false);
         assert_eq!(heard(&doc), [false, true, true]);
         doc.set_solo(&ids[..1], true, true);
@@ -1087,7 +940,6 @@ mod tests {
 
     #[test]
     fn deleting_a_group_takes_its_tracks() {
-        // The owner's choice (M4 slice 3); Ungroup keeps them.
         let mut doc = Document::new(crate::empty_project());
         let group = doc.add_track(TrackKind::Group, None);
         let other = doc.add_track(TrackKind::Audio, None);
@@ -1109,7 +961,6 @@ mod tests {
         let bass = doc.add_track(TrackKind::Audio, None);
         let drums = doc.group_tracks(&[kick]).unwrap();
         let snare = doc.add_track(TrackKind::Audio, Some(kick));
-        // After the group itself: after everything in it, outside.
         let keys = doc.add_track(TrackKind::Midi, Some(drums));
         let ret = doc.add_track(TrackKind::Return, Some(snare));
         let order: Vec<Id> = doc.project().tracks.iter().map(|t| t.id).collect();

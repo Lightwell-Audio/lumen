@@ -1,43 +1,22 @@
-//! Row pictures for the browser's file tabs (the owner's R B, M9 R7c): a
-//! small waveform of an audio file, the notes of a MIDI file, and what the
-//! file's header says (length, rate, channels) for the row's accessible
-//! name and the preview strip.
-//!
-//! A picture is a quick pass, not R6's peaks: an uncompressed file is read
-//! at [`COLUMNS`] places, a short window each; a compressed one is decoded
-//! whole only when it is at most [`DECODE_BYTES`] (a long song gets a flat
-//! line). They are kept in the cache folder as [`Small::Thumb`] files, keyed
-//! by the file's path, size and modified time.
-
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::time::UNIX_EPOCH;
 
 use lumen_media::stream::cache::{self, Cache, Small};
 
-/// Columns in a waveform picture: a 46 pt row picture at 200%.
 pub(crate) const COLUMNS: usize = 92;
-/// Frames read at each column of an uncompressed file.
 const WINDOW: usize = 512;
-/// A compressed file is decoded for its picture only up to this size.
 const DECODE_BYTES: u64 = 24_000_000;
-/// Notes kept for a MIDI picture.
 const MOST_NOTES: usize = 256;
-/// The picture file's version.
 const VERSION: u8 = 1;
 
-/// A row's picture.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Picture {
-    /// Each column's peak, 0 to 255.
     Wave(Vec<u8>),
-    /// Notes as (start, length) across 0 to 1 and pitch across 0 to 1.
     Notes(Vec<(f32, f32, f32)>),
-    /// No picture (a long compressed file): a flat line.
     Flat,
 }
 
-/// What a file's row knows of it.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Thumb {
     pub picture: Picture,
@@ -47,7 +26,6 @@ pub(crate) struct Thumb {
 }
 
 impl Thumb {
-    /// "0.9 s · 48 kHz mono", what is known.
     pub(crate) fn summary(&self) -> String {
         let mut parts = Vec::new();
         if let Some(seconds) = self.seconds {
@@ -66,7 +44,6 @@ impl Thumb {
         parts.join(" \u{b7} ")
     }
 
-    /// Said by a screen reader: "0.9 seconds, 48 kHz mono".
     pub(crate) fn said(&self) -> String {
         let mut words = Vec::new();
         if let Some(seconds) = self.seconds {
@@ -96,7 +73,6 @@ fn round_seconds(seconds: f64) -> String {
     }
 }
 
-/// A length as a row shows it: "0.9 s", "12 s", "3:05".
 pub(crate) fn length(seconds: f64) -> String {
     if seconds < 60.0 {
         format!("{} s", round_seconds(seconds))
@@ -115,7 +91,6 @@ fn trim_rate(rate: u32) -> String {
     }
 }
 
-/// The cache name of `path`'s picture: its path, size and modified time.
 fn key(path: &Path) -> Option<String> {
     let meta = std::fs::metadata(path).ok()?;
     let modified = meta
@@ -130,8 +105,6 @@ fn key(path: &Path) -> Option<String> {
     )))
 }
 
-/// The picture of `path`: from the cache when it has one, else made and
-/// kept there.
 pub(crate) fn thumb(
     path: &Path,
     cache: Option<&Cache>,
@@ -151,7 +124,6 @@ pub(crate) fn thumb(
     Ok(thumb)
 }
 
-/// Makes the picture of `path`.
 pub(crate) fn make(path: &Path, cancel: &AtomicBool) -> Result<Thumb, String> {
     if crate::midi::files::is_midi_file(path) {
         return notes(path);
@@ -182,7 +154,6 @@ pub(crate) fn make(path: &Path, cancel: &AtomicBool) -> Result<Thumb, String> {
     Ok(thumb)
 }
 
-/// An uncompressed file, read at [`COLUMNS`] places.
 fn sampled(path: &Path, layout: &lumen_media::stream::Layout) -> Result<Thumb, String> {
     let mut reader = lumen_media::stream::Reader::open(path).map_err(|e| e.to_string())?;
     let channels = layout.played();
@@ -207,15 +178,11 @@ fn sampled(path: &Path, layout: &lumen_media::stream::Layout) -> Result<Thumb, S
     })
 }
 
-/// A peak as a column's height, 0 to 255.
 fn level(peak: f32) -> u8 {
     (peak.clamp(0.0, 1.0) * 255.0).round() as u8
 }
 
-/// A compressed file, decoded whole: the peak of each of [`COLUMNS`] equal
-/// parts. Returns the picture, the frames and the rate.
 fn decoded(path: &Path, cancel: &AtomicBool) -> Result<(Picture, u64, u32), String> {
-    // Peaks of short spans, bucketed into columns once the length is known.
     const SPAN: usize = 256;
     let mut spans: Vec<f32> = Vec::new();
     let (mut current, mut in_span, mut frames, mut rate) = (0.0_f32, 0, 0_u64, 0);
@@ -254,7 +221,6 @@ fn decoded(path: &Path, cancel: &AtomicBool) -> Result<(Picture, u64, u32), Stri
     Ok((Picture::Wave(columns), frames, rate))
 }
 
-/// A MIDI file's notes, across its length and its range of pitches.
 fn notes(path: &Path) -> Result<Thumb, String> {
     let file = crate::midi::files::read_file(path)?;
     let end = file.end().as_quarters().max(1.0) as f32;
@@ -279,7 +245,6 @@ fn notes(path: &Path) -> Result<Thumb, String> {
         })
         .collect();
     let seconds = {
-        // At the file's first tempo, or 120 BPM.
         let bpm = file.tempo.first().map_or(120.0, |t| t.bpm);
         Some(f64::from(end) * 60.0 / bpm)
     };
@@ -291,7 +256,6 @@ fn notes(path: &Path) -> Result<Thumb, String> {
     })
 }
 
-/// The picture file's bytes: a version, the header, then the picture.
 fn encode(thumb: &Thumb) -> Vec<u8> {
     let mut out = vec![VERSION];
     out.extend_from_slice(&thumb.seconds.unwrap_or(-1.0).to_le_bytes());

@@ -1,15 +1,8 @@
-//! What sits inside a menu, in line with its rows: a caption over a group, a
-//! context menu's header, one choice of a long list, and the inset they and
-//! every other control in a menu share.
-
 use eframe::egui::{self, FontId, Sense, Ui, pos2, vec2};
 
 use crate::widgets::{note_change, raised};
 use crate::{motion, theme};
 
-/// How far a control in a menu sits in from its edges: as far as the menu's
-/// rows put their labels and keycaps (`button_padding`), so switches,
-/// segmented controls and captions line up with them. Nothing elsewhere.
 pub(super) fn menu_inset(ui: &Ui) -> f32 {
     if egui::containers::menu::is_in_menu(ui) {
         ui.spacing().button_padding.x
@@ -17,8 +10,6 @@ pub(super) fn menu_inset(ui: &Ui) -> f32 {
         0.0
     }
 }
-/// A small heading over a group of controls in a menu (Theme, Mixing,
-/// Fade in): quiet, and in line with the menu's labels.
 pub fn menu_caption(ui: &mut Ui, text: &str) {
     let side = menu_inset(ui);
     egui::Frame::NONE
@@ -29,9 +20,6 @@ pub fn menu_caption(ui: &mut Ui, text: &str) {
         .show(ui, |ui| ui.label(egui::RichText::new(text).small().weak()));
 }
 
-/// A context menu's header (the interface audit's M2): what the menu acts
-/// on ("Volume \u{00B7} Kick"), in line with the menu's labels, with a
-/// divider under it, so it reads as a title rather than a stray label.
 pub fn menu_header(ui: &mut Ui, text: &str) {
     let side = menu_inset(ui);
     egui::Frame::NONE
@@ -40,7 +28,6 @@ pub fn menu_header(ui: &mut Ui, text: &str) {
             ..egui::Margin::ZERO
         })
         .show(ui, |ui| {
-            // A long track name ends in "…" rather than widening the menu.
             ui.add(
                 egui::Label::new(
                     egui::RichText::new(text)
@@ -53,11 +40,6 @@ pub fn menu_header(ui: &mut Ui, text: &str) {
     ui.separator();
 }
 
-/// One choice in a list of them, as a row as wide as there is room for:
-/// for choices too many or too long for a [`segmented`] control (a
-/// device's channel pairs). The chosen row is `accent_muted` with accent
-/// letters; others take the Ember wash under the pointer. A radio button
-/// named `label`.
 pub fn choice_row(ui: &mut Ui, label: &str, on: bool) -> egui::Response {
     let palette = theme::p();
     let galley = ui.painter().layout_no_wrap(
@@ -106,11 +88,6 @@ pub fn choice_row(ui: &mut Ui, label: &str, on: bool) -> egui::Response {
     response
 }
 
-/// A row of a list too long for the room it has, the current one marked, as
-/// [`choice_row`] marks one: a label too long for the row ends in "…"
-/// instead of widening it (a name is shortened; its accessible name stays
-/// whole), and `dim` writes it as one not reached yet (a step that can be
-/// redone to). The row is a control high and fills the width it is given.
 pub fn list_row(ui: &mut Ui, label: &str, on: bool, dim: bool) -> egui::Response {
     let palette = theme::p();
     let enabled = ui.is_enabled();

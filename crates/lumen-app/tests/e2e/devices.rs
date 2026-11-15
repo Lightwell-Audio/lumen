@@ -1,9 +1,3 @@
-//! The Devices tab and adding devices (M6 slice 2d): double-clicking a
-//! device in the browser puts it on the selected track (or makes one), a
-//! drag shows where it will land, the power button and the commands bypass
-//! and remove, and a card that is failed or missing says so and offers a way
-//! on. The plugins and the host are the real ones (the test plugin).
-
 use eframe::egui::{Key, Modifiers, pos2};
 use egui_kittest::kittest::{NodeT, Queryable};
 use lumen_core::time::Ticks;
@@ -28,8 +22,6 @@ fn effect_device(id: Id) -> Device {
     Device::vst3(id, &effect_class(), EFFECT, "Lumen", DeviceKind::Effect)
 }
 
-/// A MIDI track "Keys" with the synth and a long note, and an empty audio
-/// track "Audio", with `on_audio` on the audio track's chain.
 fn project(on_audio: Vec<Device>) -> Project {
     let keys = midi_track(
         KEYS.0,
@@ -50,8 +42,6 @@ fn project(on_audio: Vec<Device>) -> Project {
     project_of("Chain", vec![keys, audio])
 }
 
-/// The fault a module's host is given, by the module's name: "Dies" crashes
-/// on its 40th block, as in `hosting.rs`.
 fn faults(stem: &str) -> Option<&'static str> {
     match stem {
         "Dies" => Some("process_crash@40"),
@@ -59,7 +49,6 @@ fn faults(stem: &str) -> Option<&'static str> {
     }
 }
 
-/// Lumen with `project` open and the test plugins installed.
 fn launch(name: &str, project: &Project, modules: &[&str]) -> Lumen {
     let dir = TempDir::new(&format!("e2e-devices-{name}"));
     let path = dir.path().join("song.lumen");
@@ -83,7 +72,6 @@ fn launch(name: &str, project: &Project, modules: &[&str]) -> Lumen {
 }
 
 impl Lumen {
-    /// Double-clicks the browser row of the device named `name`.
     #[track_caller]
     fn choose_in_browser(&mut self, name: &str) {
         let at = self
@@ -125,7 +113,6 @@ fn double_clicking_an_effect_adds_it_to_the_selected_track_in_one_undo_step() {
         lumen.app().undo_label(),
         Some("Add Deterministic Test Effect")
     );
-    // The Devices tab shows it, chosen, on the track it is on.
     assert!(lumen.shows(&format!("{EFFECT} on Audio")), "its card");
     assert_eq!(
         lumen.app().chosen_card(),
@@ -134,16 +121,12 @@ fn double_clicking_an_effect_adds_it_to_the_selected_track_in_one_undo_step() {
             .first()
             .map(|d| d.id)
     );
-    // Undo is one step and takes the card away.
     lumen.key(Modifiers::COMMAND, Key::Z);
     lumen.frames(5);
     assert!(lumen.devices_on(AUDIO).is_empty());
     assert!(!lumen.shows(&format!("{EFFECT} on Audio")));
 }
 
-/// The interface audit's I1: the info line over a device says what each
-/// gesture does in plain verbs ("add to Audio", not "choose"; what its menu
-/// holds, not "more").
 #[test]
 fn hovering_a_device_says_what_its_gestures_do() {
     let mut lumen = launch("info", &project(vec![]), &["Plug"]);
@@ -179,7 +162,6 @@ fn an_effect_goes_after_the_chosen_card() {
     );
     lumen.app_mut().select_tracks(&[AUDIO]);
     lumen.show_whole_cards();
-    // Choose the first card, then add: it lands between the two.
     lumen.click(&format!("{EFFECT} on Audio"));
     assert_eq!(lumen.app().chosen_card(), Some(FIRST));
     lumen.choose_in_browser(EFFECT);
@@ -210,7 +192,6 @@ fn an_instrument_with_no_midi_track_selected_makes_one_as_a_single_step() {
     assert_eq!(made.kind, TrackKind::Midi);
     assert_eq!(made.devices.len(), 1, "the plugin replaces the synth");
     assert_eq!(lumen.app().selected_tracks(), [made.id]);
-    // One undo takes the track and its device away.
     lumen.key(Modifiers::COMMAND, Key::Z);
     lumen.frames(5);
     assert_eq!(lumen.app().project().tracks.len(), before);
@@ -252,7 +233,6 @@ fn the_power_button_and_the_commands_bypass_and_remove_the_chosen_device() {
         "it chooses the card"
     );
 
-    // Delete, with the chain holding the keyboard, removes the chosen one.
     lumen.click(&format!("{EFFECT} on Audio"));
     lumen.key(Modifiers::NONE, Key::Delete);
     lumen.frames(5);
@@ -278,7 +258,6 @@ fn dragging_a_device_from_the_browser_drops_it_where_the_line_shows() {
         .get_by_label(&format!("{EFFECT} on Audio"))
         .rect();
 
-    // Right of the card: after it.
     lumen.drag(
         row,
         pos2(card.right() + 15.0, card.center().y),
@@ -292,7 +271,6 @@ fn dragging_a_device_from_the_browser_drops_it_where_the_line_shows() {
     assert_eq!(ids.len(), 2, "one effect added");
     assert_eq!(ids[0], FIRST, "after the card it was dropped beside");
 
-    // Left of the first card: before it.
     let card = lumen
         .harness
         .get_all_by_label(&format!("{EFFECT} on Audio"))
@@ -329,7 +307,6 @@ fn a_drag_that_ends_outside_the_chain_adds_nothing() {
 
 #[test]
 fn a_missing_plugin_says_so_and_offers_a_rescan() {
-    // The project names the test effect, but no module is installed.
     let mut lumen = launch("missing", &project(vec![effect_device(FIRST)]), &[]);
     lumen.app_mut().select_tracks(&[AUDIO]);
     lumen.show_whole_cards();
@@ -337,7 +314,6 @@ fn a_missing_plugin_says_so_and_offers_a_rescan() {
     assert!(lumen.shows("Rescan plugins"), "the card's button");
     lumen.click("Rescan plugins");
     lumen.wait_for("the rescan", |app| !app.plugins_busy());
-    // Its settings are untouched, whatever it shows.
     assert_eq!(lumen.devices_on(AUDIO), [EFFECT]);
 }
 
@@ -358,7 +334,6 @@ fn a_failed_compact_card_still_offers_reload() {
     });
     lumen.app_mut().pretend_device_state(FIRST, "failed");
     lumen.frames(5);
-    // The footer gives the button room on every side (D2).
     let button = lumen.harness.get_by_label("Reload").rect();
     let card = lumen
         .harness
@@ -366,7 +341,6 @@ fn a_failed_compact_card_still_offers_reload() {
         .map(|n| n.rect())
         .find(|r| r.contains_rect(button))
         .expect("the card around its button");
-    // space::M at the side, 6 pt below (BUTTONS_PAD).
     assert!(card.right() - button.right() >= 11.5, "room at the right");
     assert!(card.bottom() - button.bottom() >= 5.5, "room below");
     lumen.click("Reload");
@@ -397,7 +371,6 @@ fn the_command_adds_the_device_selected_in_the_browser() {
     let mut lumen = launch("command", &project(vec![]), &["Plug"]);
     lumen.app_mut().select_tracks(&[AUDIO]);
     lumen.frames(3);
-    // One click selects the row; the palette's command adds it.
     lumen
         .harness
         .get_by_label_contains(&format!("{EFFECT}, "))
@@ -413,7 +386,6 @@ fn the_command_adds_the_device_selected_in_the_browser() {
     assert_eq!(lumen.devices_on(AUDIO), [EFFECT]);
 }
 
-/// Starts the song and waits for the "Dies" plugin's host to die under it.
 #[track_caller]
 fn play_until_it_fails(lumen: &mut Lumen, device: Id) {
     lumen.wait_for("the host", move |app| {
@@ -436,7 +408,6 @@ fn a_host_that_dies_under_the_song_shows_on_its_card_and_reload_brings_it_back()
     lumen.show_whole_cards();
     play_until_it_fails(&mut lumen, FIRST);
     assert!(lumen.shows("Reload"), "the failed card's button");
-    // The card says what happened, not only that it did.
     let why = lumen.app().device_state(FIRST).unwrap_or_default();
     assert!(why.len() > "failed: ".len(), "a reason on the card: {why}");
     lumen.click("Reload");
@@ -448,8 +419,6 @@ fn a_host_that_dies_under_the_song_shows_on_its_card_and_reload_brings_it_back()
 
 #[test]
 fn removing_a_failed_device_and_undoing_it_loads_it_again_with_its_settings() {
-    // The test plugin's state: its tag, its kind (1, an effect) and two
-    // parameter values.
     let state = [
         b"LTP1".as_slice(),
         &[1],
@@ -472,7 +441,6 @@ fn removing_a_failed_device_and_undoing_it_loads_it_again_with_its_settings() {
     assert_eq!(lumen.devices_on(AUDIO), [EFFECT]);
     let kept = lumen.app().project().tracks[1].devices[0].state.clone();
     assert_eq!(kept, state, "the settings came back with it");
-    // A new host, not the dead one.
     lumen.wait_for("a new host", |app| {
         app.device_state(FIRST).is_some_and(|s| s == "ready")
     });
@@ -522,13 +490,9 @@ fn every_control_on_every_card_face_has_a_name_and_tab_reaches_them() {
         let problems = unnamed(&lumen);
         assert!(problems.is_empty(), "{face}: {problems:#?}");
     }
-    // A pretended "missing" makes the app look for the plugin again, which
-    // it finds, so a host starts and its link arrives some time later and
-    // would put the card back to ready. Let it arrive first.
     lumen.wait_for("the host that missing started", |app| {
         app.device_state(FIRST).is_some_and(|s| s == "ready")
     });
-    // The failed card's button is a stop of its own, named for what it does.
     lumen.app_mut().pretend_device_state(FIRST, "failed");
     lumen.frames(5);
     let mut seen = Vec::new();
@@ -550,8 +514,6 @@ fn every_control_on_every_card_face_has_a_name_and_tab_reaches_them() {
     );
 }
 
-// Slice 3c: editing the chain by hand.
-
 const SECOND: Id = Id(21);
 const THIRD: Id = Id(22);
 
@@ -566,13 +528,11 @@ impl Lumen {
             .unwrap_or_default()
     }
 
-    /// The card named `label`, as a rectangle on screen.
     #[track_caller]
     fn card(&self, label: &str) -> eframe::egui::Rect {
         self.harness.get_by_label(label).rect()
     }
 
-    /// Three effects on the audio track, the Devices tab shown.
     fn three_cards(name: &str) -> Lumen {
         let mut lumen = launch(
             name,
@@ -612,7 +572,6 @@ fn alt_arrows_move_the_chosen_card_one_place_and_undo_puts_it_back() {
     lumen.key(Modifiers::ALT, Key::ArrowLeft);
     lumen.frames(5);
     assert_eq!(lumen.ids_on(AUDIO), [SECOND, FIRST, THIRD]);
-    // One step each: three moves, then undo them one at a time.
     for _ in 0..3 {
         lumen.key(Modifiers::COMMAND, Key::Z);
     }
@@ -640,7 +599,6 @@ fn the_arrows_choose_the_neighbouring_card() {
 fn dragging_a_card_to_another_gap_moves_it_as_one_step() {
     let mut lumen = Lumen::three_cards("drag-reorder");
     let (first, last) = (lumen.card(CARD_1), lumen.card(CARD_3));
-    // Past the middle of the last card: the gap after it.
     lumen.drag(
         first.center(),
         pos2(last.center().x + 30.0, last.center().y),
@@ -654,7 +612,6 @@ fn dragging_a_card_to_another_gap_moves_it_as_one_step() {
     lumen.key(Modifiers::COMMAND, Key::Z);
     lumen.frames(5);
     assert_eq!(lumen.ids_on(AUDIO), [FIRST, SECOND, THIRD]);
-    // Dropped where it already is: nothing changes.
     let (first, second) = (lumen.card(CARD_1), lumen.card(CARD_2));
     lumen.drag(
         first.center(),
@@ -679,7 +636,6 @@ fn dropping_a_card_on_a_track_header_moves_it_and_alt_copies_it() {
     assert_eq!(lumen.ids_on(KEYS)[1], SECOND, "the same device");
     assert_eq!(lumen.app().chosen_card(), Some(SECOND), "and it is shown");
 
-    // The audio track's header, with Alt: a copy, and the original stays.
     let audio = lumen.harness.get_by_label_contains("Track Audio").rect();
     let card = lumen.card("Deterministic Test Effect on Keys");
     lumen.drag(card.center(), audio.center(), Modifiers::ALT);
@@ -721,12 +677,10 @@ fn duplicate_and_copy_paste_make_new_devices_with_their_own_ids() {
     lumen.frames(5);
     assert_eq!(lumen.ids_on(AUDIO), [FIRST, SECOND, THIRD], "one undo step");
 
-    // Copy on one track, paste on another.
     lumen.click(CARD_3);
     lumen.key(Modifiers::COMMAND, Key::C);
     lumen.app_mut().select_tracks(&[KEYS]);
     lumen.frames(5);
-    // The Keys track holds only the synth: choose it, then paste.
     lumen.click("Flare on Keys");
     lumen.key(Modifiers::COMMAND, Key::V);
     lumen.frames(5);
@@ -750,9 +704,7 @@ fn double_clicking_a_card_folds_it_to_a_strip_and_again_opens_it() {
         lumen.card(CARD_3).left() < right_of_it,
         "the cards after it move up"
     );
-    // Folding is a view, not an edit.
     assert!(!lumen.app().is_dirty());
-    // It is kept with the project when it is saved.
     assert!(
         lumen
             .app()
@@ -767,8 +719,6 @@ fn double_clicking_a_card_folds_it_to_a_strip_and_again_opens_it() {
     assert_eq!(lumen.card(CARD_2).width(), wide, "opened again");
 }
 
-// Slice 3d: the master's chain in the Devices tab.
-
 #[test]
 fn clicking_the_master_shows_its_chain_and_a_device_can_be_added_dropped_and_removed_there() {
     let mut lumen = launch(
@@ -781,7 +731,6 @@ fn clicking_the_master_shows_its_chain_and_a_device_can_be_added_dropped_and_rem
     lumen.click("Track Master, master track");
     lumen.frames(5);
 
-    // Double-click in the browser puts the effect on the master.
     lumen.choose_in_browser(EFFECT);
     assert_eq!(lumen.app().project().master.devices.len(), 1);
     assert_eq!(
@@ -790,7 +739,6 @@ fn clicking_the_master_shows_its_chain_and_a_device_can_be_added_dropped_and_rem
     );
     assert!(lumen.shows("Deterministic Test Effect on Master"));
 
-    // A card dropped on the master's header lands there too (Alt: a copy).
     lumen.app_mut().select_tracks(&[AUDIO]);
     lumen.frames(5);
     let card = lumen.card(CARD_1);
@@ -802,8 +750,6 @@ fn clicking_the_master_shows_its_chain_and_a_device_can_be_added_dropped_and_rem
     assert_eq!(lumen.app().project().master.devices.len(), 2);
     assert_eq!(lumen.ids_on(AUDIO), [FIRST], "the original stayed");
 
-    // With the chain holding the keyboard, Delete takes the chosen one off
-    // the master again.
     lumen.click("Deterministic Test Effect (2) on Master");
     lumen.key(Modifiers::NONE, Key::Delete);
     lumen.frames(5);
@@ -835,9 +781,6 @@ fn the_keys_that_edit_tracks_leave_a_selected_master_alone() {
     assert_eq!(lumen.app().project().master.devices, before.master.devices);
 }
 
-// Slice 3e: the plugin's own picture on its card.
-
-/// A small picture, as a plugin ships its snapshot: a plain colour.
 fn snapshot_png() -> Vec<u8> {
     let mut out = Vec::new();
     let mut encoder = png::Encoder::new(&mut out, 96, 48);
@@ -851,7 +794,6 @@ fn snapshot_png() -> Vec<u8> {
     out
 }
 
-/// Puts `bytes` where a bundle keeps its snapshot of the test effect.
 fn put_snapshot(lumen_dir: &std::path::Path, bytes: &[u8]) {
     let folder = lumen_dir.join("plugins/Plug.vst3/Contents/Resources/Snapshots");
     std::fs::create_dir_all(&folder).unwrap();
@@ -865,7 +807,6 @@ fn put_snapshot(lumen_dir: &std::path::Path, bytes: &[u8]) {
     .unwrap();
 }
 
-/// Like `launch`, with `snapshot` in the bundle before Lumen starts.
 fn launch_with_snapshot(name: &str, project: &Project, snapshot: &[u8]) -> Lumen {
     let dir = TempDir::new(&format!("e2e-devices-{name}"));
     let path = dir.path().join("song.lumen");
@@ -896,7 +837,6 @@ fn a_plugin_with_a_snapshot_in_its_bundle_shows_it_on_its_card() {
     lumen.app_mut().select_tracks(&[AUDIO]);
     lumen.show_whole_cards();
     lumen.wait_for("the picture", |app| app.device_picture(FIRST) == "ready");
-    // The built-in synth has no bundle.
     lumen.app_mut().select_tracks(&[KEYS]);
     lumen.frames(10);
     let synth = lumen.app().project().tracks[0].devices[0].id;
@@ -912,10 +852,8 @@ fn a_damaged_or_missing_snapshot_leaves_the_generated_picture() {
     lumen.wait_for("the picture to be given up", |app| {
         app.device_picture(FIRST) == "absent"
     });
-    // The card still works.
     assert!(lumen.shows(&format!("Power {EFFECT}")));
 
-    // A bundle with no snapshot at all is the same.
     let mut lumen = launch("no-snapshot", &project, &["Plug"]);
     lumen.app_mut().select_tracks(&[AUDIO]);
     lumen.show_whole_cards();
@@ -938,8 +876,6 @@ fn an_empty_chain_says_so_and_browse_devices_opens_the_browser_on_its_devices() 
         "the empty chain"
     );
 
-    // The browser on another tab, then hidden: the button brings it back
-    // on its Devices tab.
     super::copies::command(&mut lumen, "Project media");
     lumen.wait_for("the media tab", |app| app.media_tab_shown());
     lumen

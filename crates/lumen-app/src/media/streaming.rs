@@ -1,12 +1,3 @@
-//! Playing audio from disk (M9 slice R6, ADR-0109), when "Play audio from
-//! disk" is on: the live page pool the engine reads streamed clips from, the
-//! disk thread that fills it, and the cache of converted files.
-//!
-//! What streams is automatic (the owner's M B): a file shorter than
-//! [`IN_MEMORY_SECONDS`] is decoded into memory as it always was, so
-//! one-shots and drum hits never wait for the disk; a longer one plays from
-//! its stream file (the file itself, or a converted copy in the cache).
-
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -20,16 +11,10 @@ use super::State;
 use super::streams::{self, Readers};
 use crate::disk::{Disk, Pages};
 
-/// Files shorter than this stay in memory (M B). Settled by measurement in
-/// R6 step 7.
 pub const IN_MEMORY_SECONDS: f64 = 30.0;
 
-/// Pages in the live pool: 96 MB, about 2 s ahead for each of 64 stereo
-/// tracks at 48 kHz with room for loop starts and markers. Settled by
-/// measurement in R6 step 7.
 pub const POOL_PAGES: u32 = 3_072;
 
-/// The pool, the disk thread and the cache, while streaming is on.
 pub struct Streaming {
     pool: Arc<PagePool>,
     disk: Disk,
@@ -37,10 +22,6 @@ pub struct Streaming {
 }
 
 impl Streaming {
-    /// Starts the disk thread over a new pool, following the transport
-    /// `transport` reads, with the cache in `cache_dir` holding at most
-    /// `limit` bytes. Tests pass `slow` to make every page read wait that
-    /// long first.
     pub fn start(
         cache_dir: PathBuf,
         limit: u64,
@@ -63,7 +44,6 @@ impl Streaming {
         }
     }
 
-    /// The Cache limit preference changed: the next trim keeps to it.
     pub fn set_cache_limit(&self, bytes: u64) {
         self.cache.set_limit(bytes);
     }
@@ -81,8 +61,6 @@ impl Streaming {
     }
 }
 
-/// Page reads that wait before each read: a slow disk, for tests of late
-/// audio.
 struct Slow {
     readers: Readers,
     wait: Duration,
@@ -105,8 +83,6 @@ impl Pages for Slow {
     }
 }
 
-/// Whether a file with `header` plays from disk: one at least
-/// [`IN_MEMORY_SECONDS`] long, or of a length its header does not say.
 pub fn streams(header: &Header) -> bool {
     match (header.frames, header.sample_rate) {
         (Some(frames), Some(rate)) if rate > 0 => {
@@ -116,23 +92,17 @@ pub fn streams(header: &Header) -> bool {
     }
 }
 
-/// What a load made, on its thread.
 pub(super) enum Loaded {
     Memory(lumen_media::Audio),
     Stream(Prepared),
 }
 
-/// A load that streams: the file's own rate, channels and length, its stream
-/// file (converted now if it needs to be, with `report` getting 0 to 0.9),
-/// and its peaks read from that file.
 pub(super) struct Streamed {
     pub source: (u32, usize, u64, f64),
     pub prepared: Prepared,
     pub peaks: Option<Peaks>,
 }
 
-/// Loads `path` to stream at `rate`, given its `header`. Blocks: the load
-/// thread's work. `Err(Cancelled)` if `cancel` was set.
 pub(super) fn load(
     cache: &Cache,
     path: &Path,
@@ -142,14 +112,12 @@ pub(super) fn load(
     report: &mut dyn FnMut(f32),
 ) -> Result<Streamed, MediaError> {
     let prepared = cache.prepare(path, rate, cancel, &mut |p| report(p * 0.9))?;
-    // Kept in the cache, so a file opened again shows its waveform at once.
     let peaks = cache.peaks(&prepared.path, cancel, &mut |p| {
         report(0.9 + p * 0.1);
     })?;
     if peaks.is_none() {
         return Err(MediaError::Cancelled);
     }
-    // Within its limit, keeping what plays now and what was just made.
     let mut playing = streams::in_use();
     playing.push(prepared.path.clone());
     let cleared = cache.trim_to_limit(&playing);
@@ -170,8 +138,6 @@ pub(super) fn load(
     })
 }
 
-/// Forgets the stream file of `state`, if it streams: called when an item's
-/// audio is replaced or the item goes.
 pub(super) fn release(state: &State) {
     if let State::Ready(audio) = state
         && let ClipAudio::Stream(stream) = &**audio

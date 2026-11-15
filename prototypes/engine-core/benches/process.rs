@@ -1,6 +1,3 @@
-//! Engine overhead per block. Budget at 48 kHz: 64 frames = 1333 µs,
-//! 128 frames = 2667 µs. Quality bar: whole project under 50% of budget.
-
 use engine_core::{Engine, Graph, engine, test_source, test_tracks};
 
 fn main() {

@@ -1,11 +1,3 @@
-//! Revert to saved (M9 slice R4, ADR-0105). The saved file is read back, so
-//! everything is as it was saved, including what a plugin keeps inside its own
-//! window, which the history does not hold. Nothing is lost: the unsaved
-//! version is first written to `Backups/Reverted` beside the project, with the
-//! plugins read as for any save, and a message afterwards offers to open it.
-//! The prompt is a quiet window, not a modal dialog; the work is the copy
-//! worker's (`app::copies`), so it shows progress and stops on Esc.
-
 use std::path::{Path, PathBuf};
 
 use eframe::egui::{self, Align2, RichText, pos2};
@@ -15,30 +7,21 @@ use crate::app::projects::Next;
 use crate::widgets::{Dialog, raised};
 use crate::{App, files, theme};
 
-/// Where a project's unsaved versions are put away, inside its folder.
 const FOLDER: &str = "Backups/Reverted";
 
-/// What the app keeps about a revert.
 #[derive(Default)]
 pub(crate) struct Revert {
-    /// The prompt is showing.
     asking: bool,
-    /// The saved file is being read back, and where the unsaved version went.
     pub(crate) reloading: Option<PathBuf>,
-    /// Where the last revert put the changes it dropped: the banner offers
-    /// them until it is dismissed or another project is open.
     pub(crate) kept: Option<PathBuf>,
 }
 
 impl Revert {
-    /// Whether the prompt is showing.
     pub(crate) fn asking(&self) -> bool {
         self.asking
     }
 }
 
-/// Where the unsaved version of the project in `file` goes: a file named for
-/// it and the moment, in the project's own `Backups/Reverted` folder.
 pub(crate) fn safety_file(file: &Path, stamp: &str) -> Option<PathBuf> {
     let stem = file.file_stem()?.to_string_lossy();
     let mut folder = file.parent()?.to_path_buf();
@@ -47,7 +30,6 @@ pub(crate) fn safety_file(file: &Path, stamp: &str) -> Option<PathBuf> {
 }
 
 impl App {
-    /// Revert is possible now, or why not.
     pub(crate) fn revert_unavailable(&self) -> Result<(), &'static str> {
         if self.document.path.is_none() {
             Err("This project has not been saved yet")
@@ -62,7 +44,6 @@ impl App {
         }
     }
 
-    /// Revert to saved: asks first, in a quiet window.
     pub(crate) fn begin_revert(&mut self) {
         match self.revert_unavailable() {
             Ok(()) => self.revert.asking = true,
@@ -73,12 +54,10 @@ impl App {
         }
     }
 
-    /// The prompt. Call every frame.
     pub(crate) fn revert_window(&mut self, ctx: &egui::Context) {
         if !self.revert.asking {
             return;
         }
-        // Saved, or another project open, while the prompt was showing.
         if self.document.path.is_none() || !self.document.is_dirty() {
             self.revert.asking = false;
             return;
@@ -123,8 +102,6 @@ impl App {
         }
     }
 
-    /// Puts the unsaved version away; the saved file is read back when that
-    /// is done (`copies::copy_done`).
     fn start_revert(&mut self) {
         if let Err(why) = self.revert_unavailable() {
             self.say(format!("{why}, so nothing was reverted"));
@@ -141,8 +118,6 @@ impl App {
         self.start_save_for(Purpose::Revert, safety, false);
     }
 
-    /// The put-away copy is written: reads the saved file back, unless the
-    /// project changed in the meantime (what changed then is in neither).
     pub(crate) fn reload_saved(&mut self, kept: PathBuf, mark: u64) {
         let Some(file) = self.document.path.clone() else {
             return;
@@ -159,8 +134,6 @@ impl App {
         self.begin_opening(file);
     }
 
-    /// The message after a revert, with the way to the changes it dropped.
-    /// Call every frame, with the other banners.
     pub(crate) fn revert_banner(&mut self, ui: &mut egui::Ui) {
         let Some(kept) = self.revert.kept.clone() else {
             return;

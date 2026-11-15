@@ -1,6 +1,3 @@
-//! The player as a [`TrackSource`]: what the engine calls for a part, a
-//! jump, a stop and a panic.
-
 use std::sync::atomic::Ordering;
 
 use lumen_core::midi::{Msg, cc};
@@ -18,8 +15,6 @@ impl TrackSource for MidiPlayer {
     fn render(&mut self, cx: &RenderContext<'_>, buses: &mut Buses<'_>) {
         if cx.tail {
             if !cx.stopping {
-                // Ahead of a jump: what rings goes on, faded out by the
-                // engine while the new position fades in.
                 let frames = buses.frames();
                 for track in &mut self.current.tracks {
                     preview_instrument(track, track.id, (frames, cx.sample_rate), buses);
@@ -31,7 +26,6 @@ impl TrackSource for MidiPlayer {
             timeline: cx.timeline,
             rate: cx.sample_rate,
         };
-        // `begin` may have done the first half already.
         if !std::mem::take(&mut self.prepared) && !self.prepare(cx, buses.frames(), clock, false) {
             return;
         }
@@ -41,8 +35,6 @@ impl TrackSource for MidiPlayer {
     }
 
     fn hosted(&self) -> bool {
-        // A list waiting to be taken counts, so the callback that takes it
-        // already has its deadline.
         self.hosted || self.hosted_pending.load(Ordering::Relaxed)
     }
 
@@ -123,8 +115,6 @@ impl TrackSource for MidiPlayer {
             if let Some(spec) = track.instrument.as_mut() {
                 spec.instrument.silence();
             }
-            // An instrument taken away and still ringing out is silenced too;
-            // it is kept (not dropped on this thread) and goes with its list.
             if let Some(spec) = track.leaving.as_mut() {
                 spec.instrument.silence();
             }

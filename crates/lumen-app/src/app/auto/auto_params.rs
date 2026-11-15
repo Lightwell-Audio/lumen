@@ -1,9 +1,3 @@
-//! The chooser for a plugin's parameters (M7 slice A3): the plugin first
-//! (one of the track's, as a pill when there are several), then the
-//! parameter, found by searching the plugin's own list. A plugin may list
-//! thousands, so the list draws only the rows in view and the search is run
-//! once for each change of its words.
-
 use eframe::egui::{self, Align2, FontId, Key, Sense, Ui, pos2, vec2};
 use lumen_hosting::{ParamInfo, UnitInfo};
 use lumen_project::automation::Target;
@@ -14,27 +8,19 @@ use crate::arrangement::auto_state::ParamChooser;
 use crate::widgets::{Dialog, pill_toggle};
 use crate::{App, theme};
 
-/// A row of the list.
 const ROW: f32 = 28.0;
 
-/// What a click or Enter in the chooser asked for.
 enum Chosen {
-    /// This parameter of the plugin.
     Param(u32),
-    /// Another of the track's plugins.
     Plugin(Id),
 }
 
 impl App {
-    /// Tells the arrangement what the plugins call the parameters its lanes
-    /// drive, for the lanes of the tracks shown: "Filter · Cutoff".
     pub(crate) fn lane_names(&mut self) {
         let project = self.document.project();
         let shown = &self.arrangement.auto.shown;
         let mut names = std::collections::BTreeMap::new();
         for track in project.tracks.iter().filter(|t| shown.contains_key(&t.id)) {
-            // The lanes the track has, for its chooser, and the one it shows
-            // (which has no lane until a point is added).
             let targets = track
                 .automation
                 .iter()
@@ -64,13 +50,6 @@ impl App {
         }
     }
 
-    /// Asks the plugin to put the value of the lane point read out now in
-    /// its own words ([`AutoView::resting`]), not faster than every
-    /// [`TEXT_EVERY`], and hands the arrangement the answers there are. Only
-    /// a point at rest (or the one being moved) is asked about, so the
-    /// pointer's travel over a lane costs no round trips.
-    ///
-    /// [`AutoView::resting`]: crate::arrangement::auto_state::AutoView::resting
     pub(crate) fn lane_texts(&mut self, ctx: &egui::Context) {
         use crate::motion::{TEXT_AGAIN, TEXT_EVERY, TEXT_FRAME};
         let forgotten = self.hosting.texts_forgotten();
@@ -114,9 +93,6 @@ impl App {
                 }
             }
         }
-        // The answer for the point's own value, else the nearest kept one
-        // until it comes (as on a device card's knob). A built-in reads its
-        // table at once.
         let texts: std::collections::BTreeMap<_, _> = wanted
             .and_then(|(key, value)| {
                 let device = crate::document::find_device(self.document.project(), key.0)
@@ -140,14 +116,11 @@ impl App {
         }
     }
 
-    /// The chooser, when open. Choosing a parameter shows its lane on the
-    /// track (the lane itself exists once a point is added) and closes it.
     pub(crate) fn lane_parameters(&mut self, ctx: &egui::Context) {
         let Some(mut chooser) = self.arrangement.auto.chooser.take() else {
             return;
         };
         let project = self.document.project().clone();
-        // Gone with its track or its plugin.
         let Some(track) = project.tracks.iter().find(|t| t.id == chooser.track) else {
             return;
         };
@@ -358,19 +331,14 @@ impl App {
     }
 }
 
-/// What one row shows.
 struct RowLook<'a> {
     p: &'a ParamInfo,
     group: String,
-    /// How many points its lane holds, if it has one.
     points: Option<usize>,
-    /// Its lane is the one the track shows.
     shown: bool,
     under_cursor: bool,
 }
 
-/// One row: the parameter's name, its group and its lane's points. The
-/// parameter's id when the row was clicked.
 fn parameter_row(ui: &mut Ui, device: Id, look: &RowLook<'_>) -> Option<u32> {
     let palette = *theme::p();
     let width = ui.available_width();

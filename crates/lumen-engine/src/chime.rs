@@ -1,41 +1,17 @@
-//! The sound check (M9 slice R7b, ADR-0115).
-//!
-//! A soft chime of [`NOTES`] notes, [`NOTE_SECONDS`] apart: the first on the
-//! left, the second on the right, the third on both, so one press proves
-//! both speakers and their order. Each note is a sine with a quieter octave
-//! above it, a short attack and an exponential decay, at most [`LEVEL`]
-//! (−18 dBFS) at its peak, and ends at silence before the next starts.
-//!
-//! The UI asks through a [`ChimeHandle`]; the [`ChimePlayer`] runs in the
-//! device callback after the engine and adds the chime to the main pair,
-//! whether the song plays or not. It publishes which part is sounding, and
-//! the block's peak per side, so the lights and the meter follow the sound
-//! rather than a timer. While idle it costs one atomic load per block.
-
 use std::f32::consts::TAU;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, AtomicU32, AtomicU64, Ordering};
 
-/// The notes: left, right, both.
 pub const NOTES: usize = 3;
-/// Seconds from one note's start to the next.
 pub const NOTE_SECONDS: f64 = 0.5;
-/// The chime's peak: −18 dBFS.
 pub const LEVEL: f32 = 0.125_9;
-/// Seconds to rise to full level.
 const ATTACK_SECONDS: f32 = 0.005;
-/// The decay's time constant.
 const DECAY_SECONDS: f32 = 0.12;
-/// The octave above decays faster, so each note starts bright and ends pure.
 const OVERTONE_DECAY_SECONDS: f32 = 0.05;
-/// The octave's level against the note's.
 const OVERTONE: f32 = 0.25;
-/// Each note fades to silence over its last few milliseconds.
 const RELEASE_SECONDS: f32 = 0.02;
-/// An E major triad, rising: E5, G♯5, B5.
 const PITCHES: [f32; NOTES] = [659.255, 830.609, 987.767];
 
-/// Which part of the chime sounds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sounding {
     Silent,
@@ -72,19 +48,15 @@ impl Sounding {
         }
     }
 
-    /// Whether the left speaker sounds.
     pub fn left(self) -> bool {
         matches!(self, Self::Left | Self::Both)
     }
 
-    /// Whether the right speaker sounds.
     pub fn right(self) -> bool {
         matches!(self, Self::Right | Self::Both)
     }
 }
 
-/// What was last asked, in the low bits of [`Shared::asked`]; the rest
-/// counts the asks, so the same ask twice restarts.
 const STOP: u64 = 0;
 const PLAY_PAIR: u64 = 1;
 const PLAY_MONO: u64 = 2;
@@ -94,24 +66,19 @@ const ASK_BITS: u32 = 2;
 struct Shared {
     asked: AtomicU64,
     sounding: AtomicU8,
-    /// The last block's peak on each side, as `f32` bits.
     peaks: [AtomicU32; 2],
 }
 
-/// UI side: starts and stops the chime, and reads what sounds.
 #[derive(Debug, Clone)]
 pub struct ChimeHandle {
     shared: Arc<Shared>,
 }
 
 impl ChimeHandle {
-    /// Plays the chime from its start, on the main pair, or on its one
-    /// channel when `pair` is false (then every note is on that channel).
     pub fn play(&self, pair: bool) {
         self.ask(if pair { PLAY_PAIR } else { PLAY_MONO });
     }
 
-    /// Silences it at the next block.
     pub fn stop(&self) {
         self.ask(STOP);
     }
@@ -123,12 +90,10 @@ impl ChimeHandle {
             .store((count << ASK_BITS) | what, Ordering::Release);
     }
 
-    /// The part sounding in the last block played.
     pub fn sounding(&self) -> Sounding {
         Sounding::from_u8(self.shared.sounding.load(Ordering::Acquire))
     }
 
-    /// The last block's peak, left and right.
     pub fn peaks(&self) -> [f32; 2] {
         self.shared
             .peaks
@@ -141,11 +106,9 @@ impl ChimeHandle {
 struct Playing {
     rate: u32,
     pair: bool,
-    /// Frames played since the chime started.
     at: usize,
 }
 
-/// Audio side. Runs after the engine in the device callback.
 #[derive(Debug)]
 pub struct ChimePlayer {
     shared: Arc<Shared>,
@@ -154,8 +117,6 @@ pub struct ChimePlayer {
 }
 
 impl ChimePlayer {
-    /// Adds the chime to the first one or two of `output_channels` (the
-    /// main pair). A change of rate ends it. Real-time safe.
     pub fn process(
         &mut self,
         rate: u32,
@@ -221,17 +182,14 @@ impl ChimePlayer {
     }
 }
 
-/// Frames in one note at `rate`.
 pub fn note_frames(rate: u32) -> usize {
     (NOTE_SECONDS * f64::from(rate.max(1))).round() as usize
 }
 
-/// Frames in the whole chime at `rate`.
 pub fn total_frames(rate: u32) -> usize {
     NOTES * note_frames(rate)
 }
 
-/// The chime's left and right sample at frame `n` from its start.
 pub fn sample(n: usize, rate: u32) -> (f32, f32) {
     let length = note_frames(rate);
     let note = n / length;
@@ -254,7 +212,6 @@ pub fn sample(n: usize, rate: u32) -> (f32, f32) {
     )
 }
 
-/// Makes the pair. Allocates: call it off the audio thread.
 pub fn chime() -> (ChimeHandle, ChimePlayer) {
     let shared = Arc::new(Shared::default());
     (
@@ -275,8 +232,6 @@ mod tests {
 
     const RATE: u32 = 48_000;
 
-    /// Plays `blocks` blocks of `frames` into two channels, and returns
-    /// them with what was sounding after each block.
     fn play(
         player: &mut ChimePlayer,
         handle: &ChimeHandle,
@@ -305,16 +260,12 @@ mod tests {
         handle.play(true);
         let note = note_frames(RATE);
         let (left, right, _) = play(&mut player, &handle, 2 * total_frames(RATE) / 64, 64);
-        // The first note is on the left only.
         assert!(peak(&left[..note]) > 0.05);
         assert_eq!(peak(&right[..note]), 0.0);
-        // The second on the right only.
         assert_eq!(peak(&left[note..2 * note]), 0.0);
         assert!(peak(&right[note..2 * note]) > 0.05);
-        // The third on both, the same.
         assert!(peak(&left[2 * note..3 * note]) > 0.05);
         assert_eq!(&left[2 * note..3 * note], &right[2 * note..3 * note]);
-        // Then nothing.
         assert_eq!(peak(&left[3 * note..]), 0.0);
         assert_eq!(peak(&right[3 * note..]), 0.0);
         assert_eq!(handle.sounding(), Sounding::Silent);
@@ -341,7 +292,7 @@ mod tests {
         let (handle, mut player) = chime();
         handle.play(true);
         let note = note_frames(RATE);
-        let frames = 480; // 10 ms, so a note is 50 blocks.
+        let frames = 480;
         assert_eq!(note % frames, 0);
         let (_, _, heard) = play(&mut player, &handle, 3 * note / frames + 2, frames);
         let per_note = note / frames;
@@ -365,7 +316,6 @@ mod tests {
         let (handle, mut player) = chime();
         handle.play(true);
         let note = note_frames(RATE);
-        // Into the second note.
         play(&mut player, &handle, (note + 4_800) / 64, 64);
         assert_eq!(handle.sounding(), Sounding::Right);
         handle.play(true);

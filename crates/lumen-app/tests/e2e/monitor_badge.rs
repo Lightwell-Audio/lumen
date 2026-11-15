@@ -1,8 +1,3 @@
-//! The Monitor badge on MIDI and audio track headers (M5 slice 2 fix, the
-//! owner's MA; audio tracks since M9 R1): shown only for In and Off, never for
-//! Auto; a click cycles In, Off, Auto, one undo step each; it sits in the Tab
-//! order before M.
-
 use eframe::egui::{Key, Modifiers};
 use egui_kittest::kittest::{NodeT, Queryable};
 use lumen_project::model::{Color, Id, Monitor, Project, Track, TrackKind};
@@ -16,7 +11,6 @@ fn project() -> Project {
     let mut pad = midi_track(51, "Pad", "poly", (0, 8), None, vec![], vec![]);
     pad.monitor = Monitor::Off;
     let mut vox = Track::new(Id(21), "Vox", TrackKind::Audio, Color(0x4F81BD));
-    // Audio tracks monitor their input too (M9 R1), so they show it.
     vox.monitor = Monitor::In;
     project_of(
         "Badge",
@@ -50,7 +44,6 @@ fn monitor_of(lumen: &Lumen, id: Id) -> Monitor {
         .monitor
 }
 
-/// The name of the control with the keyboard focus.
 fn focused(lumen: &Lumen) -> String {
     lumen
         .harness
@@ -95,9 +88,6 @@ fn clicking_cycles_in_off_auto_and_undo_restores() {
 fn the_badge_is_in_the_tab_order_before_mute_and_space_cycles_it() {
     let mut lumen = launch("badge-tab");
     let mut order = Vec::new();
-    // Tab until the mute button: how far that is varies, because the bar can
-    // gain a stop (the dropout chip appears on a machine too busy to keep the
-    // audio fed).
     for _ in 0..300 {
         lumen.key(Modifiers::NONE, Key::Tab);
         order.push(focused(&lumen));

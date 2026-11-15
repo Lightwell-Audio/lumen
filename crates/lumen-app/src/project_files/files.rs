@@ -1,15 +1,3 @@
-//! Saving and opening projects (M3 slice 3c).
-//!
-//! A project is a folder: `<Name>/<Name>.lumen`, with `Samples/Imported/`
-//! for audio copied in and `Backups/` for earlier saves (ADR-0004). Saving
-//! and opening run on background threads, so the interface and the audio
-//! never wait for the disk; the result comes back on a channel.
-//!
-//! The project stores media paths relative to its folder when the file is
-//! inside it. Where each file actually is on this machine is kept outside
-//! the undo history (`Document::media_files`) and written into the paths at
-//! save time.
-
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -23,26 +11,16 @@ use lumen_project::{MediaLocation, SaveOptions, locate_media, media_path_for};
 
 use crate::spawn::{spawn_named, start_failed};
 
-/// Where audio copied into a project goes, inside its folder.
 pub const IMPORTED: &str = "Samples/Imported";
-/// Where audio Lumen rendered itself (a consolidated clip) goes, inside the
-/// project folder.
 pub const RENDERED: &str = "Samples/Rendered";
-/// Where audio recorded in Lumen goes, inside the project folder.
 pub const RECORDED: &str = "Samples/Recorded";
-/// The file extension of projects.
 pub const EXTENSION: &str = "lumen";
 
-/// Whether `path` names a project file (by its extension, in any case).
 pub fn is_project(path: &Path) -> bool {
     path.extension()
         .is_some_and(|e| e.eq_ignore_ascii_case(EXTENSION))
 }
 
-/// Where a project chosen in Save As is written. A file picked inside an
-/// existing project folder (one holding another project file or a `Samples`
-/// folder) or a folder already named after the project is used as it is;
-/// anywhere else, a folder named after the project is created for it.
 pub fn project_file_for(chosen: &Path) -> PathBuf {
     let chosen = chosen.with_extension(EXTENSION);
     let (Some(dir), Some(stem)) = (chosen.parent(), chosen.file_stem()) else {
@@ -62,74 +40,42 @@ pub fn project_file_for(chosen: &Path) -> PathBuf {
     }
 }
 
-/// What a save needs, taken from the document when the save starts.
 pub struct SaveRequest {
-    /// The project with transport and view stamped in.
     pub project: Project,
     pub path: PathBuf,
-    /// Resolve a user-selected Save As path on the worker, since project
-    /// folder detection reads directories.
     pub normalize_project_path: bool,
-    /// Where each media file is now.
     pub media_files: HashMap<Id, PathBuf>,
-    /// Copy audio from outside the project folder into `Samples/Imported`.
     pub copy_imported: bool,
-    /// The folder Lumen writes rendered audio to while a project is open.
-    /// Files in it are Lumen's own work, which only the project holds a
-    /// reference to: they are copied into the project whatever
-    /// `copy_imported` says, and are not recorded as imported.
     pub renders: Option<PathBuf>,
-    /// The folder takes are recorded into: handled like `renders`, and copied
-    /// into `Samples/Recorded`.
     pub recordings: Option<PathBuf>,
-    /// The folder templates are kept in. A project made from a template
-    /// plays the template's audio from there: it is copied into the project
-    /// whatever `copy_imported` says, into the same kind of folder it was in,
-    /// and is not recorded as imported (M9 slice R4).
     pub templates: Option<PathBuf>,
-    /// Earlier versions kept in `Backups` (none for autosaves).
     pub keep_backups: usize,
-    /// The document state being saved (edits during the save stay unsaved).
     pub state: u64,
-    /// A project file this save must not write: the open project's own, when
-    /// saving a copy (the check reads the disk, so the worker makes it).
     pub not_over: Option<PathBuf>,
 }
 
 #[derive(Debug)]
 pub struct Saved {
     pub path: PathBuf,
-    /// Media files that moved (copied into the project).
     pub moved: HashMap<Id, PathBuf>,
     pub state: u64,
-    /// Files copied into the project, and their size together.
     pub copied: usize,
     pub bytes: u64,
-    /// Media the save could not find on this machine: they are left as the
-    /// project had them, still missing. Their file names.
     pub skipped: Vec<String>,
-    /// Why the previous version could not be copied into `Backups`. The save
-    /// itself committed: the file holds the new content. The interface says
-    /// so, without treating it as a failed save.
     pub backup_error: Option<String>,
 }
 
-/// Stops a long save and shows how far it has come (Collect and save). The
-/// interface keeps one and gives the worker a clone.
 #[derive(Debug, Clone, Default)]
 pub struct Control {
     stop: Arc<AtomicBool>,
-    /// How far, 0.0 to 1.0, as `f32` bits.
     done: Arc<AtomicU32>,
 }
 
 impl Control {
-    /// Asks the save to stop at its next piece.
     pub fn stop(&self) {
         self.stop.store(true, Ordering::Relaxed);
     }
 
-    /// How far the copying has come, 0.0 to 1.0.
     pub fn progress(&self) -> f32 {
         f32::from_bits(self.done.load(Ordering::Relaxed))
     }
@@ -143,10 +89,8 @@ impl Control {
     }
 }
 
-/// Why a save did not finish.
 #[derive(Debug)]
 pub enum Failure {
-    /// Stopped on request; nothing in the project was changed.
     Stopped,
     Failed(String),
 }
@@ -172,22 +116,17 @@ impl From<&str> for Failure {
     }
 }
 
-/// Starts saving in the background.
 pub fn save(request: SaveRequest) -> Receiver<Result<Saved, String>> {
     let (tx, rx) = mpsc::channel();
     let report = tx.clone();
     if let Err(error) = spawn_named("lumen-save", move || {
         let _ = tx.send(save_now(request));
     }) {
-        // The interface waits for this answer: hand it the failure instead
-        // of leaving the save showing as under way.
         let _ = report.send(Err(start_failed("the save", &error)));
     }
     rx
 }
 
-/// Starts a save in the background that `control` can stop and that reports
-/// how far its copying has come: Collect and save.
 pub fn collect(request: SaveRequest, control: Control) -> Receiver<Result<Saved, Failure>> {
     let (tx, rx) = mpsc::channel();
     let report = tx.clone();
@@ -199,37 +138,26 @@ pub fn collect(request: SaveRequest, control: Control) -> Receiver<Result<Saved,
     rx
 }
 
-/// Saves on the calling thread: copies imported audio if asked, writes the
-/// media paths relative to the project folder, then writes the project
-/// atomically with a backup of the previous version.
 pub(crate) fn save_now(request: SaveRequest) -> Result<Saved, String> {
     save_inner(request, None).map_err(|failure| failure.to_string())
 }
 
-/// [`save_now`] that `control` can stop. A stopped save has written nothing
-/// to the project: the files it copied are whole and stay.
 pub fn collect_now(request: SaveRequest, control: &Control) -> Result<Saved, Failure> {
     save_inner(request, Some(control))
 }
 
-/// What one media file becomes in a save.
 struct Plan {
-    /// Where it is in the project's media list.
     index: usize,
     source: PathBuf,
-    /// Set when the file is copied into the project.
     copy: Option<Copy>,
 }
 
 struct Copy {
     folder: PathBuf,
     target: PathBuf,
-    /// Lumen's own (rendered, recorded or from a template), not imported.
     owned: bool,
 }
 
-/// Where a file of Lumen's own goes in a project, or none when `source` is
-/// not one: audio it rendered or recorded, or took from a template.
 fn owned_folder(
     source: &Path,
     renders: Option<&Path>,
@@ -243,7 +171,6 @@ fn owned_folder(
         return Some(RENDERED);
     }
     if templates.is_some_and(|dir| source.starts_with(dir)) {
-        // The template keeps its audio in the same three folders.
         let kept_in = source.parent().and_then(Path::file_name);
         return Some(if kept_in.is_some_and(|n| n == "Recorded") {
             RECORDED
@@ -292,7 +219,6 @@ fn save_inner(request: SaveRequest, control: Option<&Control>) -> Result<Saved, 
         ));
     }
 
-    // First decide what happens to each file, so the copying knows its size.
     let mut plans = Vec::new();
     let mut skipped = Vec::new();
     let mut planned = HashMap::new();
@@ -303,7 +229,6 @@ fn save_inner(request: SaveRequest, control: Option<&Control>) -> Result<Saved, 
                 .map_or_else(|| media.path.clone(), |n| n.to_string_lossy().into_owned())
         };
         let Some(source) = media_files.get(&media.id) else {
-            // Missing on this machine: keep what the project said.
             skipped.push(name());
             continue;
         };
@@ -344,7 +269,6 @@ fn save_inner(request: SaveRequest, control: Option<&Control>) -> Result<Saved, 
         .map(|(_, source)| size_of(source))
         .sum();
 
-    // Then copy, whole files only.
     let (mut copied, mut bytes) = (0, 0);
     for plan in &plans {
         let Some(copy) = &plan.copy else { continue };
@@ -360,7 +284,6 @@ fn save_inner(request: SaveRequest, control: Option<&Control>) -> Result<Saved, 
         return Err(Failure::Stopped);
     }
 
-    // The project says where each file is now.
     let mut moved = HashMap::new();
     for plan in plans {
         let media = &mut project.media[plan.index];
@@ -376,8 +299,6 @@ fn save_inner(request: SaveRequest, control: Option<&Control>) -> Result<Saved, 
         };
         media.path = media_path_for(&dir, &location);
     }
-    // The backup is best effort (sweep M1): the save wins, and a backup that
-    // could not be made is reported with the result.
     let report = lumen_project::save_with_report(&project, &file, &SaveOptions { keep_backups })
         .map_err(|e| e.to_string())?;
     if let Some(control) = control {
@@ -398,14 +319,8 @@ fn size_of(path: &Path) -> u64 {
     std::fs::metadata(path).map_or(0, |m| m.len())
 }
 
-/// How much of a file is read and written at a time, and so how often a stop
-/// is noticed and the progress moves.
 const PIECE: usize = 1 << 20;
 
-/// Copies `source` to `target` in pieces, under a temporary name beside the
-/// target that is renamed when the copy is whole: a stop, an error or a crash
-/// never leaves half a file under the real name. `done` counts the bytes
-/// copied so far of `total`, for the progress.
 fn copy_file(
     source: &Path,
     target: &Path,
@@ -456,7 +371,6 @@ fn copy_file(
     }
 }
 
-/// What to tell the user when `target` could not be written.
 fn write_failed(target: &Path, error: &std::io::Error) -> String {
     if error.kind() == std::io::ErrorKind::StorageFull {
         format!(
@@ -468,7 +382,6 @@ fn write_failed(target: &Path, error: &std::io::Error) -> String {
     }
 }
 
-/// A size in words: "340 MB", "1.2 GB".
 pub fn describe_size(bytes: u64) -> String {
     const UNITS: [&str; 4] = ["bytes", "KB", "MB", "GB"];
     let mut value = bytes as f64;
@@ -486,9 +399,6 @@ pub fn describe_size(bytes: u64) -> String {
     }
 }
 
-/// The absolute, resolved form of `path` (or `path` itself if it does not
-/// exist), without the `\\?\` prefix Windows adds, which must not end up in
-/// project files.
 fn canonical(path: &Path) -> PathBuf {
     let resolved = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let text = resolved.to_string_lossy();
@@ -498,13 +408,6 @@ fn canonical(path: &Path) -> PathBuf {
     }
 }
 
-/// Where `source` goes in `folder`: its own name, or "name 2", "name 3"…
-/// when that name is taken. A name is reused only for the same audio: a
-/// target this save already gave to the same source file, or a file in the
-/// folder with exactly the same bytes (a copy made by an earlier save). Two
-/// different files never share a target, however alike their names and
-/// sizes (M9 review H2). `planned` maps the targets this save has given out
-/// but not yet written to the file each will hold.
 fn copy_target(
     folder: &Path,
     source: &Path,
@@ -537,9 +440,6 @@ fn copy_target(
     unreachable!()
 }
 
-/// Whether `a` and `b` hold the same bytes. Read in pieces, and only when
-/// their sizes agree; any error reads as different, so a file that cannot
-/// be compared gets a name of its own.
 fn same_contents(a: &Path, b: &Path) -> bool {
     use std::io::Read;
     let (Ok(meta_a), Ok(meta_b)) = (std::fs::metadata(a), std::fs::metadata(b)) else {
@@ -565,14 +465,12 @@ fn same_contents(a: &Path, b: &Path) -> bool {
     }
 }
 
-/// A project read from disk, with where its media files are.
 pub struct Opened {
     pub project: Project,
     pub path: PathBuf,
     pub media_files: HashMap<Id, PathBuf>,
 }
 
-/// Starts opening `path` in the background.
 pub fn open(path: PathBuf) -> Receiver<Result<Opened, String>> {
     let (tx, rx) = mpsc::channel();
     let report = tx.clone();
@@ -593,8 +491,6 @@ pub fn open_now(path: &Path) -> Result<Opened, String> {
             MediaLocation::Found(found) => {
                 media_files.insert(media.id, found);
             }
-            // A missing file is left out: the document derives the list
-            // (the Project media tab and its banner).
             MediaLocation::Missing { .. } => {}
         }
     }
@@ -605,7 +501,6 @@ pub fn open_now(path: &Path) -> Result<Opened, String> {
     })
 }
 
-/// Adds `path` to the front of `recent`, without duplicates, keeping ten.
 pub fn remember(recent: &mut Vec<String>, path: &Path) {
     let path = path.to_string_lossy().into_owned();
     recent.retain(|p| *p != path);
@@ -620,7 +515,6 @@ mod tests {
     use lumen_core::time::Ticks;
     use lumen_project::testing::TempDir;
 
-    /// The media the project names that were not found next to it.
     fn missing(opened: &Opened) -> Vec<String> {
         opened
             .project
@@ -703,19 +597,14 @@ mod tests {
         let mut request = request(&doc, loose, false);
         request.normalize_project_path = true;
         let saved = save_now(request).unwrap();
-        // The worker names the file by its canonical path, which differs
-        // from the temp folder's spelling (Windows short names, macOS's
-        // /private/var): the same file is what counts.
         assert_eq!(
             std::fs::canonicalize(&saved.path).unwrap(),
             std::fs::canonicalize(tmp.path().join("Song").join("Song.lumen")).unwrap(),
             "Save As resolves the folder on the save worker"
         );
-        // Inside a folder named after the project: used as is.
         let named = tmp.path().join("Song").join("Song.lumen");
         std::fs::create_dir_all(named.parent().unwrap()).unwrap();
         assert_eq!(project_file_for(&named), named);
-        // Next to another project's Samples folder: used as is.
         let other = tmp.path().join("Album");
         std::fs::create_dir_all(other.join("Samples")).unwrap();
         assert_eq!(
@@ -738,7 +627,6 @@ mod tests {
         let imported = path.parent().unwrap().join(IMPORTED);
         assert!(imported.join("kick.wav").is_file() && imported.join("snare.wav").is_file());
 
-        // The originals can go: the project has its own copies.
         std::fs::remove_dir_all(&outside).unwrap();
         let opened = open_now(&path).unwrap();
         assert!(missing(&opened).is_empty(), "{:?}", missing(&opened));
@@ -749,8 +637,6 @@ mod tests {
         assert_eq!(opened.media_files.len(), 2);
     }
 
-    /// A previous version that cannot be kept in `Backups` is a warning, not
-    /// a failed save (sweep M1): the new content is written either way.
     #[test]
     fn a_backup_that_cannot_be_kept_is_reported_and_the_save_stands() {
         let tmp = TempDir::new("files-backup");
@@ -759,7 +645,6 @@ mod tests {
         let first = save_now(request(&doc, path.clone(), false)).unwrap();
         assert_eq!(first.backup_error, None, "there is nothing to keep yet");
 
-        // A file where `Backups` would go: making the folder must fail.
         std::fs::write(tmp.path().join("Backups"), b"not a folder").unwrap();
         let mut project = doc.project().clone();
         project.view.left_beat = 12.0;
@@ -818,7 +703,6 @@ mod tests {
         let mut asked = request(&doc, path.clone(), false);
         asked.renders = Some(renders);
         let saved = save_now(asked).unwrap();
-        // The render moves in; the library file, with copying off, stays.
         assert_eq!(saved.copied, 1);
         let folder = path.parent().unwrap().join(RENDERED);
         assert!(folder.join("joined-1.wav").is_file());
@@ -849,8 +733,6 @@ mod tests {
         let mut asked = request(&doc, path.clone(), false);
         asked.templates = Some(templates);
         let saved = save_now(asked).unwrap();
-        // The template's three files move in; the library file, with copying
-        // off, stays where it is.
         assert_eq!(saved.copied, 3);
         let project = path.parent().unwrap();
         assert!(project.join(IMPORTED).join("kick.wav").is_file());
@@ -861,7 +743,6 @@ mod tests {
         assert_eq!(opened.project.media[0].path, "Samples/Imported/kick.wav");
         assert_eq!(opened.project.media[1].path, "Samples/Recorded/vox.wav");
         assert_eq!(opened.project.media[2].path, "Samples/Rendered/bake.wav");
-        // Copied from a template, none of it was imported by the person.
         for media in &opened.project.media[..3] {
             assert_eq!(media.original_path, None, "{}", media.path);
         }
@@ -912,14 +793,10 @@ mod tests {
         save_now(request(&doc, path.clone(), true)).unwrap();
         let imported = path.parent().unwrap().join(IMPORTED);
         assert!(imported.join("kick.wav").is_file() && imported.join("kick 2.wav").is_file());
-        // Saving again copies nothing new.
         let again = save_now(request(&doc, path, true)).unwrap();
         assert_eq!(again.copied, 0);
     }
 
-    /// Two different recordings with the same name and length (M9 review H2):
-    /// each keeps its own audio, in one save and against a file already in
-    /// the folder.
     #[test]
     fn different_files_of_one_name_and_size_never_share_a_copy() {
         let tmp = TempDir::new("files-same-size");
@@ -927,7 +804,6 @@ mod tests {
         let b = tmp.path().join("b").join("Vox 1.wav");
         wav(&a, 4_800);
         wav(&b, 4_800);
-        // Same length, different audio.
         let mut bytes = std::fs::read(&b).unwrap();
         *bytes.last_mut().unwrap() = 7;
         std::fs::write(&b, &bytes).unwrap();
@@ -943,8 +819,6 @@ mod tests {
         );
         assert_eq!(std::fs::read(&saved.moved[&ids[1]]).unwrap(), bytes);
 
-        // A third file of that name and size, saved into the same folder later,
-        // does not take the first one's copy either.
         let c = tmp.path().join("c").join("Vox 1.wav");
         wav(&c, 4_800);
         let mut third = std::fs::read(&c).unwrap();
@@ -958,7 +832,6 @@ mod tests {
         assert_eq!(std::fs::read(&saved.moved[&id]).unwrap(), third);
     }
 
-    /// The same file used twice is copied once.
     #[test]
     fn one_file_used_twice_is_copied_once() {
         let tmp = TempDir::new("files-twice");
@@ -972,7 +845,6 @@ mod tests {
         assert_eq!(saved.moved[&ids[0]], saved.moved[&ids[1]]);
     }
 
-    /// What is left in `folder` that is not a finished file: temporary copies.
     fn leftovers(folder: &Path) -> Vec<String> {
         std::fs::read_dir(folder)
             .into_iter()
@@ -1007,7 +879,6 @@ mod tests {
             leftovers(&imported)
         );
 
-        // The project stands on its own: the originals can go.
         std::fs::remove_dir_all(&outside).unwrap();
         let opened = open_now(&path).unwrap();
         assert!(missing(&opened).is_empty(), "{:?}", missing(&opened));
@@ -1085,7 +956,6 @@ mod tests {
             "nothing was copied before the refusal"
         );
 
-        // Another place is fine.
         let elsewhere = tmp.path().join("Copy").join("Song copy.lumen");
         let mut copy = request(&doc, elsewhere.clone(), true);
         copy.not_over = Some(path);
@@ -1099,7 +969,6 @@ mod tests {
         let tmp = TempDir::new("files-copy-fails");
         let source = tmp.path().join("kick.wav");
         wav(&source, 4_800);
-        // A folder where the file should go: the final rename cannot succeed.
         let target = tmp.path().join("Samples").join("kick.wav");
         std::fs::create_dir_all(&target).unwrap();
         let mut done = 0;

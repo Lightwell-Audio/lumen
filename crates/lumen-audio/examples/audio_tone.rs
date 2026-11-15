@@ -1,16 +1,3 @@
-//! Hardware check for the device layer: a stream under the supervisor,
-//! printing every device event. Unplug and replug the interface, or change
-//! its settings, while it runs to exercise recovery.
-//!
-//! ```text
-//! cargo run --release -p lumen-audio --example audio_tone -- list [--driver D]
-//! cargo run --release -p lumen-audio --example audio_tone -- <device> [--driver D] [--seconds 60] [--tone] [--buffer N] [--rate R]
-//! ```
-//! Drivers: `asio` (the Windows default), `wasapi`, `exclusive` (WASAPI
-//! exclusive mode), `cpal` (the macOS and Linux default). ASIO devices are
-//! matched by exact name, others by any part of the name.
-//! Silent unless `--tone` is given (440 Hz at -24 dBFS on outputs 1 and 2).
-
 use std::time::{Duration, Instant};
 
 use lumen_audio::{
@@ -35,7 +22,6 @@ fn backend(driver: &str) -> Option<MakeBackend> {
     }
 }
 
-/// (id, name) of every device, without loading ASIO drivers.
 fn devices(driver: &str, make: MakeBackend) -> Vec<(DeviceId, String)> {
     #[cfg(windows)]
     if driver == "asio" {
@@ -127,7 +113,6 @@ fn main() {
         device,
         sample_rate: value("--rate").and_then(|s| s.parse().ok()),
         buffer_frames: value("--buffer").and_then(|s| s.parse().ok()),
-        // Only ASIO opens inputs so far (the others arrive in M2 slice 8).
         input_channels: if driver == "asio" { vec![0, 1] } else { vec![] },
         output_channels: vec![0, 1],
     });
@@ -138,7 +123,6 @@ fn main() {
     let started = Instant::now();
     let deadline = started + Duration::from_secs(seconds);
     let mut next_report = started + Duration::from_secs(1);
-    // Callbacks per second the stream should deliver, from its StreamInfo.
     let mut expected = None;
     let mut last_count = 0;
     while Instant::now() < deadline {

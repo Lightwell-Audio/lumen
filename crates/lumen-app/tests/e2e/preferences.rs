@@ -1,10 +1,3 @@
-//! Preferences (M9 R7): one window of pages, opened from the app menu, the
-//! palette and the transport's chips; a search that finds any setting by a
-//! word and opens its page with the row outlined; a page menu instead of the
-//! list in a small window; changes kept across a restart; and the settings
-//! R7 added: undo steps, the autosave interval, what new tracks start with,
-//! the projects folder and the cache.
-
 use std::time::Duration;
 
 use eframe::egui::accesskit::Role;
@@ -17,7 +10,6 @@ use lumen_project::testing::TempDir;
 
 use super::Lumen;
 
-/// Types `text` into the search field, which takes the keyboard first.
 fn search(lumen: &mut Lumen, text: &str) {
     lumen.click("Search preferences");
     lumen.harness.event(Event::Text(text.into()));
@@ -31,8 +23,6 @@ fn every_page_opens_from_the_list_and_draws_every_row_search_can_find() {
         l.with_midi(fake).with_input_device()
     });
     lumen.open_preferences("Audio");
-    // The device's details load in the background; the latency rows wait
-    // for them.
     lumen.run_until("the device's latency", |l| l.shows("Round trip"));
     let ctx = lumen.harness.ctx.clone();
     App::record_drawn_rows(&ctx);
@@ -56,7 +46,6 @@ fn every_page_opens_from_the_list_and_draws_every_row_search_can_find() {
 
 #[test]
 fn a_double_click_on_the_recording_offset_returns_it_to_zero() {
-    // Every control resets to its default on a double-click.
     let mut lumen = Lumen::start_with(TempDir::new("e2e-preferences-offset"), |l| {
         l.with_input_device()
     });
@@ -102,13 +91,11 @@ fn a_search_result_opens_its_page_with_the_row_marked() {
     assert_eq!(lumen.app().marked_preference(), Some("audio.buffer"));
     assert!(lumen.is_on("Audio page"));
 
-    // Enter takes the first result.
     search(&mut lumen, "dark");
     lumen.key(Modifiers::NONE, Key::Enter);
     assert_eq!(lumen.app().preferences_shown(), Some("Appearance"));
     assert_eq!(lumen.app().marked_preference(), Some("look.theme"));
 
-    // Words that find nothing say so; Esc clears them, then closes.
     search(&mut lumen, "zzzz");
     assert!(
         lumen
@@ -129,12 +116,9 @@ fn a_search_result_opens_its_page_with_the_row_marked() {
 
 #[test]
 fn enter_on_a_result_with_the_keyboard_opens_that_result() {
-    // Round 2 of the review: Enter anywhere took the first result, so a
-    // result reached with Tab could not be opened from the keyboard.
     let mut lumen = Lumen::start("preferences-tab");
     lumen.open_preferences("Mixing");
     search(&mut lumen, "latency");
-    // Latency is first, then Buffer size: the second takes the keyboard.
     lumen.harness.get_by_label("Buffer size   Audio").focus();
     lumen.frames(2);
     lumen.key(Modifiers::NONE, Key::Enter);
@@ -144,9 +128,6 @@ fn enter_on_a_result_with_the_keyboard_opens_that_result() {
 
 #[test]
 fn a_result_below_the_fold_is_scrolled_into_view() {
-    // Round 1 of the review: the mark drawn before a result was chosen
-    // overwrote the new one's scroll, so a row below the page's fold stayed
-    // there while its outline faded.
     let mut lumen = Lumen::start("preferences-scroll");
     lumen.harness.set_size(vec2(1280.0, 720.0));
     lumen.frames(5);
@@ -171,20 +152,16 @@ fn the_list_folds_into_a_page_menu_in_the_smallest_window_at_200_percent() {
     let mut lumen = Lumen::start("preferences-fold");
     lumen.harness.set_size(vec2(960.0, 540.0));
     lumen.frames(5);
-    // The app menu is taller than this window (KNOWN_ISSUES): the palette
-    // opens Preferences here.
     run_from_palette(&mut lumen, "Preferences");
     lumen.run_until("the page list", |l| l.shows("Appearance page"));
     lumen.click("Appearance page");
     lumen.click("200%");
     lumen.frames(10);
-    // 960 points at 200% leave 480: the list gives way to a menu.
     assert!(!lumen.shows("Audio page"), "the list is folded");
     let menu = lumen.harness.get_by_label_contains("Page: Appearance");
     let field = lumen.harness.get_by_label("Search preferences").rect();
     assert!(field.left() >= 0.0 && field.right() <= 480.0, "{field:?}");
     assert!(menu.rect().right() <= 480.0, "{:?}", menu.rect());
-    // The menu chooses the page.
     menu.click();
     lumen.frames(3);
     lumen.click("Mixing");
@@ -194,8 +171,6 @@ fn the_list_folds_into_a_page_menu_in_the_smallest_window_at_200_percent() {
 
 #[test]
 fn the_midi_page_lines_its_switches_up_in_columns() {
-    // The owner's run of Part 2: names were centred, and each switch sat
-    // wherever its name ended.
     let fake = FakeControl::new();
     fake.plug(Direction::Input, "Keys");
     fake.plug(Direction::Output, "A synth with a much longer name");
@@ -227,7 +202,6 @@ fn the_midi_page_lines_its_switches_up_in_columns() {
         (second[0].right() - edge).abs() < 0.5,
         "the last column ends where the page's other switches do"
     );
-    // A name starts at the same place in every row, whatever its length.
     let keys = lumen.harness.get_all_by_label("Keys").next().unwrap();
     let names = [keys.rect(), rect(&lumen, "A synth with a much longer name")];
     assert!((names[0].left() - names[1].left()).abs() < 0.5, "{names:?}");
@@ -241,7 +215,6 @@ fn a_plugin_folder_can_be_removed_from_the_plugins_page() {
         std::fs::create_dir_all(&folder).unwrap();
         folder
     });
-    // Plugins on, with empty folders: nothing is found, so no host is run.
     let host = dir.path().join("no-host");
     let cache = dir.path().join("plugin-cache.json");
     let mut lumen = Lumen::start_with(dir, |l| l.with_plugins(Vec::new(), &host, cache));
@@ -297,7 +270,6 @@ fn a_switch_on_a_page_and_its_command_are_one_setting() {
     assert!(lumen.is_on("Takes: Overdub"));
 }
 
-/// Opens the palette, finds `name` and runs it.
 fn run_from_palette(lumen: &mut Lumen, name: &str) {
     lumen.key(Modifiers::COMMAND, Key::K);
     lumen.key(Modifiers::COMMAND, Key::A);
@@ -317,7 +289,6 @@ fn the_palette_opens_preferences_on_a_page_and_the_history() {
     ] {
         run_from_palette(&mut lumen, command);
         assert_eq!(lumen.app().preferences_shown(), Some(page), "{command}");
-        // Its search has the keyboard: Esc closes it for the next.
         lumen.key(Modifiers::NONE, Key::Escape);
     }
     lumen.open_preferences("Editing");
@@ -395,12 +366,9 @@ fn the_projects_folder_is_where_save_and_open_start() {
     assert_ne!(lumen.app().dialog_start_folder(), Some(songs));
 }
 
-/// Puts an entry of the cache's own, and a file of the user's, in `dir`,
-/// marked as the cache's.
 fn fill_cache(dir: &std::path::Path) -> std::path::PathBuf {
     std::fs::create_dir_all(dir).unwrap();
     std::fs::write(dir.join("lumen-cache.json"), "{}").unwrap();
-    // Used ten minutes ago: an entry used in the last two is kept.
     let used = std::time::SystemTime::now() - std::time::Duration::from_secs(600);
     for (name, bytes) in [
         ("0123456789abcdef-48000.wav", vec![0u8; 250_000]),
@@ -440,8 +408,6 @@ fn the_cache_is_counted_cleared_limited_and_moved_from_the_files_page() {
     assert!(foreign.exists(), "a file the cache did not make stays");
     assert!(!standard.join("0123456789abcdef-48000.wav").exists());
 
-    // A lower limit chosen while the worker counts is trimmed to once it is
-    // done, then counted again (review of M9 R7).
     let ctx = lumen.harness.ctx.clone();
     lumen.app_mut().choose_cache_limit_while_counting(&ctx, 10);
     assert!(lumen.app().cache_trim_waiting());
@@ -454,7 +420,6 @@ fn the_cache_is_counted_cleared_limited_and_moved_from_the_files_page() {
     assert!(lumen.is_on("Cache limit: 5 GB"));
     assert_eq!(lumen.app().cache_limit_gb(), 5);
 
-    // A new folder is used from the next start; nothing moves now.
     lumen.app_mut().answer_next_dialog(vec![elsewhere.clone()]);
     lumen.click("Choose the cache folder");
     lumen.run_until("the next start noted", |l| {
@@ -476,10 +441,7 @@ fn the_cache_is_counted_cleared_limited_and_moved_from_the_files_page() {
         "a folder of its own inside the chosen one"
     );
     again.open_preferences("Files");
-    // The folder left behind is offered for Clear once.
     again.run_until("the old folder offered", |l| l.shows("Clear old cache"));
-    // The button is greyed while the page's count runs, and a click on it
-    // then does nothing (as for a user): wait for the count first.
     again.run_until("the count", |l| l.app().cache_size_counted().is_some());
     again.click("Clear old cache");
     again.run_until("the offer gone", |l| !l.shows("Clear old cache"));
@@ -488,10 +450,6 @@ fn the_cache_is_counted_cleared_limited_and_moved_from_the_files_page() {
     assert_eq!(again.app().cache_limit_gb(), 5, "the limit was kept");
 }
 
-/// The window keeps its width from page to page: no row reaches past the
-/// page (a long label spilling out of its column once widened the window
-/// on the Editing page), so the close button stays where it was (review of
-/// M9 R7, round 2).
 #[test]
 fn every_page_keeps_the_window_width_and_its_close_button_in_place() {
     let mut lumen = Lumen::start("preferences-width");

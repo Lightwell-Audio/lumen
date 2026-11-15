@@ -1,7 +1,3 @@
-//! Standard MIDI Files (M5 slice 7, ADR-0062): the hand-made files in
-//! `tests/smf/` (written by `make.py`, not by Lumen) and a golden file
-//! Lumen wrote, read and written back.
-
 use std::fs;
 use std::path::PathBuf;
 
@@ -21,7 +17,6 @@ fn read(name: &str) -> MidiFile {
     smf::read(&bytes).expect("the test file reads")
 }
 
-/// `n / d` quarter notes.
 fn q(n: i64, d: i64) -> Ticks {
     Ticks(PPQ * n / d)
 }
@@ -58,10 +53,7 @@ fn a_type_0_file_splits_by_channel_with_running_status_and_odd_note_endings() {
         keys.notes,
         vec![
             note(Ticks::ZERO, q(1, 1), 60, 100),
-            // Ended by a note-on with velocity 0, under running status.
             note(q(1, 1), q(1, 1), 64, 90),
-            // Overlapping strikes: the off ends the oldest; the second
-            // has no off and ends with the track.
             note(q(2, 1), q(1, 1), 62, 80),
             note(q(5, 2), q(11, 2), 62, 70),
         ]
@@ -69,7 +61,6 @@ fn a_type_0_file_splits_by_channel_with_running_status_and_odd_note_endings() {
     assert_eq!(
         keys.events,
         vec![
-            // The bank select at the program change's tick is its bank.
             event(
                 Ticks::ZERO,
                 EventKind::Program {
@@ -90,7 +81,6 @@ fn a_type_0_file_splits_by_channel_with_running_status_and_odd_note_endings() {
         vec![
             note(Ticks::ZERO, q(1, 2), 36, 120),
             note(q(1, 1), q(1, 2), 36, 110),
-            // Never released: it ends with its track.
             note(q(3, 1), q(5, 1), 46, 100),
         ]
     );
@@ -127,15 +117,12 @@ fn a_type_2_file_and_a_damaged_one_are_refused() {
         smf::read(b"RIFF not a midi file"),
         Err(ReadError::Malformed(_))
     ));
-    // Cut off inside its header.
     assert!(matches!(
         smf::read(&bytes[..10]),
         Err(ReadError::Malformed(_))
     ));
 }
 
-/// What the golden file holds: every kind of event, at positions exact at
-/// 960 ticks a quarter.
 fn golden() -> MidiFile {
     let keys = FileTrack {
         name: Some("Keys".into()),
@@ -144,7 +131,6 @@ fn golden() -> MidiFile {
         notes: vec![
             note(Ticks::ZERO, q(1, 1), 60, 100),
             note(Ticks::ZERO, q(1, 1), 64, 90),
-            // Touching the next note of the same pitch.
             note(q(1, 1), q(1, 2), 67, 1),
             note(q(3, 2), q(1, 960), 67, 127),
             note(q(7, 2), q(3, 1), 72, 64),
@@ -223,7 +209,6 @@ fn meter_at(at: Ticks, numerator: u32, denominator: u32) -> MeterPoint {
 
 #[test]
 fn a_song_that_changes_meter_round_trips_and_a_change_mid_bar_moves_to_a_bar_line() {
-    // 4/4 for two bars, 7/8 for two bars (3.5 quarters each), then 3/4.
     let map = vec![
         meter_at(Ticks::ZERO, 4, 4),
         meter_at(q(8, 1), 7, 8),
@@ -238,8 +223,6 @@ fn a_song_that_changes_meter_round_trips_and_a_change_mid_bar_moves_to_a_bar_lin
         let bytes = smf::write(&song, layout).unwrap();
         assert_eq!(smf::read(&bytes).unwrap().meter, map, "{layout:?}");
     }
-    // A change placed in the middle of a bar lands on a bar line of the
-    // meter before it: 9.5 quarters is nearer 8 than 12.
     let crooked = MidiFile {
         meter: vec![meter_at(Ticks::ZERO, 4, 4), meter_at(q(19, 2), 3, 4)],
         ..song
@@ -256,7 +239,6 @@ fn the_golden_file_is_written_as_before_and_reads_back_exactly() {
     let path = file("lumen-960.mid");
     let bytes = smf::write(&golden(), Layout::Parallel).unwrap();
     if std::env::var_os("LUMEN_WRITE_FIXTURES").is_some() && !path.exists() {
-        // Written once, when the writer was introduced; never rewritten.
         fs::write(&path, &bytes).unwrap();
     }
     assert_eq!(bytes, fs::read(&path).expect("the golden file exists"));
@@ -270,7 +252,6 @@ fn a_type_0_file_round_trips_its_parts_by_channel() {
     let mut expected = golden();
     for part in &mut expected.tracks {
         part.source = 0;
-        // One track holds both parts, under the first part's name.
         part.name = Some("Keys".into());
     }
     for part in &mut read.tracks {
@@ -286,9 +267,7 @@ fn positions_finer_than_the_division_round_to_the_nearest_step() {
     let file = MidiFile {
         tracks: vec![FileTrack {
             notes: vec![
-                // Just under half a step late, and a length under one step.
                 note(Ticks(step * 4 + step / 2 - 1), Ticks(step / 3), 60, 100),
-                // Just over half a step: the next step.
                 note(Ticks(step * 8 + step / 2 + 1), Ticks(step * 2), 62, 100),
             ],
             ..FileTrack::default()
@@ -299,7 +278,6 @@ fn positions_finer_than_the_division_round_to_the_nearest_step() {
     assert_eq!(
         read.tracks[0].notes,
         vec![
-            // A note never shrinks to nothing: one step at least.
             note(Ticks(step * 4), Ticks(step), 60, 100),
             note(Ticks(step * 9), Ticks(step * 2), 62, 100),
         ]
@@ -313,7 +291,6 @@ fn overlapping_strikes_of_one_pitch_keep_their_lengths_on_round_trip() {
         note(q(0, 1), q(4, 1), 60, 100),
         note(q(1, 1), q(4, 1), 60, 80),
         note(q(2, 1), q(4, 1), 60, 70),
-        // Touching the last overlapping note: off must precede on.
         note(q(6, 1), q(1, 1), 60, 90),
         note(q(6, 1), q(1, 1), 64, 110),
     ];
@@ -330,8 +307,6 @@ fn overlapping_strikes_of_one_pitch_keep_their_lengths_on_round_trip() {
     }
 }
 
-/// Delta times are 28 bits: a gap past that is refused, not truncated into a
-/// different position (a project may reach 2^52 ticks).
 #[test]
 fn a_gap_too_long_for_a_delta_time_is_an_error_not_a_wrong_position() {
     let step = lumen_core::time::PPQ / i64::from(smf::DIVISION);
@@ -347,7 +322,6 @@ fn a_gap_too_long_for_a_delta_time_is_an_error_not_a_wrong_position() {
         ..MidiFile::default()
     };
     for layout in [Layout::Single, Layout::Parallel] {
-        // The largest delta that fits is written; one step past it is not.
         let fits = with_gap(longest);
         assert!(smf::write(&fits, layout).is_ok(), "{layout:?}: fits");
         let past = with_gap(longest + i64::from(smf::DIVISION) + 1);
@@ -386,8 +360,6 @@ fn a_tempo_ramp_is_written_as_steps_that_keep_the_time() {
     assert!(back.len() > 8, "a run of steps, not one: {}", back.len());
     assert!(back.iter().all(|p| !p.ramp), "a file holds steps only");
     let (original, stepped) = (TempoMap::new(ramp).unwrap(), TempoMap::new(back).unwrap());
-    // A file keeps whole microseconds a quarter, so the time at the end of the
-    // ramp agrees to a few thousandths of a second.
     let end = q(8, 1);
     assert!((original.seconds_at(end) - stepped.seconds_at(end)).abs() < 0.005);
 }

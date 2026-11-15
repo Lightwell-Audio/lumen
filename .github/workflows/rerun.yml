@@ -1,13 +1,5 @@
 name: Rerun
 
-# A run of CI or Docs that failed only for reasons outside the code (a job
-# that never got a runner, a runner that was lost, a download that failed in
-# a setup step) is run again, once (ADR-0122). A failed test or check is never
-# rerun here: nextest's retries already name a flaky test, and a real failure
-# must stay red. The decision is made by .github/scripts/rerun-infra.sh.
-#
-# GitHub runs a `workflow_run` workflow from the default branch only, so this
-# takes effect once it is on main.
 on:
   workflow_run:
     workflows: [CI, Docs]

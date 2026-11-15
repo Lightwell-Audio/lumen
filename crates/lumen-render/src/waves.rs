@@ -1,39 +1,17 @@
-//! Waveforms (M3 slice 4c, ADR-0027), drawn inside the clips of a box
-//! layer and sharing its row table.
-//!
-//! Peaks (minimum and maximum per bucket of frames, at several
-//! resolutions) live in one atlas texture; a small table says where each
-//! slot's levels start. A wave is a time range on a row that shows a slot's
-//! audio from a given frame. For every pixel the fragment shader turns the
-//! pixel's width into a range of frames, picks the finest level whose
-//! buckets are no wider than that, and takes the extent of the few buckets
-//! underneath: crisp at every zoom, with no work on the CPU per frame.
-
 use bytemuck::{Pod, Zeroable};
 use vello::wgpu;
 
 use crate::{Beats, beats, pipeline};
 
-/// Frames per bucket at the finest level of the peaks this draws.
 pub const PEAK_BASE: u32 = 16;
-/// Buckets of the level below that one bucket covers.
 pub const PEAK_FACTOR: u32 = 4;
-/// Most levels a slot can have.
 pub const MAX_LEVELS: usize = 8;
 
-/// Atlas texels per row; the atlas is a linear run of texels.
 const ATLAS_WIDE: u32 = 4096;
-/// Samples the sample atlas holds (left and right, 16 bits each: 8 MB).
-/// The app hands out space within it and starts over when it is full.
 pub const STRIP_CAPACITY: u32 = ATLAS_WIDE * 512;
-/// Strip table entries per texture row.
 const STRIPS_WIDE: u32 = 256;
-/// The atlas never grows past this many rows (4096 × 8192 texels, 128 MB).
 const ATLAS_MAX_ROWS: u32 = 8192;
 
-/// One wave: the audio of `slot` from frame `first_frame` (at
-/// `frames_per_beat`), shown from beat `start` to `end` on row slot `row`.
-/// A clip that spans tempo changes is one wave per constant-tempo segment.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
 pub struct WaveInstance {
@@ -43,35 +21,20 @@ pub struct WaveInstance {
     pub slot: u32,
     pub first_frame: f32,
     pub frames_per_beat: f32,
-    /// Straight alpha, `0xAABBGGRR`.
     pub color: u32,
-    /// 1 or 2: one waveform, or left over right when there is room.
     pub channels: u32,
-    /// The level the wave is drawn at (the clip's gain; 1 as recorded), so
-    /// a quieter clip looks quieter.
     pub gain: f32,
-    /// The curves of the clip's fade in and fade out, from silence to full:
-    /// `[x1, y1, x2, y2]` of a cubic Bézier from (0, 0) to (1, 1), as
-    /// `lumen_core::curve::Curve` holds them.
     pub curve_in: [f32; 4],
     pub curve_out: [f32; 4],
-    /// Where the clip's fade in runs, from silence to full; equal ends are
-    /// no fade. The wave follows the fade's curve.
     pub fade_in: [Beats; 2],
-    /// Where its fade out runs, from full to silence.
     pub fade_out: [Beats; 2],
 }
 
-/// Where waves sit inside their row, in physical pixels.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WaveStyle {
-    /// From the row's top to the wave area (inset, title bar, a gap).
     pub top: f32,
-    /// From the row's bottom to the wave area.
     pub bottom: f32,
-    /// In from the clip's left and right edges (the border).
     pub side: f32,
-    /// Below this height, stereo is drawn as one waveform.
     pub split_below: f32,
 }
 
@@ -80,27 +43,16 @@ pub(crate) struct Waves {
     count: u32,
     atlas: wgpu::Texture,
     atlas_rows: u32,
-    /// Texels in use (a bump allocator; replaced peaks are not reclaimed).
     used: u32,
     table: wgpu::Texture,
-    /// Per slot and level: first texel and bucket count. Kept here so the
-    /// table can be rewritten when it grows.
     entries: Vec<[[u32; 2]; MAX_LEVELS]>,
-    /// Samples for waves drawn at sample level ([`STRIP_CAPACITY`]), and
-    /// per wave where its strip is ([`StripEntry`]).
     strips: wgpu::Texture,
     strip_table: wgpu::Texture,
-    /// Some wave has a strip: the shader reads the table only then.
     pub(crate) strips_on: bool,
 }
 
-/// Where a wave's samples are, for drawing it sample by sample: first
-/// texel and sample count in the sample atlas, then the viewport x of the
-/// first sample and pixels per sample (as `f32` bits). A count of 0 draws
-/// the wave from its peaks.
 pub type StripEntry = [u32; 4];
 
-// Matches the shader's uniform block, or the build fails.
 const _: () = assert!(size_of::<WaveUniform>() == crate::shaders::WAVES_UNIFORM);
 
 #[repr(C)]
@@ -215,8 +167,6 @@ fn sample_texture(device: &wgpu::Device, rows: u32) -> wgpu::Texture {
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        // Integers, scaled in the shader: 16-bit normalised formats need
-        // an optional GPU feature.
         format: wgpu::TextureFormat::Rg16Sint,
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
@@ -257,11 +207,8 @@ fn table_texture(device: &wgpu::Device, slots: u32) -> wgpu::Texture {
     })
 }
 
-/// A rectangle of the atlas: `x, y, width, height`, in texels.
 type Rect = [u32; 4];
 
-/// The rectangles that hold `texels` texels from linear texel `start`: the
-/// rest of the first row, whole rows, then the start of the last row.
 fn spans(start: u32, texels: u32) -> Vec<Rect> {
     let mut out = Vec::new();
     let (mut at, mut left) = (start, texels);
@@ -279,7 +226,6 @@ fn spans(start: u32, texels: u32) -> Vec<Rect> {
     out
 }
 
-/// Writes `bytes` (whole texels) at linear texel `start` of an atlas.
 fn write_span(queue: &wgpu::Queue, atlas: &wgpu::Texture, start: u32, bytes: &[u8]) {
     const TEXEL: u32 = 4;
     let mut rest = bytes;
@@ -329,9 +275,6 @@ impl Waves {
         }
     }
 
-    /// Puts sample strips in place: `writes` are `(first texel, samples)`
-    /// within [`STRIP_CAPACITY`]; `table` has an entry per wave instance
-    /// (missing ones draw from peaks).
     pub(crate) fn set_strips(
         &mut self,
         device: &wgpu::Device,
@@ -399,8 +342,6 @@ impl Waves {
         self.count = waves.len() as u32;
     }
 
-    /// Stores `levels` (finest first) as slot `slot`. False if the atlas
-    /// is full; that slot then draws nothing.
     pub(crate) fn set_peaks(
         &mut self,
         device: &wgpu::Device,
@@ -414,12 +355,6 @@ impl Waves {
             return false;
         }
         if needed > self.atlas_rows {
-            // Grow, keeping what is there. The copy is submitted at once:
-            // the queue writes below run before any command buffer of the
-            // next submission, so a copy recorded in the frame's encoder
-            // would land after them and overwrite the new peaks with the old
-            // atlas's empty rows (owner, MT-APP-11: the waveform vanished at
-            // the finest zoom near the start of a long file).
             let rows = needed.next_power_of_two().min(ATLAS_MAX_ROWS);
             let bigger = atlas_texture(device, rows);
             let mut copy = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -460,10 +395,6 @@ impl Waves {
         true
     }
 
-    /// Empties the atlas for peaks to be stored again from its start: the
-    /// way space held by peaks no longer drawn (another rate's, a removed
-    /// file's) is reclaimed (M9 slice R6). Every slot draws nothing until
-    /// stored again; the textures keep their size.
     pub(crate) fn clear_peaks(&mut self, queue: &wgpu::Queue) {
         self.used = 0;
         for slot in 0..self.entries.len() {
@@ -550,7 +481,6 @@ impl Waves {
     }
 }
 
-/// The uniform for drawing waves with `style` in an area.
 pub(crate) fn uniform(
     canvas: [u32; 2],
     area: crate::Area,
@@ -579,10 +509,6 @@ pub(crate) fn uniform(
 mod tests {
     use super::*;
 
-    /// A GPU device, or `None` where there is none (some CI machines).
-    /// Vulkan, DX12 or Metal only: on OpenGL (Mesa's llvmpipe on the Linux
-    /// runners) the atlas's negative peaks come back as 0, with or without
-    /// growing, so a read-back cannot check what these tests check.
     fn gpu() -> Option<(wgpu::Device, wgpu::Queue)> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::PRIMARY,
@@ -594,7 +520,6 @@ mod tests {
         pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()
     }
 
-    /// The atlas's first `texels` texels, read back from the GPU.
     fn read_atlas(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -640,16 +565,12 @@ mod tests {
 
     #[test]
     fn peaks_survive_the_atlas_growing() {
-        // Owner, MT-APP-11: a long file's waveform vanished at the finest
-        // zoom. Its peaks were written, then the atlas grew and the copy of
-        // the old, smaller atlas landed over them.
         let Some((device, queue)) = gpu() else {
             eprintln!("no GPU here: skipped");
             return;
         };
         let mut waves = Waves::new(&device);
         let first: Vec<[i8; 4]> = (0..1_000).map(|i| [(i % 100) as i8, 1, 2, 3]).collect();
-        // Far more than the 64 rows the atlas starts with.
         let second: Vec<[i8; 4]> = (0..ATLAS_WIDE * 100)
             .map(|i| [-((i % 90) as i8), 5, 6, 7])
             .collect();
@@ -691,17 +612,13 @@ mod tests {
     #[test]
     fn a_run_of_texels_splits_into_whole_rows_and_partial_ends() {
         const W: u32 = ATLAS_WIDE;
-        // Within one row.
         assert_eq!(spans(10, 5), [[10, 0, 5, 1]]);
-        // From mid-row, across two whole rows, into a fourth.
         assert_eq!(
             spans(W - 3, 3 + 2 * W + 7),
             [[W - 3, 0, 3, 1], [0, 1, W, 2], [0, 3, 7, 1]]
         );
-        // Exactly whole rows.
         assert_eq!(spans(2 * W, W), [[0, 2, W, 1]]);
         assert!(spans(5, 0).is_empty());
-        // Every texel once, in order.
         let total: u32 = spans(123, 9 * W + 77).iter().map(|r| r[2] * r[3]).sum();
         assert_eq!(total, 9 * W + 77);
     }

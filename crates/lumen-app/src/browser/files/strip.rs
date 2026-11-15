@@ -1,9 +1,3 @@
-//! The preview strip under the file list (M9 R7c): the chosen file, its
-//! picture with where the preview is (click to play from there), Auto, the
-//! level, and the pair it is heard on (the owner's O A). What the strip is
-//! about, what it says and how tall it is are here; what it does is
-//! `app::browser::files::strip` (audit M12).
-
 use std::path::{Path, PathBuf};
 
 use eframe::egui::{self, Ui};
@@ -13,21 +7,15 @@ use super::walk::Kind;
 use crate::browser::Tab;
 use crate::theme;
 
-/// A line of the strip, and the picture's well.
 pub(crate) const LINE: f32 = 24.0;
 const WELL: f32 = 40.0;
-/// The ids of the strip's controls that use the arrow keys, which the
-/// list leaves to them while they have the keyboard.
 pub(crate) const WELL_ID: &str = "browser preview position";
 pub(crate) const LEVEL_ID: &str = "browser preview level";
 
-/// The level slider's width at most and at least, and Auto's room.
 pub(crate) const LEVEL: f32 = 104.0;
 pub(crate) const LEVEL_LEAST: f32 = 48.0;
 pub(crate) const AUTO: f32 = 76.0;
 
-/// The file the strip is about: the open tab's chosen file, else the one
-/// playing.
 pub(crate) fn subject(files: &Files, tab: Tab) -> Option<(PathBuf, Kind)> {
     let chosen = files
         .selected
@@ -42,8 +30,6 @@ pub(crate) fn subject(files: &Files, tab: Tab) -> Option<(PathBuf, Kind)> {
     Some((path, kind))
 }
 
-/// What the strip says under its title, and whether it is a warning: a
-/// sound that cannot play, a MIDI file, a project's details.
 pub(crate) fn message(files: &Files, path: &Path, kind: Kind) -> Option<(String, bool)> {
     match kind {
         Kind::Audio => files
@@ -75,8 +61,6 @@ pub(crate) fn message(files: &Files, path: &Path, kind: Kind) -> Option<(String,
     }
 }
 
-/// How tall the strip is in `tab` when it is `width` wide (0: there is
-/// none). Its message is measured, so a long one is read in full.
 pub(crate) fn height(ui: &Ui, files: &Files, tab: Tab, width: f32) -> f32 {
     let Some((path, kind)) = subject(files, tab) else {
         return 0.0;
@@ -89,7 +73,6 @@ pub(crate) fn height(ui: &Ui, files: &Files, tab: Tab, width: f32) -> f32 {
             .map_or(0.0, |(text, _)| message_height(ui, text, width))
     };
     let edges = theme::space::S * 2.0;
-    // The layout puts its item spacing after each row but the last.
     let gap = ui.spacing().item_spacing.y;
     match kind {
         Kind::Audio => {
@@ -105,7 +88,6 @@ pub(crate) fn height(ui: &Ui, files: &Files, tab: Tab, width: f32) -> f32 {
     }
 }
 
-/// How tall `text` is in the strip's caption type, wrapped at `width`.
 pub(crate) fn message_height(ui: &Ui, text: &str, width: f32) -> f32 {
     ui.fonts_mut(|f| {
         f.layout(
@@ -119,13 +101,10 @@ pub(crate) fn message_height(ui: &Ui, text: &str, width: f32) -> f32 {
     .y
 }
 
-/// The picture's well: its usual height, or taller for a message `text`
-/// points tall.
 pub(crate) fn well_height(text: f32) -> f32 {
     WELL.max(text + 2.0 * theme::space::XS)
 }
 
-/// A quiet line under the title, wrapped (a warning when `bad`).
 pub(crate) fn strip_note(ui: &mut Ui, text: &str, bad: bool) {
     let palette = theme::p();
     let colour = if bad {
@@ -144,7 +123,6 @@ pub(crate) fn strip_note(ui: &mut Ui, text: &str, bad: bool) {
     );
 }
 
-/// "120" or "92.5".
 fn trim_bpm(bpm: f64) -> String {
     let text = format!("{bpm:.2}");
     text.trim_end_matches('0').trim_end_matches('.').to_owned()

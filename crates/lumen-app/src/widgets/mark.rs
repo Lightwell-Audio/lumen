@@ -1,12 +1,3 @@
-//! Lumen's mark (the owner's Dawn in Sunrise, ADR-0043): a sun rising
-//! over a horizon, its reflection breaking into a waveform. An amber sun
-//! over water in the accent, drawn on a 64 grid.
-//!
-//! The mark is a meter where it can be: its sun rises with a level and its
-//! light grows with it, and it turns red while recording. At rest the sun
-//! only peeks over the horizon. The geometry is `lumen_brand`'s, which also
-//! draws the window icon and the executable's icons from it.
-
 use eframe::egui::{Color32, Painter, Rect, pos2, vec2};
 use lumen_brand::{
     COMPACT, COMPACT_HALF_WIDTH, COMPACT_REFLECTIONS, GRID, HALF_WIDTH, HORIZON, REFLECTIONS, SUN,
@@ -14,44 +5,34 @@ use lumen_brand::{
 
 use crate::theme;
 
-/// How far below its risen place the sun sits at rest.
 pub const SUNK: f32 = 10.0;
 
-/// How the mark is lit.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Look {
-    /// How far the sun has risen, 0 (peeking) to 1 (on the horizon).
     pub rise: f32,
-    /// How strong its light is, 0 to 1.
     pub glow: f32,
-    /// A red sun, as Record is.
     pub recording: bool,
 }
 
 impl Look {
-    /// At rest: stopped, or silence.
     pub const REST: Self = Self {
         rise: 0.0,
         glow: 0.0,
         recording: false,
     };
 
-    /// Half risen and softly lit: an empty arrangement, waiting.
     pub const WAITING: Self = Self {
         rise: 0.45,
         glow: 0.25,
         recording: false,
     };
 
-    /// Fully risen and lit.
     pub const RISEN: Self = Self {
         rise: 1.0,
         glow: 1.0,
         recording: false,
     };
 
-    /// Lit by a level of `db` (the louder side's RMS): silence below
-    /// −48 dB, fully risen at full scale.
     pub fn level(db: f32, recording: bool) -> Self {
         let t = ((db + 48.0) / 48.0).clamp(0.0, 1.0);
         Self {
@@ -62,12 +43,10 @@ impl Look {
     }
 }
 
-/// The sun's centre on the grid for `rise`.
 pub fn sun_y(rise: f32) -> f32 {
     HORIZON + (1.0 - rise.clamp(0.0, 1.0)) * SUNK
 }
 
-/// Paints the mark into the square `rect`.
 pub fn paint(painter: &Painter, rect: Rect, look: Look) {
     let palette = theme::p();
     let size = rect.width().min(rect.height());
@@ -75,7 +54,6 @@ pub fn paint(painter: &Painter, rect: Rect, look: Look) {
     let origin = rect.center() - vec2(size, size) / 2.0;
     let at = |x: f32, y: f32| origin + vec2(x, y) * unit;
     let compact = size <= COMPACT;
-    // Resting, the whole mark sits back a little.
     let opacity = 0.55 + 0.45 * look.glow;
     let (sun, core) = if look.recording {
         (palette.record, palette.core)
@@ -85,7 +63,6 @@ pub fn paint(painter: &Painter, rect: Rect, look: Look) {
     let water = palette.accent;
     let fade = |c: Color32, a: f32| c.gamma_multiply(a * opacity);
 
-    // The sky: the sun is cut by the horizon.
     let sky = Rect::from_min_max(origin, at(GRID, HORIZON)).intersect(painter.clip_rect());
     let sky_painter = painter.with_clip_rect(sky);
     let center = at(GRID / 2.0, sun_y(look.rise));
@@ -93,7 +70,6 @@ pub fn paint(painter: &Painter, rect: Rect, look: Look) {
     for (reach, a) in [(7.0, 0.12), (3.5, 0.24)] {
         sky_painter.circle_filled(center, (SUN + reach) * unit, fade(sun, a * glow));
     }
-    // The disc, from its amber rim to a white centre.
     const STEPS: usize = 6;
     for i in 0..STEPS {
         let t = i as f32 / (STEPS - 1) as f32;
@@ -101,7 +77,6 @@ pub fn paint(painter: &Painter, rect: Rect, look: Look) {
         sky_painter.circle_filled(center, radius, fade(sun.lerp_to_gamma(core, t), 1.0));
     }
 
-    // The horizon: white at the middle, the water's colour at its ends.
     let width =
         2.0 * if compact {
             COMPACT_HALF_WIDTH
@@ -119,7 +94,6 @@ pub fn paint(painter: &Painter, rect: Rect, look: Look) {
     half(5.0, GRID / 2.0, fade(water, 0.14), middle);
     half(GRID / 2.0, GRID - 5.0, middle, fade(water, 0.14));
 
-    // The water: reflections settling like a waveform.
     let lines: &[(f32, f32, f32, f32)] = if compact {
         &COMPACT_REFLECTIONS
     } else {

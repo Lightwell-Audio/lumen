@@ -1,7 +1,3 @@
-//! The lane on the screen (M5 slice 4b): its header (the lane tabs and the
-//! tools), the pointer, and committing a gesture to the document. See
-//! `gesture` for what a drag means and `paint` for how it looks.
-
 use std::borrow::Cow;
 use std::sync::Arc;
 
@@ -25,24 +21,15 @@ use crate::note_editor::{NoteEditor, notes_of};
 use crate::widgets::{self, Choice, Pill};
 use crate::{App, theme};
 
-/// The height of the lane's header: the tabs and the tools.
 pub(crate) const HEADER: f32 = theme::size::CONTROL + 2.0 * theme::space::XS;
-/// The plotting area's shortest height (points).
 const MIN_PLOT: f32 = 48.0;
-/// ...and tallest.
 const MAX_PLOT: f32 = 150.0;
-/// The roll above the lane keeps at least this much height.
 const ROLL_MIN: f32 = 140.0;
 
-/// The plotting area's height for an editor `height` points tall.
 fn plot_height(height: f32) -> f32 {
     (height * 0.28).clamp(MIN_PLOT, MAX_PLOT)
 }
 
-/// The height to keep at the bottom of the editor for the lane, header
-/// included: none when the lane is switched off or the editor is too short
-/// to spare it. `roll` is the height the toolbar, ruler and notes would
-/// otherwise have.
 pub(crate) fn reserved(roll: f32, state: &LaneState) -> f32 {
     if state.hidden {
         return 0.0;
@@ -51,10 +38,8 @@ pub(crate) fn reserved(roll: f32, state: &LaneState) -> f32 {
     if roll - total < ROLL_MIN { 0.0 } else { total }
 }
 
-/// The controllers the "+ CC" menu offers beside the ones with tabs.
 const COMMON: [u8; 10] = [2, 7, 10, 11, 64, 71, 72, 73, 74, 91];
 
-/// The lane tabs, in order.
 fn kinds(state: &LaneState) -> Vec<LaneKind> {
     let mut kinds = vec![
         LaneKind::Velocity,
@@ -70,7 +55,6 @@ fn kinds(state: &LaneState) -> Vec<LaneKind> {
     kinds
 }
 
-/// A value as the lane's chip and readouts say it.
 fn value_text(kind: LaneKind, value: i32) -> String {
     match kind {
         LaneKind::PitchBend => format!("{} {value:+}", kind.name()),
@@ -78,34 +62,27 @@ fn value_text(kind: LaneKind, value: i32) -> String {
     }
 }
 
-/// What the lane needs from the editor for one frame.
 pub(in crate::note_editor) struct LaneInput<'a> {
     pub clip: &'a Arc<Clip>,
     pub colour: Color32,
     pub view: &'a EditorView,
-    /// The lane's whole area: header, scale and plot.
     pub area: Rect,
     pub lines: &'a [GridLine],
-    /// The pointer, when it is over the editor and nothing covers it.
     pub over: Option<Pos2>,
     pub editable: bool,
 }
 
-/// A gesture's result so far, and whether the bend handle is being dragged.
 struct Live {
     resolved: Resolved,
     bending: bool,
 }
 
 impl App {
-    /// The editor's keys are live and points of a controller lane are
-    /// picked, the last place pressed being the lane: Delete means them.
     pub(crate) fn lane_keys_picked(&self) -> bool {
         let ed = &self.note_editor;
         ed.live && ed.lane.focus && ed.lane.kind != LaneKind::Velocity && !ed.lane.picked.is_empty()
     }
 
-    /// Deletes the picked points of the lane: one undo step.
     pub(crate) fn lane_delete(&mut self) {
         let Some(id) = self.note_editor.clip else {
             return;
@@ -114,7 +91,6 @@ impl App {
         self.document.delete_lane_points(id, &picked);
     }
 
-    /// Draws the lane in `inp.area` and runs its pointer.
     pub(in crate::note_editor) fn draw_lane(
         &mut self,
         ui: &mut Ui,
@@ -171,7 +147,6 @@ impl App {
                 bending: false,
             }
         };
-        // A bend in progress shows the new curve with its dot.
         let live_bend = match (&live.resolved, live.bending) {
             (Resolved::Span { from, to, curve }, true) => Some(BendHandle {
                 from: *from,
@@ -239,7 +214,6 @@ impl App {
         }
     }
 
-    /// The chip beside the pointer while a gesture runs.
     fn lane_chip(
         &self,
         view: &LaneView,
@@ -248,7 +222,6 @@ impl App {
     ) -> Option<String> {
         let kind = view.kind;
         match resolved {
-            // Dragging heads shows the one pressed; a stroke, the last set.
             Resolved::Velocities(changes) => changes
                 .iter()
                 .rfind(|&&(note, _)| grabbed.is_none_or(|g| g == note))
@@ -268,7 +241,6 @@ impl App {
         }
     }
 
-    /// The lane tabs, "+ CC", and the tools.
     fn lane_header(&mut self, ui: &mut Ui, header: Rect, ed: &mut NoteEditor) {
         let mut row = ui.new_child(
             UiBuilder::new()
@@ -327,8 +299,6 @@ impl App {
         });
     }
 
-    /// Presses, drags and releases in the lane. Returns the gesture's
-    /// result so far, for drawing.
     fn lane_pointer(
         &mut self,
         ctx: &egui::Context,
@@ -362,7 +332,6 @@ impl App {
             if let Kind::Heads { grabbed, .. } = &kind
                 && !ed.picked().contains(grabbed)
             {
-                // A head pressed outside the picks picks it alone.
                 self.select_notes(ed, vec![*grabbed]);
             }
             ed.lane.gesture = Some(LaneGesture::new(kind, p));
@@ -399,7 +368,6 @@ impl App {
         if down {
             return Live { resolved, bending };
         }
-        // Released.
         let Some(gesture) = ed.lane.gesture.take() else {
             return nothing;
         };
@@ -407,7 +375,6 @@ impl App {
         nothing
     }
 
-    /// Makes a finished gesture's result in the document: one undo step.
     fn commit_lane(
         &mut self,
         ed: &mut NoteEditor,
@@ -426,7 +393,6 @@ impl App {
             (Resolved::Velocities(changes), _) if !changes.is_empty() => {
                 let indices = self.document.set_velocities_each(None, id, &changes, None);
                 match &gesture.kind {
-                    // Dragging heads keeps the picks, now of the new clip.
                     Kind::Heads { group, .. } => self.select_notes(ed, group.clone()),
                     _ => self.select_notes(ed, indices),
                 }
@@ -502,7 +468,6 @@ impl App {
                 }
             }
             _ => {
-                // A click on one of several picked points picks it alone.
                 if !gesture.dragging
                     && let Kind::Move { grabbed, .. } = &gesture.kind
                 {
@@ -516,7 +481,6 @@ impl App {
     }
 }
 
-/// The note whose head the running gesture drags, if it drags heads.
 fn grabbed_head(ed: &NoteEditor) -> Option<usize> {
     match ed.lane.gesture.as_ref()?.kind {
         Kind::Heads { grabbed, .. } => Some(grabbed),
@@ -524,9 +488,6 @@ fn grabbed_head(ed: &NoteEditor) -> Option<usize> {
     }
 }
 
-/// What a press at `p` in the lane starts. In the velocity lane a press on a
-/// head drags the heads: the picked notes' when it is one of them, else that
-/// note's alone.
 fn start_kind(
     ed: &mut NoteEditor,
     view: &LaneView,

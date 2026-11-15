@@ -17,6 +17,9 @@ short form: the rules, and the checks that keep them.
 
 ## Hard rules (a violation is a High finding)
 
+0. **Code has no comments.** Use clear names and structure for implementation
+   intent. The repository check is `python tools/no_comments.py`; extend its
+   coverage before adding code in a file type it does not scan.
 1. **The audio thread never allocates, locks, blocks or panics.** Anything
    the engine or a device callback runs is real-time code. Data reaches it
    through lock-free queues (`rtrb`); replaced data goes back to be freed

@@ -1,7 +1,3 @@
-//! The shared-memory audio path against real host processes running the
-//! deterministic test plugins: the same sound as the pipe path, in every
-//! wake-up mode, and the faults that matter to a block in flight.
-
 mod support;
 
 use std::time::{Duration, Instant};
@@ -44,7 +40,6 @@ fn soon() -> Instant {
     Instant::now() + Duration::from_secs(5)
 }
 
-/// A block's output, taken from the link once it has been answered.
 fn take(link: &mut BlockLink, channels: usize, frames: usize) -> Vec<Vec<f32>> {
     (0..channels)
         .map(|c| {
@@ -56,8 +51,6 @@ fn take(link: &mut BlockLink, channels: usize, frames: usize) -> Vec<Vec<f32>> {
 }
 
 fn notes(block: u32) -> Vec<Event> {
-    // A different note pattern every block, so a stale or reordered block
-    // cannot look right by accident.
     let pitch = 48 + (block % 24) as i16;
     vec![note_on(block % 32, pitch), note_off(40 + block % 20, pitch)]
 }
@@ -123,7 +116,6 @@ fn a_block_of_an_old_generation_is_stale_and_not_processed() {
         .attach(Layout::new(512, 0, 2), Wake::EVENT, SLOW)
         .expect("attach");
     let old = host.generation();
-    // A new configuration while the link is up.
     host.configure(48_000.0, 512, 0, 2, SLOW)
         .expect("configure");
     let new = host.generation();
@@ -135,9 +127,6 @@ fn a_block_of_an_old_generation_is_stale_and_not_processed() {
     };
     assert_eq!(answer.outcome, Outcome::Stale);
     assert_eq!(link.stale(), 1);
-    // The plugin never saw it: the current generation's first block is the
-    // plugin's first block, and a note on the stale block would still be
-    // sounding if it had.
     link.submit(new, 64, &[], &[], &[]).unwrap();
     assert!(matches!(link.wait(soon()), Poll::Done(a) if a.outcome == Outcome::Done));
     assert!(take(&mut link, 2, 64).iter().flatten().all(|&s| s == 0.0));
@@ -157,7 +146,6 @@ fn a_block_before_the_plugin_is_configured_is_not_ready() {
 #[test]
 fn a_layout_that_differs_from_the_format_is_invalid() {
     let mut host = effect("");
-    // The effect is stereo in and out; this layout has no input.
     let mut link = host
         .attach(Layout::new(512, 0, 2), Wake::EVENT, SLOW)
         .expect("attach");
@@ -168,10 +156,6 @@ fn a_layout_that_differs_from_the_format_is_invalid() {
 
 #[test]
 fn a_block_longer_than_the_plugin_was_promised_is_played_in_pieces_exactly() {
-    // A plugin is told the device's block (ADR-0075); a driver that delivers
-    // more must not hand it more. The host gives it pieces it accepts, each
-    // with its notes and parameter points, and the result is the same as one
-    // call to a plugin promised the whole block.
     let events = [note_on(100, 60), note_off(700, 60), note_on(900, 64)];
     let params = vec![ParamQueue {
         id: LEVEL,
@@ -238,8 +222,6 @@ fn a_plugin_error_is_an_outcome_and_the_host_goes_on() {
 
 #[test]
 fn a_slow_block_is_given_up_on_and_its_late_answer_dropped() {
-    // Every block takes 300 ms (so a thread a busy machine keeps off the CPU
-    // still finds the first unanswered). Lumen gives each 5 ms.
     let mut host = instrument("process_slow=300000");
     let mut link = host
         .attach(Layout::new(512, 0, 2), Wake::EVENT, SLOW)
@@ -255,8 +237,6 @@ fn a_slow_block_is_given_up_on_and_its_late_answer_dropped() {
         link.submit(generation, 64, &[], &[], &[]),
         Err(SubmitError::Busy)
     );
-    // The late answer is stale; the link takes the next block once it has
-    // come. Try until then, not after a fixed time.
     let started = Instant::now();
     loop {
         match link.submit(generation, 64, &[], &[], &[]) {
@@ -292,7 +272,6 @@ fn a_crash_in_processing_leaves_the_block_in_flight_and_the_host_dead() {
         assert!(matches!(link.wait(soon()), Poll::Done(_)));
     }
     link.submit(generation, 64, &[], &notes(2), &[]).unwrap();
-    // The deadline holds although nobody will ever answer.
     let started = Instant::now();
     assert_eq!(
         link.wait(started + Duration::from_millis(50)),
@@ -345,7 +324,6 @@ fn attaching_again_replaces_the_link() {
         .expect("attach again");
     second.submit(generation, 64, &[], &notes(1), &[]).unwrap();
     assert!(matches!(second.wait(soon()), Poll::Done(a) if a.outcome == Outcome::Done));
-    // The first link's host loop has ended: it answers nothing.
     first.submit(generation, 64, &[], &notes(2), &[]).unwrap();
     assert_eq!(
         first.wait(Instant::now() + Duration::from_millis(100)),
@@ -373,7 +351,6 @@ fn many_hosts_run_side_by_side() {
             assert!(matches!(link.wait(soon()), Poll::Done(a) if a.outcome == Outcome::Done));
         }
     }
-    // The same notes into the same plugin: the same sound from every host.
     let first = take(&mut links[0], 2, 64);
     for link in &mut links[1..] {
         assert_eq!(take(link, 2, 64), first);
@@ -414,8 +391,6 @@ fn a_sleeping_worker_wakes_for_a_block_and_for_shutdown() {
     ] {
         let mut host = instrument("");
         let mut link = host.attach(Layout::new(512, 0, 2), wake, SLOW).unwrap();
-        // Past both the hybrid interval and the old 100 ms polling bound:
-        // the worker is waiting in the kernel, rather than still starting.
         std::thread::sleep(Duration::from_millis(150));
         link.submit(host.generation(), 64, &[], &[note_on(0, 69)], &[])
             .unwrap();
@@ -432,17 +407,12 @@ fn a_bad_layout_is_refused_by_the_client_and_the_host_alike() {
         host.attach(Layout::new(0, 0, 2), Wake::EVENT, SLOW)
             .is_err()
     );
-    // The host is fine and can still be attached.
     assert!(
         host.attach(Layout::new(512, 0, 2), Wake::EVENT, SLOW)
             .is_ok()
     );
 }
 
-/// MT-VST-4 run 1 (RP-6): a slow controller call (here a state that never
-/// comes) held the lock the audio thread takes for every block, and the
-/// plugin was given up on for missing a second of blocks. Controller calls
-/// are made without it, so the blocks go on.
 #[test]
 fn blocks_go_on_while_the_main_thread_waits_on_the_plugin() {
     let mut host = instrument("state_hang");
@@ -454,7 +424,6 @@ fn blocks_go_on_while_the_main_thread_waits_on_the_plugin() {
         let state = host.state(Duration::from_secs(2));
         (host, state)
     });
-    // The state call is under way on the host's main thread now.
     std::thread::sleep(Duration::from_millis(200));
     for block in 0..100_u32 {
         link.submit(generation, 64, &[], &notes(block), &[])

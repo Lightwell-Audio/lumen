@@ -1,8 +1,3 @@
-//! Driver capability queries, each run in a sandboxed child process.
-//!
-//! Drivers whose hardware is missing may block on a modal dialog or crash,
-//! so the parent only ever talks to them through a child with a timeout.
-
 use std::io::Read;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -31,7 +26,6 @@ pub struct DriverReport {
     pub clock_sources: Vec<String>,
 }
 
-/// Child-process side: loads the driver, queries it, prints one JSON line.
 pub fn query_one_and_print(clsid: &str) {
     let result = query_one(clsid);
     println!(
@@ -114,7 +108,6 @@ pub enum Outcome {
     BadOutput(String),
 }
 
-/// Runs `query-one` for one driver in a child process with a deadline.
 pub fn query_sandboxed(driver: &RegisteredDriver, timeout: Duration) -> (Outcome, Duration) {
     let started = Instant::now();
     let exe = std::env::current_exe().expect("own executable path");
@@ -133,7 +126,6 @@ pub fn query_sandboxed(driver: &RegisteredDriver, timeout: Duration) -> (Outcome
             );
         }
     };
-    // Read concurrently so a chatty child can never block on a full pipe.
     let mut stdout = child.stdout.take().expect("stdout piped");
     let reader = std::thread::spawn(move || {
         let mut text = String::new();
@@ -168,7 +160,6 @@ pub fn query_sandboxed(driver: &RegisteredDriver, timeout: Duration) -> (Outcome
     (outcome, elapsed)
 }
 
-/// Queries every installed driver, one sandboxed child at a time.
 pub fn query_all(timeout: Duration) {
     let drivers = registry::installed_drivers();
     println!(

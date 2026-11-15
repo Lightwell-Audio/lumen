@@ -1,5 +1,3 @@
-//! The device thread's tests.
-
 use super::run::{Silence, UNANSWERED_LIMIT, output_pairs};
 use super::*;
 
@@ -126,7 +124,6 @@ fn a_load_that_panics_gives_its_permit_back() {
         .join();
         assert!(result.is_err());
     }
-    // The one permit is free: this does not wait for ever.
     let (done, heard) = mpsc::channel();
     let again = gate.clone();
     std::thread::spawn(move || {
@@ -146,12 +143,10 @@ fn a_thread_that_panics_says_so() {
     assert!(!said.get());
 }
 
-/// A control call that timed out.
 fn missed() -> Result<(), HostError> {
     Err(HostError::Timeout)
 }
 
-/// A control call the host answered.
 fn answered() -> Result<(), HostError> {
     Ok(())
 }
@@ -183,8 +178,6 @@ fn an_answer_starts_the_count_again() {
 
 #[test]
 fn a_refusal_is_an_answer_and_does_not_count_towards_a_hang() {
-    // A plugin that says no (a bad state, a busy controller) is listening:
-    // only silence does.
     let refused: Result<(), HostError> = Err(HostError::Protocol("a refusal".into()));
     let mut silence = Silence::default();
     for _ in 0..UNANSWERED_LIMIT + 1 {
@@ -197,9 +190,6 @@ fn a_refusal_is_an_answer_and_does_not_count_towards_a_hang() {
 
 #[test]
 fn a_block_the_host_answered_is_progress_not_a_hang() {
-    // An offline render gives a plugin seconds per block: a control call that
-    // times out while blocks are being answered is a busy plugin, not a hung
-    // one.
     let mut silence = Silence::default();
     let mut blocks = 0;
     for _ in 0..1_000 {
@@ -209,14 +199,11 @@ fn a_block_the_host_answered_is_progress_not_a_hang() {
             "block {blocks}: the host is answering"
         );
     }
-    // The blocks stop: then the misses count.
     assert!(!silence.watch(&missed(), blocks));
     assert!(!silence.watch(&missed(), blocks));
     assert!(silence.watch(&missed(), blocks));
 }
 
-/// The failure said for a host that stopped answering control calls reads as
-/// a hang, so the interface offers a reload as it does for any hung host.
 #[test]
 fn silence_is_reported_as_a_hung_host() {
     let failure = Failure {
@@ -250,17 +237,12 @@ fn the_output_pairs_follow_the_buses_that_are_on_in_order_and_fall_back_to_the_m
     };
     let buses = [bus(2), bus(2), bus(1), bus(2)];
     let pair = |first, channels| Pair { first, channels };
-    // Main only.
     assert_eq!(output_pairs(&buses, 0, 2), [pair(0, 2)]);
-    // Buses 1 and 3: stereo, then stereo, behind the main pair.
     assert_eq!(
         output_pairs(&buses, 0b1010, 6),
         [pair(0, 2), pair(2, 2), pair(4, 2)]
     );
-    // A mono bus is one channel wide.
     assert_eq!(output_pairs(&buses, 0b0100, 3), [pair(0, 2), pair(2, 1)]);
-    // A mask bit with no bus behind it, or a block that does not add up, is
-    // the main bus alone.
     assert_eq!(output_pairs(&buses, 0b1_0000, 2), [pair(0, 2)]);
     assert_eq!(output_pairs(&buses, 0b0010, 7), [pair(0, 2)]);
     assert_eq!(output_pairs(&buses, 0b0010, 1), [pair(0, 1)]);

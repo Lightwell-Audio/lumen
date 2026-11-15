@@ -1,10 +1,3 @@
-//! The block budget in the audio panel (ADR-0075, the owner's B): one bar
-//! for an average block, Lumen's own work then each plugin's (solid, the
-//! plugin working; hatched, the rest of the wait), the plugins' deadline
-//! marked; under it every plugin by time, in a list that scrolls. The five
-//! costliest plugins have their own segments and the rest share one; a row
-//! under the pointer lights its segment.
-
 use std::time::Duration;
 
 use eframe::egui::{self, Align2, Color32, FontId, Rect, RichText, Sense, Stroke, Ui, pos2, vec2};
@@ -13,13 +6,10 @@ use lumen_core::product::PRODUCT_NAME;
 use super::budget::{Budget, MISS_WINDOW, Snapshot};
 use crate::{theme, widgets};
 
-/// Plugins with a segment of their own; the rest share one.
 const OWN: usize = 5;
 
-/// Space between a hatch's lines.
 const HATCH: f32 = 5.0;
 
-/// How much an unlit segment keeps while a row is hovered.
 const UNLIT: f32 = 0.3;
 
 fn ms(d: Duration) -> String {
@@ -30,13 +20,11 @@ fn mono(size: f32) -> FontId {
     FontId::monospace(size)
 }
 
-/// The colour of plugin `i`'s segment and swatch.
 fn shade(i: usize) -> Color32 {
     let p = theme::p();
     p.budget.get(i).copied().unwrap_or(p.text_disabled)
 }
 
-/// Fills `rect` with a hatch of `color` over the muted accent.
 fn hatch(painter: &egui::Painter, rect: Rect, color: Color32) {
     painter.rect_filled(rect, 0.0, theme::p().accent_muted);
     let painter = painter.with_clip_rect(rect.intersect(painter.clip_rect()));
@@ -51,7 +39,6 @@ fn hatch(painter: &egui::Painter, rect: Rect, color: Color32) {
     }
 }
 
-/// A legend or list swatch at the start of `rect`'s row.
 fn swatch(painter: &egui::Painter, at: egui::Pos2, color: Color32, hatched: bool) -> Rect {
     let side = theme::size::BUDGET_SWATCH;
     let rect = Rect::from_min_size(pos2(at.x, at.y - side / 2.0), vec2(side, side));
@@ -63,7 +50,6 @@ fn swatch(painter: &egui::Painter, at: egui::Pos2, color: Color32, hatched: bool
     rect
 }
 
-/// The panel's budget section. Draws nothing until a stretch has been taken.
 pub(super) fn show(ui: &mut Ui, budget: &mut Budget) {
     let Some(snap) = budget.shown.as_ref() else {
         return;
@@ -245,9 +231,6 @@ fn warning(ui: &mut Ui, missing: usize) {
         });
 }
 
-/// The rows: Lumen, then every plugin in a list that scrolls, at most
-/// `room` tall (and at least two rows). Returns the plugin row under the
-/// pointer and the list's height.
 fn list(ui: &mut Ui, snap: &Snapshot, room: f32) -> (Option<usize>, f32) {
     let p = theme::p();
     if !snap.plugins.is_empty() {

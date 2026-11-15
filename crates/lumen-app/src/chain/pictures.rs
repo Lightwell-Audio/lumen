@@ -1,12 +1,3 @@
-//! The plugins' own pictures for the cards' artwork band (M6 slice 3).
-//!
-//! A VST3 bundle may carry a snapshot of each plugin's window in
-//! `Contents/Resources/Snapshots/`. Reading one needs none of the plugin's
-//! code, so it is done here, not in a scan process: a worker thread reads the
-//! file (at most [`MAX_FILE`] bytes), decodes it with limits on its size, and
-//! hands the pixels back; the UI thread only makes the texture. A bundle with
-//! no picture, or one that does not decode, keeps the generated artwork.
-
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -14,14 +5,9 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 
 use eframe::egui::{self, ColorImage, TextureHandle, TextureOptions};
 
-/// The largest picture file read.
 pub(super) const MAX_FILE: u64 = 1 << 20;
-/// The longest side of a picture, in pixels.
 pub(super) const MAX_SIDE: u32 = 2048;
 
-/// The snapshot file for `class` (a 32-digit class id) in the bundle at
-/// `module`, if there is one: the double-resolution picture when both are
-/// there. A single-file module has no resources.
 pub(super) fn snapshot_path(module: &Path, class: &str) -> Option<PathBuf> {
     if !module.is_dir() {
         return None;
@@ -37,8 +23,6 @@ pub(super) fn snapshot_path(module: &Path, class: &str) -> Option<PathBuf> {
     .find(|path| path.is_file())
 }
 
-/// Decodes a PNG into pixels, or says nothing: anything unexpected (too
-/// large, damaged, not a PNG) is "no picture". Never panics on bad input.
 pub(crate) fn decode(bytes: &[u8]) -> Option<ColorImage> {
     let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
     decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
@@ -72,7 +56,6 @@ pub(crate) fn decode(bytes: &[u8]) -> Option<ColorImage> {
     (rgba.len() == size[0] * size[1] * 4).then(|| ColorImage::from_rgba_unmultiplied(size, &rgba))
 }
 
-/// Reads and decodes the picture at `path`, within [`MAX_FILE`].
 fn load(path: &Path) -> Option<ColorImage> {
     let file = std::fs::File::open(path).ok()?;
     let mut bytes = Vec::new();
@@ -84,9 +67,7 @@ fn load(path: &Path) -> Option<ColorImage> {
 }
 
 enum Slot {
-    /// Being read; nothing to draw yet.
     Loading,
-    /// None, or one that cannot be used.
     Absent,
     Ready(TextureHandle),
 }
@@ -94,7 +75,6 @@ enum Slot {
 type Job = (String, PathBuf);
 type Done = (String, Option<ColorImage>);
 
-/// The pictures asked for so far, by class id (for the session).
 pub(crate) struct Pictures {
     slots: HashMap<String, Slot>,
     jobs: Sender<Job>,
@@ -102,12 +82,10 @@ pub(crate) struct Pictures {
 }
 
 impl Pictures {
-    /// `wake` is called from the worker when a picture is ready.
     pub(crate) fn new(wake: impl Fn() + Send + 'static) -> Self {
         let (jobs, requests) = channel::<Job>();
         let (finished, done) = channel::<Done>();
         let spawned = crate::spawn::spawn_named("plugin pictures", move || {
-            // Ends when the app drops its sender.
             while let Ok((class, module)) = requests.recv() {
                 let image = snapshot_path(&module, &class).and_then(|path| load(&path));
                 if finished.send((class, image)).is_err() {
@@ -117,8 +95,6 @@ impl Pictures {
             }
         });
         if let Err(error) = spawned {
-            // A picture makes a device card friendlier; without it the card
-            // is as it always was, so this is noted, not shown.
             crate::trace::log(|| {
                 format!(
                     "pictures: {}",
@@ -133,7 +109,6 @@ impl Pictures {
         }
     }
 
-    /// Makes textures of what the worker finished.
     pub(crate) fn poll(&mut self, ctx: &egui::Context) {
         while let Ok((class, image)) = self.done.try_recv() {
             let slot = match image {
@@ -148,7 +123,6 @@ impl Pictures {
         }
     }
 
-    /// Gives `class` a picture directly (screenshots of the card with one).
     pub(crate) fn put(&mut self, ctx: &egui::Context, class: &str, image: ColorImage) {
         let texture = ctx.load_texture(
             format!("plugin picture {class}"),
@@ -158,8 +132,6 @@ impl Pictures {
         self.slots.insert(class.to_owned(), Slot::Ready(texture));
     }
 
-    /// How the picture of `class` stands: `none` (never asked for),
-    /// `loading`, `absent` or `ready`. For tests.
     pub(crate) fn state(&self, class: &str) -> &'static str {
         match self.slots.get(class) {
             None => "none",
@@ -169,8 +141,6 @@ impl Pictures {
         }
     }
 
-    /// The picture of `class` in the bundle `module`: asks for it the first
-    /// time, and answers once it has been read.
     pub(crate) fn get(&mut self, class: &str, module: Option<&Path>) -> Option<TextureHandle> {
         match self.slots.get(class) {
             Some(Slot::Ready(texture)) => return Some(texture.clone()),
@@ -252,7 +222,6 @@ mod tests {
                 .unwrap()
                 .ends_with(format!("{class}_snapshot_2.0x.png"))
         );
-        // A class id in lower case finds the same file.
         assert!(snapshot_path(&bundle, &class.to_ascii_lowercase()).is_some());
         let lone = dir.path().join("Lone.vst3");
         std::fs::write(&lone, b"x").unwrap();

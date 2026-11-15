@@ -1,6 +1,3 @@
-# cargo-deny policy. Run locally with `cargo deny check`.
-# Dependency licensing rules are recorded in docs/DECISIONS.md (ADR-0013).
-
 [graph]
 all-features = false
 
@@ -8,25 +5,14 @@ all-features = false
 version = 2
 yanked = "deny"
 ignore = [
-    # Unmaintained (not a vulnerability). Reached only through winit's Linux
-    # Wayland window decorations (sctk-adwaita -> ab_glyph). Revisit when
-    # winit or sctk-adwaita drops it.
     { id = "RUSTSEC-2026-0192", reason = "transitive via winit Wayland decorations; no maintained alternative upstream yet" },
-    # Unmaintained (not a vulnerability). Reached only through accesskit's
-    # Linux AT-SPI bridge (accesskit_unix -> zbus). No safe upgrade exists
-    # until eframe/accesskit moves to zbus 6. Revisit then.
     { id = "RUSTSEC-2026-0372", reason = "transitive via accesskit_unix (zbus 5); no safe upgrade available yet" },
-    # Unmaintained (not a vulnerability): zvariant and zbus_names were merged
-    # into zbus 6. Same path as above; even accesskit_unix 0.24 still needs
-    # zbus 5. Drop all three zbus entries once accesskit_unix moves to zbus 6.
     { id = "RUSTSEC-2026-0370", reason = "zvariant, transitive via accesskit_unix (zbus 5); no safe upgrade available yet" },
     { id = "RUSTSEC-2026-0371", reason = "zbus_names, transitive via accesskit_unix (zbus 5); no safe upgrade available yet" },
 ]
 
 [licenses]
 version = 2
-# Permissive licenses only. Anything else (weak copyleft, font licenses,
-# GPL) needs a recorded decision before it is added here.
 allow = [
     "MIT",
     "MIT-0",
@@ -41,19 +27,12 @@ allow = [
     "Unicode-3.0",
 ]
 confidence-threshold = 0.9
-# The allow list is policy, not an inventory; unused entries are fine.
 unused-allowed-license = "allow"
 
-# egui's bundled default fonts, used only by prototypes. Lumen's own fonts
-# are chosen with the design system in M3 (ADR-0013).
 [[licenses.exceptions]]
 crate = "epaint_default_fonts"
 allow = ["OFL-1.1", "Ubuntu-font-1.0"]
 
-# symphonia, the audio decoder (owner decision 2026-10-06, ADR-0013): MPL-2.0
-# is file-level copyleft. Lumen uses these crates unmodified and ships their
-# licence notice (THIRD_PARTY_NOTICES.md). Changing their source would oblige
-# us to publish the changed files.
 [[licenses.exceptions]]
 crate = "symphonia"
 allow = ["MPL-2.0"]
@@ -85,14 +64,11 @@ allow = ["MPL-2.0"]
 crate = "symphonia-bundle-mp3"
 allow = ["MPL-2.0"]
 
-# midly, the Standard MIDI File reader and writer (M5 slice 7): the Unlicense
-# dedicates it to the public domain, with no conditions.
 [[licenses.exceptions]]
 crate = "midly"
 allow = ["Unlicense"]
 
 [licenses.private]
-# Workspace crates are unpublished; their licence comes from the workspace (ADR-0039).
 ignore = true
 
 [bans]

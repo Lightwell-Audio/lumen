@@ -1,19 +1,3 @@
-//! The clip editor for MIDI notes (M5 slice 3c; owner's C2, Look A, Draw A,
-//! Live A). It lives in the detail panel's Clip tab and can pop out into
-//! its own window; both views draw the same [`NoteEditor`] state.
-//!
-//! - `view`: the geometry (the editor's own time axis and pitch scroll);
-//! - `gesture`: the mouse gestures as pure arithmetic, with the preview;
-//! - `paint`: the drawing boundary (slice 3b's GPU renderer plugs in here);
-//! - `toolbar`: the clip header strip (title, tools, grid, Lane, Pop out);
-//! - `glyphs`: its icons;
-//! - `ui`: the input, the ruler and the menu;
-//! - `ops`: the note edits as commands and menus run them;
-//! - `window`: the pop-out.
-//!
-//! The document changes once per gesture, on release, as one undo step;
-//! the notes follow the pointer meanwhile as a preview. Escape cancels.
-
 pub(crate) mod gesture;
 pub(crate) mod glyphs;
 pub(crate) mod lane;
@@ -39,8 +23,6 @@ use crate::{App, document::NewClip};
 
 pub(crate) use ops::{NoteOp, VELOCITY_STEP};
 
-/// What a click or drag in a clip editor does (both editors' tool switch,
-/// `app::clip_header`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum Tool {
     #[default]
@@ -48,7 +30,6 @@ pub(crate) enum Tool {
     Draw,
 }
 
-/// What the right-click menu is for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum MenuFor {
     #[default]
@@ -56,85 +37,44 @@ pub(crate) enum MenuFor {
     Notes,
 }
 
-/// A zoom key pressed while the editor has the keyboard, waiting for the
-/// editor to draw (it knows its own width and the pointer).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EditorZoom {
     In,
     Out,
 }
 
-/// The editor's state, shared by the panel and the window.
 #[derive(Default)]
 pub(crate) struct NoteEditor {
-    /// The clip being edited.
     pub clip: Option<Id>,
     pub tool: Tool,
-    /// The picked notes; follows the editor's own edits and clears when the
-    /// notes change under it (undo, redo).
     pub selection: Option<NoteSelection>,
     pub gesture: Option<gesture::Gesture>,
-    /// The velocity and controller lane under the roll (slice 4b).
     pub lane: lane::LaneState,
-    /// Quantize, its popover and the tools (slice 5).
     pub quantize: quantize::QuantizeState,
-    /// Where the lane was drawn last (tests).
     pub last_lane: Option<lane::geometry::LaneView>,
-    /// The editor is in its own window.
     pub popped: bool,
-    /// The editor's own horizontal view: its zoom and scroll, independent of
-    /// the arrangement (owner decision, ADR-0048). Fitted to each clip when
-    /// it opens (`framed_for`).
     pub time: TimeView,
-    /// Zoom keys waiting for the next frame.
     pub zooms: Vec<EditorZoom>,
-    /// Points a pitch is tall (0 until first drawn).
     pub row_height: f32,
-    /// Points scrolled down from the top of the first row.
     pub scroll: f32,
-    /// The clip the view was last framed for: fitted to its span and
-    /// centred vertically when it first draws.
     pub framed_for: Option<Id>,
-    /// Written while drawing: the pointer is over the editor, and the
-    /// clip time and pitch it is at.
     pub hovered: bool,
-    /// What `hovered` was when the frame began (the drawing resets it).
     pub hovered_before: bool,
     pub pointer_at: Option<(Ticks, i32)>,
-    /// The pop-out window has the keyboard.
     pub window_focused: bool,
-    /// Where the pop-out window opened, kept while it is open so its
-    /// builder does not change under it (egui would move the window).
     pub window_opened_at: Option<crate::settings::WindowPlace>,
-    /// The editor's keys are live: set at the start of each frame.
     pub live: bool,
-    /// The note editor's lane toggle, and its menu, read these.
     pub menu_for: MenuFor,
-    /// On a track with a drum map: the key column shows only the map's
-    /// sounds (M8 D1, "Hide unmapped keys"). Not saved: a view, like the
-    /// lane's shown state.
     pub hide_unmapped: bool,
-    /// The drum editor's own view state (M8 D2): the view a track's clips open
-    /// in, its Hide unused, the lanes showing length, and a reorder. Not
-    /// saved.
     pub drum: crate::drum_editor::State,
-    /// The clip time under the pointer when the menu was opened: "Split
-    /// here" cuts there. Latched, because while the menu is used the pointer
-    /// is over the menu, not the roll, so `pointer_at` is empty.
     pub menu_at: Option<Ticks>,
-    /// Notes a marquee in progress would pick.
     pub boxed: Vec<usize>,
-    /// When and where the pointer last pressed on empty space in the roll
-    /// (egui's clock): a second press soon and near draws a note.
     pub last_empty_press: Option<(f64, egui::Pos2)>,
-    /// The roll's note boxes, kept until the clip or the picks change.
     boxes: Option<NoteBoxes>,
     generation: u64,
-    /// Where the notes were drawn last (tests).
     pub last_view: Option<view::EditorView>,
 }
 
-/// The GPU boxes of the open clip's notes and what they were built from.
 struct NoteBoxes {
     clip: std::sync::Arc<Clip>,
     picked: Vec<usize>,
@@ -145,10 +85,6 @@ struct NoteBoxes {
 }
 
 impl NoteEditor {
-    /// The boxes for `clip` in `colour` with the picked notes outlined,
-    /// rebuilt only when the clip, the picks, the colour or the rows shown
-    /// changed. With a folded roll (`rows` fewer than 128) a note is drawn
-    /// on the index of its row and a note on a hidden key is left out.
     pub fn boxes_for(
         &mut self,
         clip: &std::sync::Arc<Clip>,
@@ -180,9 +116,6 @@ impl NoteEditor {
             )
             .into_iter()
             .filter_map(|mut instance| {
-                // The layer's row table puts a note at pitch `p` on row
-                // `127 - p`; a folded roll puts a note at pitch `p` on the
-                // index of that pitch's row instead.
                 let row = rows.row_of(instance.row as i32)?;
                 instance.row = (crate::note_editor::view::PITCHES as u32) - 1 - row as u32;
                 Some(instance)
@@ -204,12 +137,10 @@ impl NoteEditor {
 }
 
 impl NoteEditor {
-    /// The picked indices.
     pub fn picked(&self) -> &[usize] {
         self.selection.as_ref().map_or(&[], |s| s.indices())
     }
 
-    /// Ends a gesture without changing anything. True if one was running.
     pub fn cancel_gesture(&mut self) -> bool {
         let notes = self.gesture.take().is_some();
         let lane = self.lane.cancel_gesture();
@@ -218,7 +149,6 @@ impl NoteEditor {
     }
 }
 
-/// The notes of a MIDI clip.
 pub(crate) fn notes_of(clip: &Clip) -> &[Note] {
     match &clip.content {
         ClipContent::Midi { notes, .. } => notes,
@@ -227,7 +157,6 @@ pub(crate) fn notes_of(clip: &Clip) -> &[Note] {
 }
 
 impl App {
-    /// The open clip and its colour, if it is still a MIDI clip.
     pub(crate) fn editor_clip(&self, id: Id) -> Option<(std::sync::Arc<Clip>, egui::Color32)> {
         self.document.project().tracks.iter().find_map(|t| {
             t.clips
@@ -242,7 +171,6 @@ impl App {
         })
     }
 
-    /// The drum map a clip's track reads, if it reads one (M8 D1).
     pub(crate) fn clip_drum_map(&self, clip: Id) -> Option<&lumen_project::model::DrumMap> {
         let project = self.document.project();
         let track = project
@@ -252,8 +180,6 @@ impl App {
         project.drum_map_of(track)
     }
 
-    /// The sounds of the map the open clip's track reads, for the key
-    /// column: each sound's drawing, name, colour and whether it is heard.
     pub(crate) fn clip_key_sounds(
         &self,
         clip: Id,
@@ -273,26 +199,20 @@ impl App {
         )
     }
 
-    /// Whether the open clip is on a track with a drum map (the key
-    /// column's "Hide unmapped keys" can act).
     pub(crate) fn editor_has_drum_map(&self) -> bool {
         self.note_editor
             .clip
             .is_some_and(|clip| self.clip_drum_map(clip).is_some())
     }
 
-    /// The key column shows only the drum map's sounds, or every key again.
     pub(crate) fn toggle_hide_unmapped_keys(&mut self) {
         if !self.editor_has_drum_map() {
             return;
         }
         self.note_editor.hide_unmapped = !self.note_editor.hide_unmapped;
-        // The view no longer fits the same rows: keep the scroll sensible.
         self.note_editor.framed_for = None;
     }
 
-    /// Opens MIDI clip `clip` in the Clip tab (showing the detail panel),
-    /// and brings it into view in the arrangement. Not a MIDI clip: nothing.
     pub(crate) fn open_note_editor(&mut self, clip: Id) {
         if self.editor_clip(clip).is_none() {
             return;
@@ -317,7 +237,6 @@ impl App {
             .push(crate::app::navigate::ViewStep::ShowClip(clip));
     }
 
-    /// Stops editing (the clip is gone).
     pub(crate) fn close_note_editor(&mut self) {
         self.end_audition();
         let ed = &mut self.note_editor;
@@ -328,8 +247,6 @@ impl App {
         ed.popped = false;
     }
 
-    /// Once a frame, before the keys: the open clip is still there, the
-    /// selection is current, and the editor knows whether its keys are live.
     pub(crate) fn refresh_note_editor(&mut self, ctx: &egui::Context) {
         if let Some(clip) = self.note_editor.clip {
             if self.editor_clip(clip).is_none() {
@@ -340,7 +257,6 @@ impl App {
                     selection.refresh(project);
                 }
                 if let Some(gesture) = &self.note_editor.gesture {
-                    // Undo, or any change to the notes, ends a gesture.
                     let fresh = self.editor_clip(clip).map(|(c, _)| c);
                     let same = |c: &std::sync::Arc<Clip>| {
                         std::sync::Arc::ptr_eq(c, &gesture.clip)
@@ -364,26 +280,18 @@ impl App {
         self.note_editor.hovered = false;
     }
 
-    /// The editor's keys are live and notes are picked: the arrows, Delete,
-    /// Ctrl+D, 0 and Esc mean notes.
     pub(crate) fn note_keys_picked(&self) -> bool {
         self.note_editor.live && !self.note_editor.picked().is_empty()
     }
 
-    /// The editor's keys are live (Ctrl+A selects its notes).
     pub(crate) fn note_keys(&self) -> bool {
         self.note_editor.live
     }
 
-    /// A MIDI clip is open and has notes picked (commands from the palette
-    /// and menus work without the pointer in the editor).
     pub(crate) fn notes_are_picked(&self) -> bool {
         self.note_editor.clip.is_some() && !self.note_editor.picked().is_empty()
     }
 
-    /// The MIDI track Create MIDI clip puts a clip on: the first selected
-    /// MIDI track, else the first MIDI track of the time range, else the
-    /// track last clicked on the lanes (ADR-0049).
     pub(crate) fn midi_track_for_new_clip(&self) -> Option<Id> {
         let tracks = &self.document.project().tracks;
         let is_midi = |id: &Id| {
@@ -405,8 +313,6 @@ impl App {
         self.arrangement.insert.filter(is_midi)
     }
 
-    /// Create MIDI clip: over the time range if there is one, else one bar
-    /// at the edit position (the playhead). Opens the new clip.
     pub(crate) fn create_midi_clip_here(&mut self) {
         let Some(track) = self.midi_track_for_new_clip() else {
             return;
@@ -418,7 +324,6 @@ impl App {
         self.put_midi_clip(track, place);
     }
 
-    /// Makes a MIDI clip, selects it and opens it in the editor.
     pub(crate) fn put_midi_clip(&mut self, track: Id, place: NewClip) {
         if let Some(clip) = self.document.create_midi_clip(track, place) {
             self.arrangement.clips = [clip].into_iter().collect();

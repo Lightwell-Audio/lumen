@@ -1,9 +1,3 @@
-//! The Pitch chip's popover (M9.5 S7): the chip and the popover hanging under
-//! it keep their place while Transpose is dragged (F1); a pitch envelope the
-//! clip carries is shown even while it cannot be heard, and can be removed in
-//! one step (F2); and Repitch says why the pitch does not change and offers
-//! Melodic (F3).
-
 use eframe::egui::{Key, Modifiers, Pos2, Rect, accesskit};
 use egui_kittest::kittest::{NodeT, Queryable};
 use lumen_project::model::{Id, WarpMode};
@@ -13,7 +7,6 @@ use super::audio_clip_properties::type_into;
 use super::audio_editor_handles::{clip, shown, x_of};
 use super::warp_chip::{close_chip, open_chip, opened_click_track};
 
-/// A warped clip in `mode`, opened in the Clip tab, with every popover shut.
 fn warped_in(name: &str, mode: &str) -> (Lumen, Id) {
     let (mut lumen, id) = opened_click_track(name);
     open_chip(&mut lumen);
@@ -25,7 +18,6 @@ fn warped_in(name: &str, mode: &str) -> (Lumen, Id) {
     (lumen, id)
 }
 
-/// The Pitch chip, opened.
 fn open_pitch(lumen: &mut Lumen) {
     lumen
         .harness
@@ -44,7 +36,6 @@ fn shows(lumen: &Lumen, label: &str) -> bool {
         .is_some()
 }
 
-/// The chip's place on screen, as a screen reader reads it.
 fn chip_rect(lumen: &Lumen) -> Rect {
     lumen
         .harness
@@ -54,7 +45,6 @@ fn chip_rect(lumen: &Lumen) -> Rect {
         .rect()
 }
 
-/// The Transpose field: its left edge is the popover's, moved.
 fn transpose_rect(lumen: &Lumen) -> Rect {
     lumen.harness.get_by_label_contains("Transpose: ").rect()
 }
@@ -67,8 +57,6 @@ fn transpose_disabled(lumen: &Lumen) -> bool {
         .is_disabled()
 }
 
-/// The popover's Pitch envelope switch: the header's pill has the same name,
-/// and is a button.
 fn press_envelope_switch(lumen: &mut Lumen) {
     let switch = lumen
         .harness
@@ -87,8 +75,6 @@ fn mode(lumen: &Lumen, id: Id) -> WarpMode {
     clip(lumen, id).warp.expect("warped").mode
 }
 
-/// F1 (the owner's report): the chip changed width and the popover shook
-/// horizontally while Transpose was dragged.
 #[test]
 fn the_chip_and_its_popover_stay_still_while_the_transpose_is_dragged() {
     let (mut lumen, id) = warped_in("pitch-still", "Melodic");
@@ -113,15 +99,12 @@ fn the_chip_and_its_popover_stay_still_while_the_transpose_is_dragged() {
     assert_eq!(transposed(&lumen, id), 200);
     assert_eq!(chip_rect(&lumen), chip, "nor at another transpose");
     assert_eq!(transpose_rect(&lumen).left(), field.left());
-    // Only the words it says change.
     assert!(
         shows(&lumen, "Pitch: transposed +2 st"),
         "the chip says what is set"
     );
 }
 
-/// F2 (the owner's report): with warp off a clip kept a pitch envelope point,
-/// and the popover said nothing about it.
 #[test]
 fn an_envelope_is_shown_and_removed_in_one_step_even_when_it_is_not_heard() {
     let (mut lumen, id) = opened_click_track("pitch-envelope-row");
@@ -130,7 +113,6 @@ fn an_envelope_is_shown_and_removed_in_one_step_even_when_it_is_not_heard() {
     press_envelope_switch(&mut lumen);
     close_chip(&mut lumen);
 
-    // A click high on the wave adds a point an octave or so up.
     let body = shown(&lumen).body;
     let at = Pos2::new(x_of(&lumen, 2.0), body.top() + body.height() * 0.25);
     lumen.harness.hover_at(at);
@@ -164,8 +146,6 @@ fn an_envelope_is_shown_and_removed_in_one_step_even_when_it_is_not_heard() {
     );
 }
 
-/// F3 (the owner's report): in Repitch the popover did nothing and did not
-/// say why.
 #[test]
 fn repitch_says_why_and_offers_melodic_in_one_step() {
     let (mut lumen, id) = warped_in("pitch-repitch", "Repitch");

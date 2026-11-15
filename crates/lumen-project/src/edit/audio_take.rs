@@ -1,11 +1,3 @@
-//! Recorded audio (M9 slice R2), the pure part: a finished take is a file, and
-//! the file goes onto its track as a clip over the span it was played in.
-//!
-//! The M3 overlap rule applies, as for any clip put down on others: the take
-//! wins and whatever it covers is cut away (one undo step restores it). A
-//! locked clip is never cut, so a take that would land on one goes on a new
-//! audio track after the source instead, and the answer says so.
-
 use std::sync::Arc;
 
 use lumen_core::time::Ticks;
@@ -14,39 +6,24 @@ use crate::model::{Clip, ClipContent, Id, Media, Pass, Project, Track, TrackKind
 
 use super::{overwrite, takes, warp};
 
-/// A recorded file to put on a track.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Take {
     pub track: Id,
     pub media: Media,
-    /// The clip's name.
     pub name: String,
-    /// Where the file's first frame is played.
     pub start: Ticks,
-    /// How long the file plays.
     pub length: Ticks,
-    /// A loop recording's passes (M9 R3): the frame of the file at the clip's
-    /// start for each pass, in order. The clip plays the last and keeps the
-    /// others as takes. One makes a plain clip that plays from that frame.
     pub passes: Vec<i64>,
-    /// The pass the clip plays, an index into `passes`.
     pub active: usize,
-    /// Whether the clip follows the song's tempo (M9.5 S4d), and how it is
-    /// stretched: it plays as it was recorded, then follows later changes.
     pub follow: Option<WarpMode>,
 }
 
-/// What [`apply`] did.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Placed {
-    /// The new clips, in the order of the takes that could be placed.
     pub clips: Vec<Id>,
-    /// Tracks made for takes that a locked clip kept off their own track.
     pub new_tracks: Vec<Id>,
 }
 
-/// Puts each take on its track and registers its file as media. A take whose
-/// track is gone, or is not an audio track, is left out.
 pub fn apply(project: &mut Project, takes: &[Take], fresh: &mut impl FnMut() -> Id) -> Placed {
     let mut placed = Placed::default();
     for take in takes {
@@ -125,8 +102,6 @@ pub fn apply(project: &mut Project, takes: &[Take], fresh: &mut impl FnMut() -> 
     placed
 }
 
-/// A new audio track after the source (and its group's other tracks), in the
-/// source's group, holding the clip.
 pub(super) fn put_on_new_track(project: &mut Project, at: usize, id: Id, clip: Arc<Clip>) {
     let source = Arc::clone(&project.tracks[at]);
     let index = crate::groups::span(&project.tracks, at).end;
@@ -209,10 +184,6 @@ mod tests {
         t.follow = Some(WarpMode::FullMix);
         apply(&mut p, &[t], &mut ids());
         let warp = the_clip(&p, 2).warp.clone().expect("warp on");
-        // Two quarters at 120 BPM are a second of the file, and two at 60 are
-        // two more; the point at 100 is past the clip and gets nothing. The
-        // end of the clip is pinned too, or its last stretch would play at the
-        // original tempo.
         assert_eq!(
             warp.markers,
             [
@@ -228,7 +199,6 @@ mod tests {
             (third - 2.0).abs() < 1e-9,
             "beat three plays second {third}"
         );
-        // The song is at 120 where the clip starts.
         assert_eq!(warp.original_bpm, 120.0);
         assert!(crate::validate(&p).is_ok());
     }
@@ -264,15 +234,11 @@ mod tests {
             panic!("the pass follows too");
         };
         assert_eq!(other.markers.len(), warp.markers.len());
-        // The first pass starts at the file's first frame, the active at 2 s.
         assert_eq!(other.markers[0].source, 0.0);
         assert_eq!(warp.markers[0].source, 2.0);
         assert!(crate::validate(&p).is_ok());
     }
 
-    /// A take shorter than the ramp's sampling step has no tempo point of its
-    /// own, yet its end must still be pinned (review round 2): past its last
-    /// marker a map plays at the original tempo.
     #[test]
     fn a_short_take_inside_a_ramp_still_has_its_end_pinned() {
         let mut p = song();
@@ -291,7 +257,6 @@ mod tests {
         let want = tempo.seconds_at(end);
         let got = lumen_core::warp::source_at(&warp.markers, warp.original_bpm, end);
         assert!((got - want).abs() < 1e-9, "the end plays {got}, not {want}");
-        // A take clear of the ramp is still the one marker.
         let mut p = song();
         p.tempo[0].ramp = true;
         p.tempo
@@ -306,7 +271,6 @@ mod tests {
     #[test]
     fn a_take_lands_on_its_track_and_cuts_what_it_covers() {
         let mut p = song();
-        // Track 0 holds one clip from 4 to 12: a take over 6..8 splits it.
         let t = take(&p, 0, 6, 2);
         let placed = apply(&mut p, &[t], &mut ids());
         assert_eq!(placed.clips.len(), 1);

@@ -1,17 +1,9 @@
-//! The drum map chooser (M8 slice D0, narrowed by D1): the list a clip's
-//! notes are converted to. Attaching a map, and editing one, is D1's map
-//! editor (`app/drum_map_window`); this window is only the destructive
-//! conversion's choice of a target, which the clip's menu opens.
-
 use eframe::egui::{self, Align2, RichText, pos2};
 use lumen_project::model::Id;
 
 use crate::widgets::{Dialog, raised};
 use crate::{App, theme};
 
-/// What the chooser is choosing for: the clips whose notes are rewritten,
-/// the tracks they sit on (switched to the target), and whether the notes
-/// the target lacks are kept.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Choice {
     pub tracks: Vec<Id>,
@@ -20,8 +12,6 @@ pub(crate) struct Choice {
 }
 
 impl App {
-    /// Whether the selected clips can be converted: at least one is on a
-    /// track with a drum map, and the project holds another map to go to.
     pub(crate) fn can_convert_drum_map(&self) -> bool {
         let clips = &self.arrangement.clips;
         if clips.is_empty() {
@@ -44,7 +34,6 @@ impl App {
                 .any(|m| !sources.contains(&m.id))
     }
 
-    /// Opens the chooser for the selected MIDI clips' notes.
     pub(crate) fn choose_drum_map_conversion(&mut self) {
         let clips: Vec<Id> = self.arrangement.clips.iter().copied().collect();
         let mut tracks = Vec::new();
@@ -69,7 +58,6 @@ impl App {
         });
     }
 
-    /// The chooser, while it is open.
     pub(crate) fn drum_choice_window(&mut self, ctx: &egui::Context) {
         let Some(choice) = self.drum_choice.clone() else {
             return;
@@ -103,7 +91,6 @@ impl App {
             [one] => format!("\u{201c}{one}\u{201d}"),
             [first, rest @ ..] => format!("\u{201c}{first}\u{201d} and {} more", rest.len()),
         };
-        // A map every chosen track already plays through is not offered.
         let used = |id: Id| !current.is_empty() && current.iter().all(|c| *c == Some(id));
         let mut convert = None;
         let mut keep = choice.keep_missing;

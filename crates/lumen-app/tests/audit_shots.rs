@@ -1,16 +1,3 @@
-//! The whole-application look audit (M7b E6): every menu, popover, window
-//! and panel, rendered headless to PNG in both themes and several scales,
-//! with two mechanical checks on each state (controls without a name, and
-//! labelled controls that leave the window). Not a test of behaviour: it
-//! is ignored, and runs on demand with a GPU:
-//!
-//! ```text
-//! $env:SHOTS = "<existing folder>"
-//! cargo test -p lumen-app --test audit_shots -- --ignored --test-threads=1 --nocapture
-//! ```
-//!
-//! The mechanical findings are appended to `<SHOTS>/audit-report.txt`.
-
 use std::io::Write as _;
 use std::path::PathBuf;
 
@@ -23,12 +10,10 @@ use lumen_project::testing::TempDir;
 
 type H = Harness<'static, App>;
 
-/// A window being audited, and where its pictures and findings go.
 struct Scene {
     h: H,
     tag: String,
     dir: TempDir,
-    /// Names already listed, so a state lists only what is new in it.
     seen: std::collections::HashSet<String>,
 }
 
@@ -46,8 +31,6 @@ fn report(line: &str) {
 }
 
 impl Scene {
-    /// A window of `size` in `appearance` at `scale`, with three tones on
-    /// three tracks when `files` is set.
     fn new(name: &str, appearance: &str, scale: f32, size: (f32, f32), files: bool) -> Scene {
         let dir = TempDir::new(&format!("audit-{name}-{appearance}-{scale}"));
         let launch = Launch::for_test(dir.path()).appearing(appearance);
@@ -78,7 +61,6 @@ impl Scene {
         scene
     }
 
-    /// A window with a fixture project from `tests/projects` open.
     fn with_project(
         name: &str,
         appearance: &str,
@@ -134,7 +116,6 @@ impl Scene {
         self.h.run_steps(n);
     }
 
-    /// Saves a picture and runs the two mechanical checks.
     fn snap(&mut self, what: &str) {
         self.h.run_steps(4);
         let name = format!("{what}-{}", self.tag);
@@ -148,8 +129,6 @@ impl Scene {
         }
     }
 
-    /// The names that appeared since the last state, to learn what a menu
-    /// holds.
     fn list_new(&mut self, what: &str) {
         let mut fresh = Vec::new();
         for n in self
@@ -228,8 +207,6 @@ impl Scene {
                     || r.top() < screen.top() - slack
                     || r.right() > screen.right() + slack
                     || r.bottom() > screen.bottom() + slack;
-                // Wholly outside is scrolled content; only a control that
-                // straddles the edge has left the window.
                 (out && r.intersects(screen)).then(|| {
                     format!(
                         "{:?} \"{}\" at ({:.0},{:.0},{:.0},{:.0}) window {:.0}x{:.0}",
@@ -250,8 +227,6 @@ impl Scene {
         }
     }
 
-    /// Every labelled control on screen, for finding names while writing a
-    /// scene.
     fn dump(&self, what: &str) {
         let mut seen = Vec::new();
         for n in self
@@ -278,7 +253,6 @@ impl Scene {
         }
     }
 
-    /// The centre of the first control whose name contains `label`.
     fn find(&self, label: &str) -> Option<Rect> {
         self.h
             .query_all_by_label_contains(label)
@@ -286,8 +260,6 @@ impl Scene {
             .next()
     }
 
-    /// Left-clicks the first control whose name contains `label`. A missing
-    /// one is a finding.
     fn click(&mut self, label: &str) -> bool {
         match self.find(label) {
             Some(r) => {
@@ -305,8 +277,6 @@ impl Scene {
         }
     }
 
-    /// The first control named `label` that is wider than a button, such as a
-    /// menu row.
     fn find_row(&self, label: &str) -> Option<Rect> {
         self.h
             .query_all_by_label_contains(label)
@@ -314,8 +284,6 @@ impl Scene {
             .find(|r| r.width() > 100.0)
     }
 
-    /// Left-clicks the lowest control named `label` (the detail panel's tab
-    /// rather than the browser's of the same name).
     fn click_last(&mut self, label: &str) -> bool {
         let found = self
             .h
@@ -382,7 +350,6 @@ impl Scene {
         self.h.run_steps(6);
     }
 
-    /// A command from the palette, by (part of) its name.
     fn command(&mut self, name: &str) {
         self.h.key_press_modifiers(Modifiers::COMMAND, Key::K);
         self.h.run_steps(3);
@@ -403,15 +370,12 @@ impl Scene {
     }
 }
 
-/// The looks the audit covers: the owner's common window in both themes, and
-/// the smallest window at 200%.
 const LOOKS: [(&str, f32, (f32, f32)); 3] = [
     ("dark", 1.0, (1280.0, 760.0)),
     ("light", 1.5, (1280.0, 760.0)),
     ("dark", 2.0, (960.0, 540.0)),
 ];
 
-/// Runs `scene` for the looks the audit covers.
 fn looks(name: &str, files: bool, scene: impl Fn(&mut Scene)) {
     for (appearance, scale, size) in LOOKS {
         let mut s = Scene::new(name, appearance, scale, size, files);
@@ -419,7 +383,6 @@ fn looks(name: &str, files: bool, scene: impl Fn(&mut Scene)) {
     }
 }
 
-/// [`looks`] with the fixture project `fixture` open.
 fn looks_in(name: &str, fixture: &str, scene: impl Fn(&mut Scene)) {
     for (appearance, scale, size) in LOOKS {
         let mut s = Scene::with_project(name, appearance, scale, size, fixture);
@@ -472,7 +435,6 @@ impl eframe::egui::DroppedFile for Dropped {
     }
 }
 
-/// A stereo 16-bit WAV of a soft tone, `seconds` long.
 fn wav(path: &std::path::Path, seconds: f32) -> PathBuf {
     let rate = 48_000_u32;
     let frames = (seconds * rate as f32) as usize;

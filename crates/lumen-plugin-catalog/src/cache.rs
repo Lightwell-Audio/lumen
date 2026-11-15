@@ -1,25 +1,11 @@
-//! What scans learned, kept between runs. One entry per module, keyed by
-//! its path and stamped with the library's size and modification time: an
-//! entry whose stamp still matches is trusted and the module is not loaded
-//! again. A module that was blocked is an entry too, with its reason, so it
-//! is retried when its file changes and not before.
-//!
-//! The file is human-readable JSON. A cache that cannot be read, or that a
-//! newer Lumen wrote, is discarded and rebuilt by scanning: it is only ever
-//! a copy of what the plugins say, never anyone's work.
-
 use serde::{Deserialize, Serialize};
 
 use crate::stamp::Stamp;
 
-/// Bumped when the file's shape changes. A cache of another version is
-/// discarded.
 pub const CACHE_VERSION: u32 = 1;
 
-/// One class a module offers.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClassRecord {
-    /// The class id as 32 hexadecimal digits (see [`crate::catalog::class_id`]).
     pub id: String,
     pub name: String,
     pub category: String,
@@ -31,21 +17,15 @@ pub struct ClassRecord {
     pub sdk_version: String,
 }
 
-/// Why a module is blocked.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Reason {
-    /// Its process died, by a signal or exception or a failure code.
     Crashed { how: String, detail: String },
-    /// It did not answer within `seconds`.
     TimedOut { seconds: u64 },
-    /// It could not be loaded, or has no factory.
     Failed { message: String },
-    /// It answered with something unreadable.
     Malformed { message: String },
 }
 
-/// What is known about one module.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum Result {
@@ -57,16 +37,13 @@ pub enum Result {
     },
     Blocked {
         reason: Reason,
-        /// When it was blocked, in seconds since the Unix epoch.
         at: u64,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
-    /// The `.vst3` folder or file the user knows it by.
     pub path: String,
-    /// The library that was loaded.
     pub binary: String,
     pub stamp: Stamp,
     pub result: Result,
@@ -87,7 +64,6 @@ impl Default for Cache {
     }
 }
 
-/// A cache read from bytes, and why it was thrown away if it was.
 #[derive(Debug)]
 pub struct Loaded {
     pub cache: Cache,
@@ -99,8 +75,6 @@ impl Cache {
         Self::default()
     }
 
-    /// Reads a cache. Anything unreadable gives an empty one and the reason;
-    /// this never fails.
     pub fn load(bytes: &[u8]) -> Loaded {
         let discard = |why: String| Loaded {
             cache: Cache::new(),
@@ -146,7 +120,6 @@ impl Cache {
             .map(|i| &self.entries[i])
     }
 
-    /// Adds or replaces the entry for its path.
     pub fn set(&mut self, entry: Entry) {
         match self
             .entries
@@ -157,8 +130,6 @@ impl Cache {
         }
     }
 
-    /// Forgets a module, so the next scan loads it again whatever its stamp:
-    /// how Retry and "rescan this plugin" work. True if it was known.
     pub fn forget(&mut self, path: &str) -> bool {
         match self.entries.binary_search_by(|e| e.path.as_str().cmp(path)) {
             Ok(i) => {
@@ -169,14 +140,12 @@ impl Cache {
         }
     }
 
-    /// Keeps only entries for which `keep` is true; returns how many went.
     pub fn retain(&mut self, mut keep: impl FnMut(&Entry) -> bool) -> usize {
         let before = self.entries.len();
         self.entries.retain(|e| keep(e));
         before - self.entries.len()
     }
 
-    /// The modules that are blocked.
     pub fn blocked(&self) -> impl Iterator<Item = &Entry> {
         self.entries
             .iter()

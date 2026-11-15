@@ -1,14 +1,3 @@
-//! Files that belong to no project (M9 slice R4b, ADR-0106): audio in the
-//! project's `Samples` folders that no media entry names, and what Lumen's work
-//! folders (`Renders`, `Recordings`) still hold of cancelled renders and
-//! discarded takes. The pool lists them and moves them to the system's trash
-//! when asked; nothing here ever erases a file.
-//!
-//! A work-folder file is left alone when something may still want it: the
-//! open document (undone renders stay in its file map so a redo finds them),
-//! an autosave a crash left (it names the file, and recovery needs it), or a
-//! take of a session that can still be recovered or is still recording.
-
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -18,44 +7,32 @@ use crate::files::{IMPORTED, RECORDED, RENDERED};
 use crate::media::is_audio_file;
 use crate::recording::take_worker::{Sidecar, sidecar_path};
 
-/// Which folder a stray file is in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Place {
-    /// The project's `Samples` folders.
     Samples,
-    /// Lumen's folder of rendered audio.
     Renders,
-    /// Lumen's folder of recorded audio.
     Recordings,
 }
 
-/// One file nothing wants.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Stray {
     pub path: PathBuf,
     pub place: Place,
     pub size: u64,
-    /// A take a crash interrupted (it has its sidecar, which goes with it).
     pub unfinished: bool,
 }
 
-/// What the scan needs to know. All plain data, so the scan runs on a worker.
 #[derive(Debug, Clone, Default)]
 pub struct Inputs {
-    /// The project's folder, when it has been saved.
     pub project_dir: Option<PathBuf>,
-    /// The project's media entries, saved paths and all.
     pub media: Vec<Media>,
-    /// Where the document says each file is now.
     pub files: Vec<(Id, PathBuf)>,
     pub renders: Option<PathBuf>,
     pub recordings: Option<PathBuf>,
-    /// Where autosaves are kept, and this session's name in it.
     pub autosaves: Option<PathBuf>,
     pub session: Option<String>,
 }
 
-/// What the scan found.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Strays {
     pub files: Vec<Stray>,
@@ -67,8 +44,6 @@ impl Strays {
     }
 }
 
-/// Looks through the folders for files nothing wants. Reads the disk: run it
-/// on a worker.
 pub fn scan(inputs: &Inputs) -> Strays {
     let mut wanted: HashSet<PathBuf> = inputs.files.iter().map(|(_, p)| canonical(p)).collect();
     if let Some(dir) = &inputs.project_dir {
@@ -121,10 +96,6 @@ pub fn scan(inputs: &Inputs) -> Strays {
     Strays { files }
 }
 
-/// A take's sidecar whose session is gone for good: not this one, and with no
-/// autosave left that could recover it. One that cannot be read is not, and
-/// neither is one a newer build wrote: its shape may say something else, so
-/// it is left for that build (sweep M9).
 fn is_abandoned(sidecar: &Path, inputs: &Inputs) -> bool {
     let Some(sidecar) = known_sidecar(sidecar) else {
         return false;
@@ -139,7 +110,6 @@ fn is_abandoned(sidecar: &Path, inputs: &Inputs) -> bool {
     !recoverable
 }
 
-/// The sidecar's contents, when it is this build's shape.
 fn known_sidecar(path: &Path) -> Option<Sidecar> {
     match crate::recording::take_worker::read_sidecar(path) {
         crate::recording::take_worker::SidecarRead::Known(sidecar) => Some(sidecar),
@@ -157,7 +127,6 @@ fn stray(path: PathBuf, place: Place, unfinished: bool) -> Stray {
     }
 }
 
-/// The audio files directly in `folder`.
 fn audio_in(folder: &Path) -> Vec<PathBuf> {
     std::fs::read_dir(folder)
         .into_iter()
@@ -169,8 +138,6 @@ fn audio_in(folder: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-/// The text of each autosave in `dir`: a crashed session's project names the
-/// files it plays, so a work-folder file it names is not a stray.
 fn autosave_texts(dir: Option<&Path>) -> Vec<String> {
     let Some(dir) = dir else { return Vec::new() };
     std::fs::read_dir(dir)
@@ -192,30 +159,22 @@ fn canonical(path: &Path) -> PathBuf {
     }
 }
 
-/// What a clear came to.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Cleared {
-    /// Files (and sidecars with them) now in the trash.
     pub moved: usize,
     pub bytes: u64,
-    /// Files that stayed, with why.
     pub failed: Vec<(PathBuf, String)>,
 }
 
-/// Moves `strays` (and the sidecars of unfinished takes) to the system's trash.
-/// A file the trash refuses stays where it is.
 pub(crate) fn clear(strays: &[Stray]) -> Cleared {
     clear_with(strays, |path| {
         trash::delete(path).map_err(|e| e.to_string())
     })
 }
 
-/// [`clear`] with the mover given, so tests do not fill the real trash.
 pub fn clear_with(strays: &[Stray], mut mover: impl FnMut(&Path) -> Result<(), String>) -> Cleared {
     let mut cleared = Cleared::default();
     for stray in strays {
-        // The file first: a sidecar left without its file is harmless, a file
-        // left without its sidecar would pass for a finished take.
         match mover(&stray.path) {
             Ok(()) => {
                 cleared.moved += 1;
@@ -244,8 +203,6 @@ mod tests {
         std::fs::write(path, vec![0_u8; bytes]).unwrap();
     }
 
-    /// The one step the other tests leave to a mover that only records. Run by
-    /// hand (MT-PROJ-2 step 5): the file is then in the system's trash.
     #[test]
     #[ignore = "moves a file to the real system trash"]
     fn the_real_trash_takes_the_file() {
@@ -311,7 +268,6 @@ mod tests {
 
     #[test]
     fn an_entry_nothing_plays_still_keeps_its_file() {
-        // Remove unused drops the entry first; only then is the file a stray.
         let dir = TempDir::new("stray-unused");
         touch(&dir.path().join("Samples/Imported/idle.wav"), 10);
         let mut inputs = Inputs {
@@ -333,7 +289,6 @@ mod tests {
         touch(&renders.join("cancelled.wav"), 10);
         let inputs = Inputs {
             renders: Some(renders.clone()),
-            // The file map keeps the undone render, so a redo finds it.
             files: vec![
                 (Id(1), renders.join("live.wav")),
                 (Id(2), renders.join("undone.wav")),

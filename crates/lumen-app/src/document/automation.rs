@@ -1,10 +1,3 @@
-//! A track's automation lanes (M7 slice A0, format v22): making a lane,
-//! replacing the points of one, switching one off and taking one away. Each
-//! is one undo step; the drag of a point merges into one. A lane follows the
-//! thing it drives: a device's lanes go with the device when it moves or is
-//! copied and go when it is removed (`devices.rs`), a send's lane goes with
-//! its return (`mixer.rs`).
-
 use std::sync::Arc;
 
 use lumen_core::automation::{Lane, Point};
@@ -16,21 +9,15 @@ use lumen_project::model::Id;
 use super::Document;
 use super::mixer::tracks_mut;
 
-/// A lane edit that joins others into one undo step.
 #[derive(Debug, Clone, Copy)]
 enum Gesture<'a> {
-    /// One move of a drag.
     Drag,
-    /// One part of a recorded pass, merged by the pass's own key.
     Pass(&'a str),
 }
 
-/// How a lane write is named and whether it lets the lane play.
 #[derive(Debug, Clone, Copy)]
 struct Write<'a> {
-    /// The undo step's name, where the default does not fit.
     named: Option<&'a str>,
-    /// Whether the write ends a take-over of the lane.
     hear: bool,
 }
 
@@ -43,24 +30,16 @@ impl Default for Write<'_> {
     }
 }
 
-/// Why a lane edit was refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LaneRefusal {
-    /// No such track.
     NoTrack,
-    /// The track has nothing the lane could drive: a send it does not make,
-    /// a device it does not hold.
     NoTarget,
-    /// The track already has the most lanes it may.
     TooMany,
-    /// A point before the start of the song.
     BeforeStart,
-    /// The clip whose envelope it is has its lock on.
     Locked,
 }
 
 impl LaneRefusal {
-    /// Why, in a few words, for a note on screen.
     pub fn reason(self) -> &'static str {
         match self {
             LaneRefusal::NoTrack => "That track is gone",
@@ -73,10 +52,6 @@ impl LaneRefusal {
 }
 
 impl Document {
-    /// Makes `track`'s lane for `target` hold `lane`, making the lane if the
-    /// track has none, and switching it on. Values are brought into the
-    /// target's range. An empty lane takes the lane away. A drag passes
-    /// `gesture`, and its moves are one undo step.
     pub fn set_lane(
         &mut self,
         track: Id,
@@ -93,11 +68,6 @@ impl Document {
         )
     }
 
-    /// Writes the part of a recorded pass heard so far (M7 review M1), so a
-    /// crash or a quit does not lose a long pass. Every part of the pass is
-    /// merged by `key` into one undo step named "Record automation", and the
-    /// lane stays taken over: it is still being written, so it must not play
-    /// against the hand.
     pub fn record_lane_so_far(
         &mut self,
         track: Id,
@@ -117,10 +87,6 @@ impl Document {
         )
     }
 
-    /// Writes a finished pass as `lane` (M7 slice A4b), joining the parts
-    /// already written under `key`: one undo step named "Record automation",
-    /// never merged with the step before it. As any edit of a lane, it lets
-    /// the lane play again if the user had taken it over.
     pub fn record_lane(
         &mut self,
         track: Id,
@@ -182,8 +148,6 @@ impl Document {
         } else {
             "Add automation lane"
         });
-        // Drawing on a lane is asking to hear it; a pass still being written
-        // is not.
         if hear {
             self.reenable_lane(track, target);
         }
@@ -208,10 +172,6 @@ impl Document {
         Ok(())
     }
 
-    /// Makes the envelope of `kind` of the audio clip `clip` hold `lane`,
-    /// which is in song time (the lane editor's clock); it is kept from the
-    /// clip's start. Values are brought into the kind's range and an empty lane
-    /// takes the envelope away. A drag's moves are one undo step.
     fn write_envelope(
         &mut self,
         track: Id,
@@ -261,9 +221,6 @@ impl Document {
         Ok(())
     }
 
-    /// Switches `track`'s lane for `target` on or off, keeping its points. A
-    /// lane that is off plays nothing, and the control it drives keeps the
-    /// value it was set to. The lane already so records nothing.
     pub fn set_lane_enabled(
         &mut self,
         track: Id,
@@ -291,11 +248,6 @@ impl Document {
         Ok(())
     }
 
-    /// Takes the pitch envelope of the audio clip `clip` away, points and
-    /// all, as one undo step named "Remove clip envelope": the audio editor's
-    /// Pitch popover (M9.5 S7, F2). A locked clip keeps it
-    /// ([`LaneRefusal::Locked`]), and a clip with no pitch envelope changes
-    /// nothing and adds no step.
     pub fn clear_clip_pitch_envelope(&mut self, clip: Id) -> Result<(), LaneRefusal> {
         let track = self
             .project()
@@ -307,7 +259,6 @@ impl Document {
         self.remove_lane(track, Target::envelope(clip, Kind::Pitch))
     }
 
-    /// Takes `track`'s lane for `target` away, points and all.
     pub fn remove_lane(&mut self, track: Id, target: Target) -> Result<(), LaneRefusal> {
         let held = super::mixer::find(self.project(), track).ok_or(LaneRefusal::NoTrack)?;
         if let Some((clip, kind)) = target.clip() {
@@ -394,13 +345,11 @@ mod tests {
         assert_eq!(lanes(&doc, t).len(), 1, "a track has one lane for a target");
         assert_eq!(doc.set_lane_enabled(t, Target::Volume, false), Ok(()));
         assert!(!lanes(&doc, t)[0].enabled);
-        // Already off: nothing recorded.
         let steps = doc.history().steps().0.len();
         assert_eq!(doc.set_lane_enabled(t, Target::Volume, false), Ok(()));
         assert_eq!(doc.history().steps().0.len(), steps);
         assert_eq!(doc.remove_lane(t, Target::Volume), Ok(()));
         assert!(lanes(&doc, t).is_empty());
-        // Four steps since the track was added.
         for _ in 0..4 {
             doc.undo();
         }
@@ -455,8 +404,6 @@ mod tests {
         lumen_project::validate(doc.project()).unwrap();
     }
 
-    /// F2: the Pitch popover's Remove envelope takes the clip's pitch
-    /// envelope away in one step, and one undo brings it back.
     #[test]
     fn the_clips_pitch_envelope_is_taken_away_in_one_step() {
         use lumen_project::model::Project;
@@ -493,7 +440,6 @@ mod tests {
         assert_eq!(doc.history().steps().0.len(), steps + 1, "one step for it");
         doc.undo();
         assert_eq!(doc.project(), &before, "one undo brings it all back");
-        // A locked clip keeps its envelope.
         doc.set_clips_locked(&[clip], true);
         assert_eq!(
             doc.clear_clip_pitch_envelope(clip),
@@ -501,7 +447,6 @@ mod tests {
         );
         assert!(envelope(&doc, clip).is_some());
         doc.set_clips_locked(&[clip], false);
-        // One with no pitch envelope changes nothing and records nothing.
         assert_eq!(doc.clear_clip_pitch_envelope(clip), Ok(()));
         assert!(envelope(&doc, clip).is_none());
         let steps = doc.history().steps().0.len();
@@ -587,7 +532,6 @@ mod tests {
             doc.set_lane(t, Target::Volume, lane(&[(0, 0.0)]), false),
             Err(LaneRefusal::TooMany)
         );
-        // A lane that is there can still be edited.
         assert_eq!(
             doc.set_lane(
                 t,
@@ -633,17 +577,14 @@ mod tests {
         doc.set_lane(a, Target::Volume, lane(&[(0, -2.0)]), false)
             .unwrap();
 
-        // Moving to another track takes the lane along, in the same step.
         let steps = doc.history().steps().0.len();
         doc.move_device(a, device, b, Slot::End).unwrap();
         assert_eq!(doc.history().steps().0.len(), steps + 1);
         assert_eq!(lanes(&doc, a).len(), 1);
         assert_eq!(lanes(&doc, b)[0].target, target);
-        // Within one chain nothing moves.
         doc.move_device(b, device, b, Slot::At(0)).unwrap();
         assert_eq!(lanes(&doc, b).len(), 1);
 
-        // A copy is a new device with its own copy of the lane.
         let copy = doc.copy_device(b, device, a, Slot::End).unwrap();
         let copied = lanes(&doc, a);
         let copied = copied
@@ -654,12 +595,10 @@ mod tests {
         assert_eq!(lanes(&doc, b).len(), 1, "the original keeps its own");
         lumen_project::validate(doc.project()).unwrap();
 
-        // Removing a device takes its lanes; undo puts both back.
         doc.remove_device(b, device).unwrap();
         assert!(lanes(&doc, b).is_empty());
         doc.undo();
         assert_eq!(lanes(&doc, b).len(), 1);
-        // Undoing the copy and the move puts the lane back where it was.
         doc.undo();
         doc.undo();
         assert_eq!(lanes(&doc, a).len(), 2);

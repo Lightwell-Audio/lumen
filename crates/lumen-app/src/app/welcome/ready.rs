@@ -1,6 +1,3 @@
-//! The first-run window's Ready step (ADR-0115): the summary, theme and
-//! size.
-
 use super::*;
 
 impl App {
@@ -113,8 +110,6 @@ impl App {
         }
     }
 
-    /// The Sound row of the summary: the driver, the device, the rate and
-    /// buffer, and the round trip; or why there is no sound.
     pub(super) fn sound_summary(&self) -> String {
         let audio = &self.transport.audio;
         match (&audio.status, &audio.info) {
@@ -141,7 +136,6 @@ impl App {
         }
     }
 
-    /// The Plugins row of the summary.
     pub(super) fn plugins_summary(&self) -> String {
         if self.safe.on || self.plugins.is_off() {
             return "Off for this run".to_owned();
@@ -164,6 +158,4 @@ impl App {
             }
         }
     }
-
-    // ── Footer ──────────────────────────────────────────────────────────
 }

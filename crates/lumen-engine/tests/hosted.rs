@@ -1,10 +1,3 @@
-//! Hosted instruments through the engine (M6 slice 2b, ADR-0069). A fake host
-//! stands for the plugin's process: it answers at once, or after a delay on a
-//! worker thread. The engine hands every host its block before the clips
-//! render and collects them against one deadline; a host that misses is
-//! silence, and three misses fail it. Every path runs inside the allocation
-//! guard (and under RealtimeSanitizer in Linux CI).
-
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle, Thread};
@@ -32,9 +25,6 @@ struct Shared {
     stop: AtomicBool,
 }
 
-/// A plugin host that is not one: with no delay it answers inside `submit`;
-/// with one, a worker thread answers after it. It writes +1 at a note-on's
-/// frame and -1 at a note-off's, like the built-in probe.
 struct FakeHost {
     shared: Arc<Shared>,
     worker: Option<JoinHandle<()>>,
@@ -44,22 +34,14 @@ struct FakeHost {
     events: Vec<Event>,
     log: Option<Log>,
     overlap: Option<Arc<Overlap>>,
-    /// What the plugin's latency delays its output by: the last `shift`
-    /// frames of the left channel, carried into the next block.
     ring: Vec<f32>,
     ring_at: usize,
-    /// A parameter this plugin plays as its output: its value, held from
-    /// the sample the block says it changed on (M7 slice A3).
     follow: Option<u32>,
     level: f32,
-    /// The followed parameter's points in the block being answered.
     points: Vec<(u32, f64)>,
-    /// How many blocks carried a point of the followed parameter.
     carried: Option<Arc<AtomicU32>>,
 }
 
-/// Whether the engine hands every fake host its block before it waits for
-/// any: how many blocks had been handed over when the first host was collected.
 #[derive(Default)]
 struct Overlap {
     submitted: AtomicU32,
@@ -67,8 +49,6 @@ struct Overlap {
 }
 
 impl FakeHost {
-    /// `unpark`: wake the worker on submit (an OS call, so not under the
-    /// real-time sanitizer); otherwise it notices within a millisecond.
     fn new(delay: Duration, unpark: bool, log: Option<Log>) -> Box<Self> {
         Self::build(delay, unpark, log, None)
     }
@@ -120,21 +100,16 @@ impl FakeHost {
         })
     }
 
-    /// A host that plays the value of parameter `id` as its output.
     fn following(mut self: Box<Self>, id: u32) -> Box<Self> {
         self.follow = Some(id);
         self
     }
 
-    /// A host that counts the blocks that carry a point of its followed
-    /// parameter in `count`.
     fn counting(mut self: Box<Self>, count: Arc<AtomicU32>) -> Box<Self> {
         self.carried = Some(count);
         self
     }
 
-    /// A host whose output trails what it was given by `frames`, as a plugin
-    /// that reports that latency does.
     fn shifted(mut self: Box<Self>, frames: usize) -> Box<Self> {
         self.ring = vec![0.0; frames];
         self
@@ -258,8 +233,6 @@ impl Hosted for FakeHost {
         false
     }
 
-    /// One auxiliary output (pair 1): the same impulses, as the second bus of
-    /// a plugin that plays its notes there too.
     fn output(&mut self, pair: usize, left: &mut [f32], right: &mut [f32]) -> bool {
         if pair != 1 || self.shared.done.load(Ordering::Acquire) != self.seq {
             return false;
@@ -278,7 +251,6 @@ impl Hosted for FakeHost {
     }
 }
 
-/// The built-in reference: the same impulses, in the same call.
 struct Probe {
     held: i32,
 }
@@ -323,7 +295,6 @@ fn builtin() -> Option<InstrumentSpec> {
     })
 }
 
-/// A hosted instrument and what the interface may read about its host.
 fn hosted(host: Box<FakeHost>) -> (Option<InstrumentSpec>, Arc<Status>) {
     let guard = Guard::new(host, 0);
     let status = guard.status();
@@ -366,12 +337,10 @@ struct Rig {
     rate: u32,
 }
 
-/// Tracks `1..=tracks.len()`, one MIDI track each, all into the master.
 fn rig(timeline: Timeline, rate: u32, tracks: Vec<MidiTrack>) -> Rig {
     rig_with_sources(timeline, rate, tracks, &[])
 }
 
-/// As [`rig`], with `(track, frames)` of source latency on some tracks.
 fn rig_with_sources(
     timeline: Timeline,
     rate: u32,
@@ -520,8 +489,6 @@ fn a_plugin_instruments_latency_is_compensated_so_it_lines_up_with_a_plain_track
 
 #[test]
 fn an_instruments_other_output_plays_on_its_own_track_on_the_same_samples() {
-    // Track 1 is the instrument (muted, so only its other output is heard);
-    // track 2 is the audio track that plays the instrument's output pair 1.
     let notes = vec![note(Q(2) + Ticks(12_345), Q(1), 60), note(Q(4), Q(1), 64)];
     let timeline = Timeline::constant(120.0, Meter::FOUR_FOUR);
     for (rate, block) in [(48_000, 128), (44_100, 100), (96_000, 480)] {
@@ -603,9 +570,7 @@ fn stop_and_a_loop_wrap_let_go_of_what_the_host_is_holding() {
         .send(Command::SetLoop(Region::new(Ticks::ZERO, Q(4), true)))
         .unwrap();
     rig.play();
-    // Three passes of the loop, the long note cut at each wrap.
     rig.run(48_000 * 6, 128);
-    // Stop in the middle of a note, then let the host's messages through.
     rig.run(30_000, 128);
     rig.transport.send(Command::Stop).unwrap();
     rig.run(2_000, 128);
@@ -630,7 +595,6 @@ fn a_host_that_misses_is_silent_and_fails_after_a_second_and_the_other_tracks_pl
         rig.play();
         impulses(&rig.run(144_000, 128))
     };
-    // A host that takes 200 ms to answer a block of 128 frames.
     let (slow, status) = hosted(FakeHost::new(Duration::from_millis(200), false, None));
     let slow_track = MidiTrack::new(
         1,
@@ -671,10 +635,6 @@ fn sixty_four_hosts_have_their_blocks_in_flight_together_not_one_after_another()
             )
         })
         .collect();
-    // One part of 256 frames at 8 kHz: the callback's deadline is 24 ms, so a
-    // 5 ms host is in time, and the engine submits to every host (a few
-    // microseconds each) before the first is collected. Had it waited for each
-    // in turn, one block would have been handed over by then.
     let mut rig = rig(Timeline::default(), 8_000, tracks);
     rig.play();
     rig.run(256, 256);
@@ -691,7 +651,6 @@ fn hosted_instruments_never_touch_the_heap() {
     let mut statuses = Vec::new();
     let mut tracks = Vec::new();
     for id in 1..=4u64 {
-        // Three answer at once; the last never answers in time and fails.
         let delay = if id == 4 {
             Duration::from_millis(30)
         } else {
@@ -741,9 +700,6 @@ fn hosted_instruments_never_touch_the_heap() {
 
 #[test]
 fn a_plugin_with_latency_and_another_output_never_touches_the_heap_through_every_transport_move() {
-    // Track 1: a hosted instrument that reports latency (its source is
-    // compensated), playing its other output on track 2; track 3 is a busy
-    // host that is refused and tried again; track 4 is a plain instrument.
     let rate = 48_000;
     let notes = vec![
         note(Q(1), Q(6), 60),
@@ -833,7 +789,6 @@ fn a_plugin_with_latency_and_another_output_never_touches_the_heap_through_every
     assert!(busy_status.failed(), "the slow host was given up on");
 }
 
-/// What the app puts in every track list after the one that attached the host.
 fn standin() -> Option<InstrumentSpec> {
     Some(InstrumentSpec {
         kind: 2,
@@ -860,8 +815,6 @@ fn reference_impulses() -> Vec<(usize, i32)> {
 
 #[test]
 fn a_host_attached_after_a_stand_in_list_is_the_one_that_plays() {
-    // The track has a stand-in while its plugin loads; the list that
-    // attaches the host comes later and must not give the host away.
     let mut rig = rig(Timeline::default(), 48_000, vec![one_note_track(standin())]);
     rig.run(256, 128);
     let (spec, status) = hosted(FakeHost::new(Duration::ZERO, false, None));
@@ -874,8 +827,6 @@ fn a_host_attached_after_a_stand_in_list_is_the_one_that_plays() {
 
 #[test]
 fn a_host_that_arrives_while_a_note_is_held_sounds_that_note() {
-    // The plugin finishes loading in the middle of a long note: the host
-    // has not heard its note-on, so it is struck there and ended as usual.
     let long = || {
         MidiTrack::new(
             1,
@@ -886,7 +837,6 @@ fn a_host_that_arrives_while_a_note_is_held_sounds_that_note() {
     };
     let mut rig = rig(Timeline::default(), 48_000, vec![long()]);
     rig.play();
-    // Past the note's start (a quarter is 24,000 frames at 120 BPM).
     rig.run(36_000, 128);
     let log = Log::default();
     let (spec, status) = hosted(FakeHost::new(Duration::ZERO, false, Some(Arc::clone(&log))));
@@ -894,10 +844,7 @@ fn a_host_that_arrives_while_a_note_is_held_sounds_that_note() {
     arrived.instrument = spec;
     assert!(rig.midi.set(vec![arrived]).is_ok());
     rig.run(12_000, 128);
-    // A later list (an edit) carries the host on: the note is not struck
-    // again.
     assert!(rig.midi.set(vec![long()]).is_ok());
-    // Through the note's end, at a quarter after seven.
     rig.run(24_000 * 7, 128);
     let log = log.lock().unwrap();
     let ons: Vec<_> = log
@@ -922,8 +869,6 @@ fn a_list_skipped_before_it_plays_hands_its_host_to_the_list_that_replaces_it() 
     let mut rig = rig(Timeline::default(), 48_000, vec![one_note_track(standin())]);
     rig.run(256, 128);
     let (spec, status) = hosted(FakeHost::new(Duration::ZERO, false, None));
-    // Two lists wait for one block: the engine plays only the newer, and
-    // the older, with the only handle to the host, is freed unplayed.
     assert!(rig.midi.set(vec![one_note_track(spec)]).is_ok());
     assert!(rig.midi.set(vec![one_note_track(standin())]).is_ok());
     rig.play();
@@ -955,7 +900,6 @@ fn a_parameter_lane_changes_a_plugin_instruments_parameter_on_its_exact_sample()
     };
     for block in [64, 100, 128, 256, 333] {
         let (spec, status) = hosted(FakeHost::new(Duration::ZERO, false, None).following(4));
-        // A note held through the whole run keeps the plugin given blocks.
         let track = MidiTrack::new(
             1,
             Target::Instrument,
@@ -971,7 +915,6 @@ fn a_parameter_lane_changes_a_plugin_instruments_parameter_on_its_exact_sample()
         let mut rig = rig(timeline.clone(), 48_000, vec![track]);
         rig.play();
         let out = rig.run(20_000, block);
-        // The first blocks fade in from the engine's play ramp.
         for (n, &heard) in out.iter().enumerate().skip(2_000) {
             let want = if n < 10_001 { 0.25 } else { 0.75 };
             assert!(
@@ -985,9 +928,6 @@ fn a_parameter_lane_changes_a_plugin_instruments_parameter_on_its_exact_sample()
 
 #[test]
 fn a_lane_that_is_taken_away_stops_reaching_a_plugin_instrument() {
-    // The owner's report: with the lane off or removed, a parameter could not
-    // be changed, because the instrument was given the lane's last block again
-    // with every block after it.
     use lumen_core::automation::Shape;
     use lumen_engine::{AutoLane, AutoPoint, ParamLane};
     let timeline = Timeline::constant(120.0, Meter::FOUR_FOUR);
@@ -1022,7 +962,6 @@ fn a_lane_that_is_taken_away_stops_reaching_a_plugin_instrument() {
         out[3_000..].iter().all(|&s| (s - 0.5).abs() < 1e-6),
         "the lane holds the parameter"
     );
-    // The same track again, as the app sends it with the lane gone.
     assert!(
         rig.midi
             .set(vec![MidiTrack::new(

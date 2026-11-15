@@ -1,8 +1,3 @@
-//! What the browser's choice and the three device commands do to the
-//! project: the placement rule (`place`) applied through the `Document`'s
-//! edits, one undo step each, and the interface following (the new card
-//! chosen, the tab shown). A refusal says why in a toast.
-
 use std::time::Instant;
 
 use lumen_plugin_catalog::catalog::{Device as Listed, Kind, Source};
@@ -16,14 +11,10 @@ use crate::app::detail::DetailTab;
 use crate::document::{Refusal, Slot};
 use crate::hosting::State;
 
-/// Whether a device the browser lists can be put on a track: the browser's
-/// menu offers "Add to …" only then.
 pub(crate) fn placeable(listed: &Listed) -> bool {
     plugin_ref(listed).is_some()
 }
 
-/// The project's name for a device the browser lists; `None` for one that
-/// cannot be put on a track.
 pub(super) fn plugin_ref(listed: &Listed) -> Option<PluginRef> {
     match listed.source {
         Source::Builtin if listed.id == "builtin:synth" => {
@@ -43,13 +34,10 @@ pub(super) fn plugin_ref(listed: &Listed) -> Option<PluginRef> {
 }
 
 impl App {
-    /// The track the Devices tab shows: the detail panel's subject (DP1).
     pub(crate) fn chain_track(&self) -> Option<Id> {
         self.subject()
     }
 
-    /// Double-click or Enter in the browser: puts the device on the selected
-    /// track, or makes a track for it (D3), and shows the chain.
     pub(crate) fn add_listed_device(&mut self, id: &str) {
         let Some(plugin) = self.plugins.catalog().find(id).and_then(plugin_ref) else {
             self.say("That device can't be put on a track".to_owned());
@@ -65,9 +53,6 @@ impl App {
         self.add_device_at(plugin, place);
     }
 
-    /// What choosing a device of `kind` in the browser does, said as its
-    /// menu's first row (the interface audit's B7): "Add to Bass", or "Add
-    /// on a new track" when no selected track fits it.
     pub(crate) fn add_device_label(&self, kind: DeviceKind) -> String {
         let project = self.document.project();
         match place(
@@ -84,10 +69,6 @@ impl App {
         }
     }
 
-    /// A device let go on `track` from the browser (its header or lane): it
-    /// goes on that track, or on a new one when it does not fit (an
-    /// instrument on an audio track). The Devices tab shows it and, once its
-    /// plugin is running, its own window opens.
     pub(crate) fn add_dropped_device(&mut self, id: &str, track: Id) {
         let Some(plugin) = self.plugins.catalog().find(id).and_then(plugin_ref) else {
             self.say("That device can't be put on a track".to_owned());
@@ -97,8 +78,6 @@ impl App {
         self.add_device_showing_window(plugin, place);
     }
 
-    /// Adds a device a person carried from the browser, and opens its own
-    /// window once its plugin runs (a built-in device has none).
     pub(crate) fn add_device_showing_window(&mut self, plugin: PluginRef, place: Place) {
         let hosted = matches!(plugin, PluginRef::Vst3 { .. });
         if let Some(device) = self.add_device_at(plugin, place)
@@ -108,22 +87,14 @@ impl App {
         }
     }
 
-    /// Puts Prism, the utility device, on the selected track after the chosen
-    /// card, or on a new audio track when no track fits (M8 slice B0): one
-    /// undo step, with the values its table gives it, and its card shown.
     pub(crate) fn add_utility(&mut self) {
         self.add_builtin(lumen_devices::utility::NAME);
     }
 
-    /// Puts Iris, the equaliser, on the selected track after the chosen card,
-    /// or on a new audio track when no track fits (M8 slice B1): one undo
-    /// step, with the values its table gives it, and its card shown.
     pub(crate) fn add_eq(&mut self) {
         self.add_builtin(lumen_devices::eq::NAME);
     }
 
-    /// Adds the built-in effect `name` where a device of its kind goes, with
-    /// the values its table gives it, and shows its card (M8 slices B0 to B3).
     pub(crate) fn add_builtin(&mut self, name: &str) {
         let plugin = PluginRef::Builtin {
             name: name.to_owned(),
@@ -156,8 +127,6 @@ impl App {
         }
     }
 
-    /// Opens the window of a device dropped on a track as soon as its plugin
-    /// runs; forgets it if the device went or its plugin failed.
     pub(crate) fn open_dropped_editor(&mut self) {
         let Some(device) = self.chain.open_when_ready else {
             return;
@@ -169,14 +138,11 @@ impl App {
                 self.chain.open_when_ready = None;
                 self.toggle_editor(device);
             }
-            // Not tracked until the frame after it was added.
             Some(State::Loading) | None if there => {}
-            // Failed, missing, safe mode or gone.
             _ => self.chain.open_when_ready = None,
         }
     }
 
-    /// Applies `place` for `plugin`; the device it made, if it did.
     pub(crate) fn add_device_at(&mut self, plugin: PluginRef, place: Place) -> Option<Id> {
         let result = match place {
             Place::Track { track, slot } => self
@@ -201,7 +167,6 @@ impl App {
         }
     }
 
-    /// The chosen card's track and id, if it is still there.
     fn chosen_device(&self) -> Option<(Id, Id)> {
         let card = self.chain.selected?;
         let track =
@@ -209,12 +174,10 @@ impl App {
         Some((track.id, card))
     }
 
-    /// Whether a device is chosen (for the commands' availability).
     pub(crate) fn device_chosen(&self) -> bool {
         self.chosen_device().is_some()
     }
 
-    /// Takes the chosen device off its track, and chooses its neighbour.
     pub(crate) fn remove_chain_device(&mut self) {
         let Some((track, device)) = self.chosen_device() else {
             return;
@@ -231,14 +194,12 @@ impl App {
         match self.document.remove_device(track, device) {
             Ok(()) => {
                 self.chain.selected = neighbour;
-                // A change still held for it has nowhere to go (review N5).
                 self.chain.deferred.retain(|(known, _), _| *known != device);
             }
             Err(refusal) => self.say(refusal.to_string()),
         }
     }
 
-    /// Bypasses the chosen device, or turns it on again.
     pub(crate) fn toggle_chain_bypass(&mut self) {
         let Some((track, device)) = self.chosen_device() else {
             return;
@@ -250,15 +211,12 @@ impl App {
         self.bypass_device(track, device, !bypass);
     }
 
-    /// Bypasses or enables `device` on `track`.
     pub(crate) fn bypass_device(&mut self, track: Id, device: Id, bypass: bool) {
         if let Err(refusal) = self.document.set_device_bypass(track, device, bypass) {
             self.say(refusal.to_string());
         }
     }
 
-    /// Moves the chosen device one place along its chain (`-1` earlier, `1`
-    /// later). At either end nothing happens.
     pub(crate) fn move_chain_device(&mut self, step: isize) {
         let Some((track, device)) = self.chosen_device() else {
             return;
@@ -270,8 +228,6 @@ impl App {
         let Some(to) = at.checked_add_signed(step).filter(|to| *to < devices.len()) else {
             return;
         };
-        // A gap counts the chain as it stands: past the neighbour is its
-        // far side.
         let gap = if step > 0 { to + 1 } else { to };
         let result = self
             .document
@@ -279,8 +235,6 @@ impl App {
         self.say_refusal(result);
     }
 
-    /// Chooses the card before (`-1`) or after (`1`) the chosen one; with
-    /// none chosen, the first or last.
     pub(crate) fn step_chain_choice(&mut self, step: isize) {
         let Some(track) = self.chain_track() else {
             return;
@@ -300,7 +254,6 @@ impl App {
         }
     }
 
-    /// Keeps the chosen device's settings for a Paste.
     pub(crate) fn copy_chain_device(&mut self) {
         let Some((track, device)) = self.chosen_device() else {
             return;
@@ -316,12 +269,10 @@ impl App {
         }
     }
 
-    /// Whether a device was copied.
     pub(crate) fn device_copied(&self) -> bool {
         self.chain.clipboard.is_some()
     }
 
-    /// Puts the copied device on the shown track, after the chosen card.
     pub(crate) fn paste_chain_device(&mut self) {
         let (Some(device), Some(track)) = (self.chain.clipboard.clone(), self.chain_track()) else {
             return;
@@ -336,7 +287,6 @@ impl App {
         self.chose_new(track, result);
     }
 
-    /// Copies the chosen device right after itself.
     pub(crate) fn duplicate_chain_device(&mut self) {
         let Some((track, device)) = self.chosen_device() else {
             return;
@@ -348,8 +298,6 @@ impl App {
         self.chose_new(track, result);
     }
 
-    /// Moves (`copy` false) or copies the chosen device to the end of another
-    /// track's chain, and shows that track.
     pub(crate) fn send_chain_device(&mut self, to: Id, copy: bool) {
         let Some((track, device)) = self.chosen_device() else {
             return;
@@ -357,8 +305,6 @@ impl App {
         self.send_device(track, device, to, Slot::End, copy);
     }
 
-    /// Moves or copies `device` from `track` to `slot` on `to`; the interface
-    /// follows it there.
     pub(crate) fn send_device(&mut self, track: Id, device: Id, to: Id, slot: Slot, copy: bool) {
         if copy {
             let result = self.document.copy_device(track, device, to, slot);
@@ -374,7 +320,6 @@ impl App {
         }
     }
 
-    /// A copy of a device keeps the parameters its original shows on the card.
     fn inherit_strip(&mut self, from: Id, copy: &Result<Id, Refusal>) {
         if let Ok(new) = copy
             && let Some(shown) = self.chain.shown.get(&from).cloned()
@@ -383,7 +328,6 @@ impl App {
         }
     }
 
-    /// Folds the chosen card, or opens it again.
     pub(crate) fn toggle_chain_fold(&mut self) {
         if let Some(card) = self.chain.selected.filter(|_| self.device_chosen()) {
             self.toggle_fold_of(card);
@@ -396,7 +340,6 @@ impl App {
         }
     }
 
-    /// The ids of a track's devices, in order.
     pub(crate) fn devices_of(&self, track: Id) -> Vec<Id> {
         all_tracks(self.document.project())
             .find(|t| t.id == track)
@@ -404,8 +347,6 @@ impl App {
             .unwrap_or_default()
     }
 
-    /// The tracks that can take the chosen device, as (id, name): any, the
-    /// master too, and only MIDI tracks for an instrument.
     pub(crate) fn send_targets(&self) -> Vec<(Id, String)> {
         let Some((track, device)) = self.chosen_device() else {
             return Vec::new();
@@ -421,14 +362,12 @@ impl App {
             .collect()
     }
 
-    /// Says why an edit was refused.
     fn say_refusal(&mut self, result: Result<(), Refusal>) {
         if let Err(refusal) = result {
             self.say(refusal.to_string());
         }
     }
 
-    /// After an edit that made a device on `track`: shows it and chooses it.
     fn chose_new(&mut self, track: Id, result: Result<Id, Refusal>) {
         match result {
             Ok(device) => {
@@ -439,7 +378,6 @@ impl App {
         }
     }
 
-    /// A short note in the toast.
     pub(crate) fn say(&mut self, words: String) {
         self.toast = Some((words, Instant::now()));
     }

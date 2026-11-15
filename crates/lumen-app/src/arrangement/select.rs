@@ -1,10 +1,3 @@
-//! Clip selection and moving: a clip's header moves it (Ctrl copies), its body selects
-//! a time range (slice 6b). A drag in empty lanes selects a time range on
-//! the tracks it spans (ADR-0049); Ctrl+Shift there draws a clip marquee.
-//!
-//! Hit-testing and the arithmetic of a drag are pure and tested here; the
-//! app turns them into document edits (`App::clip_editing`).
-
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
@@ -18,27 +11,18 @@ use super::{Arrangement, RowKind, TITLE, Zone};
 use crate::document::ClipMove;
 use crate::timeview::TimeView;
 
-/// Within this many points of a clip's side, a drag trims it (slice 6c; a
-/// quarter of the clip when it is narrow).
 pub const EDGE_ZONE: f32 = 6.0;
 
 pub use lumen_project::edit::Edge;
 
-/// Where an arrow key takes the clip selection (M3 review H2; the owner's
-/// choice: the arrows follow the selection).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClipStep {
-    /// The clip before, on the same track.
     Previous,
-    /// The clip after, on the same track.
     Next,
-    /// The nearest clip in time on the closest track above that has clips.
     Above,
-    /// The same, below.
     Below,
 }
 
-/// The clip `step` reaches from clip `from`, if there is one.
 pub fn clip_step(project: &Project, from: Id, step: ClipStep) -> Option<Id> {
     let (row, clip) = project
         .tracks
@@ -68,7 +52,6 @@ pub fn clip_step(project: &Project, from: Id, step: ClipStep) -> Option<Id> {
             } else {
                 (row + 1..project.tracks.len()).find(has_clips)
             }?;
-            // Nearest to where the clip starts: one under it first.
             let at = clip.start;
             let distance = |c: &&Arc<lumen_project::model::Clip>| {
                 let end = c.start + c.length;
@@ -85,7 +68,6 @@ pub fn clip_step(project: &Project, from: Id, step: ClipStep) -> Option<Id> {
     }
 }
 
-/// The side of `rect` that `x` is close enough to trim, if any.
 pub fn edge_at(rect: Rect, x: f32) -> Option<Edge> {
     let zone = EDGE_ZONE.min(rect.width() / 4.0);
     if x - rect.left() <= zone {
@@ -97,16 +79,12 @@ pub fn edge_at(rect: Rect, x: f32) -> Option<Edge> {
     }
 }
 
-/// Which visible part of a clip the pointer is over.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClipRegion {
-    /// Moves the clip.
     Header,
-    /// Selects a time range.
     Body,
 }
 
-/// The bottom of the rendered title bar, including on short tracks.
 pub fn title_bottom(rect: Rect) -> f32 {
     rect.top() + TITLE.min(rect.height())
 }
@@ -119,23 +97,16 @@ pub fn region_at(rect: Rect, y: f32) -> ClipRegion {
     }
 }
 
-/// A clip under the pointer.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ClipHit {
-    /// Index of its track in the project.
     pub track: usize,
     pub clip: Id,
-    /// Where it is drawn.
     pub rect: Rect,
     pub region: ClipRegion,
-    /// A side close enough to trim, which wins over the regions.
     pub edge: Option<Edge>,
-    /// A fade or gain handle (slice 6d): fade handles win over the sides,
-    /// the sides over the gain line.
     pub handle: Option<Handle>,
 }
 
-/// What the pointer is over on a clip, for drawing its hover.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Hover {
     pub clip: Id,
@@ -155,41 +126,32 @@ impl From<&ClipHit> for Hover {
     }
 }
 
-/// A clip picked up by a drag, as it was.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Grabbed {
     pub clip: Id,
-    /// Index of its track in the project.
     pub track: usize,
     pub start: Ticks,
-    /// Audio content (lands only on audio tracks), or MIDI.
     pub audio: bool,
 }
 
-/// What a pointer drag on the lanes is doing. Edits keep `base`, the
-/// project as the drag found it: every frame redoes the edit from there.
 #[derive(Debug, Clone)]
 pub enum Gesture {
-    /// Moving (or copying) clips: picked up at `at` on track `track`;
-    /// `anchor` is the clip under the pointer, the one that snaps.
     Move {
         base: Arc<Project>,
         grabbed: Vec<Grabbed>,
         anchor: Id,
         at: Ticks,
         track: usize,
-        /// Ids for the copies, when Ctrl started the drag.
         copies: Option<Vec<Id>>,
     },
-    /// A marquee from `from`; clips selected before it (Ctrl or Shift) stay.
-    Marquee { from: Pos2, kept: BTreeSet<Id> },
-    /// A time range from `at` on track `track` (a clip's body, or an
-    /// empty lane); it spans the tracks down to the pointer's.
-    Range { at: Ticks, track: usize },
-    /// Trimming a side of `clip`; with `looping` (Shift at the start) the
-    /// end extends by repeating. `grab` is how far the edge was from the
-    /// pointer when it was picked up, so the edge keeps that distance
-    /// instead of jumping to the pointer.
+    Marquee {
+        from: Pos2,
+        kept: BTreeSet<Id>,
+    },
+    Range {
+        at: Ticks,
+        track: usize,
+    },
     Trim {
         base: Arc<Project>,
         clip: Id,
@@ -197,76 +159,60 @@ pub enum Gesture {
         looping: bool,
         grab: Ticks,
     },
-    /// Sliding `clip`'s content, picked up at `at` (Ctrl+Alt).
     Slip {
         base: Arc<Project>,
         clip: Id,
         at: Ticks,
     },
-    /// Dragging the handle of `clip`'s fade at `edge` along (slice 6d).
-    /// `from`: a fade-out that has been dragged past the clip's end, so it
-    /// is making a crossfade into the next clip; where the clips met.
     Fade {
         clip: Id,
         edge: Edge,
         from: Option<Ticks>,
     },
-    /// Bending that fade by its dot (C3): the handle as it is now, the
-    /// pointer's last place, and the fade's size on screen.
     Bend {
         clip: Id,
         edge: Edge,
-        /// The fade is the crossfade at the clip's end, curved like a
-        /// fade-in.
         crossing: bool,
         handle: lumen_core::curve::Handle,
         last: Pos2,
         size: egui::Vec2,
     },
-    /// Dragging `clip`'s gain line from `db`, picked up at height `y`;
-    /// `per_point` dB a point.
     Gain {
         clip: Id,
         db: f32,
         y: f32,
         per_point: f32,
     },
-    /// The Split tool's press-and-aim gesture; the document changes on release.
     Split {
         from: Ticks,
         to: Ticks,
         clips: Vec<Id>,
     },
-    /// Zoom tool's drag selection.
-    Zoom { from: Ticks, to: Ticks },
-    /// The Draw tool's press-and-drag on an empty MIDI lane: the clip's
-    /// length being aimed. The document changes on release.
-    Draw { track: Id, from: Ticks, to: Ticks },
+    Zoom {
+        from: Ticks,
+        to: Ticks,
+    },
+    Draw {
+        track: Id,
+        from: Ticks,
+        to: Ticks,
+    },
 }
 
-/// A time range across neighbouring tracks, independent of clips (slice
-/// 6b edits it: cut, copy, duplicate, delete, delete time).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TimeRange {
     pub start: Ticks,
     pub end: Ticks,
-    /// The tracks it spans, top to bottom.
     pub tracks: Vec<Id>,
 }
 
 impl TimeRange {
-    /// The range between `a` and `b` (either order) over the tracks from
-    /// index `from` to `to` (either order); `None` when it is empty.
     pub fn between(project: &Project, a: Ticks, b: Ticks, from: usize, to: usize) -> Option<Self> {
         let (lo, hi) = (from.min(to), from.max(to));
         let ids: Vec<Id> = project.tracks.get(lo..=hi)?.iter().map(|t| t.id).collect();
         Self::over(project, a, b, &ids)
     }
 
-    /// The range between `a` and `b` (either order) on the tracks `ids`,
-    /// as many of them as the project has, top to bottom. `None` when it is
-    /// empty or none of `ids` is a track. Tracks need not be neighbours:
-    /// the ruler's range covers the selected ones.
     pub fn over(project: &Project, a: Ticks, b: Ticks, ids: &[Id]) -> Option<Self> {
         let (start, end) = (a.min(b).max(Ticks::ZERO), a.max(b).max(Ticks::ZERO));
         let tracks: Vec<Id> = project
@@ -278,26 +224,17 @@ impl TimeRange {
         (start < end && !tracks.is_empty()).then_some(Self { start, end, tracks })
     }
 
-    /// Whether the range is on exactly the tracks `selected` (in any order).
-    /// A range and the track selection go together: when they part, the
-    /// range goes.
     pub fn covers_exactly(&self, selected: &[Id]) -> bool {
         self.tracks.len() == selected.len() && self.tracks.iter().all(|t| selected.contains(t))
     }
 }
 
-/// What a drag that starts in empty lane space does (ADR-0049).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EmptyLaneDrag {
-    /// A time range on the tracks it spans: the default.
     Range,
-    /// A clip marquee that keeps the clips already selected.
     Marquee,
 }
 
-/// Ctrl+Shift (Cmd+Shift on macOS) draws a clip marquee in empty lanes.
-/// Shift or Ctrl alone do not: they make a time range, as the drag does
-/// everywhere else, so no modifier stands for two things.
 pub fn empty_lane_drag(modifiers: Modifiers) -> EmptyLaneDrag {
     if modifiers.command && modifiers.shift {
         EmptyLaneDrag::Marquee
@@ -306,11 +243,6 @@ pub fn empty_lane_drag(modifiers: Modifiers) -> EmptyLaneDrag {
     }
 }
 
-/// Where the clips of a drag go when it has moved `delta` (unsnapped) and
-/// `tracks` rows down (negative: up). The anchor's new start snaps; the
-/// others keep their distance from it. Nothing goes before zero. Clips
-/// change track only if every one lands on a track of its kind; otherwise
-/// they stay on their own.
 pub fn drag_moves(
     project: &Project,
     grabbed: &[Grabbed],
@@ -353,8 +285,6 @@ pub fn drag_moves(
 }
 
 impl Arrangement {
-    /// Every track's clips with where they are drawn, for the tracks in
-    /// view: `(track index, clip id, rect)`.
     pub(crate) fn clip_rects(
         &self,
         ctx: &egui::Context,
@@ -388,8 +318,6 @@ impl Arrangement {
         out
     }
 
-    /// The clip under `pointer`, and which region. Later clips win where
-    /// clips overlap, as they are drawn on top.
     pub fn clip_at(
         &self,
         ctx: &egui::Context,
@@ -427,7 +355,6 @@ impl Arrangement {
             })
     }
 
-    /// The clips a marquee `area` touches.
     pub fn clips_in(
         &self,
         ctx: &egui::Context,
@@ -444,8 +371,6 @@ impl Arrangement {
             .collect()
     }
 
-    /// The index of the track whose row is at `y` on screen, or the nearest
-    /// one above or below the tracks.
     pub fn track_index_at(
         &self,
         ctx: &egui::Context,
@@ -473,8 +398,6 @@ impl Arrangement {
             .map_or(Some(last.0), |(i, _)| Some(*i))
     }
 
-    /// Where track `id`'s clip lane is on screen: the top and bottom of its
-    /// clips' height, if the track has a row in view.
     pub(crate) fn lane_span(
         &self,
         ctx: &egui::Context,
@@ -493,7 +416,6 @@ impl Arrangement {
             })
     }
 
-    /// What `clips` are, picked up for a drag.
     pub fn grab(project: &Project, clips: &BTreeSet<Id>) -> Vec<Grabbed> {
         let mut out = Vec::new();
         for (track, t) in project.tracks.iter().enumerate() {
@@ -594,7 +516,6 @@ mod tests {
         use ClipStep::{Above, Below, Next, Previous};
         use TrackKind::Audio;
         let mut p = project(&[Audio, Audio, Audio, Audio]);
-        // Clips (id: start..end in quarters) per track; track 2 is empty.
         let layout: [&[(u64, i64, i64)]; 4] = [
             &[(11, 0, 4), (12, 8, 12)],
             &[(22, 6, 10), (21, 0, 2), (23, 16, 20)],
@@ -628,15 +549,11 @@ mod tests {
             }
         }
         let step = |from, s| clip_step(&p, Id(from), s).map(|id| id.0);
-        // Along a track, in time order whatever the stored order.
         assert_eq!(step(21, Next), Some(22));
         assert_eq!(step(22, Previous), Some(21));
         assert_eq!(step(23, Next), None, "the last stays");
         assert_eq!(step(21, Previous), None, "the first stays");
-        // Down from 22 (starts at 6): track 2 is empty, so track 3, where
-        // 42 (7..9) is nearer than 41 (3..5).
         assert_eq!(step(22, Below), Some(42));
-        // Up from 12 (starts at 8): 22 (6..10) lies under its start.
         assert_eq!(step(12, Below), Some(22));
         assert_eq!(
             step(41, Above),
@@ -673,7 +590,6 @@ mod tests {
         }
     }
 
-    /// Snaps to whole bars.
     fn bars(t: Ticks) -> Ticks {
         let bar = Ticks::quarters(4).0;
         Ticks((t.0 as f64 / bar as f64).round() as i64 * bar)
@@ -684,7 +600,6 @@ mod tests {
         use TrackKind::Audio;
         let p = project(&[Audio, Audio, Audio]);
         let clips = [grabbed(10, 0, 4), grabbed(11, 1, 6)];
-        // Dragged 3.2 quarters right: the anchor (bar 2) snaps to bar 3.
         let moves = drag_moves(
             &p,
             &clips,
@@ -701,7 +616,6 @@ mod tests {
             got,
             [(10, 2, Ticks::quarters(8)), (11, 3, Ticks::quarters(10))]
         );
-        // Never before zero: the earliest clip stops at the start.
         let moves = drag_moves(&p, &clips, Id(11), Ticks::quarters(-40), 0, |t| t);
         assert_eq!(moves[0].start, Ticks::ZERO);
         assert_eq!(moves[1].start, Ticks::quarters(2));
@@ -719,7 +633,6 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         assert_eq!(tracks(0), [1, 2]);
-        // One down would put the second clip on the MIDI track: both stay.
         assert_eq!(tracks(1), [1, 2]);
         assert_eq!(tracks(-1), [1, 2], "above the first track");
         let one = [grabbed(10, 1, 0)];

@@ -1,12 +1,5 @@
-//! Finding rows: the fuzzy match and its score, and the values a query can
-//! name (a tempo, a bar).
-
 use super::Entry;
 
-/// Where `query` matches `text` as a subsequence, ignoring case: a score
-/// (consecutive letters and starts of words count more; a text that starts
-/// with the query more still, and the whole text most) and the matched
-/// characters' indices. `None` when it does not match.
 pub(crate) fn fuzzy(query: &str, text: &str) -> Option<(i32, Vec<usize>)> {
     let query: Vec<char> = query.trim().to_lowercase().chars().collect();
     if query.is_empty() {
@@ -37,8 +30,6 @@ pub(crate) fn fuzzy(query: &str, text: &str) -> Option<(i32, Vec<usize>)> {
     Some((score, matched))
 }
 
-/// Values in the query: a tempo and a bar for a number ("128", "128 bpm",
-/// "bar 17", "tempo 140").
 pub(super) fn values(query: &str) -> Vec<Entry> {
     let q = query.trim().to_lowercase();
     let number = |s: &str| s.trim().parse::<f64>().ok().filter(|n| n.is_finite());
@@ -60,7 +51,6 @@ pub(super) fn values(query: &str) -> Vec<Entry> {
     }
 }
 
-/// "128", "128.5".
 pub(super) fn trim_number(n: f64) -> String {
     let text = format!("{n:.2}");
     text.trim_end_matches('0').trim_end_matches('.').to_owned()
@@ -80,7 +70,6 @@ mod tests {
         assert_eq!(fuzzy("  ", "Anything"), Some((0, Vec::new())));
         let (_, at) = fuzzy("AT", "Add audio track").expect("ignores case");
         assert_eq!(at, [0, 10]);
-        // The command named exactly so beats word starts elsewhere.
         let (cut, _) = fuzzy("cut", "Cut").expect("matches");
         let (initials, _) = fuzzy("cut", "Next clip or unfold track").expect("matches");
         assert!(cut > initials);

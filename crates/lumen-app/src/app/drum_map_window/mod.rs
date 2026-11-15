@@ -1,14 +1,3 @@
-//! The drum map editor (M8 slice D1): the window that shows a kit and lets
-//! every field of every sound be edited where it is, plus the map itself:
-//! its name, which map a track reads (a kit, a map the project holds or one
-//! saved in the user's folder), Make unique, and the files.
-//!
-//! The window is a `widgets::Dialog` like the Mappings window, opened from a
-//! MIDI track's menu, the palette or the Attach command (which opens it).
-//! It edits the map through the `Document`'s named edits (one undo step
-//! each) and never touches the project itself: [`table`] draws the rows and
-//! says what the person did, and this module applies it.
-
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Receiver;
 
@@ -24,14 +13,9 @@ use crate::{App, theme};
 pub(crate) mod files;
 pub(crate) mod table;
 
-/// The window's width: the table's columns and the map's controls. It fits
-/// the shortest window the app opens at (960 pt).
 pub(crate) const WIDTH: f32 = 780.0;
-/// How tall the table scrolls before it scrolls.
 const TABLE_HEIGHT: f32 = 360.0;
 
-/// What the table's rows did, or one of the window's own controls: the
-/// window applies each as one `Document` edit.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Action {
     RenameMap(String),
@@ -79,7 +63,6 @@ pub(crate) enum Action {
         input: u8,
         icon: lumen_project::model::DrumIcon,
     },
-    /// The next note played becomes this sound's input note.
     Learn {
         input: u8,
     },
@@ -91,18 +74,13 @@ pub(crate) enum Action {
         from: usize,
         to: usize,
     },
-    /// The map the window should show: a kit's copy, a map the project
-    /// holds, or one of the user's files.
     Choose(Choice),
-    /// Give the track its own copy of the map it names.
     Unique,
-    /// Save the map in the user's folder, export it, or import one.
     SaveUser,
     Export,
     Import,
 }
 
-/// A map to switch the track to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Choice {
     Preset(Preset),
@@ -110,11 +88,9 @@ pub(crate) enum Choice {
     User(PathBuf),
 }
 
-/// What a file task found, for the window.
 enum Done {
     Listed(Vec<files::Saved>),
     Saved(Result<PathBuf, String>),
-    /// A map written where the person chose (an export).
     Exported(Result<PathBuf, String>),
     Read {
         path: PathBuf,
@@ -122,19 +98,13 @@ enum Done {
     },
 }
 
-/// A file task running on a thread of its own (a read or a write: never a
-/// frame). The user's folder is small, so a worker's answer is a frame or
-/// two away.
 struct Job {
     rx: Receiver<Done>,
 }
 
-/// A message under the table: what a file did, or why it did not. It is read
-/// in full (the dialog wraps it).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Notice {
     pub words: String,
-    /// A failure: drawn in the warning colour.
     pub bad: bool,
 }
 
@@ -154,29 +124,19 @@ impl Notice {
     }
 }
 
-/// The editor's state: which map it shows and for which tracks, the note it
-/// waits for, and the file work in flight.
 #[derive(Default)]
 pub(crate) struct State {
     open: Option<Open>,
 }
 
 struct Open {
-    /// The map the window edits (none until the track has one).
     map: Option<Id>,
-    /// The MIDI tracks the window was opened for: a chosen map goes to them.
     tracks: Vec<Id>,
-    /// The keyboard starts in the first row (the window just opened).
     fresh: bool,
-    /// The user's saved maps, read when the window opens.
     users: Vec<files::Saved>,
-    /// A file task, while one runs.
     job: Option<Job>,
-    /// What the last file did, or why it could not.
     notice: Option<Notice>,
-    /// The sound waiting for a note, by its input note.
     learn: Option<u8>,
-    /// The map the export dialog is for, kept while the dialog is open.
     pending_export: Option<DrumMap>,
 }
 
@@ -185,12 +145,10 @@ impl State {
         self.open.is_some()
     }
 
-    /// The map the window edits.
     pub(crate) fn map(&self) -> Option<Id> {
         self.open.as_ref().and_then(|open| open.map)
     }
 
-    /// The sound the editor waits for a note on: its map and input note.
     pub(crate) fn learning(&self) -> Option<(Id, u8)> {
         let open = self.open.as_ref()?;
         Some((open.map?, open.learn?))
@@ -202,8 +160,6 @@ impl State {
 }
 
 impl App {
-    /// Opens the editor for the selected MIDI tracks: the map the first one
-    /// reads, or the list of maps to give it when it has none.
     pub(crate) fn open_drum_map_editor(&mut self) {
         let tracks = self.selected_midi_tracks();
         if tracks.is_empty() {
@@ -216,8 +172,6 @@ impl App {
         self.show_drum_map_editor(map, tracks);
     }
 
-    /// Opens the editor on the selected track's map, or on the window's when
-    /// it is open already: what the map's file commands act on.
     pub(crate) fn drum_map_for_command(&mut self) -> Option<Id> {
         if let Some(map) = self.drum_map.map() {
             return Some(map);
@@ -243,20 +197,15 @@ impl App {
         self.drum_map.open = Some(open);
     }
 
-    /// Reads the user's saved maps on a worker: the list offers them.
     fn drum_map_listing(&self) -> Option<Job> {
         let folder = self.drum_maps_folder()?;
         Some(spawn(move || Done::Listed(files::list(&folder))))
     }
 
-    /// The folder the user's saved maps live in (`<settings folder>/Drum
-    /// Maps`).
     pub(crate) fn drum_maps_folder(&self) -> Option<PathBuf> {
         files::user_folder(self.settings_path.as_deref())
     }
 
-    /// A note was played on an input: the sound the editor waits for takes
-    /// it as its input note (the row's Learn button).
     pub(crate) fn drum_map_heard(&mut self, key: u8) {
         let Some((map, input)) = self.drum_map.learning() else {
             return;
@@ -281,8 +230,6 @@ impl App {
         }
     }
 
-    /// The editor, while it is open: the map's controls, the table and the
-    /// notice under it.
     pub(crate) fn drum_map_window(&mut self, ctx: &egui::Context) {
         let Some(mut open) = self.drum_map.open.take() else {
             return;
@@ -290,8 +237,6 @@ impl App {
         self.poll_drum_map_files(&mut open, ctx);
         let map = open.map.and_then(|id| self.document.drum_map(id).cloned());
         if open.map.is_some() && map.is_none() {
-            // Undone away (an attach or an import taken back): the chooser
-            // shows again rather than a map that is not there.
             open.map = None;
         }
         let tracks = self.drum_map_track_names(&open.tracks);
@@ -331,8 +276,6 @@ impl App {
         self.drum_map.open = Some(open);
     }
 
-    /// The top controls over the table: the map's name, the list of maps and
-    /// the map's actions. Gives what was done.
     fn drum_map_controls(
         &mut self,
         ui: &mut egui::Ui,
@@ -420,8 +363,6 @@ impl App {
         action
     }
 
-    /// The list of maps, when the track has none yet: the kits, the
-    /// project's maps and the user's files.
     fn drum_map_chooser(&mut self, ui: &mut egui::Ui, open: &Open, tracks: &str) -> Option<Action> {
         let mut action = None;
         ui.label(
@@ -476,7 +417,6 @@ impl App {
         action
     }
 
-    /// The names of the tracks the window is for: one in quotes, or a count.
     fn drum_map_track_names(&self, tracks: &[Id]) -> String {
         let names: Vec<&str> = tracks
             .iter()
@@ -496,10 +436,8 @@ impl App {
         }
     }
 
-    /// Applies one thing the window's controls did, as one named edit.
     fn apply_drum_map_action(&mut self, action: Action, open: &mut Open, ctx: &egui::Context) {
         let Some(map) = open.map else {
-            // The chooser: a choice, an import or a file action.
             self.apply_drum_map_file_action(action, open, ctx);
             return;
         };
@@ -598,8 +536,6 @@ impl App {
         }
     }
 
-    /// The file actions and the choice of a map (which a track without one
-    /// needs first).
     fn apply_drum_map_file_action(&mut self, action: Action, open: &mut Open, ctx: &egui::Context) {
         match action {
             Action::Choose(choice) => self.choose_drum_map(open, choice),
@@ -610,7 +546,6 @@ impl App {
         }
     }
 
-    /// Keeps the map in the user's folder, on a worker.
     fn save_user(&mut self, open: &mut Open) {
         let Some(map) = open.map.and_then(|id| self.document.drum_map(id).cloned()) else {
             return;
@@ -625,7 +560,6 @@ impl App {
         open.job = Some(spawn(move || Done::Saved(files::save_user(&map, &folder))));
     }
 
-    /// Asks where to write the map, and writes it when the dialog answers.
     fn start_export(&mut self, open: &mut Open, ctx: &egui::Context) {
         let Some(map) = open.map.and_then(|id| self.document.drum_map(id).cloned()) else {
             return;
@@ -639,7 +573,6 @@ impl App {
         self.start_drum_map_dialog(ctx, name, true);
     }
 
-    /// Asks for a file to read, and reads it when the dialog answers.
     fn start_import(&mut self, open: &mut Open, ctx: &egui::Context) {
         open.notice = Some(Notice::good(
             "Choose a .lumendrums file to read into this project",
@@ -647,8 +580,6 @@ impl App {
         self.start_drum_map_dialog(ctx, String::new(), false);
     }
 
-    /// Switches the window's tracks to `choice`: a kit's copy, a map the
-    /// project holds, or a file of the user's (read on a worker).
     fn choose_drum_map(&mut self, open: &mut Open, choice: Choice) {
         match choice {
             Choice::Preset(preset) => {
@@ -681,8 +612,6 @@ impl App {
         }
     }
 
-    /// Takes the map off the selected MIDI tracks that have one: their notes
-    /// are untouched and play as written again.
     pub(crate) fn detach_drum_map_command(&mut self) {
         let tracks = self.selected_midi_tracks();
         let with: Vec<Id> = tracks
@@ -711,9 +640,6 @@ impl App {
         });
     }
 
-    /// The map's file commands: save it in the user's folder, export it to a
-    /// file the person chooses, or import one. A track without a map gets
-    /// the editor's chooser first.
     pub(crate) fn drum_map_save_command(&mut self) {
         if self.drum_map_for_command().is_none() {
             self.say("Select a MIDI track with a drum map first".to_owned());
@@ -725,7 +651,6 @@ impl App {
         }
     }
 
-    /// Make unique: the selected track gets its own copy of its map.
     pub(crate) fn drum_map_unique_command(&mut self) {
         let tracks = self.selected_midi_tracks();
         let Some(track) = tracks
@@ -748,7 +673,6 @@ impl App {
         }
     }
 
-    /// Exports the map the editor shows (or the selected track's) to a file.
     pub(crate) fn drum_map_export_command(&mut self, ctx: &egui::Context) {
         if self.drum_map_for_command().is_none() {
             self.say("Select a MIDI track with a drum map first".to_owned());
@@ -760,8 +684,6 @@ impl App {
         }
     }
 
-    /// Imports a `.lumendrums` file into the project, and gives it to the
-    /// selected tracks.
     pub(crate) fn drum_map_import_command(&mut self, ctx: &egui::Context) {
         if !self.drum_map.is_open() {
             let tracks = self.selected_midi_tracks();
@@ -776,8 +698,6 @@ impl App {
         }
     }
 
-    /// A new sound for `map`: the first free note from 36 up, named for its
-    /// note, drawn as percussion.
     fn new_drum_sound(&self, map: Id) -> Option<Sound> {
         let held = self.document.drum_map(map)?;
         let free = (36..=127).find(|note| held.sound(*note).is_none())?;
@@ -789,8 +709,6 @@ impl App {
         ))
     }
 
-    /// Polls the file worker; a finished task becomes a notice, and an
-    /// imported map joins the project (and the window's tracks).
     fn poll_drum_map_files(&mut self, open: &mut Open, ctx: &egui::Context) {
         let Some(job) = &open.job else {
             return;
@@ -819,8 +737,6 @@ impl App {
                     "Saved as {} in your drum maps folder",
                     files::file_name(&path)
                 )));
-                // The list shows it straight away (the folder is the one the
-                // file went to).
                 if let Some(folder) = path.parent().map(Path::to_path_buf) {
                     open.job = Some(spawn(move || Done::Listed(files::list(&folder))));
                 }
@@ -851,8 +767,6 @@ impl App {
         }
     }
 
-    /// The export dialog answered (or was cancelled): writes the map kept
-    /// when the dialog opened.
     pub(crate) fn drum_map_export_chosen(&mut self, path: Option<PathBuf>) {
         let Some(path) = path else {
             return;
@@ -874,8 +788,6 @@ impl App {
         }));
     }
 
-    /// The import dialog answered (or was cancelled): reads the file on a
-    /// worker.
     pub(crate) fn drum_map_import_chosen(&mut self, path: Option<PathBuf>) {
         let Some(path) = path else {
             return;
@@ -891,8 +803,6 @@ impl App {
         }));
     }
 
-    /// Starts the system dialog for the map's export (`save` true) or an
-    /// import; its answer comes back through `poll_files`.
     fn start_drum_map_dialog(&mut self, ctx: &egui::Context, name: String, save: bool) {
         let folder = self
             .drum_maps_folder()
@@ -937,9 +847,6 @@ impl App {
     }
 }
 
-/// A text field showing `current`, edited in place: a draft while it is
-/// focused, applied when it is left (or Enter, which leaves it), so a rename
-/// is one edit. Esc keeps the old text.
 pub(crate) fn text_field(
     ui: &mut egui::Ui,
     id: egui::Id,
@@ -986,8 +893,6 @@ pub(crate) fn text_field(
     None
 }
 
-/// The map list: a button showing the map's name and, under it, the kits,
-/// this project's maps and the user's saved files.
 fn map_list(
     ui: &mut egui::Ui,
     showing: &str,
@@ -1071,7 +976,6 @@ fn map_list(
     picked.flatten()
 }
 
-/// Runs `task` on a thread of its own and hands back its answer.
 fn spawn(task: impl FnOnce() -> Done + Send + 'static) -> Job {
     let (tx, rx) = std::sync::mpsc::channel();
     let _ = crate::spawn::spawn_named("lumen-drum-map-file", move || {
@@ -1091,7 +995,6 @@ mod tests {
             "{WIDTH} against {}",
             table::Columns::least_width()
         );
-        // It fits the shortest window the app opens at (960 pt).
         assert_eq!(WIDTH.min(960.0), WIDTH);
     }
 

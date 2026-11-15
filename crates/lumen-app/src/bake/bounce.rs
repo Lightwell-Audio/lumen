@@ -1,20 +1,3 @@
-//! The worker behind Bounce (M7b slice E4, ADR-0096). One track is played
-//! through the mixer without a device, as playback plays it, into a 32-bit
-//! float WAV: its clips or its notes through the instrument, and with
-//! `effects` its devices, trim, polarity, fader, pan and own automation lanes
-//! (the owner's B2; not sends, its group or the master). Plugins run in host
-//! processes of the bounce's own, started from the states the project holds,
-//! and are waited for rather than raced. A plugin that stops answering ends
-//! the bounce with its name, and no file is left.
-//!
-//! A freeze (M7b E5) is the same render with [`Bake::Sound`]: the track's
-//! instrument, devices, trim and polarity, but not its fader, pan, mute or
-//! sends, which stay live on a frozen track (the owner's FR1).
-//!
-//! What a bounce does to the project is `Document::bounce_tracks` and a freeze
-//! `Document::freeze_tracks`; this module only turns a track into a file, off
-//! the UI thread.
-
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -38,49 +21,30 @@ use crate::midi::play::{self as midi_play, Hosts, Inputs, PortTable};
 use crate::midi::runs::Cache;
 use crate::routing::{self, Devices};
 
-/// How long a plugin's host may take to load before the bounce gives up.
 const LOAD_WAIT: Duration = Duration::from_secs(60);
-/// How often the wait for a plugin's host looks again.
 const LOAD_POLL: Duration = Duration::from_millis(5);
 
-/// How much of the track's processing is in the file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Bake {
-    /// Its own sound, unprocessed (an instrument still plays).
     Plain,
-    /// Its instrument, devices, trim and polarity, and the lanes for them: a
-    /// freeze (the fader, pan, mute and sends stay live).
     Sound,
-    /// Also its fader, pan and own lanes: a bounce with effects.
     Mix,
 }
 
-/// One track to render.
 pub struct Job {
-    /// The project as it was when the bounce began, with the plugins' states
-    /// stamped in.
     pub project: Project,
     pub track: Id,
-    /// The clips the engine plays, of any track (this track's are used).
     pub clips: Vec<Clip>,
-    /// The plugin devices to host: the instrument, and the effects when
-    /// `effects` is on.
     pub plugins: Vec<OfflinePlugin>,
     pub bake: Bake,
-    /// The track plays mono material: a mono file is kept too, and used when
-    /// the two channels came out the same, so the track keeps its pan law.
     pub mono: bool,
-    /// Add what rings on after the span, until it is quiet.
     pub tail: bool,
     pub timeline: Timeline,
     pub rate: u32,
-    /// Timeline sample of the file's first frame, and the span's length.
     pub from: i64,
     pub frames: u64,
-    /// Where the file goes, and the media id it will have.
     pub file: PathBuf,
     pub media: Id,
-    /// What the clips could not read from disk; a job with a hole fails.
     pub unread: Unread,
     /// The samples this render's samplers play, decoded at the render's rate
     /// (M8 slice B5): a render hears what playback did, with no interface
@@ -88,27 +52,21 @@ pub struct Job {
     pub samples: Vec<(Id, crate::builtin::samples::Source)>,
 }
 
-/// What a finished job made.
 #[derive(Debug, Clone)]
 pub struct Rendered {
     pub track: Id,
     pub media: Media,
-    /// Frames after the span the tail added.
     pub tail_frames: u64,
 }
 
-/// Where a bounce stands.
 #[derive(Debug)]
 pub enum Poll {
-    /// Still rendering, this far (0.0 to 1.0).
     Running(f32),
     Done(Vec<Rendered>),
-    /// Stopped before it finished; the files are removed.
     Stopped,
     Failed(String),
 }
 
-/// A bounce on its worker. Dropping it stops the worker.
 pub struct Render {
     results: Receiver<Result<Vec<Rendered>, String>>,
     cancel: Arc<AtomicBool>,
@@ -121,8 +79,6 @@ impl Drop for Render {
     }
 }
 
-/// The plugin instrument of the track being rendered, handed to
-/// [`midi_play::engine_midi_with`] in place of the live hosts'.
 struct OneInstrument {
     track: Id,
     instrument: Option<InstrumentSpec>,
@@ -139,14 +95,11 @@ impl Hosts for OneInstrument {
     }
 }
 
-/// A plugin running in a host of the bounce's own.
 struct Running {
     plugin: OfflinePlugin,
     linked: lumen_hosting::Linked,
 }
 
-/// Starts a host for each plugin and waits for them all to be linked.
-/// `Ok(None)` if `cancel` was set meanwhile.
 fn start_hosts(
     manager: &mut Manager,
     plugins: Vec<OfflinePlugin>,
@@ -189,8 +142,6 @@ fn start_hosts(
     Ok(Some(running))
 }
 
-/// The node of the bounced track with only its own sound: no trim, polarity,
-/// fader, pan, devices or lanes (a plugin instrument keeps its time).
 fn plain(node: &mut NodeSpec) {
     let plain = NodeSpec::unity(node.id, node.output);
     *node = NodeSpec {
@@ -199,9 +150,6 @@ fn plain(node: &mut NodeSpec) {
     };
 }
 
-/// The node of a frozen track: its trim, polarity, devices and the lanes for them,
-/// but a fader at unity, pan centred with the balance law and no mute, send or
-/// fader lane (the owner's FR1: those stay live on the track).
 fn sound(node: &mut NodeSpec) {
     node.volume = 1.0;
     node.pan = 0.0;
@@ -222,8 +170,6 @@ fn sound(node: &mut NodeSpec) {
     }
 }
 
-/// Renders one track to its file. `done` is told how far (0.0 to 1.0) after
-/// each block. `None` means `cancel` stopped it and no file is left.
 pub fn render_job(
     job: Job,
     cancel: &AtomicBool,
@@ -263,8 +209,6 @@ pub fn render_job(
         return Ok(None);
     };
 
-    // What the engine is given: the time each plugin reported, a routing of
-    // this track alone, its clips and notes.
     let mut devices = Devices::default();
     for r in &running {
         devices.hosted.insert(r.plugin.device, r.linked.latency);
@@ -280,17 +224,12 @@ pub fn render_job(
             Bake::Mix => {}
         }
     }
-    // MIDI is built from this track alone: another track's instrument is
-    // not started.
     project.tracks.retain(|t| t.id == track);
     let mut statuses: Vec<(String, Arc<Status>)> = Vec::new();
     let mut instrument = None;
     let (mut clip_handle, clip_play) = clip_player_for_render();
     let (mut midi_handle, midi_play) = midi_player();
     let (mut mixer_handle, mut source) = mixer(Layered(clip_play, midi_play));
-    // Only this track's built-ins (the routing names them), and any number of
-    // them: an idle block drains the queue when it is full (M8 slice B0,
-    // review H2).
     crate::builtin::attach_all(&project, &routing, &mut mixer_handle, || {
         source.idle(rate, 256)
     })?;
@@ -344,8 +283,6 @@ pub fn render_job(
         },
     )
     .map_err(|e| e.to_string())?;
-    // A track that plays mono material also gets a mono file, kept if the two
-    // channels never differed.
     let twin_file = file.with_extension("mono.wav");
     let mut twin = if mono {
         Some(
@@ -374,9 +311,6 @@ pub fn render_job(
             from,
             frames,
             most_tail: if tail {
-                // What this track's own devices ring on for (M8 slice B3):
-                // a bounce of a track with a reverb keeps the reverb's tail,
-                // and one of a track that rings for nothing adds nothing.
                 crate::builtin::track_tail_frames(&project, track, rate)
             } else {
                 0
@@ -449,7 +383,6 @@ pub fn render_job(
     let frames_written = writer.finish().map_err(|e| e.to_string())?;
     let mut channels = 2;
     if let Some(twin) = twin.take() {
-        // The mono file replaces the stereo one only if every block matched.
         let kept = same && twin.finish().is_ok() && std::fs::rename(&twin_file, &file).is_ok();
         if kept {
             channels = 1;
@@ -474,9 +407,6 @@ pub fn render_job(
 }
 
 impl Render {
-    /// Starts rendering `jobs` one after another on a worker; `ctx` is woken
-    /// as it goes. `again` makes the jobs' clips on the worker, at the jobs'
-    /// rate, when the loaded audio is at another one (`render_audio`).
     pub fn start(jobs: Vec<Job>, again: Option<Arc<Again>>, ctx: &egui::Context) -> Self {
         let (tx, results) = channel();
         let report = tx.clone();
@@ -510,7 +440,6 @@ impl Render {
                 });
                 match result {
                     Ok(Some(done)) => made.push(done),
-                    // Stopped: drop the files already made and say nothing.
                     Ok(None) => {
                         remove_files(&made);
                         return;
@@ -536,7 +465,6 @@ impl Render {
         }
     }
 
-    /// Where the bounce stands; a finished one answers `Done` once.
     pub fn poll(&self) -> Poll {
         match self.results.try_recv() {
             Ok(Ok(made)) => Poll::Done(made),
@@ -548,14 +476,11 @@ impl Render {
         }
     }
 
-    /// Asks the worker to stop.
     pub fn stop(&self) {
         self.cancel.store(true, Ordering::Relaxed);
     }
 }
 
-/// Removes the files of renders that will not be used: queued on a thread of
-/// its own, so a big file on a slow drive never holds a frame (sweep M3).
 pub fn remove_files(made: &[Rendered]) {
     crate::recording::take_notes::delete_later(
         made.iter()
@@ -580,7 +505,6 @@ mod tests {
             .collect()
     }
 
-    /// A job for a track that plays the ramp from the start.
     fn job(doc: &Document, track: Id, dir: &std::path::Path, from: i64, frames: u64) -> Job {
         let samples = ramp();
         let audio = Arc::new(ClipAudio::Memory {
@@ -627,8 +551,6 @@ mod tests {
         lumen_media::decode(path, &AtomicBool::new(false), &mut |_| {}).unwrap()
     }
 
-    /// A render that will not be used is deleted without the caller (the
-    /// interface thread) waiting on the disk (sweep M3).
     #[test]
     fn an_unused_render_is_deleted_after_the_call_returns() {
         let dir = TempDir::new("bounce-unused");
@@ -676,8 +598,6 @@ mod tests {
         let back = read(&file);
         let ramp = ramp();
         let gain = 10f32.powf(-6.0 / 20.0);
-        // Once the mixer's level has settled, the left holds the ramp at the
-        // fader and the right nothing.
         for k in 1_000..10_000 {
             let want = ramp[20_000 + k] * gain;
             assert!((back.channel(0)[k] - want).abs() < 1e-4, "frame {k}");
@@ -753,7 +673,6 @@ mod tests {
         let leftovers: Vec<_> = std::fs::read_dir(dir.path()).unwrap().collect();
         assert_eq!(leftovers.len(), 1, "no twin left behind");
 
-        // A pan lane-free track whose right channel differs stays stereo.
         let mut apart = job(&doc, track, dir.path(), 0, 10_000);
         let left = ramp();
         let right: Vec<f32> = left.iter().map(|s| s * 0.5).collect();

@@ -1,10 +1,3 @@
-//! The audio editor's properties strip (M9.5 S3, ADR-0128): Gain, the two
-//! fades, Mute and Lock, Reverse, Polarity and Normalize sit in a strip
-//! under the header and edit the opened clip, each as the card and the menus
-//! do; the Clip chip renames and recolours; the File chip says where the
-//! file is and relinks or reveals it; and every control stays reachable at
-//! the smallest windows and from the keyboard alone.
-
 use eframe::egui::{Event, Key, Modifiers, Rect, vec2};
 use egui_kittest::kittest::{NodeT, Queryable};
 use lumen_core::time::Ticks;
@@ -22,7 +15,6 @@ fn gain_of(c: &Clip) -> f32 {
     }
 }
 
-/// Types `text` into the field named `label` and presses Enter.
 pub(super) fn type_into(lumen: &mut Lumen, label: &str, text: &str) {
     lumen.harness.get_by_label_contains(label).click();
     lumen.frames(2);
@@ -65,7 +57,6 @@ fn the_strip_replaces_the_column_and_edits_the_opened_clip_in_one_step_each() {
     }
     assert!(!shown(&lumen).strip.is_empty());
 
-    // Gain typed in: one step, and the same clip the card makes.
     let undo_before = lumen.app().undo_label().map(str::to_owned);
     type_into(&mut lumen, "Clip gain: ", "-6");
     assert!((gain_of(&clip(&lumen, id)) + 6.0).abs() < 1e-3);
@@ -79,7 +70,6 @@ fn the_strip_replaces_the_column_and_edits_the_opened_clip_in_one_step_each() {
     lumen.key(Modifiers::COMMAND, Key::Z);
     lumen.frames(3);
 
-    // A fade length typed in: 250 ms is an eighth note at 120 BPM.
     type_into(&mut lumen, "Fade in: ", "250");
     assert_eq!(
         clip(&lumen, id).fade_in.length,
@@ -89,7 +79,6 @@ fn the_strip_replaces_the_column_and_edits_the_opened_clip_in_one_step_each() {
     lumen.frames(3);
     assert_eq!(clip(&lumen, id).fade_in.length, Ticks(0));
 
-    // Mute and Lock are toggles on the clip.
     lumen.click("Mute clip");
     assert!(clip(&lumen, id).muted);
     lumen.click("Lock clip");
@@ -100,8 +89,6 @@ fn the_strip_replaces_the_column_and_edits_the_opened_clip_in_one_step_each() {
 fn processing_acts_on_the_opened_clip_even_when_another_is_selected() {
     let (mut lumen, kick, snare) = with_two_clips("strip-processing");
     open(&mut lumen, kick);
-    // The selection moves to the other clip while the editor keeps the kick
-    // (the editor follows a selection only when it is made there).
     lumen.app_mut().select_clip(snare);
     lumen.frames(3);
     assert_eq!(
@@ -152,7 +139,6 @@ fn a_locked_clip_disables_gain_fades_and_processing_but_not_mute_and_lock() {
         before,
         "a disabled control changes nothing"
     );
-    // Mute and Lock stay live.
     lumen.click("Mute clip");
     assert!(clip(&lumen, id).muted);
     lumen.click("Lock clip");
@@ -218,7 +204,6 @@ fn the_file_chip_gives_the_files_facts_and_reveal_notes_its_path() {
     );
 }
 
-/// The popover's Relink button, the last one drawn (the banner has its own).
 fn relink_button(lumen: &mut Lumen) {
     lumen
         .harness
@@ -248,7 +233,6 @@ fn a_missing_file_says_so_and_relinks_from_the_editor() {
         app.missing_media_count() == Some(1)
     });
     let id = lumen.app().project().tracks[0].clips[0].id;
-    // A missing file has no wave to hold handles: the strip is what shows.
     lumen.app_mut().select_clip(id);
     lumen.frames(3);
     lumen.key(Modifiers::NONE, Key::Enter);
@@ -273,7 +257,6 @@ fn a_missing_file_says_so_and_relinks_from_the_editor() {
         "there is nothing to show"
     );
 
-    // Cancelling says nothing and changes nothing.
     lumen.app_mut().answer_next_dialog(vec![]);
     relink_button(&mut lumen);
     lumen.frames(10);
@@ -283,7 +266,6 @@ fn a_missing_file_says_so_and_relinks_from_the_editor() {
     );
     assert!(lumen.app().media_rows()[0].1, "still missing");
 
-    // The file where it went is taken, and a toast says so.
     lumen.harness.get_by_label_contains("File missing").click();
     lumen.frames(3);
     lumen.app_mut().answer_next_dialog(vec![moved]);
@@ -299,8 +281,6 @@ fn a_missing_file_says_so_and_relinks_from_the_editor() {
     );
 }
 
-/// Every control of the strip that is drawn at the current size, by name,
-/// with its rectangle, and the strip's layout.
 fn strip_controls(lumen: &Lumen) -> (&'static str, Vec<(&'static str, Rect)>) {
     let layout = shown(lumen).strip;
     let body = shown(lumen).body;
@@ -323,9 +303,7 @@ fn strip_controls(lumen: &Lumen) -> (&'static str, Vec<(&'static str, Rect)>) {
     for (name, label) in wanted {
         for node in lumen.harness.query_all_by_label_contains(label) {
             let r = node.rect();
-            // The strip sits above the wave and its ruler.
             if r.width() > 0.0 && r.bottom() < body.top() && r.top() > body.top() - 130.0 {
-                // The header's own buttons share some words: keep the strip's.
                 if name == "File"
                     && !node
                         .accesskit_node()
@@ -345,8 +323,6 @@ fn strip_controls(lumen: &Lumen) -> (&'static str, Vec<(&'static str, Rect)>) {
 fn every_control_is_there_and_clear_of_the_others_in_each_layout() {
     let (mut lumen, _) = opened("strip-fit");
     let mut seen = std::collections::BTreeSet::new();
-    // Every 20 points from wide to narrow, so no layout is stepped over. The
-    // Pitch chip (S6) made the widest layout wider: it is reached from 1,700.
     for width in (0..62).map(|i| 1700.0 - 20.0 * i as f32) {
         lumen.harness.set_size(vec2(width, 540.0));
         lumen.app_mut().set_browser_size(220.0);
@@ -356,7 +332,6 @@ fn every_control_is_there_and_clear_of_the_others_in_each_layout() {
         seen.insert(layout);
         let has = |name: &str| found.iter().any(|(n, _)| *n == name);
 
-        // What each layout draws, and what it folds away.
         let (fades, processing, menu, warp, pitch) = match layout {
             "full" | "icons" | "dot" => (true, true, false, true, true),
             "fold processing" => (true, false, true, true, true),
@@ -415,7 +390,6 @@ fn every_control_is_there_and_clear_of_the_others_in_each_layout() {
 #[test]
 fn alt_enter_takes_the_keyboard_to_gain_in_the_editor_and_opens_the_card_elsewhere() {
     let (mut lumen, id) = opened("strip-alt-enter");
-    // The pointer on the editor: it is where the work is.
     let body = shown(&lumen).body;
     lumen.harness.hover_at(body.center());
     lumen.frames(3);
@@ -430,7 +404,6 @@ fn alt_enter_takes_the_keyboard_to_gain_in_the_editor_and_opens_the_card_elsewhe
         "Gain has the keyboard: {:?}",
         super::access::focused(&lumen)
     );
-    // Typing starts a new gain on the focused slider.
     lumen.key(Modifiers::NONE, Key::Enter);
     lumen.frames(2);
     lumen.key(Modifiers::COMMAND, Key::A);
@@ -440,7 +413,6 @@ fn alt_enter_takes_the_keyboard_to_gain_in_the_editor_and_opens_the_card_elsewhe
     lumen.frames(3);
     assert!((gain_of(&clip(&lumen, id)) + 3.0).abs() < 1e-3);
 
-    // A clip elsewhere: the arrangement's selection is not the opened clip.
     let (mut lumen, kick, snare) = with_two_clips("strip-alt-enter-card");
     open(&mut lumen, kick);
     select(&mut lumen, snare);
@@ -455,8 +427,6 @@ fn alt_enter_takes_the_keyboard_to_gain_in_the_editor_and_opens_the_card_elsewhe
 #[test]
 fn alt_enter_from_a_strip_control_stays_in_the_strip_wherever_the_pointer_is() {
     let (mut lumen, _) = opened("strip-alt-enter-strip");
-    // Alt+Enter and a Tab put the keyboard on Mute; the pointer then leaves
-    // the editor for the arrangement.
     let body = shown(&lumen).body;
     lumen.harness.hover_at(body.center());
     lumen.frames(3);
@@ -514,8 +484,6 @@ fn the_full_strip_is_walked_by_tab_in_order_and_changes_nothing() {
             seen.push(label);
         }
     }
-    // The strip's controls, in the order D36 gives them (the Clip chip comes
-    // first, before Gain, which Alt+Enter started on).
     let order = [
         "Mute clip",
         "Lock clip",
@@ -551,7 +519,6 @@ fn a_folded_strip_is_used_from_the_more_menu_and_escape_gives_the_keyboard_back(
     assert_eq!(shown(&lumen).strip, "fold fades", "the narrowest window");
     assert!(!lumen.shows("Reverse"), "Reverse is in the menu");
 
-    // Reverse from the menu: the opened clip, one step.
     lumen.click("More clip properties");
     lumen.click("Reverse");
     assert!(clip(&lumen, id).reversed);
@@ -560,7 +527,6 @@ fn a_folded_strip_is_used_from_the_more_menu_and_escape_gives_the_keyboard_back(
     lumen.frames(3);
     assert!(!clip(&lumen, id).reversed, "one undo step");
 
-    // Fades… opens the fades page, whose slider edits the clip.
     lumen.click("More clip properties");
     lumen.click("Fades…");
     assert!(
@@ -577,7 +543,6 @@ fn a_folded_strip_is_used_from_the_more_menu_and_escape_gives_the_keyboard_back(
         Ticks(Ticks::quarters(1).0 / 2)
     );
 
-    // Esc closes the menu and the keyboard is on the button that opened it.
     lumen.key(Modifiers::NONE, Key::Escape);
     lumen.frames(3);
     assert!(

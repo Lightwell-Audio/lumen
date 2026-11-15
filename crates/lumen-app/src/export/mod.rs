@@ -1,7 +1,3 @@
-//! Export choices and the background task (M9 R5). A render uses an immutable
-//! project snapshot. Files are staged together; cancellation never publishes
-//! part of a set of stems. Project media and undo history are untouched.
-
 pub(crate) mod live;
 mod publish;
 pub(crate) mod render;
@@ -80,7 +76,6 @@ impl Default for Options {
     }
 }
 
-/// A scope is always a half-open range, shared by all files in a stem set.
 pub fn span(
     project: &Project,
     scope: Scope,

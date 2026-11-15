@@ -1,40 +1,19 @@
-//! Meters on the UI side (M4 slice 5, ADR-0040): what each track's meter
-//! shows, moved on from the levels the engine measured.
-//!
-//! The engine hands over each node's peaks since the last look, its RMS
-//! and whether it clipped (`lumen_engine::Level`). Here they become what is
-//! drawn, with the owner's B2 ballistics: a peak jumps up at once and falls
-//! 20 dB a second; a hold line stays 1.5 s on the highest peak, then falls;
-//! a clip stays lit until it is clicked. The master's loudness windows and
-//! true peak are kept here too, reset when playback starts from stop (B5).
-//!
-//! Meters ask for frames only while something they show is moving, so a
-//! stopped, silent project stays idle (risk R5).
-
 use std::collections::HashMap;
 
 use lumen_core::loudness::Loudness;
 use lumen_engine::{InputHandle, InputLevel, Level, MixerHandle};
 
-/// The bottom of every meter's scale: quieter reads as silence.
 pub const FLOOR_DB: f32 = -60.0;
-/// How fast a shown peak falls (the owner's B2).
 pub const FALL_DB_PER_SECOND: f32 = 20.0;
-/// How long the hold line stays on the highest peak before it falls.
 pub const HOLD_SECONDS: f32 = 1.5;
-/// How fast the hold line falls once its time is up.
 const HOLD_FALL_DB_PER_SECOND: f32 = 30.0;
-/// The longest step ballistics take at once (after an idle gap).
 const MAX_STEP: f32 = 1.0;
 
-/// What a meter shows, per side, in dB (`f32::NEG_INFINITY` for silence).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Reading {
     pub peak: [f32; 2],
     pub rms: [f32; 2],
-    /// The hold line.
     pub hold: [f32; 2],
-    /// Went over full scale since the clip was last cleared.
     pub clipped: bool,
 }
 
@@ -50,12 +29,10 @@ impl Default for Reading {
 }
 
 impl Reading {
-    /// The louder side's hold, for a one-number peak readout.
     pub fn hold_db(&self) -> f32 {
         self.hold[0].max(self.hold[1])
     }
 
-    /// Nothing above the floor: a meter at rest.
     pub fn at_rest(&self) -> bool {
         self.peak
             .iter()
@@ -73,17 +50,13 @@ pub fn db(linear: f32) -> f32 {
     }
 }
 
-/// One meter's ballistics.
 #[derive(Debug, Clone, Copy, Default)]
 struct Ballistics {
     shown: Reading,
-    /// Seconds the hold line stays, per side.
     hold_left: [f32; 2],
 }
 
 impl Ballistics {
-    /// Moves on by `dt` seconds with what the engine measured since the
-    /// last step (`None`: the node is not routed any more).
     fn step(&mut self, level: Option<Level>, dt: f32) {
         let dt = dt.clamp(0.0, MAX_STEP);
         let level = level.unwrap_or_default();
@@ -108,7 +81,6 @@ impl Ballistics {
     }
 }
 
-/// Below the floor is silence, so a meter comes to rest exactly.
 fn settle(db: f32) -> f32 {
     if db <= FLOOR_DB {
         f32::NEG_INFINITY
@@ -117,31 +89,23 @@ fn settle(db: f32) -> f32 {
     }
 }
 
-/// The master's loudness, as shown.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LoudnessReading {
-    /// LUFS; `f64::NEG_INFINITY` before there is any.
     pub momentary: f64,
     pub short_term: f64,
     pub integrated: f64,
-    /// dBTP since the last reset.
     pub true_peak: f32,
 }
 
-/// Every track's meter and the master's loudness.
 #[derive(Debug)]
 pub struct Meters {
     tracks: HashMap<u64, Ballistics>,
-    /// The device's open inputs, by device channel (M9 R1).
     inputs: HashMap<usize, Ballistics>,
     loudness: Loudness,
     true_peak: f32,
-    /// Short-term loudness after every 100 ms block, newest last (the
-    /// loudness column's history).
     history: std::collections::VecDeque<f64>,
 }
 
-/// Short-term readings kept for the history: a minute of 100 ms blocks.
 pub const HISTORY: usize = 600;
 
 impl Default for Meters {
@@ -157,10 +121,6 @@ impl Default for Meters {
 }
 
 impl Meters {
-    /// Takes what the engine measured for `ids` (tracks and the master) and
-    /// moves every meter on by `dt` seconds. Meters of tracks no longer in
-    /// `ids` are dropped. While the audio is not `running` the engine
-    /// measures nothing, so every meter falls to rest.
     pub fn update(&mut self, mixer: &mut MixerHandle, ids: &[u64], dt: f32, running: bool) {
         self.tracks.retain(|id, _| ids.contains(id));
         for &id in ids {
@@ -178,10 +138,6 @@ impl Meters {
         self.true_peak = self.true_peak.max(db(mixer.take_true_peak()));
     }
 
-    /// Takes what the engine measured on each of the device's `open` input
-    /// channels and moves their meters on by `dt` seconds. Inputs are
-    /// measured whatever the transport does; they rest when the audio is not
-    /// `running`.
     pub fn update_inputs(&mut self, handle: &InputHandle, open: &[usize], dt: f32, running: bool) {
         self.inputs.retain(|channel, _| open.contains(channel));
         for &channel in open {
@@ -195,7 +151,6 @@ impl Meters {
         }
     }
 
-    /// What the meter of device input `channel` shows (both sides alike).
     pub fn input_reading(&self, channel: usize) -> Reading {
         self.inputs
             .get(&channel)
@@ -203,7 +158,6 @@ impl Meters {
             .unwrap_or_default()
     }
 
-    /// Clears input `channel`'s clip light and hold line (a click on it).
     pub fn clear_input_clip(&mut self, channel: usize) {
         if let Some(b) = self.inputs.get_mut(&channel) {
             b.shown.clipped = false;
@@ -211,12 +165,10 @@ impl Meters {
         }
     }
 
-    /// What track `id`'s meter shows.
     pub fn reading(&self, id: u64) -> Reading {
         self.tracks.get(&id).map(|b| b.shown).unwrap_or_default()
     }
 
-    /// Whether any meter is moving: the UI keeps drawing until they rest.
     pub fn moving(&self) -> bool {
         self.tracks
             .values()
@@ -224,7 +176,6 @@ impl Meters {
             .any(|b| !b.shown.at_rest())
     }
 
-    /// Clears track `id`'s clip light and hold line (a click on it).
     pub fn clear_clip(&mut self, id: u64) {
         if let Some(b) = self.tracks.get_mut(&id) {
             b.shown.clipped = false;
@@ -232,7 +183,6 @@ impl Meters {
         }
     }
 
-    /// Clears every clip light (Alt+click, or the palette).
     pub fn clear_all_clips(&mut self) {
         for id in self.tracks.keys().copied().collect::<Vec<_>>() {
             self.clear_clip(id);
@@ -242,19 +192,15 @@ impl Meters {
         }
     }
 
-    /// Whether any track's clip light is on.
     pub fn any_clipped(&self) -> bool {
         self.tracks.values().any(|b| b.shown.clipped)
     }
 
-    /// Starts integrated loudness and true peak again (Play from stop, or
-    /// a click on the loudness column).
     pub fn reset_loudness(&mut self) {
         self.loudness.reset();
         self.true_peak = f32::NEG_INFINITY;
     }
 
-    /// Short-term loudness, a reading per 100 ms, oldest first.
     pub fn history(&self) -> impl ExactSizeIterator<Item = f64> + '_ {
         self.history.iter().copied()
     }
@@ -286,12 +232,10 @@ mod tests {
         let mut b = Ballistics::default();
         b.step(level(1.0, 0.5, false), 1.0 / 60.0);
         assert_eq!(b.shown.peak[0], 0.0);
-        // Silence for half a second: down 10 dB.
         for _ in 0..30 {
             b.step(level(0.0, 0.0, false), 1.0 / 60.0);
         }
         assert!((b.shown.peak[0] + 10.0).abs() < 0.01, "{:?}", b.shown);
-        // RMS is the engine's, already averaged.
         assert_eq!(b.shown.rms[0], f32::NEG_INFINITY);
     }
 
@@ -300,12 +244,10 @@ mod tests {
         let mut b = Ballistics::default();
         b.step(level(0.5, 0.3, false), 0.0);
         let held = b.shown.hold[0];
-        // 1.4 s later, still there.
         for _ in 0..14 {
             b.step(level(0.0, 0.0, false), 0.1);
         }
         assert_eq!(b.shown.hold[0], held);
-        // Past 1.5 s it falls, never below the peak.
         for _ in 0..3 {
             b.step(level(0.0, 0.0, false), 0.1);
         }
@@ -336,7 +278,6 @@ mod tests {
         b.step(level(1.0, 0.7, false), 0.0);
         meters.tracks.insert(1, b);
         assert!(meters.moving());
-        // Peaks fall 60 dB in three seconds, and the hold after 1.5 s.
         for _ in 0..300 {
             meters
                 .tracks
@@ -363,7 +304,6 @@ mod tests {
         meters.update_inputs(&handle, &[0, 1], 0.016, true);
         assert!(!meters.moving());
         assert_eq!(meters.input_reading(1), Reading::default());
-        // A channel the device no longer has open is forgotten.
         meters
             .inputs
             .entry(5)

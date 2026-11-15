@@ -1,13 +1,8 @@
-//! The blocklist's words: what to tell a person about a plugin Lumen has
-//! stopped loading, and what Lumen will do about it. The data is the cache's
-//! blocked entries; this is how they read.
-
 use std::path::Path;
 
 use crate::cache::{Entry, Reason};
 
 impl Reason {
-    /// One sentence on what happened, for the browser's blocked list.
     pub fn headline(&self) -> String {
         match self {
             Reason::Crashed { how, .. } => {
@@ -23,7 +18,6 @@ impl Reason {
         }
     }
 
-    /// What the plugin printed while failing, if it printed anything.
     pub fn detail(&self) -> Option<&str> {
         match self {
             Reason::Crashed { detail, .. } if !detail.is_empty() => Some(detail),
@@ -32,11 +26,9 @@ impl Reason {
     }
 }
 
-/// What Lumen does next, said once for every blocked plugin.
 pub const WHEN_RETRIED: &str =
     "Lumen left it out of the list and will not try again until its file changes.";
 
-/// The name to show for a blocked module: its file name without `.vst3`.
 pub fn display_name(entry: &Entry) -> String {
     let path = Path::new(&entry.path);
     path.file_stem()

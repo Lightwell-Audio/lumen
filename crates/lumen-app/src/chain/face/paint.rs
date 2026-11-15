@@ -1,17 +1,8 @@
-//! Drawing helpers the faces share: a feathered line and a soft disc, each
-//! added to one [`Mesh`] so a picture of many lines is one shape and one
-//! allocation, never a `Vec` of points a line.
-
 use eframe::egui::{Color32, Mesh, Painter, Pos2, Shape, Stroke, pos2, vec2};
 
-/// How far the soft edge of a line reaches past its width, in points: what
-/// anti-aliases a line that is a strip of triangles.
 const FEATHER: f32 = 0.6;
-/// The sides of a disc, and the rings a soft one has between its middle and
-/// its edge.
 const SIDES: usize = 28;
 
-/// A mesh with room for `lines` lines of `points` points each.
 pub(super) fn mesh_for(lines: usize, points: usize) -> Mesh {
     let mut mesh = Mesh::default();
     mesh.vertices.reserve(lines * points * 4);
@@ -19,9 +10,6 @@ pub(super) fn mesh_for(lines: usize, points: usize) -> Mesh {
     mesh
 }
 
-/// A line of `n` points, `at(i)` the `i`th, `width` wide in `colour`, with a
-/// soft edge. The normals are taken from each point's neighbours, so a smooth
-/// curve stays smooth.
 pub(super) fn line(
     mesh: &mut Mesh,
     n: usize,
@@ -60,9 +48,6 @@ pub(super) fn line(
     }
 }
 
-/// A disc of `radius` round `centre` whose colour at each point is
-/// `colour(point)`: a soft glow (the colour fading to nothing at the edge) or a
-/// lit ball (a highlight off its middle). Added to `mesh` as a fan of rings.
 pub(super) fn disc(
     mesh: &mut Mesh,
     centre: Pos2,
@@ -103,22 +88,16 @@ pub(super) fn disc(
     }
 }
 
-/// A soft glow: `colour` at the middle falling to nothing at `radius`, along a
-/// smooth bell.
 pub(super) fn glow(painter: &Painter, centre: Pos2, radius: f32, colour: Color32) {
     let mut mesh = Mesh::default();
     disc(&mut mesh, centre, radius, 4, |at| {
         let t = ((at - centre).length() / radius).clamp(0.0, 1.0);
-        // A bell: 1 at the middle, 0 at the edge, soft all the way.
         let fall = (1.0 - t * t).powi(2);
         colour.gamma_multiply(fall)
     });
     painter.add(Shape::mesh(mesh));
 }
 
-/// An ellipse's dashes: `dash` long and `gap` apart along its perimeter, drawn
-/// as chords, so the dashes are even all the way round rather than long where
-/// the curve is flat. No allocation: the walk keeps its table on the stack.
 pub(super) fn dashed_ellipse(
     painter: &Painter,
     centre: Pos2,
@@ -147,7 +126,6 @@ pub(super) fn dashed_ellipse(
     if perimeter < dash {
         return;
     }
-    // The angle a distance `s` along the perimeter stands at.
     let theta_at = |s: f32| {
         let s = s.clamp(0.0, perimeter);
         let at = along.partition_point(|&reach| reach < s).clamp(1, STEPS);
@@ -159,7 +137,6 @@ pub(super) fn dashed_ellipse(
         };
         std::f32::consts::TAU * (at as f32 - 1.0 + part) / STEPS as f32
     };
-    // Whole dashes round the ring, spread evenly.
     let count = ((perimeter / (dash + gap)).round() as usize).max(1);
     let pitch = perimeter / count as f32;
     for k in 0..count {

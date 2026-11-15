@@ -1,7 +1,3 @@
-//! The test plugin loaded with the operating system's loader, in process:
-//! the module, its classes and an instance, with the plugin's output
-//! checked sample by sample.
-
 mod support;
 
 use lumen_plugin_host::instance::Format;
@@ -41,7 +37,6 @@ fn a_missing_or_foreign_file_is_refused_with_a_reason() {
     let junk = dir.join("junk.so");
     std::fs::write(&junk, b"this is not a shared library").unwrap();
     assert!(matches!(Module::load(&junk), Err(ModuleError::Load(_))));
-    // A real library that is not a VST3 module has no factory export.
     #[cfg(target_os = "linux")]
     {
         let libc = ["/lib/x86_64-linux-gnu/libm.so.6", "/usr/lib/libm.so.6"]
@@ -83,8 +78,6 @@ fn macos_bundle_uses_info_plist_executable_and_requires_bundle_entry() {
     let contents = bundle.join("Contents");
     let macos = contents.join("MacOS");
     std::fs::create_dir_all(&macos).unwrap();
-    // A lexically earlier file must not be selected in place of the plist's
-    // executable name.
     std::fs::write(macos.join("A-decoy"), b"not a module").unwrap();
     std::fs::copy(
         plugin().join("Contents/MacOS/lumen_test_plugin"),
@@ -258,7 +251,6 @@ fn state_round_trips_between_instances() {
     b.configure(FORMAT).unwrap();
     b.set_state(&state).expect("restore");
     assert_eq!(b.state().unwrap(), state);
-    // Damaged state is refused, and says so.
     assert!(b.set_state(&[1, 2, 3]).is_err());
 }
 
@@ -275,8 +267,6 @@ fn parameters_are_listed_from_the_controller() {
 #[test]
 fn a_configuration_the_plugin_does_not_have_is_refused() {
     let (_module, mut instance) = instrument();
-    // The instrument has no audio input bus, and a mono main output is
-    // something it will not agree to.
     let err = instance
         .configure(Format {
             outputs: 1,

@@ -1,13 +1,3 @@
-//! Returns and the master pinned at the bottom of the arrangement (M4
-//! slice 4, the owner's A1): a divider, a "Returns" caption
-//! that folds them away, the return tracks lettered A, B, C, and the
-//! master's row last. The tracks above scroll; this area stays put. Its
-//! height is dragged at the divider (double-click: back to its natural
-//! size) and saved with the project with the fold (format v10).
-//!
-//! Returns can sit anywhere in the project's track list: the arrangement
-//! shows them here in list order, so the file needs no order rule.
-
 use eframe::egui::{
     self, Align2, CursorIcon, FontId, Id as EguiId, Rect, Sense, Stroke, Ui, pos2, vec2,
 };
@@ -20,32 +10,21 @@ use crate::theme::Tone;
 use crate::widgets::{draw_arrow, draw_edge_glow, raised};
 use crate::{fonts, motion, theme};
 
-/// The divider above the pinned area.
 pub(super) const DIVIDER: f32 = 7.0;
 
-/// The "Returns" caption row.
 pub(super) const CAPTION: f32 = 22.0;
 
-/// The pinned area takes at most this share of the lanes' height.
 const MOST: f32 = 0.6;
 
-/// Where each part of the arrangement is, in points from the lanes' top.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct Zones {
-    /// The scrolling tracks: from 0 to here, where the pinned area starts.
     pub main: f32,
-    /// The caption, when there are returns.
     pub caption: Option<(f32, f32)>,
-    /// The returns, between the caption and the master.
     pub returns: (f32, f32),
-    /// The master's row, at the bottom.
     pub master: (f32, f32),
-    /// The returns' full height (more than their zone when the area was
-    /// dragged smaller: they scroll inside it).
     pub returns_content: f32,
 }
 
-/// The letter of the `n`th return: A to Z, then AA, AB and on.
 pub(crate) fn letter(n: usize) -> String {
     let mut n = n;
     let mut text = String::new();
@@ -58,7 +37,6 @@ pub(crate) fn letter(n: usize) -> String {
     }
 }
 
-/// The letter of return `id` in `project`, by its place among the returns.
 pub(crate) fn letter_of(project: &Project, id: lumen_project::model::Id) -> Option<String> {
     project
         .tracks
@@ -69,7 +47,6 @@ pub(crate) fn letter_of(project: &Project, id: lumen_project::model::Id) -> Opti
 }
 
 impl Arrangement {
-    /// The height the master's row is drawn at.
     pub(super) fn master_height(&self, ctx: &egui::Context, project: &Project) -> f32 {
         motion::glide(
             ctx,
@@ -79,7 +56,6 @@ impl Arrangement {
         )
     }
 
-    /// Where the zones are this frame.
     pub(super) fn zones(&self, ctx: &egui::Context, project: &Project) -> Zones {
         let returns = project
             .tracks
@@ -124,10 +100,6 @@ impl Arrangement {
         }
     }
 
-    /// The divider (drag to resize the area, double-click for its natural
-    /// size) and the caption (click to fold the returns), across the
-    /// headers and the lanes (`full`, the lanes' height). Called after the
-    /// lanes' own interaction, so it is on top.
     pub(crate) fn pinned_controls(&mut self, ui: &mut Ui, full: Rect, doc: &Document) {
         let ctx = ui.ctx().clone();
         let palette = *theme::p();
@@ -136,7 +108,6 @@ impl Arrangement {
         let at = |y: f32| full.top() + y;
         let painter = ui.painter_at(full);
 
-        // The divider.
         let divider = Rect::from_min_max(
             pos2(full.left(), at(zones.main)),
             pos2(full.right(), at(zones.main) + DIVIDER),
@@ -178,8 +149,6 @@ impl Arrangement {
         }
         if response.drag_stopped() {
             self.sizing_returns = None;
-            // Dragged to its natural size or past it: it follows its
-            // contents again.
             let natural = zones.returns_content
                 + DIVIDER
                 + zones.caption.map_or(0.0, |(a, b)| b - a)
@@ -213,7 +182,6 @@ impl Arrangement {
             draw_edge_glow(&painter, divider.x_range(), divider.center().y, glow);
         }
 
-        // The caption: click to fold the returns away.
         if let Some((top, bottom)) = zones.caption {
             let rect =
                 Rect::from_min_max(pos2(full.left(), at(top)), pos2(full.right(), at(bottom)));
@@ -278,13 +246,9 @@ impl Arrangement {
         }
     }
 
-    /// The wheel over the returns scrolls them when they do not fit (before
-    /// the arrangement's own scrolling takes the wheel). `full` is the
-    /// lanes' height across the headers and the lanes.
     pub(crate) fn pinned_wheel(&mut self, ui: &mut Ui, full: Rect, project: &Project) {
         let zones = self.zones(ui.ctx(), project);
         let at = |y: f32| full.top() + y;
-        // The wheel over the returns scrolls them when they do not fit.
         let returns = Rect::from_min_max(
             pos2(full.left(), at(zones.returns.0)),
             pos2(full.right(), at(zones.returns.1)),
@@ -304,9 +268,6 @@ impl Arrangement {
         self.returns_top = self.returns_top.clamp(0.0, spare);
     }
 
-    /// The pinned area's lanes, under the divider: a quieter ground so the
-    /// grid recedes, a soloed return's wash, the edges between rows and a
-    /// resize glow. Returns and the master hold no clips.
     pub(super) fn pinned_lanes(
         &self,
         ctx: &egui::Context,
@@ -380,10 +341,6 @@ impl Arrangement {
         }
     }
 
-    /// The Solo/Cue switch at the master's right (the owner's C1). On Cue,
-    /// the tracks' S buttons cue them to the headphones. It is left out
-    /// until a cue pair is chosen in Audio settings (the interface audit's
-    /// X8): greyed, it read as a broken control.
     pub(super) fn cue_switch(&mut self, ui: &mut Ui, rect: Rect, mid: f32, place: &str) {
         if !self.cue.ready {
             return;
@@ -418,7 +375,6 @@ impl Arrangement {
             response.hovered(),
         );
         let lit = motion::hover(ui.ctx(), ui.id().with(("solo cue lit", place)), on);
-        // A raised toggle (ADR-0052), on in Cue.
         let face = raised::Face::new(theme::controls(false))
             .hover(hover)
             .pressed(response.is_pointer_button_down_on())
@@ -452,9 +408,6 @@ impl Arrangement {
         raised::focus_ring(painter, &response, switch);
     }
 
-    /// The master's header: its rail, level strip and name, the fold
-    /// button, and volume and pan when unfolded. The Solo/Cue switch joins it with the cue
-    /// (slice 4d).
     pub(super) fn master_header(&mut self, ui: &mut Ui, doc: &mut Document, rect: Rect) {
         let palette = *theme::p();
         let master = doc.project().master.clone();
@@ -462,7 +415,6 @@ impl Arrangement {
         let selected = self.selected.contains(&master.id);
         let look = theme::controls(selected);
         let painter = ui.painter_at(rect);
-        // Click to show its devices (and a card dropped here lands on it).
         let background = ui.interact(rect, id, Sense::click());
         background.widget_info(|| {
             egui::WidgetInfo::selected(
@@ -491,8 +443,6 @@ impl Arrangement {
         painter.rect_filled(rail, 0.0, palette.text_hint);
         let mid = super::headers::name_center(rect.top(), rect.height());
         let open = self.expanded.contains(&master.id);
-        // The type icon is the fold button, the arrow under the pointer, as
-        // on every track (ADR-0101).
         let fold_rect = Rect::from_min_size(
             pos2(
                 rect.left() + super::headers::CONTENT_X,
@@ -572,7 +522,6 @@ impl Arrangement {
         if rect.height() >= FOLDED + 22.0 {
             self.mixer_row(ui, doc, &master, (rect, rect.left()), (id, look));
         }
-        // The cue level, on the third row, while a cue pair is open.
         let (start, _, third) = super::headers::columns(rect, rect.left());
         if self.cue.ready && rect.height() >= third.bottom() - rect.top() {
             let y = third.center().y;

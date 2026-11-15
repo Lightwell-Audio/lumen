@@ -1,13 +1,3 @@
-//! P-ISO prototype: is a shared-memory transport to separate plugin-host
-//! processes fast enough to be the default, and can crashes and hangs be
-//! survived without stalling audio?
-//!
-//! ```text
-//! isolation-ipc all                       the standard measurement matrix
-//! isolation-ipc bench [--hosts N] [--spin] [--frames F] [--rate R] [--seconds S]
-//! isolation-ipc fault crash|hang [--hosts N] [--seconds S]
-//! ```
-
 #[cfg(windows)]
 mod ipc;
 #[cfg(windows)]
@@ -41,8 +31,6 @@ fn main() {
         deadline_fraction: number("--deadline", 0.5),
         fault: None,
     };
-    // Each scenario gets a fresh thread, as a real audio thread would; MMCSS
-    // registration is per thread.
     let run = |title: &str, config: &Config| {
         let owned = config.clone();
         let result = std::thread::spawn(move || scenarios::run(&owned))

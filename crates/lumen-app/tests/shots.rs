@@ -1,13 +1,3 @@
-//! Renders states a `--screenshot` cannot reach (hovers, drags, selections)
-//! to PNG files, for checking the look by eye. Not a test of behaviour: it
-//! is ignored, and runs on demand with a GPU, one test at a time (the
-//! theme is process-wide, so tests run side by side render mixed themes):
-//!
-//! ```text
-//! SHOTS=<folder> cargo test -p lumen-app --test shots -- --ignored --test-threads=1
-//! ```
-
-/// M7b E0: the chosen tool switch and its menu in both themes and scales.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn arrangement_tools() {
@@ -32,8 +22,6 @@ fn arrangement_tools() {
     }
 }
 
-/// M8 D1: the fifteen drum glyphs, at 12, 16, 20 and 28 pt and in three
-/// track colours, in both themes at three scales.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn drum_icons() {
@@ -55,7 +43,6 @@ fn drum_icons() {
                     if !ready {
                         lumen_app::testing::prepare_look(ui.ctx(), &look);
                         ready = true;
-                        // The typefaces apply from the next frame.
                         return;
                     }
                     lumen_app::testing::drum_icon_sheet(ui);
@@ -74,7 +61,6 @@ use lumen_app::{App, Launch};
 use lumen_project::drums::presets::Preset;
 use lumen_project::testing::TempDir;
 
-/// M9 R5: the export controls fit and scroll at the minimum window size.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn audio_export_window() {
@@ -90,18 +76,14 @@ fn audio_export_window() {
     }
 }
 
-/// A window with two one-second clips on a one-bar grid.
 fn lumen(dir: &TempDir) -> Harness<'static, App> {
     lumen_looking(dir, "dark", 1.0)
 }
 
-/// [`lumen`] in `appearance`, at `scale`: tall enough for the tracks with
-/// the mixer open (at 420 points the dropped files found no lanes).
 fn lumen_looking(dir: &TempDir, appearance: &str, scale: f32) -> Harness<'static, App> {
     lumen_looking_sized(dir, appearance, scale, vec2(1280.0, 760.0))
 }
 
-/// [`lumen_looking`] in a window of `size`.
 fn lumen_looking_sized(
     dir: &TempDir,
     appearance: &str,
@@ -128,12 +110,10 @@ fn lumen_looking_sized(
     h
 }
 
-/// A window in `appearance` with no files yet.
 fn bare(dir: &TempDir, appearance: &str, size: eframe::egui::Vec2) -> Harness<'static, App> {
     bare_scaled(dir, appearance, 1.0, size)
 }
 
-/// [`bare`] at `scale`.
 fn bare_scaled(
     dir: &TempDir,
     appearance: &str,
@@ -159,7 +139,6 @@ fn bare_scaled(
     h
 }
 
-/// Drops three tones `seconds` long on new tracks.
 fn drop_files(h: &mut Harness<'static, App>, dir: &TempDir, seconds: f32) {
     let files: Vec<PathBuf> = ["kick", "snare", "bass"]
         .iter()
@@ -195,8 +174,6 @@ fn clip_selection() {
     h.hover_at(Pos2::new(a.left() + 20.0, a.bottom() - 5.0));
     save(&mut h, "clip-hover-bottom");
 
-    // Select two by a marquee (Ctrl+Shift in empty lanes, ADR-0049), held
-    // mid-drag.
     let b = clip(&h, 1);
     let from = Pos2::new(a.right() + 200.0, a.top() + 2.0);
     h.event(Event::ModifiersChanged(
@@ -213,7 +190,6 @@ fn clip_selection() {
     h.hover_at(Pos2::new(a.right() + 300.0, b.bottom() + 60.0));
     save(&mut h, "clip-selected");
 
-    // A range over the three tracks.
     let c = clip(&h, 2);
     let from = Pos2::new(a.left() + 10.0, a.bottom() - 5.0);
     h.hover_at(from);
@@ -236,7 +212,6 @@ fn clip_handles() {
     let a = clip(&h, 0);
     h.hover_at(Pos2::new(a.right() - 2.0, a.center().y));
     save(&mut h, "handle-edge");
-    // Shift+drag the end four times as far: a looping clip.
     let from = Pos2::new(a.right() - 2.0, a.center().y);
     h.event(Event::ModifiersChanged(Modifiers::SHIFT));
     h.hover_at(from);
@@ -252,7 +227,6 @@ fn clip_handles() {
     save(&mut h, "handle-looped");
 }
 
-/// Drags with the left button from `from` to `to`, holding `modifiers`.
 fn drag(h: &mut Harness<'static, App>, from: Pos2, to: Pos2) {
     h.hover_at(from);
     h.drag_at(from);
@@ -270,13 +244,11 @@ fn drag(h: &mut Harness<'static, App>, from: Pos2, to: Pos2) {
 fn clip_fades_and_gain() {
     let dir = TempDir::new("shots-fades");
     let mut h = lumen(&dir);
-    // Close enough that the first clip is wide.
     for _ in 0..2 {
         h.key_press(Key::Equals);
         h.run_steps(2);
     }
     h.run_steps(20);
-    // A taller first track, by its header's resize edge.
     let a = clip(&h, 0);
     drag(
         &mut h,
@@ -294,7 +266,6 @@ fn clip_fades_and_gain() {
     drag(&mut h, fade_in, fade_in + vec2(a.width() * 0.3, 0.0));
     let fade_out = at(&h).fade_out;
     drag(&mut h, fade_out, fade_out - vec2(a.width() * 0.25, 0.0));
-    // Bend the fade out up (Fast), and hold the fade in's bend mid-drag.
     let bend = at(&h).bend_out.expect("a bend dot");
     drag(&mut h, bend, bend - vec2(0.0, 12.0));
     let gain = at(&h).gain;
@@ -305,12 +276,10 @@ fn clip_fades_and_gain() {
     h.hover_at(bend);
     h.drag_at(bend);
     h.run_steps(2);
-    // Freely: left and up (the owner's C3).
     h.hover_at(bend + vec2(-25.0, -20.0));
     save(&mut h, "fade-bending");
     h.drop_at(bend + vec2(-25.0, -20.0));
     h.run_steps(2);
-    // Alt adds S-shape to the fade out.
     let bend = at(&h).bend_out.expect("a bend dot");
     h.event(Event::ModifiersChanged(Modifiers::ALT));
     drag(&mut h, bend, bend - vec2(0.0, 30.0));
@@ -320,8 +289,6 @@ fn clip_fades_and_gain() {
     save(&mut h, "fade-gain-idle");
 }
 
-/// M7b E2: an eligible join with a lengthened, crossed fade and the
-/// project menu switch at both themes and each supported scale.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn crossfades() {
@@ -345,7 +312,6 @@ fn crossfades() {
             h.run_steps(4);
             let right = h.state().project().tracks[0].clips[1].id;
             h.state_mut().select_clip(right);
-            // Pull the left clip's fade handle over the right clip.
             let at = h
                 .state()
                 .clip_handles(&h.ctx, left)
@@ -368,8 +334,6 @@ fn crossfades() {
                 &mut h,
                 &format!("crossfade-menu-{appearance}-{}", (scale * 100.0) as u32),
             );
-            // The left clip is kept alive here to ensure the rendered scene
-            // came from a two-clip join, not a standalone fade.
             assert_ne!(left, right);
             drop(h);
             let mut minimum = lumen_looking_sized(&dir, appearance, scale, vec2(960.0, 540.0));
@@ -395,8 +359,6 @@ fn crossfades() {
     }
 }
 
-/// M7b E2: the crossfade of a plain split (the owner's flow): the zone, its
-/// shaded wedges and both curves, unhovered and hovered.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn crossfade_split() {
@@ -435,8 +397,6 @@ fn crossfade_split() {
                 &mut h,
                 &format!("crossfade-split-hover-{appearance}-{name}"),
             );
-            // The incoming clip selected: its outline begins where the
-            // crossing ends.
             h.state_mut().select_clip(right);
             h.hover_at(Pos2::new(before.right() + 300.0, before.bottom() + 120.0));
             h.run_steps(5);
@@ -471,7 +431,6 @@ fn clip_properties_looking(appearance: &str, scale: f32) {
         h.run_steps(2);
     }
     h.run_steps(20);
-    // Mute the first clip (0), lock and recolour the second in its card.
     let a = clip(&h, 0);
     click(&mut h, pos(a, 0.5, 0.3));
     h.run_steps(2);
@@ -490,7 +449,6 @@ fn clip_properties_looking(appearance: &str, scale: f32) {
     save(&mut h, "props-card");
     h.key_press(Key::Escape);
     h.run_steps(4);
-    // Rename the third in its title bar.
     let c = clip(&h, 2);
     click(&mut h, pos(c, 0.5, 0.3));
     h.run_steps(2);
@@ -566,7 +524,6 @@ fn lanes_menus_looking(appearance: &str, scale: f32) {
             &format!("{name}-{appearance}-{}", (scale * 100.0) as u32),
         );
         if name == "menu-clip" {
-            // The Edit submenu, which ends with Join into new file (M7b E3).
             use egui_kittest::kittest::Queryable;
             h.get_by_label("Edit").click();
             h.run_steps(4);
@@ -597,7 +554,6 @@ fn command_palette_looking(appearance: &str, scale: f32) {
             &format!("{name}-{appearance}-{}", (scale * 100.0) as u32),
         );
     };
-    // Two clips selected, so commands name what they act on.
     let a = clip(&h, 0);
     click(&mut h, pos(a, 0.5, 0.3));
     let b = clip(&h, 1);
@@ -605,7 +561,6 @@ fn command_palette_looking(appearance: &str, scale: f32) {
     click(&mut h, pos(b, 0.5, 0.3));
     h.event(Event::ModifiersChanged(Modifiers::NONE));
     h.run_steps(2);
-    // Run one from the palette so the empty palette has a recent command.
     h.key_press_modifiers(Modifiers::COMMAND, Key::K);
     h.run_steps(3);
     h.event(Event::Text("mute".into()));
@@ -678,7 +633,6 @@ fn keyboard_shortcuts_looking(appearance: &str, scale: f32) {
     h.run_steps(3);
     h.key_press(Key::Escape);
     h.run_steps(3);
-    // In the palette: Ctrl+Enter on a row records new keys there.
     h.key_press_modifiers(Modifiers::COMMAND, Key::K);
     h.run_steps(3);
     h.event(Event::Text("fit song".into()));
@@ -722,50 +676,41 @@ fn menus_and_tips_looking(appearance: &str, scale: f32) {
         }
         h.run_steps(3);
     };
-    // A clip's menu.
     let a = clip(&h, 0);
     click(&mut h, pos(a, 0.5, 0.3));
     right(&mut h, pos(a, 0.5, 0.3));
     save(&mut h, "menu-clip");
-    // A row under the pointer: its keycaps inside the highlight.
     let copy = h.get_by_label_contains("Copy").rect().center();
     h.hover_at(copy);
     save(&mut h, "menu-clip-hover");
     h.key_press(Key::Escape);
     h.run_steps(3);
-    // The empty lanes' menu, on "Snap to grid", which is on (the owner's
-    // screenshot: a lit toggle's keycaps sat off).
     right(&mut h, pos(a, 4.0, 0.5));
     let snap = h.get_by_label("Snap to grid Ctrl+4").rect().center();
     h.hover_at(snap);
     save(&mut h, "menu-lanes-hover");
     h.key_press(Key::Escape);
     h.run_steps(3);
-    // The ruler's view menu.
     let ruler = h.get_by_label("Ruler: click to move the playhead").rect();
     right(&mut h, ruler.center());
     save(&mut h, "menu-ruler");
     h.key_press(Key::Escape);
     h.run_steps(3);
-    // A track's menu.
     let header = h.get_by_label("kick: double-click to rename").rect();
     right(&mut h, header.center());
     save(&mut h, "menu-track");
     h.key_press(Key::Escape);
     h.run_steps(3);
-    // A transport tooltip.
     let play = h.get_by_label("Play from the start marker").rect();
     h.hover_at(play.center());
     h.run_steps(60);
     save(&mut h, "tip-play");
     h.hover_at(pos2(600.0, 400.0));
     h.run_steps(3);
-    // The app menu: switches and segmented choices (M4.5 slice 2).
     let lumen = h.get_by_label("Lumen").rect();
     click(&mut h, lumen.center());
     h.run_steps(30);
     save(&mut h, "menu-app");
-    // Its submenus (layout A, 2026-10-26).
     let more = h.get_by_label("More ways to save").rect();
     click(&mut h, more.center());
     h.run_steps(20);
@@ -777,7 +722,6 @@ fn menus_and_tips_looking(appearance: &str, scale: f32) {
     let mixing = h.get_by_label("Mixing").rect();
     click(&mut h, mixing.center());
     h.run_steps(20);
-    // A change keeps it open; leaving it fades it (the owner's C).
     let additive = h.get_by_label("Additive solo").rect();
     click(&mut h, additive.center());
     h.run_steps(20);
@@ -786,7 +730,6 @@ fn menus_and_tips_looking(appearance: &str, scale: f32) {
     h.run_steps(24 + 4);
     save(&mut h, "menu-app-fading");
     h.run_steps(30);
-    // The metronome's menu.
     let metronome = h.get_by_label("Metronome").rect();
     right(&mut h, metronome.center());
     h.run_steps(30);
@@ -821,8 +764,6 @@ fn smallest_window_at_200() {
     let _ = h.query_by_label("Lumen");
 }
 
-/// The app menu in the smallest window (M9 review L2): its last rows are
-/// reached by scrolling the menu.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn app_menu_in_the_smallest_window() {
@@ -851,9 +792,6 @@ fn app_menu_in_the_smallest_window() {
     }
 }
 
-/// The empty arrangement's prompt in short windows, with the detail panel
-/// open under the lanes (the owner's report: the button ran over the time
-/// ruler and the hint was cut). The prompt gives up its icon, then its hint.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn empty_prompt_short() {
@@ -955,8 +893,6 @@ fn midi_chip() {
     }
 }
 
-/// MIDI files and clock (M5 slice 7): the tracks and the tempo offer a
-/// dropped song file makes, and the MIDI page with Sync and its delay.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn midi_files_and_clock() {
@@ -1008,8 +944,6 @@ fn midi_files_and_clock() {
     }
 }
 
-/// M9 R7: the MIDI page's ports in columns, and the Plugins page with
-/// folders of the user's that can be removed.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn preferences_midi_and_plugins() {
@@ -1084,8 +1018,6 @@ fn preferences_midi_and_plugins() {
         }
         h.run_steps(30);
         save(&mut h, &format!("prefs-plugins-{tag}"));
-        // The settings R7 added: Editing, then Files with a cache folder
-        // chosen (its "next start" hint).
         h.get_by_label("Editing page").click();
         h.run_steps(30);
         save(&mut h, &format!("prefs-editing-{tag}"));
@@ -1102,7 +1034,6 @@ fn preferences_midi_and_plugins() {
     }
 }
 
-/// A left click at `p`.
 fn click(h: &mut Harness<'static, App>, p: Pos2) {
     h.hover_at(p);
     h.run_steps(1);
@@ -1117,7 +1048,6 @@ fn click(h: &mut Harness<'static, App>, p: Pos2) {
     }
 }
 
-/// The point `fx` across and `fy` down `r`.
 fn pos(r: Rect, fx: f32, fy: f32) -> Pos2 {
     Pos2::new(r.left() + r.width() * fx, r.top() + r.height() * fy)
 }
@@ -1135,7 +1065,6 @@ impl eframe::egui::DroppedFile for Dropped {
     }
 }
 
-/// A stereo 16-bit WAV of a soft tone, `seconds` long.
 fn wav(path: &std::path::Path, seconds: f32) -> PathBuf {
     let rate = 48_000_u32;
     let frames = (seconds * rate as f32) as usize;
@@ -1202,8 +1131,6 @@ fn dropouts() {
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn sends() {
-    // MT-MIX-4 run 1: sends on a selected row (C4) and a return's senders
-    // (R2); the header's sends are a well of slots since ADR-0101.
     use egui_kittest::kittest::Queryable;
     for (appearance, scale) in [("dark", 1.0), ("light", 1.0), ("dark", 1.5)] {
         let dir = TempDir::new("shots-sends");
@@ -1225,8 +1152,6 @@ fn sends() {
             h.key_press(Key::Enter);
             h.run_steps(2);
         }
-        // Five more tracks sending into A, so it lists four and "+N more"
-        // (returns folded away meanwhile, so the new tracks are in view).
         h.get_by_label("Fold returns").click();
         h.run_steps(10);
         for n in 0..11 {
@@ -1258,7 +1183,6 @@ fn sends() {
         h.run_steps(10);
         h.get_by_label("Fold Return 1").click();
         h.run_steps(30);
-        // Up to the top: kick selected.
         for _ in 0..16 {
             h.key_press(Key::ArrowUp);
             h.run_steps(1);
@@ -1266,7 +1190,6 @@ fn sends() {
         h.hover_at(Pos2::new(900.0, 650.0));
         h.run_steps(10);
         save(&mut h, &format!("sends-{appearance}-{scale}"));
-        // A header knob mid-drag: its level in a chip above it.
         let knob = h.get_by_label_contains("Send kick to A ").rect();
         h.hover_at(knob.center());
         h.drag_at(knob.center());
@@ -1287,10 +1210,6 @@ fn sends() {
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn track_headers() {
-    // M9 slice R1b (the owner's B\u{b7}1, ADR-0101): the well of M S \u{25CF},
-    // the level strip, the send well with three and then twelve returns,
-    // a slot's flag, and the In chip at a fixed width, in both themes at
-    // 100, 150 and 200%.
     use egui_kittest::kittest::Queryable;
     let type_in = |h: &mut Harness<'static, App>, label: &str, text: &str| {
         h.get_by_label_contains(label).click();
@@ -1344,8 +1263,6 @@ fn track_headers() {
             h.run_steps(5);
             h.get_by_label("Mute bass").click();
             h.run_steps(5);
-            // A return lists its senders on the same rows; the master has
-            // volume and pan.
             for name in ["Return 1", "Master"] {
                 h.get_by_label(&format!("Fold {name}")).click();
                 h.run_steps(30);
@@ -1353,12 +1270,10 @@ fn track_headers() {
             h.hover_at(Pos2::new(900.0, 1250.0));
             h.run_steps(30);
             save(&mut h, &format!("track-headers-{appearance}-{scale}"));
-            // A slot under the pointer shows its flag.
             let slot = h.get_by_label_contains("Send kick to A ").rect();
             h.hover_at(slot.center());
             h.run_steps(20);
             save(&mut h, &format!("track-headers-flag-{appearance}-{scale}"));
-            // Twelve returns: every one has a slot.
             h.hover_at(Pos2::new(900.0, 1250.0));
             h.run_steps(10);
             for _ in 0..9 {
@@ -1378,9 +1293,6 @@ fn track_headers() {
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn mixer_strips_and_header_levels() {
-    // The owner's M4 slice 5 report: strips wide enough for a track name,
-    // the header volume's value clear of its meter, and peak readouts that
-    // fit their box.
     use egui_kittest::kittest::Queryable;
     for (appearance, scale) in [("dark", 1.0), ("light", 1.0), ("dark", 1.5)] {
         let dir = TempDir::new("shots-mixer-fixes");
@@ -1396,8 +1308,6 @@ fn mixer_strips_and_header_levels() {
         h.hover_at(Pos2::new(900.0, 650.0));
         h.run_steps(5);
         save(&mut h, &format!("headers-{appearance}-{scale}"));
-        // A volume with three digits, typed under the fader (the owner's
-        // finding that values overflow past two digits).
         h.get_by_label_contains("kick volume in the mixer").click();
         h.run_steps(2);
         h.key_press_modifiers(Modifiers::COMMAND, Key::A);
@@ -1415,8 +1325,6 @@ fn mixer_strips_and_header_levels() {
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn mixer_armed_glow_clears_the_peak_readout() {
-    // The owner's M4.5 finding: an armed record button's glow ran into the
-    // peak readout above it. The gap above the buttons now clears the glow.
     use egui_kittest::kittest::Queryable;
     for (appearance, scale) in [("dark", 1.0), ("light", 1.0), ("dark", 2.0)] {
         let dir = TempDir::new("shots-mixer-arm");
@@ -1436,8 +1344,6 @@ fn mixer_armed_glow_clears_the_peak_readout() {
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn delay_compensation_readout() {
-    // M4 slice 6, the owner's D1: the readout at the end of the device
-    // line, its path in the info line, and the audio panel's Latency rows.
     use egui_kittest::kittest::Queryable;
     for (appearance, scale) in [("dark", 1.0), ("light", 1.0), ("dark", 1.5)] {
         let dir = TempDir::new("shots-compensation");
@@ -1465,20 +1371,16 @@ fn delay_compensation_readout() {
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn polish_sweep() {
-    // M4.5 slice 6: every view the polish pass changed, in both themes at
-    // 100%, 150% and 200% (the lumen-design checklist, item 9).
     use egui_kittest::kittest::Queryable;
     for appearance in ["dark", "light"] {
         for scale in [1.0, 1.5, 2.0] {
             let name =
                 |view: &str| format!("polish-{view}-{appearance}-{}", (scale * 100.0) as u32);
-            // Empty states: the lanes, the browser and the mixer's ghost.
             let dir = TempDir::new("shots-polish-empty");
             let mut h = bare_scaled(&dir, appearance, scale, vec2(1280.0, 760.0));
             h.run_steps(40);
             save(&mut h, &name("empty"));
             drop(h);
-            // Headers, strips, tabs and the transport with tracks.
             let dir = TempDir::new("shots-polish");
             let mut h = lumen_looking_sized(&dir, appearance, scale, vec2(1280.0, 760.0));
             h.run_steps(40);
@@ -1487,7 +1389,6 @@ fn polish_sweep() {
             h.hover_at(pos2(640.0, 700.0));
             h.run_steps(30);
             save(&mut h, &name("tracks"));
-            // The app menu's switches and segmented choices.
             let lumen = h.get_by_label("Lumen").rect();
             click(&mut h, lumen.center());
             h.run_steps(30);
@@ -1498,16 +1399,13 @@ fn polish_sweep() {
             save(&mut h, &name("menu-app-appearance"));
             h.key_press(Key::Escape);
             h.run_steps(30);
-            // The clip card.
             h.key_press_modifiers(Modifiers::ALT, Key::Enter);
             h.run_steps(30);
             save(&mut h, &name("card"));
-            // The first Escape leaves the name field; the second closes the card.
             h.key_press(Key::Escape);
             h.run_steps(30);
             h.key_press(Key::Escape);
             h.run_steps(30);
-            // Audio settings: choice rows and the test tone's switch.
             let lumen = h.get_by_label("Lumen").rect();
             click(&mut h, lumen.center());
             h.run_steps(30);
@@ -1521,8 +1419,6 @@ fn polish_sweep() {
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn mixer_edges() {
-    // M4.5 slice 6, the audit's U2: strips cut by the mixer's edges fade
-    // into the ground there.
     for appearance in ["dark", "light"] {
         let dir = TempDir::new("shots-mixer-edges");
         let mut h = lumen_looking_sized(&dir, appearance, 1.0, vec2(1000.0, 760.0));
@@ -1548,9 +1444,6 @@ fn mixer_edges() {
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn mixer_wells() {
-    // The interface audit's X1–X4 and X6: a strip's sends are slots in one
-    // well, M, S and arm are pieces of another under pan, and the strips
-    // scroll under the master's shadow, in both themes at 100, 150 and 200%.
     use egui_kittest::kittest::Queryable;
     for appearance in ["dark", "light"] {
         for scale in [1.0, 1.5, 2.0] {
@@ -1592,7 +1485,6 @@ fn mixer_wells() {
     }
 }
 
-/// A right click at `p`.
 fn right_click(h: &mut Harness<'static, App>, p: Pos2) {
     h.hover_at(p);
     h.run_steps(1);
@@ -1610,9 +1502,6 @@ fn right_click(h: &mut Harness<'static, App>, p: Pos2) {
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn live_sweep() {
-    // M5 slice 2e: the chip and its popover, the keyboard button with its
-    // readout, the hollow listening ring, header lights, the track menu with
-    // MIDI From and Monitor, and the mixer strip's From and To rows.
     use egui_kittest::kittest::Queryable;
     use lumen_midi::{Direction, fake::FakeControl};
     use lumen_project::model::{Color, Id, Monitor, Track, TrackKind};
@@ -1678,7 +1567,6 @@ fn live_sweep() {
             h.run_steps(1);
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
-        // Ports on for tracks, through the chip's popover.
         h.get_by_label("MIDI: 0 inputs, 0 outputs").click();
         h.run_steps(30);
         h.get_by_label("Track Arturia KeyStep 37 input in the MIDI panel")
@@ -1690,13 +1578,11 @@ fn live_sweep() {
             std::thread::sleep(std::time::Duration::from_millis(10));
             h.run_steps(1);
         }
-        // The popover with traffic.
         fake.send_to_input("Arturia KeyStep 37", 1, &[0x90, 60, 100]);
         h.run_steps(6);
         save(&mut h, &format!("live-popover-{tag}"));
         h.key_press(Key::Escape);
         h.run_steps(40);
-        // Keyboard mode on, Keys selected (the hollow ring), a key held.
         h.key_press_modifiers(Modifiers::COMMAND | Modifiers::SHIFT, Key::K);
         h.run_steps(30);
         h.get_by_label_contains("Track Keys,").click();
@@ -1719,7 +1605,6 @@ fn live_sweep() {
             modifiers: Modifiers::NONE,
         });
         h.run_steps(60);
-        // The track menu with MIDI From open.
         let keys = h.get_by_label_contains("Track Keys,").rect();
         right_click(&mut h, pos(keys, 0.5, 0.2));
         h.run_steps(30);
@@ -1730,7 +1615,6 @@ fn live_sweep() {
         h.run_steps(5);
         h.key_press(Key::Escape);
         h.run_steps(30);
-        // The mixer strips (the panel is open; tall enough for From and To).
         h.state_mut().set_detail_size(size.y * 0.55);
         h.run_steps(60);
         save(&mut h, &format!("live-mixer-{tag}"));
@@ -1740,10 +1624,6 @@ fn live_sweep() {
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn project_windows() {
-    // M9 slice R4 (ADR-0105): the Project settings window with a colour
-    // chosen, a rate other than the device's and notes typed; its rate list;
-    // the window that names a template, with a name that exists; and the
-    // prompt before Revert to saved. Both themes, at 100, 150 and 200%.
     use egui_kittest::kittest::Queryable;
     let command = |h: &mut Harness<'static, App>, name: &str| {
         h.key_press_modifiers(Modifiers::COMMAND, Key::K);
@@ -1781,7 +1661,6 @@ fn project_windows() {
             h.key_press(Key::Escape);
             h.run_steps(20);
 
-            // A template that exists, named again.
             command(&mut h, "Save as template");
             h.event(Event::Text("Beat".into()));
             h.run_steps(5);
@@ -1794,7 +1673,6 @@ fn project_windows() {
             h.key_press(Key::Escape);
             h.run_steps(20);
 
-            // Revert asks first.
             let file = lumen_app::testing::project_file(dir.path(), "Song");
             h.state_mut().save_to(file);
             h.run_steps(60);
@@ -1803,7 +1681,6 @@ fn project_windows() {
             command(&mut h, "Revert to saved");
             save(&mut h, &format!("revert-{tag}"));
         }
-        // The smallest window: the settings scroll instead of being cut off.
         let dir = TempDir::new("shots-project-windows-small");
         let mut h = lumen_looking_sized(&dir, appearance, 1.0, vec2(960.0, 540.0));
         command(&mut h, "Project settings");
@@ -1814,8 +1691,6 @@ fn project_windows() {
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn transport_fit() {
-    // The transport bar at 960, 1280 and 1600 wide with the computer
-    // keyboard's mode on, cropped to the bar.
     for appearance in ["dark", "light"] {
         for scale in [1.0, 2.0] {
             for width in [960.0, 1280.0, 1600.0] {
@@ -1841,9 +1716,6 @@ fn transport_fit() {
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn monitor_sweep() {
-    // The Monitor badge (M5 slice 2 fix): In, Off and Auto beside long
-    // names, rows unselected and selected, an audio track with none, at the
-    // smallest window too.
     use egui_kittest::kittest::Queryable;
     use lumen_midi::fake::FakeControl;
     use lumen_project::model::{Color, Id, Monitor, Track, TrackKind};
@@ -1923,20 +1795,16 @@ fn monitor_sweep() {
         }
         h.run_steps(30);
         save(&mut h, &format!("monitor-rest-{tag}"));
-        // Select the In track, then the Off track: the badge on a selected row.
         let r = h.get_by_label_contains("Track Lead,").rect();
         left_click(&mut h, pos(r, 0.3, 0.5));
         h.run_steps(40);
         save(&mut h, &format!("monitor-in-selected-{tag}"));
-        // At 960 x 540 the mixer leaves room for two rows (the 44 pt
-        // transport bar, ADR-0052): Pad is out of view there.
         if let Some(pad) = h.query_by_label_contains("Track Pad,") {
             let r = pad.rect();
             left_click(&mut h, pos(r, 0.3, 0.5));
             h.run_steps(40);
             save(&mut h, &format!("monitor-off-selected-{tag}"));
         }
-        // Hover the In badge.
         let badge = h.get_by_label("Monitor Lead: In").rect();
         h.hover_at(badge.center());
         h.run_steps(30);
@@ -1944,7 +1812,6 @@ fn monitor_sweep() {
     }
 }
 
-/// A left click at `p` (the header's centre can be on a badge).
 fn left_click(h: &mut Harness<'static, App>, p: Pos2) {
     h.hover_at(p);
     h.run_steps(1);
@@ -1959,8 +1826,6 @@ fn left_click(h: &mut Harness<'static, App>, p: Pos2) {
     }
 }
 
-/// The piano roll body and the arrangement's mini notes (M5 slice 3b),
-/// in both themes at 100, 150 and 200%.
 struct RollShot {
     demo: lumen_app::testing::PianoRollDemo,
     zoom: f64,
@@ -2028,8 +1893,6 @@ fn mini_notes() {
             });
         h.run_steps(60);
         save(&mut h, &format!("mini-notes-{appearance}"));
-        // A tall Chords track: every pitch a row, neighbours touching, as
-        // in the piano roll.
         let dir = TempDir::new("shots-mini-tall");
         let copy = dir.path().join("midi-demo.lumen");
         let text = std::fs::read_to_string(&fixture).expect("the MIDI demo project");
@@ -2062,9 +1925,6 @@ fn mini_notes() {
     }
 }
 
-/// The clip editor (M5 slice 3c) with the MIDI demo's Chords clip open,
-/// one chord picked and another note hovered, in both themes at 100, 150
-/// and 200%.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn note_editor() {
@@ -2123,10 +1983,6 @@ fn note_editor() {
     }
 }
 
-/// The clip editor showing notes outside the clip's window (ADR-0059): a
-/// clip from beat 4 to 8 with notes before its start, past its end and one
-/// running over its end, zoomed out so all show; the one past the end
-/// picked. Both themes at 100, 150 and 200%.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn hidden_notes_editor() {
@@ -2206,10 +2062,6 @@ fn hidden_notes_editor() {
     }
 }
 
-/// The velocity and controller lane under the clip editor (M5 slice 4b):
-/// the velocity lane with a stroke drawn across it, and the mod wheel lane
-/// with a curve just drawn, its dot showing, plus the solo chip states;
-/// both themes at 100, 150 and 200%.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn clip_lane() {
@@ -2266,8 +2118,6 @@ fn clip_lane() {
             h.hover_at(pos2(1000.0, 400.0));
             h.run_steps(10);
             let r = h.state().clip_rect(&h.ctx, id).expect("in view");
-            // Open the MIDI editor from the clip's title header; its body is
-            // reserved for range gestures.
             let at = pos(r, 0.1, 0.1);
             click(&mut h, at);
             click(&mut h, at);
@@ -2277,7 +2127,6 @@ fn clip_lane() {
                     .lane_point(Ticks((beat * lumen_core::time::PPQ as f64) as i64), value)
                     .expect("the lane drew")
             };
-            // A stroke across the velocity stems.
             let (a, b) = (lane(&h, 4.0, 40), lane(&h, 12.0, 110));
             drag(&mut h, a, b);
             h.hover_at(lane(&h, 9.0, 60));
@@ -2286,7 +2135,6 @@ fn clip_lane() {
                 &mut h,
                 &format!("lane-velocity-{appearance}-{}", (scale * 100.0) as u32),
             );
-            // A curve in the mod wheel lane.
             h.get_by_label("Mod wheel tab").click();
             h.run_steps(5);
             h.get_by_label("Lane curve tool").click();
@@ -2303,8 +2151,6 @@ fn clip_lane() {
     }
 }
 
-/// The quantize options open over the piano roll (M5 slice 5): the comet
-/// sliders and the ghost trails, both themes at 100, 150 and 200%.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn quantize_popover() {
@@ -2312,7 +2158,6 @@ fn quantize_popover() {
     use lumen_core::time::{PPQ, Ticks};
     use lumen_project::model::Note;
     use lumen_project::testing::{midi_track, project_of};
-    // A part played loose: the notes sit a little off the beat.
     let beats = [
         (0.04, 60),
         (0.55, 64),
@@ -2378,9 +2223,6 @@ fn quantize_popover() {
     }
 }
 
-/// The owner's MT-MIDI-7 run 3 finding: clips on one track an octave apart,
-/// and two different melodies, must look different. Each track's clips
-/// share one layout, so pitch is height across the whole track.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn mini_notes_octaves() {
@@ -2400,13 +2242,11 @@ fn mini_notes_octaves() {
         };
         Arc::new(clip)
     };
-    // Track 1: one note an octave apart in two clips.
     let mut octave = midi_track(1, "Octave", "poly", (0, 6), None, Vec::new(), vec![]);
     octave.clips = vec![
         clip_of(&octave, 10, 0, vec![Note::new(q(0), q(5), 60, 100)]),
         clip_of(&octave, 11, 8, vec![Note::new(q(0), q(5), 72, 100)]),
     ];
-    // Track 2: two melodies that differ.
     let melody = |pitches: &[u8]| {
         pitches
             .iter()
@@ -2451,8 +2291,6 @@ fn mini_notes_octaves() {
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn browser_controls() {
-    // M6 slice 1: the Devices tab's controls (title, tab, search with its
-    // focus ring, type switch, chips) in both themes at 100% and 200%.
     for appearance in ["dark", "light"] {
         for scale in [1.0, 2.0] {
             let dir = TempDir::new("shots-browser");
@@ -2468,16 +2306,12 @@ fn browser_controls() {
     }
 }
 
-/// Prism, the utility device (M8 slice B0): its card whole, folded and in the
-/// smallest window, with All parameters, in both themes and at three scales.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn builtin_card() {
     use egui_kittest::kittest::Queryable;
     use lumen_project::model::{Color, Device, Id, PluginRef, Track, TrackKind};
 
-    // The tray's room decides the card's step (whole, short, compact): the
-    // detail panel's height is what each shot sets.
     let mut cases: Vec<(&str, f32, eframe::egui::Vec2, &str, f32)> = Vec::new();
     for appearance in ["dark", "light"] {
         for scale in [1.0_f32, 1.5, 2.0] {
@@ -2487,8 +2321,6 @@ fn builtin_card() {
             cases.push((appearance, scale, vec2(960.0, 540.0), "small", 0.0));
         }
     }
-    // Each device with the specimen's values (saved normalised) and the
-    // number of parameters its All parameters button names.
     type Values = &'static [(u32, f64)];
     let devices: [(&str, &str, usize, Values); 4] = [
         (
@@ -2497,11 +2329,7 @@ fn builtin_card() {
             8,
             &[(lumen_devices::utility::WIDTH, 0.65)],
         ),
-        // Iris at its defaults (its parameters shot is not taken: the count is
-        // not needed to look at its header).
         (lumen_devices::eq::NAME, "iris", 0, &[]),
-        // The specimen's: 1/8, 45 % feedback, 25 % mix, ping on; a 62 % room,
-        // 2.4 s, 55 % damping, 20 % mix (normalised by each table below).
         (
             lumen_devices::delay::NAME,
             "parallax",
@@ -2525,8 +2353,6 @@ fn builtin_card() {
             ],
         ),
     ];
-    // SHOT_FILTER=afterglow-dark-1 keeps the cases whose
-    // "device-appearance-scale-tag" holds it.
     let only = std::env::var("SHOT_FILTER").unwrap_or_default();
     for (device_name, tag_name, parameters, values) in devices {
         for &(appearance, scale, size, tag, detail) in &cases {
@@ -2536,8 +2362,6 @@ fn builtin_card() {
             let dir = TempDir::new(&format!("shots-{tag_name}-{appearance}-{scale}-{tag}"));
             let track = Track::new(Id(1), "Keys".to_owned(), TrackKind::Audio, Color(0x5E8C6A));
             let mut track = track;
-            // A built-in saved with no values of its own plays its table's
-            // defaults, as a device added this build does.
             let mut device = Device::new(
                 Id(10),
                 PluginRef::Builtin {
@@ -2546,8 +2370,6 @@ fn builtin_card() {
                 false,
                 Vec::new(),
             );
-            // Prism's value is saved normalised; the others are in their own
-            // units (a note and a switch are already normalised).
             let table = lumen_devices::effect_params(device_name).expect("a built-in");
             for &(id, value) in values {
                 let own_units = device_name == lumen_devices::reverb::NAME
@@ -2586,26 +2408,22 @@ fn builtin_card() {
             h.run_steps(30);
             h.state_mut().select_tracks(&[Id(1)]);
             h.run_steps(4);
-            // The browser has a Devices tab too: the detail panel's comes last.
             h.get_all_by_label("Devices tab")
                 .last()
                 .expect("the tabs")
                 .click();
             h.run_steps(4);
-            // A short tray shows compact cards (D2): make room for whole ones.
             if tag != "small" {
                 h.state_mut().set_detail_size(detail);
                 h.run_steps(30);
             }
             let tag = format!("{tag}-{appearance}-{}", (scale * 100.0) as u32);
             save(&mut h, &format!("{tag_name}-{tag}"));
-            // Folded: the rail with the power and the name set on end.
             h.state_mut().fold_device(Id(10));
             h.run_steps(10);
             save(&mut h, &format!("{tag_name}-folded-{tag}"));
             h.state_mut().fold_device(Id(10));
             h.run_steps(10);
-            // Every parameter on its own.
             let all = format!("All parameters ({parameters})");
             if h.query_by_label(&all).is_some() {
                 h.get_by_label(&all).click();
@@ -2616,8 +2434,6 @@ fn builtin_card() {
     }
 }
 
-/// Prism while the track plays: the screen is alive, the beams burn brighter
-/// with the level. Whole card, both themes, three scales.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn builtin_card_playing() {
@@ -2637,7 +2453,6 @@ fn builtin_card_playing() {
                 let first = h.state().project().tracks[0].id;
                 h.state_mut().select_tracks(&[first]);
                 h.run_steps(4);
-                // Add Prism by the palette, as a person does.
                 h.key_press_modifiers(Modifiers::COMMAND, Key::K);
                 h.run_steps(4);
                 h.event(Event::Text(command.into()));
@@ -2666,11 +2481,6 @@ fn builtin_card_playing() {
     }
 }
 
-/// Iris, the parametric EQ (M8 slice B1, the owner's round 2): the card whole
-/// at rest and playing (the analyser's mist), short, compact, folded and in the
-/// smallest window; both themes at 100, 150 and 200%. The values are the
-/// specimen's: a low cut at 40 Hz, band 2 at 180 Hz +5.0 (picked), a bell at
-/// 2.5 kHz -4.0 and a high shelf at 8 kHz +3.0.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn builtin_eq() {
@@ -2686,7 +2496,6 @@ fn builtin_eq() {
             cases.push((appearance, scale, vec2(960.0, 540.0), "small", 0.0));
         }
     }
-    // SHOT_FILTER=dark-1 keeps the cases whose "appearance-scale-tag" holds it.
     let only = std::env::var("SHOT_FILTER").unwrap_or_default();
     for (appearance, scale, size, tag, detail) in cases {
         if !format!("{appearance}-{scale}-{tag}").contains(&only) {
@@ -2750,7 +2559,6 @@ fn builtin_eq() {
         h.run_steps(30);
         h.state_mut().select_tracks(&[Id(1)]);
         h.run_steps(4);
-        // The browser has a Devices tab too: the detail panel's comes last.
         h.get_all_by_label("Devices tab")
             .last()
             .expect("the tabs")
@@ -2760,13 +2568,10 @@ fn builtin_eq() {
             h.state_mut().set_detail_size(detail);
             h.run_steps(30);
         }
-        // Band 2 picked, as a click does: its halo, blades, chip and dials.
         h.state_mut().pick_band(Id(10), 1);
         h.run_steps(10);
         let tag = format!("{tag}-{appearance}-{}", (scale * 100.0) as u32);
         save(&mut h, &format!("iris-{tag}"));
-        // A signal in the analyser's place (a shot's project does not play):
-        // the specimen's soft mist.
         let spectrum: Vec<f32> = (0..96)
             .map(|i| {
                 let t = i as f32 / 95.0;
@@ -2777,13 +2582,11 @@ fn builtin_eq() {
         h.state_mut().pretend_spectrum(Id(10), &spectrum);
         h.run_steps(40);
         save(&mut h, &format!("iris-playing-{tag}"));
-        // Folded: the rail with the power and the name set on end.
         h.state_mut().fold_device(Id(10));
         h.run_steps(10);
         save(&mut h, &format!("iris-folded-{tag}"));
         h.state_mut().fold_device(Id(10));
         h.run_steps(10);
-        // Every parameter on its own.
         if h.query_by_label("All parameters (38)").is_some() {
             h.get_by_label("All parameters (38)").click();
             h.run_steps(10);
@@ -2792,12 +2595,6 @@ fn builtin_eq() {
     }
 }
 
-/// Gravity and Horizon's faces (M8 slice B2, the owner's round 2): the card
-/// whole at rest and playing (gain reduction, the land of what was heard),
-/// short, compact, folded, every parameter and the smallest window; both
-/// themes at 100, 150 and 200%. Gravity is keyed from a track called Kick, as
-/// the specimen shows. `SHOT_FILTER=dark-1` keeps the cases whose
-/// "appearance-scale-tag" holds it.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn dynamics_card() {
@@ -2875,23 +2672,18 @@ fn dynamics_card() {
                 h.run_steps(30);
             }
             let at = format!("{tag}-{appearance}-{}", (scale * 100.0) as u32);
-            // At rest: nothing heard yet.
             save(&mut h, &format!("{short}-rest-{at}"));
-            // Playing: what the device took away and what it heard, long enough
-            // for the land to fill in.
             h.state_mut().pretend_reduction(Id(10), 4.1, -8.0);
             h.run_steps(120);
             save(&mut h, &format!("{short}-{at}"));
             if tag != "whole" {
                 continue;
             }
-            // Folded: the rail with its hue and its name set on end.
             h.state_mut().fold_device(Id(10));
             h.run_steps(10);
             save(&mut h, &format!("{short}-folded-{at}"));
             h.state_mut().fold_device(Id(10));
             h.run_steps(10);
-            // Every parameter on its own.
             let count = if short == "gravity" { 10 } else { 4 };
             let label = format!("All parameters ({count})");
             if h.query_by_label(&label).is_some() {
@@ -2903,8 +2695,6 @@ fn dynamics_card() {
     }
 }
 
-/// The Devices tab (M6 slice 2d): a chain with every card face, stopped and
-/// playing, as the owner's C4 mock-up draws it.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn device_chain() {
@@ -2921,7 +2711,6 @@ fn device_chain() {
         ("dark", 2.0, vec2(1600.0, 1000.0)),
         ("light", 1.5, vec2(1500.0, 900.0)),
         ("light", 2.0, vec2(1600.0, 1000.0)),
-        // The smallest window: no picture, the track's band on a rounded corner.
         ("dark", 1.0, vec2(960.0, 540.0)),
         ("light", 1.0, vec2(960.0, 540.0)),
     ] {
@@ -3004,13 +2793,11 @@ fn device_chain() {
         h.run_steps(30);
         h.state_mut().select_tracks(&[Id(1)]);
         h.run_steps(4);
-        // The browser has a Devices tab too: the detail panel's comes last.
         h.get_all_by_label("Devices tab")
             .last()
             .expect("the tabs")
             .click();
         h.run_steps(30);
-        // Two cards with a picture of their own: a window with knobs.
         let ctx = h.ctx.clone();
         for (device, hue) in [(Id(11), [40u8, 90, 70]), (Id(13), [90, 60, 40])] {
             h.state_mut()
@@ -3035,7 +2822,6 @@ fn device_chain() {
         h.state_mut().pretend_device_state(Id(12), "ready");
         h.state_mut().pretend_device_state(Id(13), "loading");
         h.state_mut().pretend_device_state(Id(14), "failed");
-        // The strip: six parameters chosen, two slots empty.
         h.state_mut().give_device_parameters(
             Id(11),
             &[
@@ -3051,7 +2837,6 @@ fn device_chain() {
             Id(12),
             &[("Time", 0.4, "310 ms"), ("Feedback", 0.55, "42 %")],
         );
-        // The plugin's own window: open with Learn on; stuck.
         h.state_mut().give_device_editor(Id(11), "open", true);
         h.state_mut().give_device_editor(Id(12), "stuck", false);
         h.run_steps(4);
@@ -3078,9 +2863,6 @@ fn device_chain() {
     }
 }
 
-/// The compact cards of a short Devices panel (D2, the owner's A): every
-/// face at the panel's least height, where a stopped card is as tall as its
-/// words.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn compact_chain() {
@@ -3211,8 +2993,6 @@ fn compact_chain() {
     }
 }
 
-/// The detail panel's tab row (DP1): the subject, Devices, an opened audio
-/// clip's Clip tab with its properties beside its wave, and Mixer.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn detail_tabs() {
@@ -3250,8 +3030,6 @@ fn detail_tabs() {
     }
 }
 
-/// The audio clip editor (M9.5 S1): a clip trimmed to the middle of its
-/// file, framed on the clip, then on the whole file with the rest dimmed.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn audio_clip_editor() {
@@ -3265,8 +3043,6 @@ fn audio_clip_editor() {
         ("light", 1.5, vec2(1300.0, 800.0)),
         ("dark", 2.0, vec2(1100.0, 800.0)),
         ("light", 2.0, vec2(1100.0, 800.0)),
-        // The smallest window, with the browser open: the header's narrow
-        // form.
         ("dark", 1.0, vec2(960.0, 540.0)),
         ("light", 2.0, vec2(960.0, 540.0)),
     ] {
@@ -3291,8 +3067,6 @@ fn audio_clip_editor() {
     }
 }
 
-/// The marks on clips (M9.5 S3): reversed and inverted, on a wide clip, a
-/// narrow one and a very narrow one.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn clip_marks() {
@@ -3322,9 +3096,6 @@ fn clip_marks() {
     }
 }
 
-/// The audio editor's handles (M9.5 S2a): at rest with a fade in, a fade out
-/// and a gain, with a fade hot under the pointer, with the keyboard on a
-/// handle and its popover open; the header at the widths it must fit.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn audio_editor_handles() {
@@ -3338,7 +3109,6 @@ fn audio_editor_handles() {
         ("dark", 2.0, vec2(1100.0, 800.0)),
         ("light", 2.0, vec2(1100.0, 800.0)),
         ("dark", 1.0, vec2(960.0, 540.0)),
-        // The smallest window at 150% and 200%, in points.
         ("light", 1.5, vec2(640.0, 360.0)),
         ("dark", 2.0, vec2(480.0, 270.0)),
     ] {
@@ -3358,7 +3128,6 @@ fn audio_editor_handles() {
         h.run_steps(30);
         save(&mut h, &format!("audio-handles-plain-{tag}"));
 
-        // A fade each way and the gain pulled down, by hand.
         let shown = |h: &egui_kittest::Harness<'_, lumen_app::App>| {
             h.state().audio_editor_shown().expect("drawn")
         };
@@ -3386,14 +3155,11 @@ fn audio_editor_handles() {
         h.run_steps(10);
         save(&mut h, &format!("audio-handles-edited-{tag}"));
 
-        // The pointer on a fade: its curve lights and the info line says what
-        // a drag does.
         let at = shown(&h).handles.expect("handles");
         h.hover_at(at.fade_out);
         h.run_steps(10);
         save(&mut h, &format!("audio-handles-hot-{tag}"));
 
-        // The keyboard on the fade in, then its popover.
         h.hover_at(shown(&h).body.left_top());
         h.run_steps(2);
         let ctx = h.ctx.clone();
@@ -3419,7 +3185,6 @@ fn audio_editor_handles() {
     }
 }
 
-/// The preset field on a card, its menu, and the failed faces (M6 slice 5f).
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn preset_menu() {
@@ -3551,7 +3316,6 @@ fn preset_menu() {
     }
 }
 
-/// Switches and choosers on a card's strip (M6 slice 5g, the owner's A).
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn stepped_controls() {
@@ -3661,8 +3425,6 @@ fn stepped_controls() {
     }
 }
 
-/// Safe mode (M6 slice 5e, the owner's I2 and F2): the strip under the
-/// transport bar, the card that is not loaded, and the offer.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn safe_mode() {
@@ -3745,8 +3507,6 @@ fn safe_mode() {
     }
 }
 
-/// The audio panel's block budget (ADR-0075, the owner's B) with a long
-/// chain: twelve plugins, two of them missing blocks.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn block_budget() {
@@ -3772,7 +3532,6 @@ fn block_budget() {
         ("light", 1.0, vec2(1400.0, 900.0)),
         ("light", 1.5, vec2(1400.0, 900.0)),
         ("light", 2.0, vec2(1400.0, 900.0)),
-        // The smallest window: the panel must fit, its list shorter.
         ("dark", 1.0, vec2(960.0, 540.0)),
     ];
     for (appearance, scale, size) in sizes {
@@ -3809,10 +3568,6 @@ fn block_budget() {
     }
 }
 
-/// The UI polish pass: an armed folded track clear of its level hairline,
-/// the panel toggles as icons beside the palette, the keycap with the
-/// computer keyboard on, the narrowest browser, and the Devices tab at its
-/// shortest.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn ui_polish() {
@@ -3865,9 +3620,6 @@ fn ui_polish() {
     }
 }
 
-/// The sidechain row on a plugin effect's card (M6 slice 6c, the owner's B
-/// with the light of I1): unset, keyed with the light lit, keyed with the
-/// warning ring, and the menu open.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn sidechain_row() {
@@ -3982,7 +3734,6 @@ fn sidechain_row() {
             h.get_by_label("Compressor A on Pad").click();
             h.run_steps(10);
             if keyed {
-                // The song plays: the light shows what arrives.
                 h.key_press(eframe::egui::Key::Space);
                 h.run_steps(20);
             }
@@ -3998,8 +3749,6 @@ fn sidechain_row() {
     }
 }
 
-/// The card's Outputs row and its menu: the list scrolls with room for its
-/// bar beside the switches, and a switched-on output names its track.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn outputs_row() {
@@ -4096,10 +3845,6 @@ fn outputs_row() {
     }
 }
 
-/// Automation lanes over the clips (M7 slice A1): a volume lane with a
-/// curve and a picked point on the first track, a pan lane that is switched
-/// off on the second, the A button lit in the unfolded headers; both themes
-/// at 100, 150 and 200%.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn automation_lanes() {
@@ -4134,7 +3879,6 @@ fn automation_lanes() {
             h.run_steps(4);
             h.key_press(Key::A);
             h.run_steps(60);
-            // Pick the third point of the first lane, as a click would.
             let p = h
                 .state()
                 .automation_point_pos(&h.ctx, tracks[0], 2)
@@ -4146,11 +3890,6 @@ fn automation_lanes() {
     }
 }
 
-/// Editing a lane (M7 slice A2): the tool strip, a picked point's bend dot,
-/// two points picked by a box, a sine being drawn with its live value.
-/// A clip's gain envelope over the clip (M7 slice A7, the owner's E1 A): the
-/// envelope of a looping clip with its repeat dashed, and its pan. Dark and
-/// light at 100, 150 and 200%.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn clip_envelope() {
@@ -4164,7 +3903,6 @@ fn clip_envelope() {
             let track = h.state().project().tracks[0].id;
             let clip = h.state().project().tracks[0].clips[0].id;
             let q = Ticks::quarters;
-            // The clip repeats every three quarters for eleven.
             h.state_mut().trim_clip_end_to(clip, q(11), true);
             h.state_mut().select_clip(clip);
             h.run_steps(4);
@@ -4203,7 +3941,6 @@ fn clip_envelope() {
     }
 }
 
-/// Dark and light at 100, 150 and 200%.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn automation_editing() {
@@ -4233,7 +3970,6 @@ fn automation_editing() {
             h.run_steps(4);
             h.key_press(Key::A);
             h.run_steps(60);
-            // One point picked: its segment shows the bend dot.
             let p = h
                 .state()
                 .automation_point_pos(&h.ctx, tracks[0], 1)
@@ -4241,7 +3977,6 @@ fn automation_editing() {
             click(&mut h, p);
             h.run_steps(10);
             save(&mut h, &format!("lane-edit-bend-{appearance}-{scale}"));
-            // A box around two points, still held.
             let from = h
                 .state()
                 .automation_spot(&h.ctx, tracks[0], 4.0, 6.0)
@@ -4261,7 +3996,6 @@ fn automation_editing() {
             h.run_steps(3);
             h.event(Event::ModifiersChanged(Modifiers::NONE));
             h.run_steps(2);
-            // The shape tool, a sine part drawn.
             h.get_by_label(&format!("Automation shape tool of {name}"))
                 .click();
             h.run_steps(5);
@@ -4285,10 +4019,6 @@ fn automation_editing() {
     }
 }
 
-/// A lane taken over (M7 slice A4a, the owner's look A): the first track's
-/// fader was moved under its volume lane, so its fader, chip, A button and lane
-/// are amber and dashed; the second track's pan lane plays and its pan follows.
-/// Dark and light at 100, 150 and 200%.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn automation_override() {
@@ -4331,7 +4061,6 @@ fn automation_override() {
             }
             h.key_press(Key::A);
             h.run_steps(60);
-            // The playhead partway along, the first fader moved by hand.
             h.state_mut().set_track_volume(tracks[0], -2.0);
             h.run_steps(20);
             save(&mut h, &format!("override-{appearance}-{scale}"));
@@ -4339,10 +4068,6 @@ fn automation_override() {
     }
 }
 
-/// A track's recording mode (M7 slice A4b, the owner's K1 B): one chip with a
-/// record-red dot and the mode's name, the lane tinted red while the mode can
-/// write, and the mode menu open on the first track. Dark and light at 100, 150
-/// and 200%.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn automation_modes() {
@@ -4394,9 +4119,6 @@ fn automation_modes() {
     }
 }
 
-/// A plugin parameter's lane taken over (M7 slice A4a): the card's strip knob
-/// and the All parameters window's bar, both with the amber ring, beside a
-/// parameter whose lane plays and follows. Dark and light at 100, 150 and 200%.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn automation_override_parameters() {
@@ -4454,8 +4176,6 @@ fn automation_override_parameters() {
             h.state_mut().give_device_parameters(Id(11), &list);
             h.state_mut().select_tracks(&[Id(1)]);
             h.run_steps(4);
-            // The first two parameters have lanes: the first is taken over,
-            // the second plays and its knob follows.
             let q = Ticks::quarters;
             for (param, from, to) in [(1, 0.2, 0.8), (2, 0.7, 0.3)] {
                 let lane = Lane::new(vec![Point::new(q(0), from), Point::new(q(8), to)]).unwrap();
@@ -4484,9 +4204,6 @@ fn automation_override_parameters() {
     }
 }
 
-/// Choosing a plugin's parameter for a lane (M7 slice A3): the chooser open
-/// on a plugin with a dozen parameters, a search narrowing it, and the lane
-/// it chose drawn under its name. Dark and light at 100, 150 and 200%.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn automation_plugin_chooser() {
@@ -4592,9 +4309,6 @@ fn automation_plugin_chooser() {
     }
 }
 
-/// Controller mappings (M7 slice A5): the right-click menu of a mapped control
-/// and the Mappings window with a control waiting for a controller. Dark and
-/// light at 100, 150 and 200%.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn controller_mappings() {
@@ -4650,7 +4364,6 @@ fn controller_mappings() {
             h.run_steps(30);
             h.get_by_label("Fold Drums").click();
             h.run_steps(40);
-            // The menu of a mapped control.
             let slider = h.get_by_label_contains("Volume Drums:").rect();
             h.hover_at(slider.center());
             h.run_steps(2);
@@ -4667,7 +4380,6 @@ fn controller_mappings() {
             save(&mut h, &format!("mappings-menu-{appearance}-{scale}"));
             h.key_press(Key::Escape);
             h.run_steps(15);
-            // The window, with the bass pan waiting for another controller.
             h.state_mut().begin_learning(Id(2), Target::Volume);
             h.run_steps(5);
             h.key_press_modifiers(Modifiers::COMMAND, Key::K);
@@ -4681,10 +4393,6 @@ fn controller_mappings() {
     }
 }
 
-/// The tempo and meter lanes (M7 slice A6): three tempos with their values,
-/// a picked change, time signatures 4/4, 7/8 and 3/4 as chips, the playhead
-/// in the second segment so the name column reads that tempo and meter, and
-/// the box a tempo is typed in. Dark and light at 100, 150 and 200%.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn song_lanes() {
@@ -4694,19 +4402,15 @@ fn song_lanes() {
             let mut h = lumen_looking_sized(&dir, appearance, scale, vec2(1280.0, 760.0));
             h.state_mut()
                 .give_song_maps(&[(8, 96.5), (20, 140.0)], &[(8, 7, 8), (15, 3, 4)]);
-            // The corner button, with the lanes hidden and then lit.
             h.run_steps(30);
             save(&mut h, &format!("song-lanes-hidden-{appearance}-{scale}"));
             h.state_mut().ramp_song_tempo(1);
             h.state_mut().show_song_lanes(true);
             h.run_steps(60);
-            // Pick the second tempo change, as a click would, and put the
-            // playhead past it with a click on the bar ruler.
             let p = h.state().song_tempo_spot(8.0, 96.5).expect("drawn");
             click(&mut h, p);
             h.run_steps(10);
             save(&mut h, &format!("song-lanes-{appearance}-{scale}"));
-            // Type its tempo.
             h.event(Event::PointerButton {
                 pos: p,
                 button: eframe::egui::PointerButton::Primary,
@@ -4792,8 +4496,6 @@ fn bounce_popover() {
     }
 }
 
-/// A frozen track (the Frozen badge, the padlock on its clip) beside one that
-/// is not, and the words an edit gets when it is refused.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn frozen_track() {
@@ -4832,9 +4534,6 @@ fn frozen_track() {
     }
 }
 
-/// M9 R1: the In chip on four audio
-/// tracks: a stereo pair armed and clipping, a mono input playing, no input,
-/// an input the device lacks. Both themes at 100% and 200%.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn audio_input_chip() {
@@ -4904,9 +4603,6 @@ fn audio_input_chip() {
     }
 }
 
-/// Audio recording (M9 R2): the take as it grows and the clip it becomes, at
-/// several track heights, on the input device's ramp, so the two can be laid
-/// side by side. `live-<height>` and `final-<height>`.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn record_wave_heights() {
@@ -4979,9 +4675,6 @@ fn record_wave_heights() {
     }
 }
 
-/// A loop recording (M9 slice R3): the pass before is drawn behind the new
-/// one, the clip stays the loop long, and Stop leaves it drawn until the
-/// clip is placed.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn record_loop_passes() {
@@ -5044,7 +4737,6 @@ fn record_loop_passes() {
         h.run_steps(5);
         h.key_press(Key::F9);
         wait(&mut h, "recording", &|a| a.recording() && a.is_playing());
-        // Two bars are 192,000 frames: this is part-way through the second pass.
         wait(&mut h, "frames", &|a| {
             a.audio_take_frames(vox).is_some_and(|f| f >= 250_000)
         });
@@ -5066,10 +4758,6 @@ fn record_loop_passes() {
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn media_pool() {
-    // M9 slice R4b (ADR-0106): the browser's Project media tab with a used
-    // file, a missing one, an unfinished-name file nothing plays and the
-    // card for files that belong to no project, in both themes at 100, 150
-    // and 200%; then the Clear card asking, and the empty states.
     use egui_kittest::kittest::Queryable;
     for appearance in ["dark", "light"] {
         for scale in [1.0_f32, 1.5, 2.0] {
@@ -5101,10 +4789,6 @@ fn media_pool() {
     }
 }
 
-/// M9 R2b: the loopback helper's card in the audio settings, before a
-/// measurement, with a result, and with nothing come back, in both themes at
-/// 100, 150 and 200%. A cable on the input test device runs from output 1
-/// to input 2, 600 frames long.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn measure_latency_card() {
@@ -5112,7 +4796,6 @@ fn measure_latency_card() {
     use lumen_audio::fake::{Cable, Pace};
 
     let turn = lumen_app::testing::input_device_turn();
-    // Each theme at each scale, and the smallest window (the page scrolls).
     let mut runs: Vec<(&str, f32, eframe::egui::Vec2, &str)> = Vec::new();
     for appearance in ["dark", "light"] {
         for scale in [1.0_f32, 1.5, 2.0] {
@@ -5198,8 +4881,6 @@ fn measure_latency_card() {
     }
 }
 
-/// M9 R7b: the first-run window's three steps, with plugins scanned (the
-/// plugin host is missing, so the scan fails and the steps show it).
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn first_run() {
@@ -5249,9 +4930,6 @@ fn first_run() {
     }
 }
 
-/// M9 R7b: the first-run window in a 960 × 540 window, with six plugin
-/// folders and the scan's three-line error: the pills and Next stay in
-/// reach and nothing overlaps.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn first_run_small() {
@@ -5299,12 +4977,6 @@ fn first_run_small() {
     }
 }
 
-/// M9 R7c (ADR-0116): the browser's Samples tab with its rows, pictures
-/// and the preview strip while a sound plays; the search with folder lines;
-/// Places at its top (with a place that is not there), in a folder, and its
-/// search across places, which names the missing one above what it found;
-/// Projects with a project's details, and one that cannot be read, its
-/// message in full; in both themes at 100, 150 and 200%.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn browser_files() {
@@ -5368,8 +5040,6 @@ fn browser_files() {
                 });
             h.run_steps(10);
             let palette = |h: &mut Harness<'static, App>, words: &str| {
-                // Leave a search field first: the palette's keys are not
-                // a typed word's.
                 h.key_press(Key::Escape);
                 h.key_press(Key::Escape);
                 h.run_steps(3);
@@ -5436,9 +5106,6 @@ fn browser_files() {
     }
 }
 
-/// M9 R8: the Files page's "Open .lumen files" row (this copy, another
-/// copy and the person's own choice), the notice of a project waiting for a
-/// recording, and the small window of a later start that was not taken.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn instance_and_association() {
@@ -5476,7 +5143,6 @@ fn instance_and_association() {
         h.run_steps(10);
         save(&mut h, &format!("association-other-{tag}"));
 
-        // A project handed over while recording waits in a notice.
         let dir = TempDir::new("shots-holding");
         let launch = Launch::for_test(dir.path())
             .appearing(appearance)
@@ -5548,9 +5214,6 @@ fn instance_and_association() {
     }
 }
 
-/// M8 D1: the drum map editor on a mapped track, in both themes at 100, 150
-/// and 200%. D0's chooser is part of it now: the window opens on the track's
-/// map.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn drum_map_editor() {
@@ -5588,8 +5251,6 @@ fn drum_map_editor() {
     }
 }
 
-/// M8 D1: the piano roll's key column on a mapped track, every key and folded
-/// to the map's sounds, in both themes at 100, 150 and 200%.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn drum_map_key_column() {
@@ -5620,7 +5281,6 @@ fn drum_map_key_column() {
             let clip = h.state().project().tracks[0].clips[0].id;
             h.state_mut().open_clip_editor(clip);
             h.run_steps(30);
-            // M8 D2: a mapped clip opens in the lanes; this is its Keys view.
             h.state_mut().show_the_keys_view();
             h.run_steps(30);
             save(&mut h, &format!("drum-keys-{appearance}-{scale}"));
@@ -5631,8 +5291,6 @@ fn drum_map_key_column() {
     }
 }
 
-/// A project with a kit track playing `preset`'s map: a kick, a snare, two
-/// hats and a clap in a two-bar clip.
 fn mapped_project(preset: lumen_project::drums::presets::Preset) -> lumen_project::model::Project {
     use lumen_core::time::Ticks;
     let notes: Vec<lumen_project::model::Note> = [36_u8, 38, 42, 46, 39, 36, 42, 38]
@@ -5666,9 +5324,6 @@ fn mapped_project(preset: lumen_project::drums::presets::Preset) -> lumen_projec
     project
 }
 
-/// M8 D2: the drum editor's lanes on a 2-bar 808-style beat, one hit picked,
-/// then the header's view switch under the pointer, then Hide unused on, in
-/// both themes at 100, 150 and 200%.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn drum_lanes() {
@@ -5702,7 +5357,6 @@ fn drum_lanes() {
             let clip = h.state().project().tracks[0].clips[0].id;
             h.state_mut().open_clip_editor(clip);
             h.run_steps(30);
-            // The snare hit on beat 2 picked, as a player would leave it.
             let hit = h
                 .state()
                 .drum_hit_point(lumen_core::time::Ticks::quarters(1), 38)
@@ -5719,12 +5373,10 @@ fn drum_lanes() {
             h.hover_at(hit);
             h.run_steps(10);
             save(&mut h, &format!("drum-lanes-{tag}"));
-            // The header's view switch, with its tooltip.
             let keys = h.get_by_label("Keys view").rect();
             h.hover_at(keys.center());
             h.run_steps(60);
             save(&mut h, &format!("drum-lanes-switch-{tag}"));
-            // Hide unused: only the sounds the clip plays.
             h.state_mut().hide_the_unused_lanes();
             h.run_steps(30);
             h.hover_at(Pos2::new(700.0, 600.0));
@@ -5734,9 +5386,6 @@ fn drum_lanes() {
     }
 }
 
-/// A 2-bar beat on a 7-sound kit in the map's order: kick, snare, clap,
-/// closed and open hats (the open one muted), low tom and ride, with the
-/// velocities the specimen draws.
 fn drum_lanes_project() -> lumen_project::model::Project {
     use lumen_core::time::{PPQ, Ticks};
     use lumen_project::drums::presets::Preset;
@@ -5823,8 +5472,6 @@ fn drum_lanes_project() -> lumen_project::model::Project {
     project
 }
 
-/// M8 D2: the arrangement's drum rows, a tall mapped track and a short one,
-/// in both themes at 100, 150 and 200%.
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn arrangement_drum_rows() {
@@ -5834,7 +5481,6 @@ fn arrangement_drum_rows() {
             let dir = TempDir::new(&format!("shots-rows-{tag}"));
             let path = dir.path().join("rows.lumen");
             let mut project = drum_lanes_project();
-            // A second mapped track with a one-bar fill, the short row.
             let mut second = (*project.tracks[0]).clone();
             second.id = lumen_project::model::Id(20);
             second.name = "Percussion".into();
@@ -5871,7 +5517,6 @@ fn arrangement_drum_rows() {
                     App::new(cc, launch)
                 });
             h.run_steps(30);
-            // The first track made tall: rows of 9 pt rather than 5.
             let a = clip(&h, 0);
             drag(
                 &mut h,

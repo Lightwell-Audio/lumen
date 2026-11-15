@@ -1,13 +1,3 @@
-//! The Mixer tab (M4 slice 5, ADR-0040): a strip per track in the
-//! arrangement's order, skipping tracks hidden in folded groups (one fold
-//! for both views, the owner's B4), the returns after a gap, and the master
-//! pinned at the right with the loudness column (the owner's L2) beside it.
-//! The strips scroll sideways; only those in view are drawn.
-//!
-//! The interface audit's X6: the mixer is one `header` surface, and the
-//! strips scroll under the pinned master, which casts a short shadow over
-//! them in place of a rule.
-
 use eframe::egui::{
     self, Align2, FontId, Rangef, Rect, Sense, Shape, Stroke, Ui, UiBuilder, pos2, vec2,
 };
@@ -24,9 +14,6 @@ use crate::meters::{FLOOR_DB, HISTORY};
 use crate::widgets::raised;
 use crate::{fonts, theme, widgets};
 
-/// The empty mixer's ghost strip, at the left of `area`: a dashed strip
-/// with "Add track" in it, and a line beside it on what fills the mixer.
-/// True when clicked.
 fn ghost_strip(ui: &mut Ui, area: Rect, keymap: &Keymap) -> bool {
     let palette = theme::p();
     let inset = theme::space::S;
@@ -93,39 +80,26 @@ fn ghost_strip(ui: &mut Ui, area: Rect, keymap: &Keymap) -> bool {
     widgets::tip(response, "Add an audio track", keys.as_ref(), None).clicked()
 }
 
-/// A plus, for adding.
 fn plus(painter: &egui::Painter, at: egui::Pos2, colour: egui::Color32) {
     let stroke = egui::Stroke::new(theme::stroke::LIT, colour);
     painter.line_segment([at - vec2(6.0, 0.0), at + vec2(6.0, 0.0)], stroke);
     painter.line_segment([at - vec2(0.0, 6.0), at + vec2(0.0, 6.0)], stroke);
 }
 
-/// The gap between the tracks and the returns.
 const RETURNS_GAP: f32 = 10.0;
-/// How fast a strip drag near an edge scrolls the strips, at the edge.
 const DRAG_SCROLL: f32 = 900.0;
-/// The loudness column's width (the owner's L2).
 const LOUDNESS: f32 = 108.0;
-/// The loudness bar's range, in LUFS, and the band it marks (the common
-/// streaming target, −14 LUFS ± 1).
 const LUFS_FLOOR: f64 = -42.0;
 const TARGET: (f64, f64) = (-15.0, -13.0);
-/// The loudness bar's corner radius (a trough 12 pt wide).
 const LUFS_BAR_RADIUS: u8 = 2;
-/// A loudness value before anything is heard (the audit's X5).
 const REST: &str = "\u{2013}\u{2013}";
-/// Where the momentary, short-term and true-peak values start, from the
-/// column's left edge: beside their labels.
 const VALUE_COLUMN: f32 = 28.0;
 
-/// The shortest the Mixer tab's content can be: a strip with everything
-/// folded away.
 pub(crate) fn min_height() -> f32 {
     Sections::min_height()
 }
 
 impl Arrangement {
-    /// The Mixer tab's content in `ui`'s whole area.
     pub(crate) fn mixer_panel(&mut self, ui: &mut Ui, doc: &mut Document, keymap: &Keymap) {
         let palette = *theme::p();
         let area = ui.max_rect();
@@ -143,7 +117,6 @@ impl Arrangement {
             keymap,
         };
 
-        // Pinned at the right: the master and the loudness column.
         let loudness =
             Rect::from_x_y_ranges(area.right() - LOUDNESS..=area.right(), area.y_range());
         let master = Rect::from_x_y_ranges(
@@ -152,8 +125,6 @@ impl Arrangement {
         );
         let strips = Rect::from_x_y_ranges(area.left()..=master.left(), area.y_range());
 
-        // The strips in order: tracks shown in the arrangement, then the
-        // returns.
         let project = doc.project();
         let shown: Vec<(usize, bool)> = project
             .tracks
@@ -183,8 +154,6 @@ impl Arrangement {
         }
         let width = x;
 
-        // The empty mixer: right-click for the project's pan law and the
-        // clip lights (strips, drawn over it, have their own menus).
         let background = ui.interact(strips, ui.id().with("mixer background"), Sense::click());
         background
             .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, true, "Mixer"));
@@ -198,19 +167,14 @@ impl Arrangement {
         }
         widgets::Menu::context(&background).show(|ui| self.mixer_menu(ui, doc, keymap));
 
-        // Where every strip is on screen, for a drag's drop place.
         let mut on_screen: Vec<(usize, Rangef)> = Vec::with_capacity(placed.len());
         ui.scope_builder(UiBuilder::new().max_rect(strips), |ui| {
             if placed.is_empty() {
-                // A ghost strip where the first will go (the interface
-                // audit's S5): a click adds an audio track.
                 if ghost_strip(ui, strips, keymap) {
                     self.add_track(doc, TrackKind::Audio);
                 }
                 return;
             }
-            // Lumen's own bar, as on the arrangement (M4.5, U2): egui's
-            // stays hidden.
             let mut area = egui::ScrollArea::horizontal()
                 .id_salt("mixer strips")
                 .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
@@ -218,7 +182,6 @@ impl Arrangement {
             if let Some(to) = self.mixer_scroll_to.take() {
                 area = area.horizontal_scroll_offset(to);
             } else if self.mixer_push != 0.0 {
-                // A strip drag near an edge scrolls, faster the closer.
                 let dt = ui.input(|i| i.stable_dt.min(0.1));
                 let to = (self.mixer_offset + self.mixer_push * DRAG_SCROLL * dt)
                     .clamp(0.0, (width - strips.width()).max(0.0));
@@ -242,10 +205,6 @@ impl Arrangement {
                 }
             });
             self.mixer_offset = output.state.offset.x;
-            // Strips cut by the left edge fade into the ground there, rather
-            // than ending as a stray rail (the interface audit's U2); at the
-            // right, while more lies beyond, they pass under the master's
-            // shadow (X6).
             let ground = palette.header;
             let painter = ui.painter_at(strips);
             if self.mixer_offset > 0.5 {
@@ -285,8 +244,6 @@ impl Arrangement {
         self.loudness_column(ui, loudness);
     }
 
-    /// The mixer's own menu: the project's pan law (the owner's choice in
-    /// slice 2: from the mixer and the palette), and clearing clip lights.
     fn mixer_menu(&mut self, ui: &mut Ui, doc: &mut crate::document::Document, keymap: &Keymap) {
         use crate::commands::Command;
         use lumen_core::pan::PanLaw;
@@ -323,9 +280,6 @@ impl Arrangement {
         }
     }
 
-    /// A strip drag (the owner's B8): where it would land among the strips
-    /// of its kind (tracks, or returns), the drop line or the group lit,
-    /// and the drop itself.
     fn follow_strips_drag(
         &mut self,
         ui: &mut Ui,
@@ -350,7 +304,6 @@ impl Arrangement {
                 id: tracks[i].id,
                 top: span.min,
                 height: span.span(),
-                // Returns are never grouped: none of them takes a drop.
                 group: tracks[i].kind == TrackKind::Group,
                 parent: tracks[i].parent,
                 depth: groups::depth(tracks, tracks[i].id),
@@ -387,13 +340,6 @@ impl Arrangement {
         }
     }
 
-    /// The master's loudness (the owner's L2): integrated large, a
-    /// short-term bar with the momentary line and the −14 LUFS band, the
-    /// last minute's short-term history in a well with the −14 line, then
-    /// momentary, short-term and true peak. At rest (the audit's X5) each
-    /// value is a quiet "– –" and the well says "Play to measure". Reset
-    /// starts integrated loudness and true peak again, as Play from stop
-    /// does (B5).
     fn loudness_column(&mut self, ui: &mut Ui, rect: Rect) {
         let palette = *theme::p();
         let reading = self.meters.loudness();
@@ -427,7 +373,6 @@ impl Arrangement {
                 palette.text_hint
             },
         );
-        // The unit beside the value, on its baseline.
         painter.text(
             pos2(value.right() + 4.0, value.bottom() - 3.0),
             Align2::LEFT_BOTTOM,
@@ -445,7 +390,6 @@ impl Arrangement {
         );
         y += 14.0;
 
-        // The bar and the history fill what the numbers below leave.
         let numbers = 3.0 * 16.0 + 8.0;
         let reset_h = 20.0;
         let bottom = rect.bottom() - 8.0 - reset_h - 6.0 - numbers;
@@ -495,8 +439,6 @@ impl Arrangement {
                 },
             );
         }
-        // The last minute of short-term loudness, in a well with the
-        // target's line (the bar's scale names it, beside the well).
         let graph = Rect::from_x_y_ranges(bar.right() + 30.0..=rect.right() - 6.0, ys);
         raised::paint_sunken(&painter, graph, theme::radius::SMALL);
         let target = graph.x_range().shrink(3.0);
@@ -530,7 +472,6 @@ impl Arrangement {
                 ),
             ));
         } else {
-            // Nothing heard yet: what fills it, wrapped inside the well.
             let mut job = egui::text::LayoutJob::simple(
                 "Play to measure".into(),
                 FontId::proportional(theme::size::CAPTION),
@@ -539,12 +480,10 @@ impl Arrangement {
             );
             job.halign = egui::Align::Center;
             let hint = painter.layout_job(job);
-            // A centred galley is laid out around its anchor's x.
             let anchor = pos2(graph.center().x, graph.bottom() - 8.0 - hint.size().y);
             painter.galley(anchor, hint, palette.text_hint);
         }
 
-        // Momentary, short-term and true peak, each value beside its label.
         let mut y = ys.max + 14.0;
         let true_peak = if reading.true_peak > FLOOR_DB {
             widgets::readout_db(reading.true_peak)
@@ -577,7 +516,6 @@ impl Arrangement {
             y += 16.0;
         }
 
-        // What a screen reader hears, and Reset.
         let readout = ui.interact(
             Rect::from_x_y_ranges(rect.x_range(), rect.top()..=ys.max),
             ui.id().with("loudness readout"),
@@ -620,7 +558,6 @@ impl Arrangement {
     }
 }
 
-/// Whether a loudness value is something to show (not silence).
 fn meters_heard(lufs: f64) -> bool {
     lufs.is_finite() && lufs > LUFS_FLOOR - 30.0
 }

@@ -1,8 +1,3 @@
-//! The transport bar fits its room (`transport/fit.rs`): at the smallest
-//! window, 960 x 540, the position (bars and time) is whole and clear of the
-//! audio dot, the MIDI chip and the panel toggles, with the computer
-//! keyboard's mode on and off; wider windows keep what gave way.
-
 use eframe::egui::{Key, Modifiers, Rect, vec2};
 use egui_kittest::kittest::Queryable;
 
@@ -13,13 +8,8 @@ const TIME: &str = "0:00.000";
 const DOT: &str = "Audio: ";
 const CHIP: &str = "MIDI: ";
 const READOUT: &str = "Computer keyboard: ";
-/// The narrowest window (of those tried) that shows the keyboard readout
-/// again. Record and Overdub (M5 slice 6d) are essentials; with the panel
-/// toggles as icon buttons the readout fits from 1280 pt and gives way below.
 const READOUT_ROOM: f32 = 1280.0;
 
-/// The node's rect; of several (the Browser's toggle and its pane), the
-/// one in the bar.
 fn rect(lumen: &Lumen, label: &str) -> Rect {
     lumen
         .harness
@@ -31,12 +21,9 @@ fn rect(lumen: &Lumen, label: &str) -> Rect {
 
 fn resize(lumen: &mut Lumen, size: (f32, f32)) {
     lumen.harness.set_size(vec2(size.0, size.1));
-    // Rows settle and the bar measures itself over a few frames.
     lumen.frames(20);
 }
 
-/// The bar's pieces in reading order are inside the window and none touches
-/// the next: the position, its time, the dot, the chip, the three toggles.
 fn assert_clear(lumen: &Lumen, window: f32) {
     let pieces = [
         ("position", rect(lumen, POSITION)),
@@ -60,7 +47,6 @@ fn assert_clear(lumen: &Lumen, window: f32) {
             "{a_name} {a:?} reaches {b_name} {b:?} at {window}"
         );
     }
-    // The position is as wide as its text: not cut to a stub.
     let position = rect(lumen, POSITION);
     let time = rect(lumen, TIME);
     assert!(position.width() > 40.0 && time.width() > 40.0);
@@ -71,13 +57,11 @@ fn the_position_is_whole_and_clear_in_the_smallest_window() {
     let mut lumen = Lumen::start("barfit-960");
     resize(&mut lumen, (960.0, 540.0));
     assert_clear(&lumen, 960.0);
-    // With the computer keyboard on, its readout is what gives way.
     lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::K);
     lumen.frames(20);
     assert!(lumen.app().computer_keyboard_on());
     assert_clear(&lumen, 960.0);
     assert!(lumen.harness.query_by_label_contains(READOUT).is_none());
-    // Every control stays reachable.
     for name in [
         "Go to start",
         "Record",

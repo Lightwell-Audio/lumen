@@ -1,5 +1,3 @@
-//! Pure clip splitting at arrangement ticks.
-
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -7,8 +5,6 @@ use lumen_core::time::Ticks;
 
 use crate::model::{Id, Project};
 
-/// Splits unlocked clips at interior ticks, keeping each source id on its
-/// first part. The returned ids cover the resulting parts in track order.
 pub fn clips(
     project: &mut Project,
     ids: &[Id],
@@ -133,9 +129,6 @@ mod tests {
         let second_cut = q(4);
         let expected_phase = tempo.seconds_at(second_cut) - tempo.seconds_at(q(2));
 
-        // Splitting twice from the same original preserves the exact source
-        // clock. A frame-rounded native offset would land one device frame
-        // off at 44.1 kHz -> 48 kHz for this tempo.
         let parts = clips(
             &mut project,
             &[source_id],
@@ -157,8 +150,6 @@ mod tests {
             ClipContent::Audio { offset: 1_000, .. }
         ));
 
-        // The same cut at a nonzero source origin leaves the native anchor
-        // unchanged and adds only elapsed project seconds.
         assert_eq!(
             third.audio_phase_seconds,
             tempo.seconds_at(third.start) - tempo.seconds_at(first.start)

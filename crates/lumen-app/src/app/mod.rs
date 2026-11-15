@@ -1,7 +1,3 @@
-//! The application's behaviour, by concern. `App` itself, the frame loop and
-//! start-up stay in `main.rs`; these modules hold its `impl` blocks (audit
-//! M1).
-
 pub(crate) mod association;
 pub(crate) mod audio;
 pub(crate) mod audio_editor;
@@ -67,9 +63,6 @@ pub(crate) mod view;
 pub(crate) mod welcome;
 mod window_size;
 
-// The paths the rest of the app names as `crate::app::<name>`, kept now that
-// these files sit in folders (audit M11); the modules nothing names by path
-// are reached inside their folder.
 pub(crate) use audio::{audio_export, audio_inputs, audio_record};
 pub(crate) use auto::{auto_keys, auto_recording};
 pub(crate) use clip::{

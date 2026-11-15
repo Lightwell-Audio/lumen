@@ -1,9 +1,3 @@
-//! Playing audio from disk in the app (M9 slice R6, ADR-0109): turns the
-//! library's streaming on and off with "Play audio from disk", keeps the disk
-//! thread's scene in step with the clips the engine plays, the tempo map, the
-//! loop and the markers, and lends the transport what its start waits for
-//! (the owner's L A) and the disk thread's reading (D A).
-
 use std::sync::Arc;
 
 use lumen_engine::{Region, Timeline};
@@ -14,8 +8,6 @@ use crate::media::streaming::Streaming;
 use crate::transport::DiskReading;
 use crate::transport::hold::Gate;
 
-/// What a scene is built from: the count of clip lists sent, the tempo map,
-/// the loop, the markers and the rate.
 #[derive(PartialEq)]
 pub(crate) struct SceneKey {
     sent: u64,
@@ -26,8 +18,6 @@ pub(crate) struct SceneKey {
 }
 
 impl App {
-    /// Per-frame: follows the switch, sends the disk thread a new scene when
-    /// what it is built from changed, and reads the thread's stats.
     pub(crate) fn update_streaming(&mut self) {
         let wanted = self.settings.playback.from_disk;
         if wanted != self.lanes.library.streaming().is_some() {
@@ -43,8 +33,6 @@ impl App {
                 .as_ref()
                 .and_then(|streaming| streaming.disk().failure())
             {
-                // Streaming stays on so the next frame does not try again;
-                // long files play from memory when the preference is off.
                 self.say(why.to_owned());
             }
             crate::trace::log(|| format!("streaming {}", if wanted { "on" } else { "off" }));
@@ -88,8 +76,6 @@ impl App {
                 timeline.sample_at(looped.end, rate),
             )
         });
-        // Where playback can jump to: the song's start, the loop's start and
-        // the markers.
         let mut points = vec![0];
         points.extend(looped.map(|(start, _)| start));
         points.extend(key.markers.iter().map(|at| timeline.sample_at(*at, rate)));

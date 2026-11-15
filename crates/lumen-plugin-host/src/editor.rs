@@ -1,14 +1,3 @@
-//! A plugin's editor window (M6 slice 4). The window belongs to the host
-//! process, never to Lumen's window (ADR-0067, "Editors"): a top-level window
-//! made, pumped and destroyed on the host's main thread, which is also the
-//! thread that made the plugin.
-//!
-//! [`Editors`] is what the host's request handler talks to. Windows has the
-//! real thing ([`win`]); elsewhere [`Unavailable`] says so, and
-//! [`Headless`], switched on by `LUMEN_HOST_HEADLESS_EDITOR`, stands in for a
-//! window so the whole path (open, move, close by the user, a window that
-//! stops answering) can be tested where there is no window system.
-
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -22,23 +11,11 @@ pub mod mac;
 #[cfg(windows)]
 pub mod win;
 
-/// The environment variable that switches the stand-in on. Its value is a
-/// comma-separated list: `on`, `hang=MS` (opening blocks the main thread for
-/// `MS` milliseconds, the way a plugin stuck in its own window code does),
-/// `close=MS` (the "user" closes the window `MS` milliseconds after it opens),
-/// `press=CODE` (once Lumen asks for the key `CODE` while the window is open,
-/// the "user" presses and lets go of it there).
 pub const HEADLESS_VAR: &str = "LUMEN_HOST_HEADLESS_EDITOR";
 
-/// Where the host's news goes: written to Lumen between answers.
 pub type Notify = Arc<dyn Fn(Response) + Send + Sync>;
 
-/// What the host's handler does with an editor window. Every method runs on
-/// the host's main thread.
 pub trait Editors {
-    /// Opens the editor of the plugin called `title` whose view is `view`
-    /// (none when the plugin makes none) at `wanted`, or where the system
-    /// puts it.
     fn open(
         &mut self,
         title: &str,
@@ -46,32 +23,19 @@ pub trait Editors {
         wanted: Option<EditorBounds>,
     ) -> Result<EditorStatus, String>;
 
-    /// Closes the window, if there is one. The status says where it was.
     fn close(&mut self) -> EditorStatus;
 
-    /// Hides the open window (it stays open, with its view and its place) or
-    /// shows it again, never taking the keyboard. Nothing happens without a
-    /// window.
     fn set_visible(&mut self, _visible: bool) -> EditorStatus {
         self.status()
     }
 
-    /// The window as it is now. A window the user closed reads as not open,
-    /// still with the place it was last seen at.
     fn status(&mut self) -> EditorStatus;
 
-    /// Takes `keys` (virtual-key codes) from the window when pressed alone,
-    /// telling Lumen of each through the notifier; empty gives them back.
-    /// Keys taken and still down are let go of (and Lumen told) when they
-    /// stop being taken, the window loses the keyboard or closes.
     fn capture_keys(&mut self, _keys: Vec<u8>) {}
 
-    /// Where keys taken from the window are told.
     fn set_notify(&mut self, _notify: Notify) {}
 }
 
-/// The editors of this platform: native windows on Windows and macOS, the
-/// stand-in when asked for, else none.
 pub fn platform() -> Box<dyn Editors> {
     if let Ok(setting) = std::env::var(HEADLESS_VAR)
         && !setting.is_empty()
@@ -92,7 +56,6 @@ pub fn platform() -> Box<dyn Editors> {
     }
 }
 
-/// A platform with no editor windows yet.
 pub struct Unavailable;
 
 impl Editors for Unavailable {
@@ -114,12 +77,9 @@ impl Editors for Unavailable {
     }
 }
 
-/// A window that is only a record of where it would be (see the module's
-/// note). The size is the plugin's own 320 by 200 when none is asked for.
 pub struct Headless {
     hang: Option<Duration>,
     close_after: Option<Duration>,
-    /// The key the "user" presses once it is asked for.
     press: Option<u8>,
     opened: Option<Instant>,
     hidden: bool,

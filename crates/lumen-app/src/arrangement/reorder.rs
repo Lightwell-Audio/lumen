@@ -1,20 +1,3 @@
-//! Reordering tracks by dragging their headers (M3 slice 4d, the owner's
-//! request): an accent line shows where they will land, the
-//! list scrolls when the pointer nears its top or bottom edge, and the drop
-//! is one undo step (`Document::move_tracks`). Esc cancels.
-//!
-//! With groups (M4 slice 3): a group moves with everything inside it. The
-//! line steps in to the level the tracks will land at: between two tracks
-//! they join the group of the track below, so under a group's last track
-//! they come after the group; dropped on the middle of a group's header
-//! (folded or not), they go in at its end, and the header lights. A drop
-//! that would be refused (groups more than three deep) greys out, with a
-//! no-entry cursor, and says why if let go there.
-//!
-//! Mixer strips drag the same way along x (M4 slice 5, the owner's B8),
-//! returns included: tracks move among tracks, returns among returns (a
-//! return's letter follows its place).
-
 use eframe::egui::{self, CursorIcon, Key, Rect, Stroke, pos2};
 use lumen_project::groups;
 use lumen_project::model::{Id, TrackKind};
@@ -23,48 +6,32 @@ use super::{Arrangement, Row, RowKind, Zone};
 use crate::document::{Document, Place, Refused};
 use crate::theme;
 
-/// Within this many points of the list's top or bottom, it scrolls.
 const EDGE: f32 = theme::size::EDGE_SCROLL;
-/// The fastest auto-scroll, in points per second (at the very edge).
 const SPEED: f32 = crate::motion::EDGE_SCROLL_SPEED;
 
-/// A drag of tracks in progress.
 #[derive(Debug, Clone)]
 pub(super) struct Drag {
-    /// The tracks moving, in project order: the selection's outermost
-    /// tracks (groups bring what is inside them).
     ids: Vec<Id>,
-    /// Those and everything inside them, drawn dimmed.
     moving: Vec<Id>,
-    /// Where they would land, and why the move would be refused there.
     drop: Option<DropAt>,
     refused: Option<Refused>,
-    /// Started on a mixer strip: the strips follow it, not the headers.
     in_mixer: bool,
 }
 
-/// Where dragged tracks would land.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct DropAt {
-    /// Before this track (`None`: at the end of the list or of `group`).
     before: Option<Id>,
-    /// Inside this group (`None`: at the top).
     group: Option<Id>,
-    /// The line, or the group header lit instead.
     pub(super) mark: Mark,
-    /// How many groups deep they land, for the line's indent.
     level: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) enum Mark {
-    /// A line at this y (content points).
     Line(f32),
-    /// The row of the group they go into: its top and height.
     Onto(f32, f32),
 }
 
-/// A visible track's row (or strip, along x), as the drop sees it.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Spot {
     pub(super) id: Id,
@@ -76,9 +43,6 @@ pub(super) struct Spot {
 }
 
 impl Arrangement {
-    /// A header (or, `in_mixer`, a strip) was dragged: moves the selection
-    /// (or just this track, if it is not selected). From a strip, only the
-    /// selected tracks of the same kind move: tracks, or returns.
     pub(super) fn start_drag(
         &mut self,
         project: &lumen_project::model::Project,
@@ -113,8 +77,6 @@ impl Arrangement {
         });
     }
 
-    /// The drag in progress when it started on a mixer strip: what moves,
-    /// where it would land, and whether that would be refused.
     pub(super) fn strip_drag(&self) -> Option<(&[Id], Option<DropAt>, bool)> {
         self.drag
             .as_ref()
@@ -122,10 +84,6 @@ impl Arrangement {
             .map(|d| (d.moving.as_slice(), d.drop, d.refused.is_some()))
     }
 
-    /// Follows a strip drag each frame along x, as `follow_drag` does along
-    /// y: `spots` are the strips of the tracks that stay, in screen x.
-    /// Returns how hard to scroll the strips (-1 to 1) near the edges of
-    /// `strips`.
     pub(super) fn follow_strip_drag(
         &mut self,
         ui: &egui::Ui,
@@ -184,14 +142,10 @@ impl Arrangement {
         push
     }
 
-    /// Whether `id` is being dragged (its header is drawn dimmed).
     pub(super) fn is_dragged(&self, id: Id) -> bool {
         self.drag.as_ref().is_some_and(|d| d.moving.contains(&id))
     }
 
-    /// Follows a drag each frame: the drop place, auto-scroll near the
-    /// edges, and the drop itself on release. `column` is the header column;
-    /// `content` the height of every row.
     pub(super) fn follow_drag(
         &mut self,
         ui: &egui::Ui,
@@ -222,7 +176,6 @@ impl Arrangement {
             CursorIcon::Grabbing
         });
         if let Some(p) = pointer {
-            // Scroll when near the top or bottom, faster the closer.
             let near_top = EDGE - (p.y - column.top());
             let near_bottom = EDGE - (column.bottom() - p.y);
             let push = if near_top > 0.0 {
@@ -257,7 +210,6 @@ impl Arrangement {
                 })
                 .collect();
             let at = drop_place(&spots, p.y - column.top() + self.top);
-            // Checked when the place changes, not every frame.
             if drag.drop != Some(at) {
                 drag.refused = doc
                     .check_move(&drag.ids, place(doc, &drag.moving, at))
@@ -267,8 +219,6 @@ impl Arrangement {
         }
         if released {
             if let Some(at) = drag.drop {
-                // A drop where the tracks already are records nothing; a
-                // refused one changes nothing and says why.
                 let to = place(doc, &drag.moving, at);
                 if let Err(refused) = doc.move_tracks(&drag.ids, to) {
                     self.note = Some(refused.reason());
@@ -278,9 +228,6 @@ impl Arrangement {
         }
     }
 
-    /// The drop line across `area` (the headers, then the lanes), stepped
-    /// in to its level when `indented` (the headers); or the group the
-    /// tracks go into, lit.
     pub(super) fn draw_drop_line(&self, painter: &egui::Painter, area: Rect, indented: bool) {
         let Some(at) = self
             .drag
@@ -329,7 +276,6 @@ impl Arrangement {
     }
 }
 
-/// The move a drop at `at` makes: an index among the tracks that stay.
 fn place(doc: &Document, moving: &[Id], at: DropAt) -> Place {
     let tracks = &doc.project().tracks;
     let rest = tracks.iter().filter(|t| !moving.contains(&t.id));
@@ -343,11 +289,6 @@ fn place(doc: &Document, moving: &[Id], at: DropAt) -> Place {
     }
 }
 
-/// Where tracks dragged to content y `y` land, given every visible row of
-/// the tracks that are not moving, from the top. A track's upper half drops
-/// above it and its lower half below; a group's middle half drops into it.
-/// Between two tracks, the moved ones join the group of the track below.
-/// Strips use it along x.
 pub(super) fn drop_place(rows: &[Spot], y: f32) -> DropAt {
     let between = |line: f32, below: Option<&Spot>| DropAt {
         before: below.map(|r| r.id),
@@ -405,7 +346,6 @@ mod tests {
 
     #[test]
     fn the_drop_lands_by_row_halves() {
-        // Two 44-point rows (a dragged one between them is left out).
         let rows = [row(1, 0.0, false, None), row(3, 88.0, false, None)];
         assert_eq!(
             drop_place(&rows, 10.0),
@@ -437,7 +377,6 @@ mod tests {
 
     #[test]
     fn the_drop_enters_and_leaves_groups() {
-        // Drums (a group) holding Kick and Snare, then Bass.
         let rows = [
             row(1, 0.0, true, None),
             row(2, 44.0, false, Some(1)),
@@ -471,7 +410,6 @@ mod tests {
             line(Some(4), None, 132.0, 0),
             "under the last track inside: after the group"
         );
-        // A folded group: its tracks hidden, the next row is after it.
         let folded = [row(1, 0.0, true, None), row(4, 44.0, false, None)];
         assert_eq!(drop_place(&folded, 40.0), line(Some(4), None, 44.0, 0));
         assert_eq!(

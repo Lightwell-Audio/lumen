@@ -1,8 +1,3 @@
-//! Controller mappings (M7 slice A5, format v23): learning one, clearing one,
-//! and moving a mapped control as a hand on it would. Mapping and clearing are
-//! undo steps; a controller's moves merge into one step until the gesture is
-//! sealed.
-
 use lumen_core::automation::FLOOR_DB;
 use lumen_project::automation::Target;
 use lumen_project::mapping::{self, Mapping};
@@ -11,24 +6,15 @@ use lumen_project::model::{Id, Level};
 use super::Document;
 use super::mixer::find;
 
-/// Why a mapping was refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MapRefusal {
-    /// No such track.
     NoTrack,
-    /// The track has nothing there to move: a send it does not make, a device
-    /// it does not hold.
     NoTarget,
-    /// The channel or controller number is not MIDI's, or the list is full.
     Full,
-    /// The control is the device's timing (a limiter's lookahead): a
-    /// controller cannot move it, because its latency and the routing's
-    /// compensation are read from the value the project holds.
     TimingParameter,
 }
 
 impl MapRefusal {
-    /// Why, in a few words, for a note on screen.
     pub fn reason(self) -> &'static str {
         match self {
             MapRefusal::NoTrack => "That track is gone",
@@ -41,8 +27,6 @@ impl MapRefusal {
     }
 }
 
-/// Whether `target` names a built-in parameter that is the device's timing,
-/// which no controller and no lane may move (M8 slice B2, review N1).
 fn is_timing_parameter(project: &lumen_project::model::Project, target: Target) -> bool {
     let Target::Device { device, param } = target else {
         return false;
@@ -52,7 +36,6 @@ fn is_timing_parameter(project: &lumen_project::model::Project, target: Target) 
 }
 
 impl Document {
-    /// The mapping that moves `track`'s `target`, if there is one.
     pub fn mapping_of(&self, track: Id, target: Target) -> Option<Mapping> {
         self.project()
             .mappings
@@ -61,7 +44,6 @@ impl Document {
             .find(|m| m.track == track && m.target == target)
     }
 
-    /// The mapping controller `number` on `channel` has, if there is one.
     pub fn mapping_at(&self, channel: u8, number: u8) -> Option<Mapping> {
         self.project()
             .mappings
@@ -70,9 +52,6 @@ impl Document {
             .find(|m| m.hears(channel, number))
     }
 
-    /// Makes controller `number` on `channel` move `track`'s `target`. Any
-    /// mapping that controller or that control had is replaced. One undo
-    /// step.
     pub fn set_mapping(
         &mut self,
         track: Id,
@@ -101,8 +80,6 @@ impl Document {
         Ok(())
     }
 
-    /// Takes away the mapping that moves `track`'s `target`. Returns whether
-    /// there was one. One undo step.
     pub fn clear_mapping(&mut self, track: Id, target: Target) -> bool {
         if self.mapping_of(track, target).is_none() {
             return false;
@@ -115,7 +92,6 @@ impl Document {
         true
     }
 
-    /// Takes away every mapping. Returns how many there were.
     pub fn clear_all_mappings(&mut self) -> usize {
         let n = self.project().mappings.len();
         if n > 0 {
@@ -127,10 +103,6 @@ impl Document {
         n
     }
 
-    /// Moves `track`'s `target` to `value`, as the control itself would be
-    /// moved: it takes over a lane that plays, is noted for the recorder, and
-    /// is one undo step with the moves that follow it. A value the control
-    /// already holds is no move. Returns whether the control was moved.
     pub fn move_control(&mut self, track: Id, target: Target, value: f32) -> bool {
         let Some(held) = find(self.project(), track) else {
             return false;
@@ -138,8 +110,6 @@ impl Document {
         if !held.has_target(target) || !value.is_finite() {
             return false;
         }
-        // A mapping a file held for a device's timing is ignored: the parameter
-        // may not be moved by a controller (review N1).
         if is_timing_parameter(self.project(), target) {
             return false;
         }
@@ -163,7 +133,6 @@ impl Document {
                     return false;
                 }
             }
-            // An envelope is not a control a controller can move.
             Target::ClipGain { .. } | Target::ClipPan { .. } | Target::ClipPitch { .. } => {
                 return false;
             }
@@ -201,8 +170,6 @@ mod tests {
         lumen_project::automation::own_value(find(doc.project(), track).unwrap(), target)
     }
 
-    /// N1: a device's timing cannot be mapped to a controller, and a mapping a
-    /// file holds for one does not move it.
     #[test]
     fn the_lookahead_cannot_be_mapped_and_a_mapping_to_it_is_ignored() {
         use lumen_devices::dynamics::limiter;
@@ -227,8 +194,6 @@ mod tests {
             Err(MapRefusal::TimingParameter)
         );
         assert!(doc.project().mappings.is_empty());
-        // A mapping a file held for it is ignored: the control stays where it
-        // was while the controller moves.
         let held = |doc: &Document| {
             find(doc.project(), track)
                 .expect("the track")
@@ -240,7 +205,6 @@ mod tests {
         let before = held(&doc);
         assert!(!doc.move_control(track, look, 0.9));
         assert_eq!(held(&doc), before);
-        // The ceiling is not the device's timing: it maps as anything else does.
         let ceiling = Target::Device {
             device,
             param: limiter::CEILING,
@@ -310,7 +274,6 @@ mod tests {
             "takes the lane over"
         );
         assert_eq!(doc.take_touched(), vec![(track, Target::Volume)]);
-        // Further moves are the same undo step.
         assert!(doc.move_control(track, Target::Volume, -4.0));
         assert!(doc.move_control(track, Target::Volume, -2.0));
         assert_eq!(own(&doc, track, Target::Volume), -2.0);

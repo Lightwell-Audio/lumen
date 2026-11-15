@@ -1,9 +1,3 @@
-//! `--bench-callback`: plays the opened project and measures the audio
-//! callback (M6 slice 7c; the model and the report are in
-//! `crate::callback_bench`). This is the part that touches the app: it waits
-//! for the project and its plugins, starts playback, takes the audio layer's
-//! counters every window, and ends the run.
-
 use std::time::Instant;
 
 use eframe::egui;
@@ -12,13 +6,10 @@ use lumen_core::time::Ticks;
 use crate::App;
 use crate::callback_bench::{Callback, Phase, Report, Setup};
 
-/// The process's status when the benchmark could not run.
 const COULD_NOT_RUN: i32 = 2;
-/// And when a block overran or audio was lost.
 const OVERRAN: i32 = 3;
 
 impl App {
-    /// Called every frame; does nothing without `--bench-callback`.
     pub(crate) fn drive_callback_bench(&mut self, ctx: &egui::Context) {
         let Some(mut bench) = self.callback_bench.take() else {
             return;
@@ -58,7 +49,6 @@ impl App {
                 }
             }
             Phase::WarmUp if bench.warmed(now) => {
-                // The counters start afresh with the measuring.
                 if let Some(meters) = self.transport.audio.meters() {
                     meters.take_block_time();
                     meters.take_peak_load();
@@ -100,8 +90,6 @@ impl App {
         self.callback_bench = Some(bench);
     }
 
-    /// Whether the project is open, the plugin scan is over, no plugin is
-    /// loading and the audio is running.
     fn callback_up(&self) -> bool {
         !self.lanes.is_loading()
             && !self.document.project().tracks.is_empty()
@@ -140,8 +128,6 @@ impl App {
         }
     }
 
-    /// Writes and prints the result, and ends the process (or, for a test,
-    /// keeps the report).
     fn end_callback_bench(
         &mut self,
         ctx: &egui::Context,
@@ -171,7 +157,6 @@ impl App {
         if bench.exits() {
             std::process::exit(code);
         }
-        // A test keeps the app; this stops asking for frames.
         ctx.request_repaint();
     }
 }

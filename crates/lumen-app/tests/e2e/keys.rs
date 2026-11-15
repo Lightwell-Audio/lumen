@@ -1,8 +1,3 @@
-//! The keys and menus slice 7d added: Z zooms to the selection, Ctrl+A
-//! selects every clip, Ctrl+L loops the selection, Fit loop; F6 moves the
-//! keyboard between panes; Shift+Tab toggles the detail panel except while
-//! typing; menus and the ruler show shortcuts from the keymap.
-
 use eframe::egui::{Event, Key, Modifiers, PointerButton, Pos2};
 use egui_kittest::kittest::Queryable;
 use lumen_core::time::Ticks;
@@ -10,7 +5,6 @@ use lumen_core::time::Ticks;
 use super::properties::{select, with_two_clips};
 use super::{Lumen, keys};
 
-/// Right-clicks the control named `label`.
 fn right_click(lumen: &mut Lumen, label: &str) {
     let p: Pos2 = lumen.harness.get_by_label(label).rect().center();
     lumen.harness.hover_at(p);
@@ -85,8 +79,6 @@ fn ctrl_a_selects_every_clip_and_ctrl_l_loops_them() {
     assert!(transport.loop_enabled);
     assert_eq!(lumen.app().undo_label(), Some("Loop selection"));
 
-    // Fit loop, from the ruler's menu, which lists the view's commands
-    // with their keys.
     lumen.key(Modifiers::NONE, Key::Escape);
     let before = lumen.app().view().zoom;
     right_click(&mut lumen, "Ruler: click to move the playhead");
@@ -124,7 +116,6 @@ fn shift_tab_toggles_the_detail_panel_except_while_typing() {
     lumen.key(Modifiers::SHIFT, Key::Tab);
     assert!(lumen.app().detail_shown(), "shown again");
 
-    // Renaming a track: Shift+Tab is the field's, the panel stays.
     lumen.key(Modifiers::COMMAND, Key::T);
     lumen.key(Modifiers::NONE, Key::F2);
     lumen.key(Modifiers::SHIFT, Key::Tab);
@@ -147,9 +138,6 @@ fn menus_show_the_keys_the_keymap_has() {
     assert_eq!(lumen.track_names().len(), 1);
 }
 
-/// With a control reached by Tab, shortcuts still run (egui counts any
-/// focused widget as wanting the keyboard, which used to stop them all);
-/// only the keys the control uses itself stay with it.
 #[test]
 fn shortcuts_still_run_with_a_control_focused() {
     let mut lumen = Lumen::start("keys-focused");
@@ -160,8 +148,6 @@ fn shortcuts_still_run_with_a_control_focused() {
     assert_eq!(lumen.track_names().len(), 1, "Ctrl+T still adds a track");
 }
 
-/// A right-click on a track's name opens the track's menu, as one on the
-/// rest of its header does (the name sat on top and took the click).
 #[test]
 fn a_right_click_on_a_track_name_opens_its_menu() {
     let mut lumen = Lumen::start("keys-track-menu");
@@ -169,8 +155,6 @@ fn a_right_click_on_a_track_name_opens_its_menu() {
     lumen.key(Modifiers::COMMAND, Key::T);
     lumen.wait_for("two tracks", |app| app.project().tracks.len() == 2);
     lumen.frames(30);
-    // The first track: it stays where it is while the second one's row
-    // settles in under a loaded run.
     let name = lumen.track_names()[0].clone();
     right_click(&mut lumen, &format!("{name}: double-click to rename"));
     assert!(
@@ -178,15 +162,9 @@ fn a_right_click_on_a_track_name_opens_its_menu() {
         "the track's menu, with its keys"
     );
     assert!(lumen.shows(&keys("Move down Alt+Down")));
-    // The first track cannot go further up, so the menu leaves it out
-    // (the interface audit's M3).
     assert!(!lumen.shows(&keys("Move up Alt+Up")));
 }
 
-/// The M3 review's H2, in the owner's choice: with a clip selected the
-/// arrows move between clips, Shift adds to the
-/// selection, and the view follows; with tracks selected they act on
-/// tracks as before. Ctrl+A then an arrow reaches a single clip.
 #[test]
 fn arrows_move_between_clips_when_a_clip_is_selected() {
     use super::wav;
@@ -195,7 +173,6 @@ fn arrows_move_between_clips_when_a_clip_is_selected() {
         .iter()
         .map(|n| wav(&lumen.dir().join(format!("{n}.wav")), 1.0))
         .collect();
-    // Track 1: a and b one after the other; track 2: c. All by keys.
     lumen.key(Modifiers::COMMAND, Key::T);
     lumen.app_mut().answer_next_dialog(files[..2].to_vec());
     lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::I);
@@ -208,7 +185,6 @@ fn arrows_move_between_clips_when_a_clip_is_selected() {
         |lumen: &Lumen, track: usize, i: usize| lumen.app().project().tracks[track].clips[i].id;
     let (a, b, c) = (id(&lumen, 0, 0), id(&lumen, 0, 1), id(&lumen, 1, 0));
 
-    // Tracks selected: ↑ selects the track above, as before.
     lumen.key(Modifiers::NONE, Key::ArrowUp);
     assert_eq!(lumen.app().selected_tracks().len(), 1);
     assert!(lumen.app().selected_clips().is_empty());
@@ -229,19 +205,16 @@ fn arrows_move_between_clips_when_a_clip_is_selected() {
     expected.sort();
     assert_eq!(both, expected, "Shift adds to the selection");
 
-    // The selected clip is what clip commands act on: 0 mutes it.
     lumen.key(Modifiers::NONE, Key::ArrowLeft);
     lumen.key(Modifiers::NONE, Key::Num0);
     assert!(lumen.app().project().tracks[0].clips[0].muted);
     assert!(!lumen.app().project().tracks[0].clips[1].muted);
 }
 
-/// A clip chosen from the keyboard far off screen scrolls into view.
 #[test]
 fn the_view_follows_a_clip_chosen_with_the_arrows() {
     let (mut lumen, kick, snare) = with_two_clips("clip-arrows-view");
     select(&mut lumen, kick);
-    // Look far to the right, past both clips.
     let mut view = lumen.app().view();
     view.left = 400.0;
     lumen.app_mut().set_view(view);

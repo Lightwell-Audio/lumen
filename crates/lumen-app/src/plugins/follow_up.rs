@@ -1,28 +1,15 @@
-//! A scan asked for while one runs (ADR-0114): adding or removing a folder,
-//! Retry on a blocked plugin, or leaving safe mode during a scan. The running
-//! scan has already read its folders, so the request waits and runs once
-//! that scan ends or is cancelled, with the folders as they are then. Every
-//! request made during one scan becomes this one follow-up.
-
 use std::path::PathBuf;
 
 use lumen_plugin_catalog::scan::Mode;
 
-/// The scan that runs when the one under way is over.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FollowUp {
     mode: Mode,
-    /// Modules to forget before it runs, so they are loaded again (Retry).
     modules: Vec<String>,
-    /// The folders it will check that the running scan does not.
     folders: Vec<PathBuf>,
 }
 
 impl FollowUp {
-    /// Folds a request into what is `waiting`. `unread` is the folders the
-    /// settings name now that the running scan does not read: the latest
-    /// request's view replaces the earlier one, so a folder added and then
-    /// removed during one scan is no longer waiting.
     pub(super) fn ask(
         waiting: Option<Self>,
         mode: Mode,
@@ -34,7 +21,6 @@ impl FollowUp {
             modules: Vec::new(),
             folders: Vec::new(),
         });
-        // Loading every module again includes looking for changed ones.
         if mode == Mode::All {
             next.mode = Mode::All;
         }
@@ -51,12 +37,10 @@ impl FollowUp {
         self.mode
     }
 
-    /// The modules Retry asked for, to be loaded again.
     pub(crate) fn modules(&self) -> &[String] {
         &self.modules
     }
 
-    /// The folders waiting to be checked ("Waiting to check D:\…\VST3").
     pub(crate) fn folders(&self) -> &[PathBuf] {
         &self.folders
     }

@@ -1,7 +1,3 @@
-//! One row of the file list as the app runs it (audit M12): what a click,
-//! a double-click, a drag and the play button do, and the row's menu. How a
-//! row looks is `crate::browser::files::row::paint_row`.
-
 use std::path::Path;
 
 use eframe::egui::{self, Rect, Sense, Ui};
@@ -13,8 +9,6 @@ use crate::browser::files::walk::{Entry, Kind};
 use crate::{App, theme, widgets};
 
 impl App {
-    /// One row: a sound (play, name, picture, length), a project, or a
-    /// folder.
     pub(crate) fn file_row(
         &mut self,
         ui: &mut Ui,
@@ -44,7 +38,6 @@ impl App {
                 &said,
             )
         });
-        // A sound or a project can be dragged onto the arrangement.
         if matches!(entry.kind, Kind::Audio | Kind::Midi) && !bad {
             response.dnd_set_drag_payload(Dragged(vec![entry.path.clone()]));
             if response.dragged() {
@@ -57,7 +50,6 @@ impl App {
             .preview
             .as_ref()
             .is_some_and(|p| p.is_playing(&entry.path));
-        // The play button, before the name.
         let play_rect = play_rect(rect);
         let play = (entry.kind == Kind::Audio && !bad).then(|| {
             let r = ui.interact(play_rect, id.with("play"), Sense::click());
@@ -101,7 +93,6 @@ impl App {
         }
     }
 
-    /// A row's menu.
     fn row_menu(&mut self, ui: &mut Ui, entry: &Entry, look: &RowLook, out: &mut Out) {
         let computer = entry.path == Path::new(saved::COMPUTER);
         if look.place {

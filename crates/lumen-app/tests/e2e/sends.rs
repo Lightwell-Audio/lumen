@@ -1,8 +1,3 @@
-//! Sends on track headers (M4 slice 4, the owner's K1 comet; slots in a
-//! send well since M9 R1b, ADR-0101): one per return on an unfolded track;
-//! dragged, silenced with a double-click, switched pre-fader from its menu,
-//! and heard through a soloed return (wet only).
-
 use std::time::Duration;
 
 use eframe::egui::{Key, Modifiers, vec2};
@@ -12,8 +7,6 @@ use lumen_project::model::TrackKind;
 
 use super::{Lumen, wav};
 
-/// A project with a tone on a track and a return; the track unfolded, so
-/// its sends show. Returns the track's name.
 fn with_a_return(name: &str) -> (Lumen, String) {
     let mut lumen = Lumen::start(name);
     let file = wav(&lumen.dir().join("tone.wav"), 20.0);
@@ -48,7 +41,6 @@ fn a_send_knob_is_dragged_silenced_and_switched_pre_fader() {
     let knob = lumen.harness.get_by_label_contains(&label).rect();
     assert_eq!(send(&lumen), None, "no send until it is turned up");
 
-    // Dragged up: one undo step for the whole drag.
     lumen.drag(
         knob.center(),
         knob.center() - vec2(0.0, 90.0),
@@ -59,11 +51,9 @@ fn a_send_knob_is_dragged_silenced_and_switched_pre_fader() {
     assert!(!pre, "new sends are post-fader");
     assert_eq!(lumen.app().undo_label(), Some("Change send"));
 
-    // Double-click: silence.
     lumen.double_click(knob.center());
     assert_eq!(send(&lumen).map(|s| s.0), Some(f32::NEG_INFINITY));
 
-    // The menu switches it before the fader.
     lumen.right_click(knob.center());
     lumen.click("Pre-fader");
     assert_eq!(send(&lumen).map(|s| s.1), Some(true));
@@ -101,7 +91,6 @@ fn a_soloed_return_plays_only_what_is_sent_to_it() {
         heard.iter().fold(0.0f32, |m, f| m.max(f[0].abs()))
     };
     let both = loudest(&mut lumen);
-    // Soloing the return: the send alone, about half of dry plus wet.
     lumen.click("Solo Return 1");
     let wet = loudest(&mut lumen);
     assert!(wet > 0.01, "the send is heard: {wet}");
@@ -109,8 +98,6 @@ fn a_soloed_return_plays_only_what_is_sent_to_it() {
         (wet - both / 2.0).abs() < both * 0.1,
         "wet {wet}, both {both}"
     );
-    // The track's own output is silent now, and says so; muting it
-    // silences its send too.
     lumen.click(&format!("Mute {track} (silenced)"));
     assert!(loudest(&mut lumen) < 1e-4);
     lumen.key(Modifiers::NONE, Key::Space);
@@ -118,8 +105,6 @@ fn a_soloed_return_plays_only_what_is_sent_to_it() {
 
 #[test]
 fn a_send_at_the_bottom_is_silent_and_leaves_the_level_alone() {
-    // MT-MIX-4 run 1 (owner): the track seemed louder with its send at the
-    // lowest. The bottom of the knob stored −80 dB, not silence.
     let (mut lumen, track) = with_a_return("send-silent");
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.wait_for("playback", |app| app.playhead() > Ticks::quarters(1));
@@ -164,8 +149,6 @@ fn a_send_at_the_bottom_is_silent_and_leaves_the_level_alone() {
 
 #[test]
 fn twelve_returns_all_have_a_slot_in_the_headers_send_well() {
-    // ADR-0101 (the owner's B\u{b7}1): every return has a slot on the
-    // header, up to twelve; there is no "+N" list on a header any more.
     let (mut lumen, track) = with_a_return("send-well");
     for _ in 0..11 {
         lumen.click("Add track");
@@ -179,7 +162,6 @@ fn twelve_returns_all_have_a_slot_in_the_headers_send_well() {
             "{slot}"
         );
     }
-    // The slots sit side by side in one row, inside the header.
     let first = lumen
         .harness
         .get_by_label_contains(&format!("Send {track} to A Return 1"))
@@ -190,14 +172,12 @@ fn twelve_returns_all_have_a_slot_in_the_headers_send_well() {
         .rect();
     assert!((first.center().y - last.center().y).abs() < 0.5);
     assert!(last.left() > first.right());
-    // ...left of the In chip, on the same row.
     let chip = lumen
         .harness
         .get_by_label_contains(&format!("{track} input:"))
         .rect();
     assert!(last.right() < chip.left(), "{last:?} before {chip:?}");
     assert!((chip.center().y - last.center().y).abs() < 0.5);
-    // A narrow slot is still set by clicking and typing.
     type_into(&mut lumen, &format!("Send {track} to J Return 10"), "-9");
     let project = lumen.app().project();
     let ret = project
@@ -216,7 +196,6 @@ fn twelve_returns_all_have_a_slot_in_the_headers_send_well() {
 
 #[test]
 fn an_unfolded_return_lists_what_sends_to_it_and_sets_it_there() {
-    // MT-MIX-4 run 1 (owner): a return should say what sends to it (R2).
     let (mut lumen, track) = with_a_return("send-senders");
     lumen.click("Fold Return 1");
     lumen.frames(30);
@@ -232,7 +211,6 @@ fn an_unfolded_return_lists_what_sends_to_it_and_sets_it_there() {
     lumen.frames(2);
     lumen.key(Modifiers::NONE, Key::Enter);
     lumen.frames(30);
-    // Listed on the return, and set from there too.
     lumen.harness.get_by_label_contains(&into).click();
     lumen.frames(2);
     lumen.harness.event(eframe::egui::Event::Text("-15".into()));
@@ -241,7 +219,6 @@ fn an_unfolded_return_lists_what_sends_to_it_and_sets_it_there() {
     assert_eq!(send(&lumen).map(|s| s.0), Some(-15.0));
 }
 
-/// Sets the send `label` names to `level` by clicking it and typing.
 fn type_into(lumen: &mut Lumen, label: &str, level: &str) {
     lumen.harness.get_by_label_contains(label).click();
     lumen.frames(2);
@@ -253,7 +230,6 @@ fn type_into(lumen: &mut Lumen, label: &str, level: &str) {
 
 #[test]
 fn a_return_lists_its_four_loudest_senders_then_all_of_them_from_more() {
-    // MT-MIX-4 run 2 (owner): many senders did not fit (the owner's L4).
     let mut lumen = Lumen::start("send-many");
     for _ in 0..6 {
         lumen.key(Modifiers::COMMAND, Key::T);
@@ -282,7 +258,6 @@ fn a_return_lists_its_four_loudest_senders_then_all_of_them_from_more() {
             .count()
     };
     assert_eq!(listed(&lumen), 4, "the four loudest");
-    // The loudest are the first four (0, −3, −6, −9 dB).
     for track in &tracks[..4] {
         let row = format!("{track} into A Return 1:");
         assert!(
@@ -303,7 +278,6 @@ fn a_return_lists_its_four_loudest_senders_then_all_of_them_from_more() {
 
 #[test]
 fn a_send_turned_off_leaves_the_returns_list_when_let_go() {
-    // MT-MIX-4 run 2 (owner): senders turned off stayed listed (S1).
     let (mut lumen, track) = with_a_return("send-off");
     lumen.click("Fold Return 1");
     lumen.frames(30);
@@ -311,8 +285,6 @@ fn a_send_turned_off_leaves_the_returns_list_when_let_go() {
     lumen.frames(30);
     let into = format!("{track} into A Return 1");
     assert!(lumen.harness.query_by_label_contains(&into).is_some());
-    // Silenced on the track (double-click): gone from the return's list,
-    // pre-fader kept on the track.
     let knob = lumen
         .harness
         .get_by_label_contains(&format!("Send {track} to A Return 1"))
@@ -323,7 +295,6 @@ fn a_send_turned_off_leaves_the_returns_list_when_let_go() {
     lumen.frames(30);
     assert!(lumen.harness.query_by_label_contains(&into).is_none());
     assert_eq!(send(&lumen), Some((f32::NEG_INFINITY, true)));
-    // Turned down from the return's own list, it stays while held.
     type_into(&mut lumen, &format!("Send {track} to A Return 1"), "-6");
     lumen.frames(30);
     let row = lumen.harness.get_by_label_contains(&into).rect();
@@ -351,8 +322,6 @@ fn a_send_turned_off_leaves_the_returns_list_when_let_go() {
 
 #[test]
 fn a_duplicated_tracks_send_is_its_own() {
-    // MT-MIX-4 (owner): changing a send on a duplicated track changed the
-    // original's too.
     let (mut lumen, track) = with_a_return("send-duplicate");
     type_into(&mut lumen, &format!("Send {track} to A Return 1"), "-6");
     lumen
@@ -374,10 +343,8 @@ fn a_duplicated_tracks_send_is_its_own() {
         "original {} {:?}\ncopy {} {:?}",
         original.name, original.sends, copy.name, copy.sends
     );
-    // The copy is unfolded too: set its send.
     let copy_label = format!("Send {} to A Return 1", copy.name);
 
-    // Unfold the copy (the lower of the two "Fold tone" arrows).
     let folds: Vec<_> = lumen
         .harness
         .query_all_by_label(&format!("Fold {}", copy.name))
@@ -440,8 +407,6 @@ fn a_duplicated_tracks_send_is_its_own() {
 
 #[test]
 fn a_duplicated_tracks_send_is_heard_as_its_own() {
-    // MT-MIX-4 (owner): a send change on one of two duplicated tracks was
-    // heard on the other.
     let (mut lumen, track) = with_a_return("send-duplicate-heard");
     type_into(&mut lumen, &format!("Send {track} to A Return 1"), "0");
     lumen.key(Modifiers::NONE, Key::Escape);
@@ -458,7 +423,6 @@ fn a_duplicated_tracks_send_is_heard_as_its_own() {
         heard.iter().fold(0.0f32, |m, f| m.max(f[0].abs()))
     };
     let both = loudest(&mut lumen);
-    // Silence the copy's send only (the lower knob, by double-click).
     let copy = lumen.app().project().tracks[1].id;
     let copy_name = lumen.app().project().tracks[1].name.clone();
     let folds: Vec<_> = lumen
@@ -506,9 +470,6 @@ fn a_duplicated_tracks_send_is_heard_as_its_own() {
 
 #[test]
 fn turning_a_sender_down_in_a_returns_list_leaves_the_rows_in_place() {
-    // MT-MIX-4 run 4 (owner): with a duplicated track, setting one sender
-    // seemed to change the other: the list re-sorted by level and the two
-    // rows, of the same name, swapped places.
     let (mut lumen, track) = with_a_return("send-rows-stay");
     type_into(&mut lumen, &format!("Send {track} to A Return 1"), "-13");
     lumen.key(Modifiers::NONE, Key::Escape);
@@ -534,7 +495,6 @@ fn turning_a_sender_down_in_a_returns_list_leaves_the_rows_in_place() {
     };
     let before = rows(&lumen);
     assert_eq!(before.len(), 2);
-    // Type a lower level into the top row.
     let top = before[0].0;
     let knob = lumen
         .harness
@@ -570,10 +530,6 @@ fn turning_a_sender_down_in_a_returns_list_leaves_the_rows_in_place() {
 
 #[test]
 fn a_slow_drag_turns_a_silent_send_up() {
-    // MT-MIX-4 run 5 (owner): hard to turn a send up from −∞. Each frame
-    // the knob started again from its level, and moves of a few points a
-    // frame were rounded back to silence: 24 points in steps of 3 stayed
-    // at −∞ before the fix.
     let (mut lumen, track) = with_a_return("send-engage");
     let label = format!("Send {track} to A Return 1");
     let knob = lumen.harness.get_by_label_contains(&label).rect();
@@ -584,7 +540,6 @@ fn a_slow_drag_turns_a_silent_send_up() {
     );
     let level = send(&lumen).map(|s| s.0).expect("a send");
     assert!(level > -40.0 && level < -25.0, "{level}");
-    // The same from a send silenced by a double-click.
     lumen.double_click(knob.center());
     assert_eq!(send(&lumen).map(|s| s.0), Some(f32::NEG_INFINITY));
     lumen.drag(

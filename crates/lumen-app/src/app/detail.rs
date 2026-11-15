@@ -1,10 +1,3 @@
-//! The detail panel's tabs and what each shows (M5 slice 3c extracted this
-//! from the frame loop). The row names its subject at the left: the track
-//! whose header or clip was clicked last (DP1). Devices is that track's
-//! chain (M6 slice 2d); Clip appears for the opened clip, an audio clip's
-//! properties beside its wave or a MIDI clip's notes; Mixer, at the right,
-//! is the channel strips.
-
 use std::collections::BTreeSet;
 
 use eframe::egui::{self, Color32, Rect, Sense, Ui, pos2, vec2};
@@ -15,7 +8,6 @@ use super::panes::{self, Pane};
 use crate::arrangement;
 use crate::{App, fonts, theme, widgets};
 
-/// Which tab of the detail panel is showing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum DetailTab {
     Devices,
@@ -24,45 +16,31 @@ pub(crate) enum DetailTab {
     Mixer,
 }
 
-/// What the tab row follows between frames (not saved).
 #[derive(Debug, Default)]
 pub(crate) struct DetailState {
-    /// The track of the header or clip clicked last: the clip selection is
-    /// a set, so which one came last is kept here.
     anchor: Option<Id>,
-    /// The selections last frame, to tell what was just clicked.
     seen_tracks: Vec<Id>,
     seen_clips: BTreeSet<Id>,
-    /// The audio clip opened in the Clip tab; an opened MIDI clip is the
-    /// note editor's.
     opened_audio: Option<Id>,
-    /// The audio editor is in its own window (M9.5 S2c, D25).
     pub(crate) audio_popped: bool,
-    /// The opened clip went while the panel had the keyboard: the Devices
-    /// tab takes it next frame.
     focus_devices: bool,
 }
 
 impl App {
-    /// The track holding clip `clip`.
     pub(crate) fn track_of_clip(&self, clip: Id) -> Option<Id> {
         all_tracks(self.document.project())
             .find(|t| t.clips.iter().any(|c| c.id == clip))
             .map(|t| t.id)
     }
 
-    /// The clip open in the Clip tab, audio or MIDI.
     pub(crate) fn opened_clip(&self) -> Option<Id> {
         self.note_editor.clip.or(self.detail.opened_audio)
     }
 
-    /// The opened clip is an audio clip.
     pub(crate) fn opened_audio(&self) -> Option<Id> {
         self.detail.opened_audio
     }
 
-    /// The track the panel is about (DP1): the one whose header or clip
-    /// was clicked last while anything is selected, else the opened clip's.
     pub(crate) fn subject(&self) -> Option<Id> {
         let project = self.document.project();
         let exists = |id: &Id| all_tracks(project).any(|t| t.id == *id);
@@ -84,9 +62,6 @@ impl App {
         self.opened_clip().and_then(|c| self.track_of_clip(c))
     }
 
-    /// Opens clip `clip` in the Clip tab (double-click or Enter): a MIDI
-    /// clip in the note editor, an audio clip's properties beside its wave.
-    /// Its track becomes the subject.
     pub(crate) fn open_clip(&mut self, clip: Id) {
         if self.editor_clip(clip).is_some() {
             self.open_note_editor(clip);
@@ -97,7 +72,6 @@ impl App {
         };
         self.close_note_editor();
         self.detail.opened_audio = Some(clip);
-        // Opening a clip frames the editor on it, even the same one again.
         self.audio_editor.framed_for = None;
         self.detail.anchor = Some(track);
         self.detail_tab = DetailTab::Clip;
@@ -107,8 +81,6 @@ impl App {
             .push(super::navigate::ViewStep::ShowClip(clip));
     }
 
-    /// A MIDI clip was opened in the note editor: it replaces an opened
-    /// audio clip, and its track becomes the subject.
     pub(crate) fn opened_in_note_editor(&mut self, clip: Id) {
         self.detail.opened_audio = None;
         if let Some(track) = self.track_of_clip(clip) {
@@ -116,8 +88,6 @@ impl App {
         }
     }
 
-    /// Shows `tab` (the tab row, and Show devices, clip and mixer). Clip
-    /// only while a clip is open.
     pub(crate) fn show_detail_tab(&mut self, tab: DetailTab) {
         if tab == DetailTab::Clip && self.opened_clip().is_none() {
             return;
@@ -125,17 +95,11 @@ impl App {
         self.detail_tab = tab;
         self.show_detail = true;
         if tab == DetailTab::Devices {
-            // Tall enough for a whole card; the user can still drag it.
             self.chain.grow = true;
         }
     }
 
-    /// Once a frame, after the note editor's refresh: what was just
-    /// clicked becomes the subject, a header clicked while on Clip shows
-    /// Devices, and a deleted opened clip takes its tab with it.
     pub(crate) fn refresh_detail(&mut self, ctx: &egui::Context) {
-        // A selection made some other way (the arrow keys, a range) moves
-        // the subject; only a header click leaves the Clip tab.
         if self.arrangement.selected != self.detail.seen_tracks {
             if let Some(&last) = self.arrangement.selected.last() {
                 self.detail.anchor = Some(last);
@@ -156,8 +120,6 @@ impl App {
                 .difference(&self.detail.seen_clips)
                 .copied()
                 .collect();
-            // One pass over the tracks: a clip added on the subject's track
-            // keeps it; else the first track with a new clip.
             let tracks: Vec<Id> = all_tracks(self.document.project())
                 .filter(|t| t.clips.iter().any(|c| fresh.contains(&c.id)))
                 .map(|t| t.id)
@@ -172,8 +134,6 @@ impl App {
         self.settle_opened_clip(ctx);
     }
 
-    /// A deleted opened clip takes its tab with it. Also run before the
-    /// tab row is drawn, since a key can delete it after `refresh_detail`.
     fn settle_opened_clip(&mut self, ctx: &egui::Context) {
         if let Some(clip) = self.detail.opened_audio
             && self.track_of_clip(clip).is_none()
@@ -186,14 +146,10 @@ impl App {
         if self.detail_tab == DetailTab::Clip && gone {
             self.detail_tab = DetailTab::Devices;
             self.chain.grow = true;
-            // The keyboard follows, if it was in the panel.
             self.detail.focus_devices = panes::focused(ctx) == Some(Pane::Detail);
         }
     }
 
-    /// The tab row: the subject, a hairline, Devices and the opened clip's
-    /// Clip tab, then Mixer at the right after another hairline. The tabs
-    /// are words over a sliding underline (the interface audit's T4).
     pub(crate) fn detail_tabs(&mut self, ui: &mut Ui) {
         self.settle_opened_clip(&ui.ctx().clone());
         let project = self.document.project();
@@ -244,8 +200,6 @@ impl App {
             right_from: Some(mixer),
             focus: std::mem::take(&mut self.detail.focus_devices).then_some(0),
         };
-        // A tab coming or going moves the others: the underline jumps to
-        // its place rather than gliding across from where the index was.
         let tabs_id = egui::Id::new(("detail tabs", tabs.len()));
         let mut picked = None;
         ui.horizontal(|ui| {
@@ -265,8 +219,6 @@ impl App {
         }
     }
 
-    /// The chosen tab's content in `content`, drawn after the arrangement
-    /// so Tab reaches it in reading order.
     pub(crate) fn detail_content(&mut self, ui: &mut Ui, content: Rect) {
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(content));
         child.set_clip_rect(content.intersect(ui.clip_rect()));
@@ -290,8 +242,6 @@ impl App {
                         self.note_editor.popped = false;
                     }
                 } else {
-                    // The arrows are the notes' keys while the pane has the
-                    // keyboard: egui must not take them to move the focus.
                     super::panes::keep_arrows(ui.ctx(), super::panes::Pane::Detail);
                     self.note_editor_surface(&mut child, content, crate::canvas::Surface::Docked);
                 }
@@ -306,15 +256,11 @@ impl App {
         }
     }
 
-    /// The audio clip opened in the Clip tab, if any.
     pub(crate) fn detail_audio_clip(&self) -> Option<Id> {
         self.detail.opened_audio
     }
 }
 
-/// The subject at the left of the tab row: a 3 × 14 pt bar in the track's
-/// colour and its name in medium type, then a hairline; in hint grey while
-/// the Mixer is chosen. "No track selected" when there is none.
 fn subject_chip(ui: &mut Ui, subject: Option<&(String, Color32)>, quiet: bool) {
     let palette = theme::p();
     let height = theme::size::CONTROL;

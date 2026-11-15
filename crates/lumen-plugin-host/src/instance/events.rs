@@ -1,13 +1,6 @@
-//! Notes and controllers as the plugin hears them: note ids and the events
-//! a block is given.
-
 use super::*;
 
-/// Hands out the ids that tie a note-off to its note-on: samplers key their
-/// voices by note id, and a host that gives every event -1 leaves them
-/// guessing which voice to release.
 pub(crate) struct NoteIds {
-    /// The id of the note sounding on each channel and pitch, or -1.
     held: Vec<i32>,
     next: i32,
 }
@@ -28,7 +21,6 @@ impl NoteIds {
         (c < Self::CHANNELS && p < Self::PITCHES).then_some(c * Self::PITCHES + p)
     }
 
-    /// A new id for a note starting on `channel` and `pitch`.
     pub(crate) fn on(&mut self, channel: i16, pitch: i16) -> i32 {
         let id = self.next;
         self.next = self.next.wrapping_add(1).max(0);
@@ -38,27 +30,20 @@ impl NoteIds {
         id
     }
 
-    /// The id the note ending on `channel` and `pitch` began with, or -1
-    /// when it is not known.
     pub(crate) fn off(&mut self, channel: i16, pitch: i16) -> i32 {
         Self::slot(channel, pitch).map_or(-1, |slot| std::mem::replace(&mut self.held[slot], -1))
     }
 
-    /// Forgets every note (the plugin was stopped).
     pub(crate) fn clear(&mut self) {
         self.held.fill(-1);
     }
 }
 
-/// The channels and controller numbers a mapping can be asked about: the 16
-/// MIDI channels and the numbers 0 to 127 plus pressure (128) and bend (129).
 pub(super) const MAP_CHANNELS: usize = 16;
 pub(super) const MAP_NUMBERS: usize = 130;
 pub(super) const MAP_UNKNOWN: i64 = -2;
 pub(super) const MAP_NONE: i64 = -1;
 
-/// `(channel, controller number, normalized value)` of a non-note event, with
-/// the numbers VST3 gives pressure and pitch bend.
 pub(super) fn controller_value(kind: &EventKind) -> Option<(i16, i16, f64)> {
     match *kind {
         EventKind::Controller {
@@ -76,7 +61,6 @@ pub(super) fn controller_value(kind: &EventKind) -> Option<(i16, i16, f64)> {
     }
 }
 
-/// The plugin's event for a note; anything else is not an event.
 pub(super) fn vst_event(event: &Event, ids: &mut NoteIds) -> Option<VstEvent> {
     let (kind, body) = match event.kind {
         EventKind::NoteOn {

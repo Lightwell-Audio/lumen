@@ -1,10 +1,3 @@
-//! The track header column (M3 slice 4a; redrawn in M9 slice R1b,
-//! ADR-0101): rail and level strip, the fold button, name, the well of M S
-//! and arm; an unfolded track's rows and columns; resizing. Design: DESIGN
-//! §7a, ADR-0025. Groups step their tracks in
-//! (`nesting`, M4 slice 3); the menus are in `menus`; each track's row is
-//! drawn by `header_row`.
-
 use std::sync::Arc;
 
 use eframe::egui::{self, Align2, FontId, Id as EguiId, Key, Rect, Sense, Stroke, Ui, pos2, vec2};
@@ -23,45 +16,30 @@ use crate::document::Document;
 use crate::lanes::Lanes;
 use crate::widgets::{self, SliderKind, draw_arrow, value_slider};
 
-/// A header's content starts this far right of its rail's left edge (after
-/// the rail and the level strip beside it, ADR-0101), and ends this far
-/// inside the header's right edge.
 pub(super) const CONTENT_X: f32 = 12.0;
 pub(super) const CONTENT_RIGHT: f32 = 8.0;
-/// The fold button (the type icon, an arrow under the pointer), and the
-/// gap after it and between the parts of a row.
 pub(super) const FOLD: f32 = 16.0;
 pub(super) const GAP: f32 = 6.0;
 
-/// An unfolded header's rows: 8 pt above the first, 6 pt between (and 8 pt
-/// under the last: the owner's even spacing, ADR-0101).
 const ROW_TOP: f32 = 8.0;
 const ROW: f32 = theme::size::CONTROL_SMALL;
 
-/// The centre of row `n` (from 0) of an unfolded header whose top is `top`.
 pub(super) fn row_center(top: f32, n: usize) -> f32 {
     top + ROW_TOP + n as f32 * (ROW + GAP) + ROW / 2.0
 }
 
-/// Where the name row sits in a header `height` tall whose top is `top`: in
-/// the middle of a folded row, and moving up to the first unfolded row's
-/// centre as the track opens (the move follows the height as it glides).
 pub(super) fn name_center(top: f32, height: f32) -> f32 {
     let open = ((height - FOLDED) / (super::UNFOLDED - FOLDED)).clamp(0.0, 1.0);
     let folded = top + FOLDED / 2.0;
     folded + (row_center(top, 0) - folded) * open
 }
 
-/// How much of its strength a silenced track's name and type icon keep
-/// (the design system's `.is-dim`).
 pub(super) const SILENCED: f32 = 0.45;
 use crate::theme::Tone;
 use crate::widgets::raised;
 use crate::{fonts, motion, theme};
 
 impl Arrangement {
-    /// The header column in `column`, whose top is level with the lanes'
-    /// top (below the ruler).
     pub fn headers(
         &mut self,
         ui: &mut Ui,
@@ -76,20 +54,15 @@ impl Arrangement {
         let painter = ui.painter_at(column);
         painter.rect_filled(column, 0.0, palette.header);
         self.view_height = column.height();
-        // A send and its return light together: what was hovered last frame.
         self.hot_return = self.hot_return_next.take();
-        // A send being set in a return's list keeps its row (S1).
         self.held_send = self.held_next.take();
         let mut rows = self.rows(&ctx, doc.project(), lanes.pending().len());
         let content = self.content_height(&ctx, doc.project(), &rows);
         if self.keep_in_content(content, column.height()) {
             rows = self.rows(&ctx, doc.project(), lanes.pending().len());
         }
-        // The scrolling tracks end where the pinned returns and master
-        // begin (slice 4).
         let main = self.zone_span(&ctx, doc.project(), Zone::Main, column.y_range());
 
-        // Below the last track: double-click or right-click to add one.
         let below = Rect::from_min_max(
             pos2(
                 column.left(),
@@ -104,11 +77,6 @@ impl Arrangement {
         let modifiers = ui.input(|i| i.modifiers);
         let hearing = lumen_project::solo::hearing(doc.project());
         let mut hot_edge = None;
-        // The track each row was laid out for. A header's menu can delete or
-        // move tracks partway through drawing them: rows whose track is no
-        // longer at its place are skipped for the rest of the frame (the
-        // next frame lays them out afresh). Deleting a track from its menu
-        // crashed Lumen before (owner, after MT-MIX-3 run 1).
         let laid_out: Vec<Option<Id>> = rows
             .iter()
             .map(|r| match r.kind {
@@ -123,8 +91,6 @@ impl Arrangement {
                 .filter(|t| Some(t.id) == laid_out[row])
                 .cloned()
         };
-        // Each row draws and takes the pointer only inside its zone: the
-        // scrolling tracks pass under the pinned returns and master.
         let base_clip = ui.clip_rect();
         let base_painter = painter.clone();
         let mut edges = Vec::new();
@@ -141,7 +107,6 @@ impl Arrangement {
             if rect.bottom() < zone.top() || rect.top() > zone.bottom() {
                 continue;
             }
-            // A row folding shut shows only what fits in it (M4.5).
             let zone = if row.clipped {
                 zone.intersect(rect)
             } else {
@@ -154,7 +119,6 @@ impl Arrangement {
                 continue;
             }
             let RowKind::Track(index) = row.kind else {
-                // A file still loading: a quiet placeholder header.
                 let name = lanes
                     .pending()
                     .get(match row.kind {
@@ -194,10 +158,6 @@ impl Arrangement {
                     hearing: &hearing,
                 },
             );
-            // A control of a row partly under the pinned returns and master
-            // that takes the keyboard focus (Tab, or a screen reader) brings
-            // its row into view, so what has the focus can be seen
-            // (KNOWN_ISSUES row 114).
             if row.zone == Zone::Main
                 && !zone.contains_rect(rect)
                 && let Some(focused) = ui.ctx().memory(|m| m.focused())
@@ -215,8 +175,6 @@ impl Arrangement {
             self.scroll_to_track(&ctx, doc.project(), pending, id, column.height());
             ui.ctx().request_repaint();
         }
-        // The resize edges go over every row, so the band below a row's line
-        // is not taken by the next row's header.
         for (track, rect, zone) in edges {
             ui.set_clip_rect(zone.intersect(base_clip));
             let painter = base_painter.with_clip_rect(zone.intersect(base_painter.clip_rect()));
@@ -231,7 +189,6 @@ impl Arrangement {
             column.y_range(),
             Stroke::new(theme::stroke::HAIRLINE, palette.border),
         );
-        // Dragged tracks are dimmed; the line shows where they will land.
         for (n, row) in rows.iter().enumerate() {
             if let RowKind::Track(index) = row.kind
                 && still(doc, index, n).is_some_and(|t| self.is_dragged(t.id))
@@ -247,7 +204,6 @@ impl Arrangement {
                 );
             }
         }
-        // A drag follows rows laid out this frame: none if tracks changed.
         let unchanged = rows.iter().enumerate().all(|(n, row)| match row.kind {
             RowKind::Track(index) => still(doc, index, n).is_some(),
             RowKind::Pending(_) | RowKind::Master => true,
@@ -258,9 +214,6 @@ impl Arrangement {
         self.draw_drop_line(&painter, column, true);
     }
 
-    /// The empty area below the last track, `below`: double-click adds an
-    /// audio track, right-click any kind, and the "+ Add track ▾" button
-    /// (owner's choice, option B). The scrolling tracks end at `bottom`.
     fn empty_area(
         &mut self,
         ui: &mut Ui,
@@ -297,9 +250,6 @@ impl Arrangement {
         widgets::Menu::context(&empty)
             .show(|ui| self.add_menu(ui, doc, None, keymap, AddMenu::Context));
 
-        // "+ Add track ▾": a menu of every track type with its shortcut,
-        // and a hint that double-clicking here adds an audio track
-        // (owner's choice, option B).
         let button =
             Rect::from_min_size(below.min + vec2(8.0, 8.0), vec2(below.width() - 16.0, 26.0));
         if button.bottom() < bottom {
@@ -311,7 +261,6 @@ impl Arrangement {
             });
             let hover = motion::hover(&ctx, ui.id().with("add track hover"), response.hovered());
             let open = egui::Popup::is_id_open(&ctx, egui::Popup::default_response_id(&response));
-            // A raised menu button (ADR-0052): on while its menu is open.
             let face = raised::Face::new(theme::controls(false))
                 .hover(hover)
                 .pressed(response.is_pointer_button_down_on())
@@ -352,9 +301,6 @@ impl Arrangement {
         }
     }
 
-    /// The name, or the rename field. Double-click to rename; Enter or
-    /// clicking away keeps the new name, Esc cancels. The name's response,
-    /// for its tooltip and menu.
     pub(super) fn name(
         &mut self,
         ui: &mut Ui,
@@ -365,14 +311,11 @@ impl Arrangement {
         (id, in_strip): (EguiId, bool),
     ) -> Option<egui::Response> {
         let palette = theme::p();
-        // A group's name is a step bolder (the owner's H1 specimen).
         let font = if track.kind == TrackKind::Group {
             fonts::medium(theme::size::BODY)
         } else {
             FontId::proportional(theme::size::BODY)
         };
-        // A track that listens keeps room for its light (the header's
-        // name; the strip has none).
         let rect = if !in_strip && self.live.listens(track, heard) {
             Rect::from_min_max(
                 rect.min,
@@ -384,7 +327,6 @@ impl Arrangement {
         } else {
             rect
         };
-        // A folded group says how many tracks it hides, after its name.
         let (rect, count) = match count {
             Some(n) => {
                 let count = painter_count(ui, n);
@@ -399,7 +341,6 @@ impl Arrangement {
             }
             None => (rect, None),
         };
-        // A frozen track keeps room for its badge (the strip has none).
         let frozen = track.frozen.is_some() && !in_strip;
         let (rect, badge_row) = if frozen {
             let room = super::frozen_badge::room(ui, rect.width());
@@ -457,15 +398,12 @@ impl Arrangement {
             self.click_select(doc.project(), track.id, modifiers);
         }
         let painter = ui.painter().clone();
-        // A track that is silenced dims its name (the design system's
-        // `.is-dim`: 45%).
         let name_ink = if heard {
             palette.text
         } else {
             palette.text.gamma_multiply(SILENCED)
         };
         let galley = painter.layout(track.name.clone(), font.clone(), name_ink, rect.width());
-        // One line, shortened with "…" if too long.
         let text = if galley.rows.len() > 1 {
             let mut name = track.name.clone();
             while !name.is_empty() {
@@ -503,12 +441,6 @@ impl Arrangement {
         Some(response)
     }
 
-    /// The second row of an unfolded track: volume, then pan in the right
-    /// column; and on an audio track the In chip under pan (the owner's
-    /// B·1, ADR-0101). `left` is where the header's rail starts. Both
-    /// sliders show their value inside (owner request): volume fills from
-    /// the left; pan fills from the centre and grows more saturated the
-    /// harder it pans. Double-click resets either.
     pub(super) fn mixer_row(
         &mut self,
         ui: &mut Ui,
@@ -589,10 +521,6 @@ impl Arrangement {
     }
 }
 
-/// An unfolded header's columns, for a header in `rect` whose rail starts at
-/// `left`: where the left column starts, where the right column (pan, the
-/// In chip) starts, and the third row's left column (the sends, a return's
-/// senders), which ends a gap before the right column.
 pub(super) fn columns(rect: Rect, left: f32) -> (f32, f32, Rect) {
     let start = left + CONTENT_X;
     let side = rect.right() - CONTENT_RIGHT - theme::size::HEADER_SIDE;
@@ -604,7 +532,6 @@ pub(super) fn columns(rect: Rect, left: f32) -> (f32, f32, Rect) {
     (start, side, sends)
 }
 
-/// "· 4": how many tracks a folded group hides.
 fn painter_count(ui: &Ui, n: usize) -> std::sync::Arc<egui::Galley> {
     ui.painter().layout_no_wrap(
         format!("\u{00B7} {n}"),
@@ -613,11 +540,6 @@ fn painter_count(ui: &Ui, n: usize) -> std::sync::Arc<egui::Galley> {
     )
 }
 
-/// The record-arm button: a piece of a well (a header's, ADR-0101, or a
-/// mixer strip's), drawn by [`arm_piece`]. At rest a quiet grey dot that
-/// turns record red under the pointer; armed, a breathing `record` body and
-/// ring (the owner's pulse, kept). A group's lights when everything inside
-/// it is armed, and shows the dot with half a ring when only some is.
 pub(super) fn arm_button(ui: &mut Ui, rect: Rect, id: EguiId, name: &str, arm: Arm) -> bool {
     let armed = arm.on();
     let response = ui
@@ -636,7 +558,6 @@ pub(super) fn arm_button(ui: &mut Ui, rect: Rect, id: EguiId, name: &str, arm: A
         )
     });
     let hover = motion::hover(ui.ctx(), id.with("arm hover"), response.hovered());
-    // Snapped with M and S beside it, so the dot sits on their letters' line.
     let rect = rect.round_to_pixels(ui.pixels_per_point());
     arm_piece(ui, rect, arm, hover);
     if response.has_focus() {
@@ -645,13 +566,6 @@ pub(super) fn arm_button(ui: &mut Ui, rect: Rect, id: EguiId, name: &str, arm: A
     response.clicked()
 }
 
-/// The arm piece: armed, a `record` body around 25% with a solid dot, and a
-/// ring, the body and a halo round the dot that breathe together, all
-/// inside the piece (a glow beyond it would spill over S); some of a group
-/// armed, the body, the dot and half a ring, still; listening because
-/// selected, a hollow record-red ring; at rest a quiet grey dot. Every
-/// circle shares the piece's centre (owner: the ring must sit centred on
-/// the dot); unlit pieces take the Ember wash under the pointer.
 fn arm_piece(ui: &Ui, rect: Rect, arm: Arm, hover: f32) {
     let palette = theme::p();
     let p = ui.painter();
@@ -660,8 +574,6 @@ fn arm_piece(ui: &Ui, rect: Rect, arm: Arm, hover: f32) {
     let ring = rect.height() / 2.0 - PIECE_RING_INSET;
     match arm {
         Arm::All => {
-            // The body breathes with the ring and a soft halo swells round
-            // the dot (the owner: the pulse keeps its personality).
             let breath = breath(ui);
             let swell = PIECE_BODY_LOW + (1.0 - PIECE_BODY_LOW) * 2.0 * breath;
             p.rect_filled(rect, r, palette.record.gamma_multiply(ARM_BODY * swell));
@@ -709,8 +621,6 @@ fn arm_piece(ui: &Ui, rect: Rect, arm: Arm, hover: f32) {
     }
 }
 
-/// How far the armed ring breathes, 0 to 1. Reduce motion holds it still;
-/// frames are requested only while a track is armed.
 fn breath(ui: &Ui) -> f32 {
     if motion::reduced() {
         0.5
@@ -721,18 +631,12 @@ fn breath(ui: &Ui) -> f32 {
     }
 }
 
-/// The dot of an arm piece (the mock's 8 pt), and how far inside the
-/// piece's height its ring sits.
 const PIECE_DOT: f32 = 4.0;
 const PIECE_RING_INSET: f32 = 2.0;
-/// An armed piece's body at the breath's low point, as a share of
-/// `ARM_BODY` (it rises as far above at the high point); the halo round
-/// its dot at full breath: how far it reaches past the dot, how strong.
 const PIECE_BODY_LOW: f32 = 0.7;
 const PIECE_HALO: f32 = 1.5;
 const PIECE_HALO_ALPHA: f32 = 0.35;
 
-/// The right half of a ring around `center`.
 fn half_ring(center: egui::Pos2, radius: f32) -> Vec<egui::Pos2> {
     use std::f32::consts::PI;
     (0..=16)
@@ -743,19 +647,12 @@ fn half_ring(center: egui::Pos2, radius: f32) -> Vec<egui::Pos2> {
         .collect()
 }
 
-/// Seconds per breath of the armed ring.
 const ARM_BREATH: f32 = motion::BREATH;
 
-/// How much `record` tints an armed button's body.
 const ARM_BODY: f32 = 0.25;
-/// How strong the resting dot's grey is.
 const ARM_REST_DOT: f32 = 0.55;
-/// How far the armed ring's alpha rises at the top of a breath.
 const ARM_RING_GAIN: f32 = 0.30;
 
-/// What a screen reader says for a header; a group adds how many tracks
-/// it holds and whether they are hidden: "Track Drums, Group track, 3
-/// tracks inside, folded".
 pub(super) fn group_description(
     track: &lumen_project::model::Track,
     inside: usize,
@@ -774,8 +671,6 @@ pub(super) fn group_description(
     text
 }
 
-/// What a screen reader says for a track header: "Track Kick, Audio
-/// track, muted, armed for recording".
 pub(super) fn track_description(track: &lumen_project::model::Track) -> String {
     let mut parts = vec![
         format!("Track {}", track.name),
@@ -793,7 +688,6 @@ pub(super) fn track_description(track: &lumen_project::model::Track) -> String {
     parts.join(", ")
 }
 
-/// The track type, for the header icon's tooltip.
 pub(super) fn kind_name(kind: TrackKind) -> &'static str {
     match kind {
         TrackKind::Audio => "Audio track",
@@ -810,8 +704,6 @@ mod tests {
 
     #[test]
     fn an_unfolded_track_has_even_margins_around_its_three_rows() {
-        // 8 above, three 20 pt rows (the name; volume and pan; the sends
-        // and the input) 6 apart, 8 below: four steps.
         assert_eq!(
             ROW_TOP + 3.0 * ROW + 2.0 * GAP + 8.0,
             super::super::UNFOLDED
@@ -819,7 +711,6 @@ mod tests {
         assert_eq!(row_center(0.0, 0), 18.0);
         assert_eq!(row_center(0.0, 1), 44.0);
         assert_eq!(row_center(0.0, 2), 70.0);
-        // The last row ends 8 pt above the track's bottom.
         assert_eq!(
             super::super::UNFOLDED - (row_center(0.0, 2) + ROW / 2.0),
             8.0

@@ -1,6 +1,3 @@
-//! One scenario: start hosts, attach them, run paced blocks as an audio
-//! callback would, then leave them idle and see what they cost.
-
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -12,10 +9,8 @@ use crate::options::Fault;
 use crate::platform::{Contention, Pacer, cpu_time};
 
 const SLOW: Duration = Duration::from_secs(20);
-/// The environment variable the test plugin reads its faults from.
 const PLUGIN_FAULTS: &str = "LUMEN_TEST_PLUGIN_FAULT";
 const PATTERNS: usize = 64;
-/// How many silent blocks in a row make a host that is still running "hung".
 const MISS_LIMIT: u32 = 3;
 
 pub struct Scenario<'a> {
@@ -37,9 +32,7 @@ pub struct Scenario<'a> {
 
 #[derive(Default)]
 pub struct Report {
-    /// Per block, nanoseconds: submit to the last answer, copies included.
     pub block_ns: Vec<u32>,
-    /// The first blocks after a cold start, apart.
     pub cold_ns: Vec<u32>,
     pub overruns: usize,
     pub misses: Vec<u32>,
@@ -48,7 +41,6 @@ pub struct Report {
     pub failed: Vec<u32>,
     pub divergent: u32,
     pub heap_ops: u64,
-    /// Percent of one core, per host, while idle.
     pub idle_cpu: Vec<f64>,
     pub detected_after: Option<usize>,
     pub verdict: Option<String>,
@@ -71,7 +63,6 @@ fn start(s: &Scenario<'_>, index: usize) -> Result<Running, String> {
     if index == 0
         && let Some(fault) = s.fault
     {
-        // Calls count from activation, so the warm-up is counted too.
         let at = s.warmup + 200;
         faults.push(match fault {
             Fault::Crash => format!("process_crash@{at}"),
@@ -177,8 +168,6 @@ pub fn run(s: &Scenario<'_>) -> Result<Report, String> {
                 match r.link.submit(generation, s.frames, &[], pattern, &params) {
                     Ok(_) => submitted[i] = true,
                     Err(_) => {
-                        // Still on an earlier block: late, and the same
-                        // evidence of a stuck host as a missed deadline.
                         if recording {
                             report.busy[i] += 1;
                         }
@@ -232,8 +221,6 @@ pub fn run(s: &Scenario<'_>) -> Result<Report, String> {
         report.stale[i] = r.link.stale();
     }
     if report.detected_after.is_some() {
-        // The process takes a moment to be reaped after a crash; ask now,
-        // outside the loop, so waiting costs the other hosts nothing.
         report.verdict = Some(
             match running[0].process.wait_ended(Duration::from_millis(500)) {
                 Some(how) => format!("the host ended: {how:?}"),
@@ -243,7 +230,6 @@ pub fn run(s: &Scenario<'_>) -> Result<Report, String> {
         );
     }
 
-    // Idle: attached, no blocks. What the hosts cost doing nothing.
     if !s.idle.is_zero() {
         let before: Vec<Option<Duration>> =
             running.iter().map(|r| cpu_time(r.process.id())).collect();
@@ -264,8 +250,6 @@ pub fn run(s: &Scenario<'_>) -> Result<Report, String> {
         }
     }
 
-    // How long a replacement takes, for the fault scenarios: the same steps
-    // from nothing to a host answering blocks.
     if s.fault.is_some() {
         let began = Instant::now();
         let mut fresh = Scenario {
@@ -303,9 +287,6 @@ pub fn run(s: &Scenario<'_>) -> Result<Report, String> {
     Ok(report)
 }
 
-/// A host did not answer a block in time. After a few in a row, or once the
-/// process is gone, it is out of the loop. The process is looked at only
-/// after a miss, never on the fast path.
 fn late(
     report: &mut Report,
     consecutive: &mut [u32],

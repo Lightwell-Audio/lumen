@@ -1,9 +1,5 @@
-//! A card's parameter strip, footer words and rows.
-
 use super::*;
 
-/// The strip's knobs, or the message of a card that is not running; returns
-/// the button pressed, if any, and what the knobs asked for.
 pub(super) fn paint_strip(
     ui: &mut Ui,
     area: Rect,
@@ -15,7 +11,6 @@ pub(super) fn paint_strip(
     let no_strip = |action| (action, Vec::new());
     match look.face {
         Face::Loading => {
-            // Waiting: the empty troughs the knobs will stand in.
             let painter = ui.painter().with_clip_rect(area.expand(2.0));
             let gap = 6.0;
             let row = ((area.height() - gap * (ROWS as f32 - 1.0)) / ROWS as f32)
@@ -46,7 +41,6 @@ pub(super) fn paint_strip(
                 galley,
                 palette.text_hint,
             );
-            // A plugin has its own window; the synth has none.
             let outputs = if look.reports_latency {
                 let row =
                     Rect::from_min_max(pos2(area.left(), area.bottom() - strip::BUTTONS), area.max);
@@ -120,8 +114,6 @@ pub(super) fn paint_strip(
             &[("Rescan plugins", Action::Rescan)],
         )),
         Face::Safe { saved } => {
-            // The card keeps its shape: the knobs stand there, greyed, and
-            // the words and the one button take their place under them.
             let painter = ui.painter().with_clip_rect(area);
             let ghost = palette.control_press.gamma_multiply(theme::alpha::EDGE);
             let radius = theme::size::KNOB / 2.0;
@@ -158,10 +150,6 @@ pub(super) fn kilobytes(bytes: usize) -> String {
     format!("{} KB", bytes.div_ceil(1024))
 }
 
-/// A title, the words and buttons, in the strip's place. The buttons are
-/// pinned to the strip's bottom, one above the other with the first on top;
-/// the words take the room between, end in "\u{2026}" when they do not fit, and
-/// are whole in the tooltip. Returns the action of the button pressed.
 pub(super) fn message(
     ui: &mut Ui,
     area: Rect,
@@ -186,7 +174,6 @@ pub(super) fn message(
         - buttons.len() as f32 * height
         - buttons.len().saturating_sub(1) as f32 * gap;
 
-    // The words, in the room above the buttons.
     let font = FontId::proportional(theme::size::CAPTION);
     let words_top = area.top() + 20.0;
     let room = top_of_buttons - theme::space::XS - words_top;
@@ -240,9 +227,6 @@ pub(super) fn message(
     pressed
 }
 
-/// The preset field in the card's second header row: an arrow back, the name
-/// of the sound with a dot when it was changed, an arrow forward. The field
-/// opens the menu. Returns the field's response and the arrow pressed.
 pub(super) fn paint_field(
     ui: &mut Ui,
     row: Rect,
@@ -323,7 +307,6 @@ pub(super) fn paint_field(
         hover,
     );
     let painter = ui.painter().with_clip_rect(middle);
-    // The chevron at the right, the dot and the name from the left.
     let c = pos2(middle.right() - 12.0, middle.center().y);
     painter.add(egui::Shape::line(
         vec![

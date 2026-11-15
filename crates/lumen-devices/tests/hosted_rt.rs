@@ -1,12 +1,3 @@
-//! A plugin instrument's side of a block never touches the heap: the host is
-//! asked, its answer is copied, and nothing of the wrapper (the messages
-//! waiting for a block, the notes and pedal it holds, the outputs) reaches the
-//! heap. The host here stands in for the real one, which answers through a
-//! shared region; it allocates, locks and blocks nothing, as a host's audio
-//! side does once its region is set up. Built with `RTSAN_ENABLE=1` on Linux,
-//! RealtimeSanitizer checks the same sections for locks and blocking calls
-//! (ADR-0010).
-
 use std::time::Instant;
 
 use lumen_core::midi::{Event, Msg};
@@ -17,7 +8,6 @@ lumen_rt::install_guarded_allocator!();
 
 const RATE: u32 = 48_000;
 
-/// A host that takes every block and answers silence.
 struct Still;
 
 impl Hosted for Still {
@@ -70,8 +60,6 @@ fn a_hosted_instruments_blocks_never_touch_the_heap() {
     let events = [note_on(0, 60), note_on(32, 64)];
     for block in 0..200 {
         let ((), heap) = count_rt_violations(|| {
-            // Every fifth block a note lets go with no block of its own: the
-            // message waits for the next one (the `pending` path).
             if block % 5 == 0 {
                 synth.render(0, &[note_off(60)], &mut [], &mut []);
             }

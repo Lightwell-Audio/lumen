@@ -1,17 +1,3 @@
-//! The callback benchmark (M6 slice 7c): how long the audio callback takes
-//! with a project's plugins running, against the time each block has.
-//!
-//! `lumen --bench-callback <out.json> <project.lumen>` opens the project,
-//! waits for its plugins to load, plays it from the start for
-//! `--bench-seconds` (30 by default) after a short warm-up, and samples what
-//! the audio layer already measures every 100 ms: the callbacks' mean time,
-//! the worst callback, overloads and dropouts, and what each plugin's blocks
-//! cost. It writes a report, prints it and exits with status 0 when no block
-//! overran, 3 when one did, and 2 when it could not run (a plugin did not
-//! load, the audio is off). The buffer size and the device are the ones in
-//! the settings, so the numbers are the user's machine at the user's buffer
-//! (ADR-0069 asks for 64 and 128 frames). Nothing is sent by this mode.
-
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -20,34 +6,22 @@ use lumen_audio::BlockTime;
 
 use crate::hosting::PluginCost;
 
-/// How often the audio layer is asked.
 pub const WINDOW: Duration = Duration::from_millis(100);
-/// Measured before measuring starts: first blocks of a plugin are slow.
 pub const WARM_UP: Duration = Duration::from_secs(3);
-/// How long plugins may take to load before the run gives up.
 pub const LOAD_LIMIT: Duration = Duration::from_secs(120);
-/// The quality bar: a callback comfortably under half of its block, and none
-/// over three quarters.
 const MEAN_BAR: f64 = 0.5;
 const WORST_BAR: f64 = 0.75;
-/// Frames everything must stay up before the project counts as loaded.
 const CALM_FRAMES: u32 = 10;
-/// Plugins named in the printed report.
 const SHOWN: usize = 8;
 
-/// Where the run is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Phase {
-    /// Waiting for the project and its plugins.
     Loading,
-    /// Playing, not yet measured.
     WarmUp,
-    /// Measured.
     Measuring,
     Done,
 }
 
-/// What one plugin's blocks cost over the whole run.
 #[derive(Debug, Clone, Default)]
 struct Plugin {
     name: String,
@@ -62,7 +36,6 @@ struct Plugin {
     late_now: u32,
 }
 
-/// Where the numbers came from.
 #[derive(Debug, Clone, Default)]
 pub struct Setup {
     pub project: String,
@@ -75,17 +48,13 @@ pub struct Setup {
 
 pub struct Callback {
     out: PathBuf,
-    /// End the process with the report's status (tests keep the app alive).
     exit: bool,
     seconds: f64,
     phase: Phase,
     since: Instant,
     next: Instant,
-    /// Frames in a row that everything has been up.
     calm: u32,
-    /// Mean share of the block, per 100 ms window with callbacks in it.
     windows: Vec<f64>,
-    /// Sum of callback time and of block time, in nanoseconds, over all.
     used_ns: u128,
     block_ns: u128,
     callbacks: u64,
@@ -112,7 +81,6 @@ impl Callback {
         }
     }
 
-    /// The app stays open after the report (tests).
     pub fn keeping_alive(mut self) -> Self {
         self.exit = false;
         self
@@ -130,32 +98,24 @@ impl Callback {
         self.phase
     }
 
-    /// Whether things have been `up` for long enough, in frames, to be
-    /// believed: a plugin shows as missing for a frame or two before its host
-    /// is asked for.
     pub fn settled(&mut self, up: bool) -> bool {
         self.calm = if up { self.calm + 1 } else { 0 };
         self.calm >= CALM_FRAMES
     }
 
-    /// Whether loading has taken too long.
     pub fn load_expired(&self, now: Instant) -> bool {
         self.phase == Phase::Loading && now.duration_since(self.since) > LOAD_LIMIT
     }
 
-    /// Everything is loaded and the project is playing: the warm-up begins.
     pub fn play_started(&mut self, now: Instant) {
         self.phase = Phase::WarmUp;
         self.since = now;
     }
 
-    /// Whether the warm-up is over.
     pub fn warmed(&self, now: Instant) -> bool {
         self.phase == Phase::WarmUp && now.duration_since(self.since) >= WARM_UP
     }
 
-    /// Measuring begins. `costs` are what the plugins' counters held just
-    /// now (they count from here).
     pub fn measure_started(&mut self, now: Instant, costs: &[PluginCost]) {
         self.phase = Phase::Measuring;
         self.since = now;
@@ -169,7 +129,6 @@ impl Callback {
         }
     }
 
-    /// Whether a sample is due, or the measuring is over.
     pub fn due(&self, now: Instant) -> bool {
         self.phase == Phase::Measuring && now >= self.next
     }
@@ -183,8 +142,6 @@ impl Callback {
         self.next.saturating_duration_since(now)
     }
 
-    /// Takes one window: the callbacks' times, the worst callback's share
-    /// of its block, and what the plugins' blocks cost.
     pub fn sample(&mut self, now: Instant, time: BlockTime, worst: f32, costs: &[PluginCost]) {
         self.next = now + WINDOW;
         if time.blocks > 0 && !time.block.is_zero() {
@@ -280,7 +237,6 @@ pub struct Report {
     pub setup: Setup,
     pub seconds: f64,
     pub callbacks: u64,
-    /// Shares of the block's time (1.0 is all of it).
     pub mean: f64,
     pub median: f64,
     pub p99: f64,
@@ -291,13 +247,10 @@ pub struct Report {
 }
 
 impl Report {
-    /// No block overran and nothing was lost.
     pub fn pass(&self) -> bool {
         self.overloads == 0 && self.dropouts == 0 && self.callbacks > 0
     }
 
-    /// The quality bar's wording: processing comfortably under half of the
-    /// time budget.
     pub fn quality_bar(&self) -> bool {
         self.pass() && self.mean < MEAN_BAR && self.worst < WORST_BAR
     }
@@ -438,7 +391,6 @@ mod tests {
     #[test]
     fn the_mean_is_weighted_by_blocks_and_the_percentiles_are_of_windows() {
         let report = run(|bench, start| {
-            // 100 windows of 10% and one of 80% with a tenth of the blocks.
             for _ in 0..100 {
                 bench.sample(start, time(37, 267, 2_667), 0.2, &[]);
             }
@@ -450,7 +402,6 @@ mod tests {
             "the one slow window is not p99"
         );
         assert!((report.worst - 0.9).abs() < 1e-6);
-        // 3700 blocks at 10% and 4 at 80%.
         let expected = (3700.0 * 0.1 + 4.0 * 0.8) / 3704.0;
         assert!((report.mean - expected).abs() < 0.001, "{}", report.mean);
         assert_eq!(report.callbacks, 3704);
@@ -482,12 +433,10 @@ mod tests {
                 &[cost(1, 200, 9), cost(2, 500, 0)],
             );
         });
-        // Costliest wait first.
         assert_eq!(report.plugins[0].name, "Plugin 2");
         assert_eq!(report.plugins[0].wait_mean, Duration::from_micros(400));
         assert_eq!(report.plugins[0].wait_peak, Duration::from_micros(1_000));
         assert_eq!(report.plugins[0].blocks, 20);
-        // It was 4 late blocks when measuring began and 9 at the end.
         let one = report
             .plugins
             .iter()

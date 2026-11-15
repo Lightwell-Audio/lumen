@@ -1,24 +1,10 @@
-//! Envelopes on audio clips (M7 slice A7, ADR-0090): a gain and a pan that
-//! follow the clip and repeat with it.
-//!
-//! The interface bakes each envelope into an [`AutoLane`] on the clip's own
-//! sample clock (frame 0 is the clip's first frame) when it builds the clip
-//! list, with the tempo map and the device rate, exactly as it bakes a track's
-//! lane. The audio thread only reads: for the frames of a block it works out
-//! a gain for each side of the bus with the same knots and ramps a track's
-//! lane uses (`mixer/auto.rs`), and the clip's mix multiplies by them. A
-//! looping clip reads the lane again from its start at every repeat.
-
 use lumen_core::pan::PanLaw;
 
 use crate::mixer::{AutoLane, CHUNK, LaneKind};
 
-/// The envelopes of one clip, baked. A clip with none plays the plain path.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ClipEnvelope {
-    /// The clip's level in dB, added to its gain.
     pub gain: Option<AutoLane>,
-    /// Pan, −1 to 1, with the law that turns it into a gain for each side.
     pub pan: Option<(AutoLane, PanLaw)>,
 }
 
@@ -27,9 +13,6 @@ impl ClipEnvelope {
         self.gain.is_none() && self.pan.is_none()
     }
 
-    /// Whether the baked source lanes are the same across a split, evaluated
-    /// off the audio thread. Exact translated knots keep curved segments and
-    /// their shapes intact; approximate boundary values are not sufficient.
     pub(crate) fn meets(&self, other: &Self, left_frames: i64) -> bool {
         fn translated(left: &AutoLane, right: &AutoLane, by: i64) -> bool {
             left.points().len() == right.points().len()
@@ -51,12 +34,8 @@ impl ClipEnvelope {
     }
 }
 
-/// The gains of the clip being played, for each side of its bus, over the
-/// frames of one block. Made once, off the audio thread.
 pub(crate) struct EnvelopeGains {
-    /// `CHUNK` frames for the left side, then for the right.
     sides: Box<[f32]>,
-    /// What one lane writes before it is multiplied in.
     lane: Box<[f32]>,
 }
 
@@ -68,14 +47,10 @@ impl EnvelopeGains {
         }
     }
 
-    /// The gains of `side` for the block, indexed by the frame's place in it.
     pub fn side(&self, side: usize) -> &[f32] {
         &self.sides[side * CHUNK..(side + 1) * CHUNK]
     }
 
-    /// Works out the gains for timeline samples `a..b` of a block that began
-    /// at `from`, for the clip that starts at `start` and repeats every
-    /// `period` frames when it loops.
     pub fn fill(
         &mut self,
         env: &ClipEnvelope,
@@ -91,7 +66,6 @@ impl EnvelopeGains {
         let mut t = a;
         while t < b {
             let pos = t - start;
-            // A repeat plays the envelope again from its start.
             let (inner, run) = match period {
                 Some(p) if p > 0 => {
                     let inner = pos.rem_euclid(p);
@@ -166,9 +140,7 @@ mod tests {
         };
         let g = gains(&env, 1_000, None, 1_000, 1_064);
         assert!((g[0] - 1.0).abs() < 1e-6);
-        // Halfway down is −10 dB: the knots are exact at the ends and every 32.
         assert!((g[32] - 10f32.powf(-10.0 / 20.0)).abs() < 1e-3);
-        // Between two knots the gain runs straight, a little above the dB line.
         assert!((g[63] - 10f32.powf(-20.0 * 63.0 / 64.0 / 20.0)).abs() < 5e-3);
     }
 

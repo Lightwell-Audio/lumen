@@ -1,11 +1,3 @@
-//! P-HOST prototype: can Lumen host a real VST3 instrument, make it sound,
-//! and save and restore its state?
-//!
-//! ```text
-//! plugin-host render <module.vst3> [--class NAME]   step 1: in this process
-//! plugin-host isolate <module.vst3>                  step 2: in a host process, with a crash
-//! ```
-
 #[cfg(windows)]
 mod com;
 #[cfg(windows)]
@@ -59,8 +51,6 @@ const RATE: f64 = 48_000.0;
 #[cfg(windows)]
 const BLOCK: usize = 128;
 
-/// Plays middle C for 1 s, then 1 s of release; returns interleaved audio
-/// and the per-block processing times in microseconds.
 #[cfg(windows)]
 fn play(plugin: &mut vst::Plugin) -> Result<(Vec<f32>, Vec<f32>), String> {
     use vst::Note;
@@ -111,7 +101,7 @@ pub(crate) fn write_wav(path: &std::path::Path, audio: &[f32]) -> std::io::Resul
     bytes.extend_from_slice(&(36 + data_len).to_le_bytes());
     bytes.extend_from_slice(b"WAVEfmt ");
     bytes.extend_from_slice(&16_u32.to_le_bytes());
-    bytes.extend_from_slice(&3_u16.to_le_bytes()); // IEEE float
+    bytes.extend_from_slice(&3_u16.to_le_bytes());
     bytes.extend_from_slice(&2_u16.to_le_bytes());
     bytes.extend_from_slice(&(RATE as u32).to_le_bytes());
     bytes.extend_from_slice(&(RATE as u32 * 8).to_le_bytes());

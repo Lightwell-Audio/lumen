@@ -1,9 +1,3 @@
-//! Hearing a clip while it is edited (M9.5 S2c, LC A): Loop clip plays one
-//! pass of the opened audio clip, or the range picked on it, on repeat with
-//! the other tracks heard. It overrides what the engine loops and nothing
-//! more: the project's loop is not touched, nothing is saved, and there is
-//! nothing to undo.
-
 use eframe::egui;
 use lumen_core::time::Ticks;
 use lumen_engine::Region;
@@ -13,9 +7,6 @@ use lumen_project::model::{Clip, Id};
 use crate::App;
 use crate::audio_editor::AudioEditor;
 
-/// One pass of `clip`, in the song: from its start for its length, or for
-/// one turn of its loop when that is shorter, so the pass holds every frame
-/// of the loop even when the clip starts part way through it.
 pub(super) fn pass_of(tempo: &lumen_core::time::TempoMap, clip: &Clip) -> (Ticks, Ticks) {
     let start = clip.start;
     let end = clip.start + clip.length;
@@ -26,8 +17,6 @@ pub(super) fn pass_of(tempo: &lumen_core::time::TempoMap, clip: &Clip) -> (Ticks
     (start, end.max(start))
 }
 
-/// What plays on repeat: the range where it overlaps the pass, else the
-/// pass.
 pub(super) fn looped_part(pass: (Ticks, Ticks), range: Option<(Ticks, Ticks)>) -> (Ticks, Ticks) {
     match range {
         Some((from, to)) => {
@@ -39,11 +28,9 @@ pub(super) fn looped_part(pass: (Ticks, Ticks), range: Option<(Ticks, Ticks)>) -
 }
 
 impl App {
-    /// The part of clip `id` that Loop clip repeats, in the song.
     fn clip_loop_part(&self, id: Id) -> Option<(Ticks, Ticks)> {
         let clip = self.shown_clip(id)?;
         let pass = pass_of(&self.transport.timeline.tempo, &clip);
-        // Only a range that includes the clip's own track is "picked on it".
         let track = self.clip_track_index(id).map(|(_, track)| track);
         let range = self
             .arrangement
@@ -54,9 +41,6 @@ impl App {
         Some(looped_part(pass, range))
     }
 
-    /// Loop clip on or off for the opened clip. Turning it on moves the
-    /// playhead to the start of what repeats when it is outside, and does
-    /// not start playback.
     pub(crate) fn toggle_loop_clip(&mut self) {
         if self.audio_editor.loop_clip.take().is_some() {
             return;
@@ -77,10 +61,6 @@ impl App {
         }
     }
 
-    /// Once a frame, before the engine is told its loop: keeps the override
-    /// in step with the clip and the range, and drops it when another clip
-    /// opens, the editor is hidden (the panel closed or on another tab, with no
-    /// window of its own) or recording starts.
     pub(crate) fn sync_clip_loop(&mut self) {
         let shown = self.detail.audio_popped
             || (self.show_detail && self.detail_tab == crate::app::detail::DetailTab::Clip);
@@ -98,11 +78,6 @@ impl App {
 }
 
 impl App {
-    /// The editor ruler's pointer (D22): a click moves the playhead; a drag
-    /// listens as the arrangement's strip does (the grid step under the
-    /// pointer on repeat, or tape with Alt), and while playing jumps along
-    /// from step to step. The first move of a drag pauses Follow, so the view
-    /// does not run away under the hand.
     pub(super) fn editor_scrub(
         &mut self,
         ctx: &egui::Context,
@@ -145,9 +120,6 @@ impl App {
             ed.scrub_sent = Some(next);
             ctx.request_repaint();
         } else if response.drag_stopped() || ed.scrub_sent.is_some() {
-            // A scrub that is not being dragged by this ruler ends: the
-            // release, or another clip's ruler (a new widget) drawn under a
-            // held pointer.
             if !playing && ed.scrub_sent.take().is_some() {
                 self.transport.end_scrub();
             }

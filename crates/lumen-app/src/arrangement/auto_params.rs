@@ -1,15 +1,5 @@
-//! Which parameters of a plugin a lane can drive, and the search over them
-//! (M7 slice A3). Pure, so the chooser and its tests share one answer.
-//!
-//! A plugin may list thousands of parameters. The chooser asks for the ones a
-//! lane can drive once, then filters that list as the search changes.
-
 use lumen_hosting::{ParamInfo, UnitInfo};
 
-/// The parameters of `list` a lane can drive, as indexes into it: never a
-/// hidden one, a read-only one or a program change. Those the plugin marks
-/// automatable; a plugin that marks none (it says nothing, or says it wrongly)
-/// offers every one that is left.
 pub(crate) fn automatable(list: &[ParamInfo]) -> Vec<usize> {
     let movable = |p: &ParamInfo| !p.hidden() && !p.read_only() && !p.program_change();
     let marked: Vec<usize> = list
@@ -28,15 +18,10 @@ pub(crate) fn automatable(list: &[ParamInfo]) -> Vec<usize> {
         .collect()
 }
 
-/// The name of a group: the plugin's, "General" for the root, "Group n" for
-/// one it did not name.
 pub(crate) fn group_name(units: &[UnitInfo], id: i32) -> String {
     crate::chain::unit_name(units, id)
 }
 
-/// Of `base` (indexes into `list`), the parameters in `group` (every group
-/// when `None`) whose name or group's has every word of `search`, in any
-/// case.
 pub(crate) fn matching(
     list: &[ParamInfo],
     units: &[UnitInfo],
@@ -59,9 +44,6 @@ pub(crate) fn matching(
         .collect()
 }
 
-/// The groups `base` is spread over and how many each holds, in the order
-/// they first appear. Empty when there is one group or none: the chips would
-/// say nothing the list does not.
 pub(crate) fn groups(
     list: &[ParamInfo],
     units: &[UnitInfo],
@@ -184,8 +166,6 @@ mod tests {
             }
         }
         assert!(found > 0);
-        // A hundred searches of a long list, even unoptimized, is well under
-        // what one frame could spare.
         assert!(
             started.elapsed() < std::time::Duration::from_millis(1_000),
             "{:?}",

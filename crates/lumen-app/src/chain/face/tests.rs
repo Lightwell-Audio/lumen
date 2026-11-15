@@ -1,6 +1,3 @@
-//! The hook: which devices have a drawing, what a drawing reads, a value as
-//! the drawing sees it, Prism's handles and how a scene drains.
-
 use eframe::egui::{Color32, Rect, pos2, vec2};
 use lumen_devices::utility as device;
 
@@ -25,7 +22,6 @@ fn slot(id: u32, value: f64) -> Slot {
 
 fn nothing(_: &Scene<'_>) {}
 
-/// A drawing as the next device will declare one.
 static FACE: Drawing = Drawing {
     card: vec2(380.0, 330.0),
     screen: 176.0,
@@ -77,7 +73,6 @@ fn a_value_is_read_normalised_and_in_its_own_units() {
     let info = lumen_devices::params::find(device::TABLE, device::WIDTH).unwrap();
     assert!((values.plain(device::WIDTH) - info.value(0.5)).abs() < 1e-4);
     assert!((values.norm_of(device::WIDTH, info.value(0.5)) - 0.5).abs() < 1e-4);
-    // A parameter the drawing did not declare reads as zero.
     assert_eq!(values.norm(device::GAIN), 0.0);
 }
 
@@ -94,7 +89,6 @@ fn a_prism_handle_maps_its_own_tip_back_to_the_width() {
         for handle in prism.handles {
             let grab = (handle.grab)(&values, screen);
             assert!(screen.contains_rect(grab), "{grab:?} is on the screen");
-            // The grab's near edge is the tip: dragging from it holds the width.
             let tip = if handle.name.ends_with("upper") {
                 pos2(grab.center().x, grab.bottom())
             } else {

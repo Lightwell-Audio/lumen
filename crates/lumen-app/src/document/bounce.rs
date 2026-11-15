@@ -1,6 +1,3 @@
-//! Bounce (M7b slice E4): the document side. The rendering is the app's
-//! (`bounce.rs`); where the files go is `lumen_project::edit::bounce`.
-
 use std::path::PathBuf;
 
 use lumen_project::edit::bounce::{self, Baked, Made};
@@ -9,10 +6,6 @@ use super::Document;
 use super::clips::fresh_ids;
 
 impl Document {
-    /// Puts each rendered file where its part says (over the track, or on a
-    /// new audio track) as one step. A part whose track changed while it
-    /// rendered is left alone; when nothing is applied nothing is recorded and
-    /// the answer is empty.
     pub fn bounce_tracks(&mut self, baked: &[Baked]) -> Made {
         let current: Vec<Baked> = baked
             .iter()

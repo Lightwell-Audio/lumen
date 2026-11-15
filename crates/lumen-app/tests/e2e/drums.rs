@@ -1,12 +1,3 @@
-//! Drum maps (M8 slice D0): a MIDI track takes a kit and plays through it,
-//! a muted sound is heard gone, the export of a mapped track is what the test
-//! device played, and converting a clip's notes to another map keeps every
-//! hit's sound.
-//!
-//! D0 ships no map editor: muting a sound, and the second map the conversion
-//! goes to, are made through the document the way D1's editor will, and the
-//! rest is driven as a user does (the palette, the menus and their rows).
-
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
@@ -22,7 +13,6 @@ use super::Lumen;
 use super::midi_play::palette;
 
 const RATE: f64 = 48_000.0;
-/// Frames listened to and exported: four seconds of the song.
 const LISTEN: usize = 192_000;
 
 fn q(beats: i64) -> Ticks {
@@ -33,7 +23,6 @@ fn note(start: i64, length: i64, pitch: u8) -> Note {
     Note::new(q(start), q(length), pitch, 100)
 }
 
-/// Starts Lumen with `project` open.
 fn launch(name: &str, project: &Project) -> Lumen {
     let dir = TempDir::new(&format!("e2e-{name}"));
     let path = dir.path().join("song.lumen");
@@ -47,7 +36,6 @@ fn launch(name: &str, project: &Project) -> Lumen {
     lumen
 }
 
-/// A track with a kick on every beat, on the built-in synth.
 fn kick_track() -> Project {
     let beats: Vec<Note> = (0..16).map(|beat| note(beat, 1, 36)).collect();
     project_of(
@@ -64,7 +52,6 @@ fn kick_track() -> Project {
     )
 }
 
-/// The loudest sample heard over a stretch, after letting it settle.
 fn loudest(lumen: &mut Lumen) -> f32 {
     let heard = lumen.listen(Duration::from_millis(100), 2_000);
     heard
@@ -72,9 +59,6 @@ fn loudest(lumen: &mut Lumen) -> f32 {
         .fold(0.0f32, |m, f| m.max(f[0].abs()).max(f[1].abs()))
 }
 
-/// Waits until what the device plays is under `quiet`, and gives the level it
-/// reached: a note that ends and whose tail dies, waited for as a condition,
-/// never a count of frames (M8 D0 review L10).
 #[track_caller]
 fn until_quiet(lumen: &mut Lumen, quiet: f32, what: &str) -> f32 {
     let deadline = lumen_testkit::Deadline::new();
@@ -88,8 +72,6 @@ fn until_quiet(lumen: &mut Lumen, quiet: f32, what: &str) -> f32 {
     }
 }
 
-/// Waits until what the device plays is over `loud`, and gives the level it
-/// reached.
 #[track_caller]
 fn until_loud(lumen: &mut Lumen, loud: f32, what: &str) -> f32 {
     let deadline = lumen_testkit::Deadline::new();
@@ -113,7 +95,6 @@ fn stop(lumen: &mut Lumen) {
     lumen.wait_for("stop", |app| !app.is_playing());
 }
 
-/// The clip's notes as the project holds them.
 fn notes_of(lumen: &Lumen) -> Vec<Note> {
     let clip = &lumen.app().project().tracks[0].clips[0];
     match &clip.content {
@@ -132,8 +113,6 @@ fn the_palette_opens_the_map_editor_and_a_kit_chosen_there_plays_the_track() {
     assert!(before > 0.01, "the track sounds: {before}");
     let notes = notes_of(&lumen);
 
-    // The palette's "Drum map…" opens the map editor; a track without a map
-    // gets the list of kits first, and the 808-style kit is picked there.
     palette(&mut lumen, "Drum map");
     assert!(lumen.app().drum_map_editor_open(), "the editor is drawn");
     lumen.click("808 style (16 sounds)");
@@ -155,8 +134,6 @@ fn the_palette_opens_the_map_editor_and_a_kit_chosen_there_plays_the_track() {
         "one undo step"
     );
 
-    // The map list offers the kits, this project's maps and the user's
-    // files; the map the track reads is in it.
     lumen.click("Map: 808 style");
     lumen.frames(3);
     assert!(
@@ -166,20 +143,17 @@ fn the_palette_opens_the_map_editor_and_a_kit_chosen_there_plays_the_track() {
     lumen.key(Modifiers::NONE, Key::Escape);
     lumen.frames(3);
 
-    // Muting the kick in its row takes the track quiet.
     lumen.click("Mute Kick");
     let after = until_quiet(&mut lumen, 1e-4, "the muted sound to go");
     assert!(after < 1e-4, "the muted sound is gone: {after}");
     assert_eq!(lumen.app().undo_label(), Some("Mute drum sound"));
 
-    // Undo brings it back: the kick is heard again as the loop plays on.
     lumen.key(Modifiers::COMMAND, Key::Z);
     let back = until_loud(&mut lumen, 0.01, "the undone sound");
     assert!(back > 0.01, "undone, it sounds again: {back}");
     stop(&mut lumen);
 }
 
-/// A track of four mapped notes, with General MIDI attached in the saved file.
 fn mapped_song() -> Project {
     let mut project = project_of(
         "Mapped",
@@ -205,8 +179,6 @@ fn mapped_song() -> Project {
     project
 }
 
-/// Where in the left channel a hit starts: the first frame over 0.1 after at
-/// least a quarter of a second of quiet.
 fn onsets(left: impl IntoIterator<Item = f32>) -> Vec<usize> {
     let mut found: Vec<usize> = Vec::new();
     for (i, s) in left.into_iter().enumerate() {
@@ -217,7 +189,6 @@ fn onsets(left: impl IntoIterator<Item = f32>) -> Vec<usize> {
     found
 }
 
-/// The seconds between each hit and the next.
 fn gaps(onsets: &[usize]) -> Vec<f64> {
     onsets
         .windows(2)
@@ -225,7 +196,6 @@ fn gaps(onsets: &[usize]) -> Vec<f64> {
         .collect()
 }
 
-/// Plays from the start for [`LISTEN`] frames and gives the left channel.
 fn hear(lumen: &mut Lumen) -> Vec<f32> {
     lumen.key(Modifiers::NONE, Key::Home);
     lumen.wait_for("the rewind", |app| app.playhead() == Ticks::ZERO);
@@ -235,7 +205,6 @@ fn hear(lumen: &mut Lumen) -> Vec<f32> {
     heard.iter().map(|f| f[0]).collect()
 }
 
-/// Exports the whole project to `path` and gives its left channel.
 fn export(lumen: &mut Lumen, path: &Path) -> Vec<f32> {
     lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::E);
     lumen.frames(5);
@@ -272,8 +241,6 @@ fn the_export_of_a_mapped_track_is_what_the_test_device_played() {
 
 #[test]
 fn a_clip_converts_to_another_map_from_its_menu_and_keeps_every_hits_sound() {
-    // The project holds General MIDI and a copy of it an octave up, as a user
-    // map would be; the clips play through the first.
     let mut project = mapped_song();
     let mut shifted = Preset::GENERAL_MIDI.map(Id(501));
     shifted.name = "GM up an octave".into();
@@ -326,19 +293,16 @@ fn a_clip_converts_to_another_map_from_its_menu_and_keeps_every_hits_sound() {
     assert_eq!(lumen.app().project().tracks[0].drum_map, Some(Id(500)));
 }
 
-/// Types `text` into whatever field has the keyboard, as a person does.
 fn type_text(lumen: &mut Lumen, text: &str) {
     lumen.harness.event(Event::Text(text.to_owned()));
     lumen.frames(2);
 }
 
-/// Selects all in the focused field and replaces it with `text`.
 fn replace_text(lumen: &mut Lumen, text: &str) {
     lumen.key(Modifiers::COMMAND, Key::A);
     type_text(lumen, text);
 }
 
-/// The map the project holds under `id`.
 fn map_of(lumen: &Lumen, id: Id) -> lumen_project::model::DrumMap {
     lumen
         .app()
@@ -348,7 +312,6 @@ fn map_of(lumen: &Lumen, id: Id) -> lumen_project::model::DrumMap {
         .expect("the map is in the project")
 }
 
-/// The drum map editor of a mapped project, open on its track's map.
 fn editor(name: &str) -> (Lumen, Id) {
     let mut lumen = launch(name, &mapped_song());
     lumen.harness.get_by_label_contains("Track Drums,").click();
@@ -358,7 +321,6 @@ fn editor(name: &str) -> (Lumen, Id) {
     (lumen, Id(500))
 }
 
-/// A row of the track header's Drum map menu, on the "Drums" track.
 fn drum_map_menu(lumen: &mut Lumen, row: &str) {
     lumen
         .harness
@@ -375,11 +337,9 @@ fn drum_map_menu(lumen: &mut Lumen, row: &str) {
 fn a_row_is_edited_from_the_keyboard_alone() {
     let (mut lumen, map) = editor("drums-keyboard");
     lumen.frames(5);
-    // The editor opens with the first row's name field focused: the kick's.
     let focused = lumen.harness.ctx.memory(|m| m.focused());
     assert!(focused.is_some(), "a field has the keyboard when it opens");
     replace_text(&mut lumen, "Bass drum");
-    // Enter commits the name and moves to the next field (the input note).
     lumen.key(Modifiers::NONE, Key::Enter);
     lumen.frames(3);
     assert_eq!(
@@ -393,7 +353,6 @@ fn a_row_is_edited_from_the_keyboard_alone() {
         "one undo step"
     );
 
-    // Type the new note and Enter: the sound answers there.
     replace_text(&mut lumen, "90");
     lumen.key(Modifiers::NONE, Key::Enter);
     lumen.frames(3);
@@ -407,7 +366,6 @@ fn a_row_is_edited_from_the_keyboard_alone() {
         Some("Change the drum sound's note"),
         "one undo step"
     );
-    // Undo gives the note back.
     lumen.key(Modifiers::COMMAND, Key::Z);
     lumen.frames(3);
     assert!(map_of(&lumen, map).sound(35).is_some());
@@ -418,8 +376,6 @@ fn a_row_is_edited_from_the_keyboard_alone() {
 fn the_icon_grid_opens_and_chooses_from_the_keyboard() {
     let (mut lumen, map) = editor("drums-icons");
     lumen.frames(5);
-    // The first row's icon button, focused from the keyboard, opens the grid
-    // with Space; the arrows move and Enter chooses.
     lumen.harness.get_by_label("Bass Drum 1 icon: Kick").focus();
     lumen.frames(2);
     lumen.key(Modifiers::NONE, Key::Space);
@@ -446,7 +402,6 @@ fn the_icon_grid_opens_and_chooses_from_the_keyboard() {
 fn an_exported_map_imports_back_into_the_project() {
     let (mut lumen, map) = editor("drums-export-import");
     lumen.frames(5);
-    // A name only this project's map has, then the file.
     replace_text(&mut lumen, "Kit on the desk");
     lumen.key(Modifiers::NONE, Key::Enter);
     lumen.frames(3);
@@ -462,7 +417,6 @@ fn an_exported_map_imports_back_into_the_project() {
     assert!(text.contains("\"version\": 1"), "versioned: {text}");
     assert!(text.contains("Kit on the desk"), "the name is in it");
 
-    // Undo the rename, so only the file has it; then import it back.
     lumen.key(Modifiers::COMMAND, Key::Z);
     lumen.frames(3);
     assert_eq!(
@@ -526,7 +480,6 @@ fn a_damaged_file_is_refused_and_its_message_is_read_in_full() {
 fn hide_unmapped_keys_folds_the_roll_to_the_maps_sounds() {
     let (mut lumen, _map) = editor("drums-fold");
     lumen.frames(5);
-    // The window closes, and the kick's clip opens in the clip editor.
     lumen.key(Modifiers::NONE, Key::Escape);
     lumen.frames(3);
     let clip = lumen.app().project().tracks[0].clips[0].id;
@@ -539,8 +492,6 @@ fn hide_unmapped_keys_folds_the_roll_to_the_maps_sounds() {
         .expect("the clip is in view");
     lumen.double_click(rect.center());
     lumen.frames(6);
-    // M8 D2: a clip on a mapped track opens in the drum editor's lanes, one
-    // lane a sound; the piano roll is the Keys view.
     assert_eq!(lumen.app().drum_view_shown(), Some("lanes"));
     assert_eq!(
         lumen.app().note_editor_rows(),
@@ -554,8 +505,6 @@ fn hide_unmapped_keys_folds_the_roll_to_the_maps_sounds() {
         Some(128),
         "the keyboard in the piano roll"
     );
-    // The editor's Hide unmapped keys button folds the column to the kit's
-    // sounds.
     lumen.click("Hide unmapped keys");
     lumen.frames(4);
     assert!(lumen.app().hiding_unmapped_keys());
@@ -564,7 +513,6 @@ fn hide_unmapped_keys_folds_the_roll_to_the_maps_sounds() {
         Some(47),
         "the General MIDI kit's rows"
     );
-    // And again shows every key.
     lumen.click("Hide unmapped keys");
     lumen.frames(4);
     assert!(!lumen.app().hiding_unmapped_keys());

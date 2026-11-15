@@ -1,15 +1,3 @@
-//! Automation lanes on the arrangement (M7 slice A1, the owner's L1 B): a
-//! lane is drawn over its track's own clip lane, the clips step back while
-//! it is shown, and a chip at the lane's top-left names the parameter and
-//! opens the chooser. Each track shows one lane at a time; which one is
-//! session state (it is not saved with the project).
-//!
-//! The pieces that decide things are pure and tested here: where a point
-//! sits ([`Frame`]), what an edit makes of a lane's points ([`inserted`],
-//! [`without`]) and which point a pointer is over ([`Frame::nearest`]). The
-//! state is `auto_state.rs`, the tools and the marks a gesture leaves are
-//! `auto_tools.rs`, the pointer's gestures are `app/auto_editing.rs`.
-
 use eframe::egui::{self, Color32, Painter, Pos2, Rect, Stroke, Ui, pos2};
 use eframe::emath::GuiRounding as _;
 use lumen_core::automation::{Lane, Point, Shape};
@@ -24,18 +12,13 @@ use super::clips::INSET;
 use super::strip_output::row_button;
 use super::{Arrangement, Row, RowKind, STEP};
 
-/// The least height of a track shown with a lane: six steps.
 const LANE_FLOOR: f32 = 6.0 * STEP;
 use crate::document::Document;
 use crate::timeview::TimeView;
 use crate::{ruler, theme};
 
-/// How far under the lane's top the chip sits.
 const CHIP_TOP: f32 = INSET + 2.0;
 
-/// `lane` with a point of `value` at `at` (replacing the value of one
-/// already there), and where it is. A mute lane's points hold their value
-/// until the next. `None` when the lane would hold too many points.
 pub(crate) fn inserted(
     target: Target,
     lane: Option<&Lane>,
@@ -61,7 +44,6 @@ pub(crate) fn inserted(
     Lane::new(points).ok().map(|lane| (lane, index))
 }
 
-/// `lane` without the points `picks` names.
 pub(crate) fn without(lane: &Lane, picks: &[usize]) -> Lane {
     let points = lane
         .points()
@@ -73,8 +55,6 @@ pub(crate) fn without(lane: &Lane, picks: &[usize]) -> Lane {
     Lane::new(points).unwrap_or_else(|_| lane.clone())
 }
 
-/// What the lanes are drawn against: the canvas, the view of time across
-/// it, how many clip lists are still being built, and the song's timeline.
 pub(crate) struct Scene<'a> {
     pub canvas: Rect,
     pub view: TimeView,
@@ -82,48 +62,30 @@ pub(crate) struct Scene<'a> {
     pub timeline: &'a lumen_engine::Timeline,
 }
 
-/// Where a track's lane is on screen: its row, and the view of time across
-/// it.
 #[derive(Debug, Clone)]
 pub(crate) struct Frame {
-    /// The track's whole row.
     pub row: Rect,
     pub canvas_left: f32,
     pub view: TimeView,
-    /// Where values are drawn, when the caller says (the audio editor's wave
-    /// area); otherwise worked out from the row, under the chip.
     pub values: Option<Rect>,
-    /// How the lane's time is drawn, when it is not drawn as it is (a clip's
-    /// envelope in the audio editor, M9.5 D20).
     pub clock: Option<std::sync::Arc<EnvelopeClock>>,
 }
 
-/// A clip's envelope drawn where it is heard (M9.5 D20, D21): its points are
-/// ticks from the clock the engine reads them on (`start − loop_phase` for a
-/// looping clip, else its start), and the editor lays the file from the
-/// loop's origin. A point `a` seconds after the clock is drawn `a` seconds
-/// after the origin. The lane's own time is the song's (the clip's start
-/// added, as `Track::lane_view` gives it).
 #[derive(Debug, Clone)]
 pub(crate) struct EnvelopeClock {
     pub tempo: lumen_core::time::TempoMap,
-    /// The engine's clock for the envelope.
     pub clock: Ticks,
-    /// The clip's start, which the lane's times are measured from.
     pub start: Ticks,
-    /// Where the editor shows the file's frame at the clock, in seconds.
     pub origin_seconds: f64,
 }
 
 impl EnvelopeClock {
-    /// The beat a point at lane time `at` is drawn at.
     pub fn shown(&self, at: Ticks) -> Ticks {
         let t = &self.tempo;
         let heard = t.seconds_at(self.clock + (at - self.start)) - t.seconds_at(self.clock);
         t.ticks_at_seconds(self.origin_seconds + heard)
     }
 
-    /// The lane time of a point drawn at beat `q`.
     pub fn lane(&self, q: Ticks) -> Ticks {
         let t = &self.tempo;
         let heard = t.seconds_at(q) - self.origin_seconds;
@@ -132,7 +94,6 @@ impl EnvelopeClock {
 }
 
 impl Frame {
-    /// A lane over a track's `row`.
     pub fn of_row(row: Rect, canvas_left: f32, view: TimeView) -> Self {
         Self {
             row,
@@ -143,9 +104,6 @@ impl Frame {
         }
     }
 
-    /// Where values are drawn: the row under the chip that names the lane
-    /// and inside the clips' inset, with room at the bottom so the lowest
-    /// point is whole. The chip never covers a point.
     pub fn area(&self) -> Rect {
         self.values.unwrap_or_else(|| {
             Rect::from_x_y_ranges(
@@ -160,22 +118,18 @@ impl Frame {
         self.view.x(self.canvas_left, self.shown(at).as_quarters())
     }
 
-    /// The lane time under `x`.
     pub fn ticks_at(&self, x: f32) -> Ticks {
         self.lane(self.shown_at(x))
     }
 
-    /// The beat drawn at `x`: what the grid snaps.
     pub fn shown_at(&self, x: f32) -> Ticks {
         ruler::ticks_at(self.view.beat_at(self.canvas_left, x))
     }
 
-    /// The beat lane time `at` is drawn at.
     pub fn shown(&self, at: Ticks) -> Ticks {
         self.clock.as_ref().map_or(at, |c| c.shown(at))
     }
 
-    /// The lane time drawn at beat `q`.
     pub fn lane(&self, q: Ticks) -> Ticks {
         self.clock.as_ref().map_or(q, |c| c.lane(q))
     }
@@ -189,11 +143,9 @@ impl Frame {
         pos2(self.x(point.at), self.y(target, point.value))
     }
 
-    /// The point of `lane` nearest `pointer`, if one is within reach.
     pub fn nearest(&self, target: Target, lane: &Lane, pointer: Pos2) -> Option<usize> {
         let reach = theme::size::AUTO_GRAB;
         let points = lane.points();
-        // Only points whose x is within reach can be it.
         let first = points.partition_point(|p| self.x(p.at) < pointer.x - reach);
         points[first..]
             .iter()
@@ -206,9 +158,6 @@ impl Frame {
     }
 }
 
-/// The line a lane draws across `[left, right]`, as screen points: flat
-/// before the first point and after the last, a straight run, a step or
-/// samples along a curve between. Only the part in view is made.
 pub(crate) fn polyline(
     frame: &Frame,
     target: Target,
@@ -224,8 +173,6 @@ pub(crate) fn polyline(
     if start.x > left {
         line.push(pos2(left, start.y));
     }
-    // The run of points that can touch the view: one before the left edge
-    // to one after the right.
     let a = points
         .partition_point(|p| frame.x(p.at) < left)
         .saturating_sub(1);
@@ -235,9 +182,6 @@ pub(crate) fn polyline(
     for i in a..=b {
         let from = frame.pos(target, &points[i]);
         let Some(next) = points.get(i + 1).filter(|_| i < b) else {
-            // The run's last point: the segment before it ended at the view's
-            // edge if this point lies past it, so only a point in view (or
-            // behind it, held flat) is added.
             if from.x <= right + 1.0 {
                 line.push(pos2(from.x.max(left - 1.0), from.y));
             }
@@ -282,7 +226,6 @@ pub(crate) fn polyline(
 }
 
 impl Arrangement {
-    /// The row that shows `track`'s lane, if the track is in view.
     fn lane_row(&self, rows: &[Row], project: &Project, track: Id) -> Option<Row> {
         let index = project.tracks.iter().position(|t| t.id == track)?;
         rows.iter()
@@ -290,7 +233,6 @@ impl Arrangement {
             .copied()
     }
 
-    /// Where `track`'s lane is on screen, if it shows one and is in view.
     pub(crate) fn lane_frame(
         &self,
         ctx: &egui::Context,
@@ -311,7 +253,6 @@ impl Arrangement {
         Some((target, Frame::of_row(rect, canvas.left(), view)))
     }
 
-    /// The lane under `pointer`, if the track there shows one.
     pub(crate) fn lane_at(
         &self,
         ctx: &egui::Context,
@@ -327,8 +268,6 @@ impl Arrangement {
         let track = self.track_at(ctx, project, pending, pointer.y - canvas.top())?;
         let (target, frame) = self.lane_frame(ctx, canvas, project, pending, view, track)?;
         if target.clip().is_some() {
-            // Only over the clip, and its first repeat: the rest of the track
-            // belongs to the clips.
             let (left, right) = envelope_span(project, track, target, &frame)?;
             if pointer.x < left || pointer.x > right {
                 return None;
@@ -337,9 +276,6 @@ impl Arrangement {
         Some((track, target, frame))
     }
 
-    /// Draws every lane being shown, over its track's clips, and the chips
-    /// that name them. Called after the lanes' pointer handling so the chips
-    /// are above it.
     pub(crate) fn lane_overlay(
         &mut self,
         ui: &mut Ui,
@@ -383,8 +319,6 @@ impl Arrangement {
             let mut painter = zone_painter.clone();
             let mut frame = Frame::of_row(rect, canvas.left(), view);
             if target.clip().is_some() {
-                // A clip's envelope is drawn over its clip alone, as much of it
-                // as is in view.
                 let Some((left, right)) = envelope_span(&project, id, target, &frame) else {
                     continue;
                 };
@@ -410,8 +344,6 @@ impl Arrangement {
         }
     }
 
-    /// One lane: its wash and edges, the rest line, the curve and its
-    /// points.
     fn draw_lane(
         &self,
         painter: &Painter,
@@ -428,7 +360,6 @@ impl Arrangement {
             palette.text_hint
         };
         let canvas_x = painter.clip_rect().x_range();
-        // A mode that can write tints the lane record red (the owner's K1 B).
         let writes = self.auto.mode_of(track.id).records();
         let tint = if writes {
             palette.record
@@ -450,7 +381,6 @@ impl Arrangement {
         );
         painter.hline(canvas_x, rect.top() + 0.5, edge);
         painter.hline(canvas_x, rect.bottom() - 1.5, edge);
-        // Where the control rests, to read the curve against.
         painter.hline(
             canvas_x,
             frame.y(target, target.default_value()),
@@ -463,9 +393,6 @@ impl Arrangement {
             return;
         };
         let line = polyline(frame, target, &entry.lane, (canvas_x.min, canvas_x.max));
-        // A lane taken over is not being heard: its curve dashes, and an amber
-        // dotted line across it marks the value the control holds instead
-        // (M7 slice A4a, the owner's look A).
         if taken {
             let own = frame.y(target, lumen_project::automation::own_value(track, target));
             painter.extend(egui::Shape::dashed_line(
@@ -512,8 +439,6 @@ impl Arrangement {
         }
     }
 
-    /// The chip at the lane's top-left: the parameter's name, opening the
-    /// chooser; the lane's state when it is off.
     fn lane_chip(
         &mut self,
         ui: &mut Ui,
@@ -528,8 +453,6 @@ impl Arrangement {
         let mut text = self.auto.name_of(project, target);
         let base = text.clone();
         let taken = self.taken_over(doc, track, target);
-        // What a track does while the song plays is about its controls, not
-        // about a clip's envelope.
         let mode = if target.clip().is_some() {
             crate::recording::auto_record::Mode::Read
         } else {
@@ -545,7 +468,6 @@ impl Arrangement {
         } else if taken {
             text.push_str(" \u{00B7} Overridden");
         }
-        // A mode that can write has a record-red dot before the name.
         let shown = if mode.records() {
             format!("\u{2007}\u{2007}{text}")
         } else {
@@ -599,7 +521,6 @@ impl Arrangement {
         if !taken {
             return Some(chip);
         }
-        // Taken over (look A): an amber outline, and the way back beside it.
         super::follow::ring(ui, chip);
         let button = Rect::from_min_size(
             pos2(chip.right() + theme::space::S, chip.top()),
@@ -613,8 +534,6 @@ impl Arrangement {
         Some(chip)
     }
 
-    /// The chooser: the track's parameters (one per line, with how many
-    /// points each lane holds), then what can be done to the shown lane.
     fn lane_menu(&mut self, ui: &mut Ui, doc: &mut Document, track: Id, target: Target) {
         let project = doc.project().clone();
         let Some(held) = project.tracks.iter().find(|t| t.id == track) else {
@@ -638,9 +557,7 @@ impl Arrangement {
                 ui.close();
             }
         }
-        // The envelopes of the selected audio clips on this track.
         self.envelope_entries(ui, held, target);
-        // What the track does with the controls that move while it plays.
         ui.separator();
         crate::widgets::menu_caption(ui, "While the song plays");
         for mode in crate::recording::auto_record::Mode::ALL {
@@ -653,7 +570,6 @@ impl Arrangement {
             }
         }
         ui.separator();
-        // A plugin's parameters are found by searching its list.
         let plugins: Vec<&lumen_project::model::Device> =
             held.devices.iter().filter(|d| d.is_vst3()).collect();
         if !plugins.is_empty() {
@@ -693,16 +609,12 @@ impl Arrangement {
         }
     }
 
-    /// Keeps why a lane edit was refused, for a note on screen.
     pub(crate) fn note_lane(&mut self, result: Result<(), crate::document::LaneRefusal>) {
         if let Err(refused) = result {
             self.note = Some(refused.reason());
         }
     }
 
-    /// The height a track shown with a lane needs: room for the chip and a
-    /// readable curve under it (six steps, kept when unfolded tracks became
-    /// four, ADR-0101).
     pub(super) fn lane_floor(&self, id: Id, height: f32) -> f32 {
         if self.auto.shown.contains_key(&id) {
             height.max(LANE_FLOOR)
@@ -712,8 +624,6 @@ impl Arrangement {
     }
 }
 
-/// A point: hollow at rest, solid when picked, and a little larger under
-/// the pointer. Picked is also a ring, so it never rests on colour alone.
 pub(crate) fn draw_point(painter: &Painter, at: Pos2, ink: Color32, picked: bool, hot: bool) {
     let palette = theme::p();
     let radius = theme::size::AUTO_POINT + if hot || picked { 1.0 } else { 0.0 };
@@ -746,7 +656,6 @@ mod tests {
     }
 
     fn frame() -> Frame {
-        // 10 points a beat, the lane 100 points tall and 600 wide, from x 0.
         Frame::of_row(
             Rect::from_min_size(pos2(0.0, 0.0), egui::vec2(600.0, 100.0)),
             0.0,
@@ -766,7 +675,6 @@ mod tests {
         let (again, same) = inserted(Target::Volume, Some(&made), Ticks::quarters(4), 2.0).unwrap();
         assert_eq!((again.len(), same), (3, 1));
         assert_eq!(again.points()[1].value, 2.0);
-        // A first point makes a lane.
         let (first, i) = inserted(Target::Pan, None, Ticks::quarters(2), 0.5).unwrap();
         assert_eq!((first.len(), i), (1, 0));
     }
@@ -794,9 +702,7 @@ mod tests {
         let f = frame();
         let y = f.y(Target::Pan, 0.0);
         assert!(scale::value(Target::Pan, f.height_at(y)).abs() < 1e-4);
-        // Louder is higher on the screen.
         assert!(f.y(Target::Volume, 0.0) < f.y(Target::Volume, -20.0));
-        // The extremes stay inside the lane, under the chip.
         let area = f.area();
         assert!(f.y(Target::Volume, 6.0) >= area.top() - 0.01);
         assert!(f.y(Target::Volume, -100.0) <= area.bottom() + 0.01);
@@ -818,7 +724,6 @@ mod tests {
             "too far to grab"
         );
         assert_eq!(f.nearest(target, &l, pos2(at.x, at.y + 40.0)), None);
-        // Two near points: the closer wins.
         let close = lane(&[(0, 0.0), (1, 0.0)]);
         let p1 = f.pos(target, &close.points()[1]);
         assert_eq!(f.nearest(target, &close, pos2(p1.x - 2.0, p1.y)), Some(1));
@@ -833,14 +738,12 @@ mod tests {
         assert_eq!(line.last().map(|p| p.x), Some(600.0));
         assert_eq!(line.first().map(|p| p.y), Some(f.y(Target::Volume, -6.0)));
         assert_eq!(line.last().map(|p| p.y), Some(f.y(Target::Volume, 0.0)));
-        // An empty lane draws nothing.
         let none = Lane::new(Vec::new()).unwrap();
         assert!(polyline(&f, Target::Volume, &none, (0.0, 600.0)).is_empty());
     }
 
     #[test]
     fn a_lane_far_wider_than_the_view_draws_only_what_is_in_it() {
-        // Zoomed in to the sample: the segment is millions of points wide.
         let f = Frame {
             view: TimeView {
                 left: 1_000.0,
@@ -855,7 +758,6 @@ mod tests {
             "a straight run is two points, not millions"
         );
         assert!(line.iter().all(|p| p.x >= -2.0 && p.x <= 602.0));
-        // A curve is sampled across the view only.
         let curved = Lane::new(vec![
             Point::new(Ticks::quarters(0), -6.0)
                 .with_shape(Shape::Curve(lumen_core::curve::Curve::default())),

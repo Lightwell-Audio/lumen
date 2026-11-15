@@ -1,8 +1,3 @@
-//! The drum editor's frame time beside the piano roll's, on the same clip of
-//! 100,000 hits (M8 D2's acceptance): an ignored bench that prints both and
-//! fails only if the lanes are far slower. It drives the real window and GPU,
-//! as the arrangement's bench does (ADR-0011).
-
 use std::time::Instant;
 
 use lumen_core::time::Ticks;
@@ -14,8 +9,6 @@ use super::Lumen;
 
 const HITS: usize = 100_000;
 
-/// A mapped track whose clip holds `HITS` hits across 400 beats, on the
-/// 808-style kit's sounds.
 fn dense_kit() -> Project {
     let map = Preset::EIGHT_OH_EIGHT.map(Id(500));
     let sounds: Vec<u8> = map.sounds.iter().map(|s| s.input).collect();
@@ -49,7 +42,6 @@ fn dense_kit() -> Project {
     project
 }
 
-/// Milliseconds a frame took, over `frames` frames after a warm-up.
 fn measure(lumen: &mut Lumen, frames: usize) -> (f64, f64, f64) {
     lumen.frames(20);
     let mut times = Vec::with_capacity(frames);

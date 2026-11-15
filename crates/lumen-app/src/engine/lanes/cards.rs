@@ -1,24 +1,14 @@
-//! The file cards a clip's hover shows, and its properties card repeats (M3
-//! slice 6e): what the file is (format, rate, channels, length, size), any
-//! conversion or failure, and its path, shortened in the middle so the name
-//! always shows.
-
 use eframe::egui::{self, RichText};
 
 use crate::media::{Item, State};
 use crate::theme;
 
-/// The hover card for a clip's file; `marks` says what was done to the clip
-/// (reversed, polarity inverted), and `properties` is the properties card's
-/// shortcut, if it has one.
 pub fn file_card(ui: &mut egui::Ui, item: &Item, marks: Option<&str>, properties: Option<&str>) {
     ui.label(RichText::new(&item.name).strong());
     file_facts(ui, item);
     if let Some(marks) = marks {
         ui.label(RichText::new(marks).color(theme::p().text_secondary));
     }
-    // Every gesture on a clip, so none stays hidden (owner, after 6c: slip
-    // was not discoverable).
     ui.separator();
     for line in [
         "Header: drag to move · Ctrl copies · Ctrl+Alt slips the audio",
@@ -29,8 +19,6 @@ pub fn file_card(ui: &mut egui::Ui, item: &Item, marks: Option<&str>, properties
     ] {
         ui.label(RichText::new(line).small().weak());
     }
-    // The way into the properties card (slice 6e, the owner's P1), with
-    // its shortcut as the keymap has it.
     if let Some(keys) = properties {
         ui.label(
             RichText::new(format!("{keys}: edit its properties"))
@@ -40,9 +28,6 @@ pub fn file_card(ui: &mut egui::Ui, item: &Item, marks: Option<&str>, properties
     }
 }
 
-/// What a clip's file is: format, rate, channels, length, size, any
-/// conversion or failure, and its path. The hover card and the clip's
-/// properties card show it.
 pub fn file_facts(ui: &mut egui::Ui, item: &Item) {
     let info = &item.info;
     let mut facts = vec![info.format.clone()];
@@ -59,7 +44,6 @@ pub fn file_facts(ui: &mut egui::Ui, item: &Item) {
     if let Some(seconds) = info.seconds {
         facts.push(crate::position::format_time(seconds));
     }
-    // The size arrives with the load.
     if info.size_bytes > 0 {
         facts.push(format!("{:.1} MB", info.size_bytes as f64 / 1_048_576.0));
     }
@@ -76,8 +60,6 @@ pub fn file_facts(ui: &mut egui::Ui, item: &Item) {
         }
         _ => {}
     }
-    // Shortened in the middle, so the file's name always shows (the
-    // interface audit's S6: cut at its end, the name was what went).
     let font = egui::FontId::proportional(theme::size::CAPTION);
     let room = ui.available_width();
     let shown = shorten_middle(&item.path, |text| {
@@ -91,8 +73,6 @@ pub fn file_facts(ui: &mut egui::Ui, item: &Item) {
         .on_hover_text(item.path.display().to_string());
 }
 
-/// `path` as it `fits`: whole if it can be, otherwise with the folders
-/// nearest the file left out as "…", keeping the start and the file's name.
 fn shorten_middle(path: &std::path::Path, fits: impl Fn(&str) -> bool) -> String {
     let whole = path.display().to_string();
     if fits(&whole) {
@@ -100,8 +80,6 @@ fn shorten_middle(path: &std::path::Path, fits: impl Fn(&str) -> bool) -> String
     }
     use std::path::Component;
     let sep = std::path::MAIN_SEPARATOR_STR;
-    // The drive and root ("C:\", "/") lead the first folder; the rest are
-    // names.
     let mut root = String::new();
     let mut parts: Vec<String> = Vec::new();
     for component in path.components() {
@@ -149,7 +127,6 @@ mod path_tests {
             shorten_middle(&path, |_| false),
             format!("\u{2026}{sep}kick.wav")
         );
-        // From the root: one separator after it, never two.
         let rooted = PathBuf::from(sep).join(&path);
         let short = shorten_middle(&rooted, |t| t.chars().count() <= 27);
         assert!(short.starts_with(&format!("{sep}base")), "{short}");

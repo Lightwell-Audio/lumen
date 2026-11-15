@@ -1,74 +1,38 @@
-//! Pure edits of an automation lane's points (M7 slice A2): moving a set of
-//! points, giving segments a shape, replacing a span, copying, pasting and
-//! duplicating points, drawing a shape (a ramp, sine, triangle, saw or
-//! square) and turning a freehand stroke into points. Every function takes a
-//! [`Lane`] and returns a new one (or `None` when the edit is refused), so
-//! the app wraps each in one undo step and every rule is tested here.
-//!
-//! `picks` are indices into the lane's points, ascending and without
-//! repeats. Values are in the target's own units; where an edit needs the
-//! screen's idea of height (a drawn shape, a vertical move) the caller passes
-//! a map from a height in `0..=1` to a value, so the arithmetic is done in
-//! the space the user sees and written in the space the engine plays.
-
 use lumen_core::automation::{Lane, Point, Shape};
 use lumen_core::time::Ticks;
 
-/// How many points a drawn shape or a stroke may make at most.
 pub const MAX_DRAWN: usize = 8_192;
 
-/// A drawn shape has at most this many cycles over its span, so its points
-/// stay under [`MAX_DRAWN`] whatever the period.
 const MOST_CYCLES: i64 = 256;
 
-/// Whether `picks` names points of a lane of `len` points: not empty,
-/// ascending and without repeats.
 fn picks_valid(len: usize, picks: &[usize]) -> bool {
     !picks.is_empty()
         && picks.windows(2).all(|pair| pair[0] < pair[1])
         && picks.last().is_some_and(|&last| last < len)
 }
 
-/// A set of points moved: the lane and where the moved points are in it.
-/// Moving never reorders points, so `picks` are the same indices.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Shifted {
     pub lane: Lane,
-    /// How far the points really moved: `dt` after it was held back by a
-    /// neighbour or the start of the song.
     pub moved_by: Ticks,
 }
 
-/// Points taken out of a lane to put somewhere else: positions relative to
-/// the first point, and the span from the first to the last.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Copied {
-    /// Sorted, the first at [`Ticks::ZERO`].
     pub points: Vec<Point>,
-    /// Last point's position (relative); zero for a single point.
     pub span: Ticks,
 }
 
-/// The kinds of shape the shape tools draw.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Wave {
-    /// One straight run from where it starts to where it ends.
     #[default]
     Ramp,
     Sine,
     Triangle,
-    /// Rises over the period, then drops at its end.
     Saw,
-    /// Holds one end for half the period, then the other (step segments).
     Square,
 }
 
-/// `lane` with the `picks` moved `dt` later (earlier if negative) and every
-/// picked value passed through `value`. The block stops against the nearest
-/// point that is not picked (a tick clear of it) and at the start of the
-/// song, so points never pass one another: `Shifted::moved_by` says how far
-/// it got. `None` if `picks` is empty or names a point that is not there, or
-/// the values are not finite.
 pub fn shifted(
     lane: &Lane,
     picks: &[usize],
@@ -79,9 +43,6 @@ pub fn shifted(
     if !picks_valid(points.len(), picks) {
         return None;
     }
-    // Each run of consecutive picks moves as one block. Its first point may
-    // not pass the unpicked point before it (or the song's start), and its
-    // last point may not reach the unpicked point after it.
     let (mut floor, mut ceiling) = (i64::MIN, i64::MAX);
     let mut run = 0;
     while run < picks.len() {
@@ -116,8 +77,6 @@ pub fn shifted(
     })
 }
 
-/// `lane` with the segment leaving each picked point given `shape`. `None`
-/// if `picks` is empty or names a point that is not there.
 pub fn with_shape(lane: &Lane, picks: &[usize], shape: Shape) -> Option<Lane> {
     let points = lane.points();
     if !picks_valid(points.len(), picks) {
@@ -130,9 +89,6 @@ pub fn with_shape(lane: &Lane, picks: &[usize], shape: Shape) -> Option<Lane> {
     Lane::new(shaped).ok()
 }
 
-/// `lane` without the points in `[from, to]` and with `new` (sorted, one to
-/// a position) in their place. `None` if the result would hold too many
-/// points.
 pub fn replace_span(lane: &Lane, from: Ticks, to: Ticks, new: &[Point]) -> Option<Lane> {
     let (from, to) = if from > to { (to, from) } else { (from, to) };
     let mut merged: Vec<Point> = lane
@@ -142,8 +98,6 @@ pub fn replace_span(lane: &Lane, from: Ticks, to: Ticks, new: &[Point]) -> Optio
         .filter(|p| p.at < from || p.at > to)
         .collect();
     merged.extend_from_slice(new);
-    // A stable sort keeps `new` after an old point at the same tick, so the
-    // last point at each tick, the new one, is the one kept.
     merged.sort_by_key(|p| p.at);
     let mut unique: Vec<Point> = Vec::with_capacity(merged.len());
     for point in merged {
@@ -155,8 +109,6 @@ pub fn replace_span(lane: &Lane, from: Ticks, to: Ticks, new: &[Point]) -> Optio
     Lane::new(unique).ok()
 }
 
-/// The picked points as something to paste. `None` if `picks` is empty or
-/// names a point that is not there.
 pub fn copy(lane: &Lane, picks: &[usize]) -> Option<Copied> {
     let points = lane.points();
     if !picks_valid(points.len(), picks) {
@@ -177,10 +129,6 @@ pub fn copy(lane: &Lane, picks: &[usize]) -> Option<Copied> {
     })
 }
 
-/// `lane` with `copied` pasted so its first point lands on `at`: the points
-/// already in the pasted span are replaced. Also the indices of the pasted
-/// points in the new lane. `None` if the result would hold too many points
-/// or `at` is before the start of the song.
 pub fn paste(lane: &Lane, copied: &Copied, at: Ticks) -> Option<(Lane, Vec<usize>)> {
     if at < Ticks::ZERO {
         return None;
@@ -204,34 +152,15 @@ pub fn paste(lane: &Lane, copied: &Copied, at: Ticks) -> Option<(Lane, Vec<usize
     Some((out, indices))
 }
 
-/// The picked points repeated right after themselves: pasted so the copy
-/// begins where the picked run ends (on its last point's tick when the run
-/// starts and ends at the same value, so a repeating shape joins up; one tick
-/// later otherwise, so a rising run repeated is a saw, not a lost point).
-/// Also the indices of the new points.
 pub fn duplicate(lane: &Lane, picks: &[usize]) -> Option<(Lane, Vec<usize>)> {
     let copied = copy(lane, picks)?;
     let points = lane.points();
     let (first, last) = (points[picks[0]], points[picks[picks.len() - 1]]);
-    // A single point, or a run that starts and ends at different values,
-    // repeats one tick later. Repeating on the same tick would paste over
-    // the point it came from.
     let joins = picks.len() > 1 && (first.value - last.value).abs() <= 1e-6;
     let at = if joins { last.at } else { last.at + Ticks(1) };
     paste(lane, &copied, at)
 }
 
-/// The points of a shape drawn from `from` to `to` (either order). `start`
-/// and `end` are the heights (0 to 1) of the press and the release: the
-/// shape starts at `start` and heads for `end`. A ramp runs between them. The
-/// others swing between the two with one cycle every `period` (at least
-/// `(to - from) / 256`, so a drawn shape never makes more than
-/// [`MAX_DRAWN`] points): a sine and a triangle start at `start` and reach
-/// `end` half a period later, a saw rises from `start` to `end` and drops
-/// back at the end of each period, a square holds `start` for half a period,
-/// then `end`. `map` turns a height into the value to write. The last point
-/// is on `to`. A square's points are steps; every other shape is made of
-/// straight segments (a sine has 16 points to a period).
 pub fn wave(
     kind: Wave,
     from: Ticks,
@@ -252,7 +181,6 @@ pub fn wave(
     let span = (to - from).0;
     let period = period.0.max((span / MOST_CYCLES).max(1));
     let (start, end) = (f64::from(start), f64::from(end));
-    // The height at the start of each half cycle: start on even cycles.
     let level = |cycle: i64| if cycle % 2 == 0 { start } else { end };
     let raw: Vec<(i64, f64)> = match kind {
         Wave::Ramp => vec![(0, start), (span, end)],
@@ -279,8 +207,6 @@ pub fn wave(
                 raw.push((cycle * half, level(cycle)));
                 cycle += 1;
             }
-            // The last point lies on the straight run from the extreme before
-            // `to` to the one after it.
             let at = span / half;
             let x = (span - at * half) as f64 / half as f64;
             let (a, b) = (level(at), level(at + 1));
@@ -288,8 +214,6 @@ pub fn wave(
             raw
         }
         Wave::Saw => {
-            // The rise takes all but one tick of the period; the drop is that
-            // last tick, so the next start is one period after this one.
             let rise = period - 1;
             let mut raw = Vec::new();
             let mut cycle = 0;
@@ -338,20 +262,11 @@ pub fn wave(
     points
 }
 
-/// A freehand stroke written into `base`: `raw` are the places the pointer
-/// went, in time order (the caller drops samples when the pointer goes
-/// back), each a position and a value. The stroke replaces the lane between
-/// its first and last position. Straight strokes are thinned so the lane is
-/// never further than `tolerance` (in the target's units) from the stroke;
-/// with `steps` every point is a step and only repeated values are dropped
-/// (for a mute lane). `None` if the result would hold too many points.
 pub fn stroke(base: &Lane, raw: &[(Ticks, f32)], steps: bool, tolerance: f32) -> Option<Lane> {
     if raw.is_empty() {
         return Some(base.clone());
     }
     let mut samples = raw.to_vec();
-    // A stable sort keeps a later sample after an earlier one at the same
-    // tick, so the merge below keeps the later value.
     samples.sort_by_key(|&(at, _)| at);
     samples.dedup_by(|later, kept| {
         if later.0 == kept.0 {
@@ -382,23 +297,12 @@ pub fn stroke(base: &Lane, raw: &[(Ticks, f32)], steps: bool, tolerance: f32) ->
     replace_span(base, first, last, stroked.points())
 }
 
-/// How a recorded pass ends (M7 slice A4b).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Release {
-    /// Nothing is added: the lane keeps the last value written until its next
-    /// point (a pass that ends at Stop).
     Hold,
-    /// A control was let go of: the lane returns to what it said before over
-    /// this long, straight, so there is no click (a steps lane, a mute, jumps
-    /// back at the next tick instead).
     Glide(Ticks),
 }
 
-/// A recorded pass written into `base` (M7 slice A4b): `raw` are the values
-/// the control had, one for each frame, in time order. They replace the lane
-/// from the first to the last (and, with a glide, to where it has returned),
-/// thinned to within `tolerance` of what was played, as a freehand stroke is.
-/// `None` for an empty pass or one that would leave too many points.
 pub fn recorded(
     base: &Lane,
     raw: &[(Ticks, f32)],
@@ -466,7 +370,6 @@ mod tests {
         height * 10.0 - 5.0
     }
 
-    /// A small deterministic generator, so a failing case can be replayed.
     struct Rng(u64);
     impl Rng {
         fn word(&mut self) -> u64 {
@@ -795,7 +698,6 @@ mod tests {
         ]);
         let raw: Vec<_> = (0..=8).map(|i| (Ticks(PPQ * 2 + i * 10), 9.0)).collect();
         let lane = recorded(&base, &raw, Release::Hold, false, 0.01).unwrap();
-        // A held value is thinned to its two ends.
         assert_eq!(
             positions(&lane),
             [q(0), q(2), Ticks(PPQ * 2 + 80), q(4), q(8)]
@@ -811,7 +713,6 @@ mod tests {
         let lane = recorded(&base, &raw, Release::Glide(over), false, 0.01).unwrap();
         let end = q(3) + over;
         assert_eq!(positions(&lane), [q(0), q(2), q(3), end, q(8)]);
-        // The glide ends on the old lane's value there, straight from the held one.
         assert_eq!(lane.value_at(q(3)), Some(9.0));
         assert!((lane.value_at(end).unwrap() - base.value_at(end).unwrap()).abs() < 1e-6);
         assert_eq!(lane.value_at(q(8)), Some(8.0));
@@ -839,7 +740,6 @@ mod tests {
     #[test]
     fn a_recorded_move_stays_within_the_tolerance_of_what_was_played() {
         let base = Lane::new(vec![]).unwrap();
-        // A wobbling fader, 60 frames a second for two seconds at 120 BPM.
         let raw: Vec<_> = (0..120)
             .map(|i| (Ticks(i * PPQ / 30), ((i as f32) * 0.2).sin()))
             .collect();

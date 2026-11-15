@@ -1,18 +1,3 @@
-//! Investigation F6 (MT-PITCH-1): a transient that seems to play twice when a
-//! stretched clip has a non-zero transpose (the owner's `Phrase 120 BPM.wav`,
-//! Melodic or Full mix, +2 st, near the start of measure 3).
-//!
-//! These tests measure; they do not assert an artefact. They are ignored so
-//! that the suite does not depend on the owner's asset; run them with
-//!
-//! ```text
-//! $env:LUMEN_PHRASE_WAV = "C:\lt\m95-owner-20261110\assets\Phrase 120 BPM.wav"
-//! cargo test -p lumen-media --test warp_transient -- --ignored --nocapture
-//! ```
-//!
-//! Without `LUMEN_PHRASE_WAV` a synthetic stand-in is used: a sustained tone
-//! with a sharp onset every 0.5 s, the shape the phrase has at 120 BPM.
-
 use lumen_media::MediaError;
 use lumen_media::decode;
 use lumen_media::detect::{Analysis, Detector};
@@ -21,7 +6,6 @@ use lumen_media::stretch::{CHUNK, Chunks, FADE, Preset, Stretcher};
 
 const RATE: u32 = 48_000;
 
-/// A file in memory.
 struct Mem {
     planes: Vec<Vec<f32>>,
 }
@@ -46,9 +30,6 @@ impl Source for Mem {
     }
 }
 
-/// The owner's phrase when `LUMEN_PHRASE_WAV` names it, else a stand-in with
-/// the same shape: a tone that starts sharply every 0.5 s (one beat at
-/// 120 BPM), eight seconds long.
 fn phrase() -> (Mem, &'static str) {
     if let Ok(path) = std::env::var("LUMEN_PHRASE_WAV") {
         let cancel = std::sync::atomic::AtomicBool::new(false);
@@ -70,8 +51,6 @@ fn phrase() -> (Mem, &'static str) {
         (0..frames)
             .map(|i| {
                 let t = i as f64 / f64::from(RATE);
-                // A beat every 0.5 s: a short attack into a held vowel with the
-                // phase restarted at each onset, so the attack is sharp.
                 let phase = t - (t / 0.5).floor() * 0.5;
                 let attack = (phase / 0.004).min(1.0);
                 let decay = (-phase / 0.25).exp();
@@ -92,13 +71,8 @@ fn phrase() -> (Mem, &'static str) {
     )
 }
 
-/// What `Chunks::render` asks for: the position, and the pitch when the
-/// stream is shifted at all.
 type Ask<'a> = (&'a dyn Fn(i64) -> f64, Option<&'a dyn Fn(i64) -> f64>);
 
-/// Renders stream frames `first..first + frames` as the engine does for a clip
-/// at its file's tempo in a song of that tempo: `position(k) = k`, and a pitch
-/// function only when `cents` is given (a stream that is shifted at all).
 fn render(
     chunks: &mut Chunks,
     source: &mut Mem,
@@ -119,8 +93,6 @@ fn render(
     l
 }
 
-/// The stretcher driven over the whole file in one run, no chunk grid: what
-/// the library alone makes of it.
 fn direct(source: &mut Mem, cents: f64, total: usize, preset: Preset) -> Vec<f32> {
     let mut s = Stretcher::new(source.channels(), RATE, preset).expect("a stretcher");
     let channels = s.channels();
@@ -163,7 +135,6 @@ fn direct(source: &mut Mem, cents: f64, total: usize, preset: Preset) -> Vec<f32
     out
 }
 
-/// The short-term level in dB, one value per `hop` frames.
 fn envelope(x: &[f32], hop: usize) -> Vec<f32> {
     x.chunks(hop)
         .map(|h| {
@@ -174,12 +145,10 @@ fn envelope(x: &[f32], hop: usize) -> Vec<f32> {
         .collect()
 }
 
-/// Attacks in `x` between `from` and `to` seconds: the places the level rises
-/// by more than `rise` dB over the 30 ms before them, as (seconds, dB).
 fn attacks(x: &[f32], from: f64, to: f64, rise: f32) -> Vec<(f64, f32)> {
-    let hop = RATE as usize / 200; // 5 ms
+    let hop = RATE as usize / 200;
     let env = envelope(x, hop);
-    let before = 6; // 30 ms
+    let before = 6;
     let rate = RATE as f64 / hop as f64;
     let mut found: Vec<(f64, f32)> = Vec::new();
     let first = (from * rate) as usize;
@@ -187,7 +156,6 @@ fn attacks(x: &[f32], from: f64, to: f64, rise: f32) -> Vec<(f64, f32)> {
     for i in first.max(before)..last {
         let rise_here = env[i] - env[i - before];
         if rise_here > rise && env[i] > -60.0 {
-            // Keep the best of a rising run.
             if found
                 .last()
                 .is_none_or(|&(t, _)| (i as f64 / rate) - t > 0.02)
@@ -203,7 +171,6 @@ fn attacks(x: &[f32], from: f64, to: f64, rise: f32) -> Vec<(f64, f32)> {
     found
 }
 
-/// The transients detection holds, to the millisecond, in time order.
 fn times(analysis: &Analysis) -> Vec<f64> {
     let mut at: Vec<f64> = analysis
         .transients_at(0)
@@ -266,10 +233,6 @@ fn onsets_at_a_transpose() {
     }
 }
 
-/// The seam at 4.096 s, frame by frame in level, against the file and against
-/// the library's single run: the owner's spot.
-/// The best repeat of the sound at `at` within `max_lag` frames, ignoring the
-/// phrase's own 0.5 s repetition: (lag in ms, r).
 fn best_repeat(x: &[f32], at: usize, len: usize, max_lag: usize) -> Vec<(f64, f64)> {
     let Some(window) = x.get(at..at + len) else {
         return Vec::new();
@@ -284,7 +247,6 @@ fn best_repeat(x: &[f32], at: usize, len: usize, max_lag: usize) -> Vec<(f64, f6
         if b + len > x.len() {
             break;
         }
-        // Not the phrase's own beat.
         if (lag as f64 / f64::from(RATE) - (lag as f64 / 24_000.0).round() * 0.5).abs() < 0.025 {
             continue;
         }
@@ -310,7 +272,6 @@ fn best_repeat(x: &[f32], at: usize, len: usize, max_lag: usize) -> Vec<(f64, f6
         .collect()
 }
 
-/// The 50 ms level, in dB, one value each 10 ms from `from`.
 fn levels(x: &[f32], from: f64, to: f64) -> Vec<f32> {
     let hop = RATE as usize / 100;
     let env = envelope(x, hop);
@@ -328,8 +289,6 @@ fn levels(x: &[f32], from: f64, to: f64) -> Vec<f32> {
     out
 }
 
-/// A run as `chunks.rs` `Run` makes one: a stretcher reset at `start` (a hop
-/// boundary), hopping forward, keeping the frames from `keep_from`.
 fn run_from(
     source: &mut Mem,
     cents: f64,
@@ -384,7 +343,6 @@ fn run_from(
     kept
 }
 
-/// Where `chunks.rs` starts a chunk's run: the pre-roll it is given.
 fn run_start(first: i64, preset: Preset) -> i64 {
     let s = Stretcher::new(1, RATE, preset).expect("a stretcher");
     let hop = s.interval() as i64;
@@ -394,8 +352,6 @@ fn run_start(first: i64, preset: Preset) -> i64 {
     first - hops * hop
 }
 
-/// Whether the two renders the seam blends are the same sound in time: the
-/// chunk's own last `FADE` frames against the fresh run the seam fades into.
 #[test]
 #[ignore = "investigation: prints measurements for MT-PITCH-1, needs no pass/fail"]
 fn the_two_renders_a_seam_blends() {
@@ -407,8 +363,6 @@ fn the_two_renders_a_seam_blends() {
         for chunk in 1..=(total as i64 / CHUNK) {
             let seam = chunk * CHUNK;
             let zone = seam - FADE;
-            // The chunk's own render of the faded frames, before the blend:
-            // asked for only up to the zone, so no tail is computed.
             let mut c = Chunks::new(Stretcher::new(source.channels(), RATE, preset).unwrap());
             let n = 4_096;
             let (mut l, mut r) = (vec![0.0; n], vec![0.0; n]);
@@ -421,7 +375,6 @@ fn the_two_renders_a_seam_blends() {
             )
             .unwrap();
             let own = &l[n - FADE as usize..];
-            // The fresh run the seam fades into (what `tail` renders).
             let start = run_start(zone, preset);
             let into = run_from(&mut source, 200.0, start, zone, FADE as usize, preset);
             let energy =
@@ -456,8 +409,6 @@ fn the_two_renders_a_seam_blends() {
     }
 }
 
-/// The syllable at the start of measure 3, 5 ms at a time, in the chunked
-/// render and in the library's single run.
 #[test]
 #[ignore = "investigation: prints measurements for MT-PITCH-1, needs no pass/fail"]
 fn the_syllable_at_measure_three() {
@@ -467,7 +418,7 @@ fn the_syllable_at_measure_three() {
     let mut mono = Mem {
         planes: vec![planes.clone()],
     };
-    let hop = RATE as usize / 200; // 5 ms
+    let hop = RATE as usize / 200;
     let file = envelope(&planes, hop);
     for preset in [Preset::Full, Preset::Light] {
         let mut c = Chunks::new(Stretcher::new(source.channels(), RATE, preset).unwrap());
@@ -513,7 +464,6 @@ fn the_seams_at_a_transpose() {
         {
             let seconds = seam as f64 / f64::from(RATE);
             eprintln!("{which} {preset:?}: seam at {seconds:.3} s");
-            // 50 ms levels, each 10 ms, so a cycle of the vowel averages out.
             let (a, b, f) = (
                 levels(&chunked, seconds - 0.06, seconds + 0.06),
                 levels(&alone, seconds - 0.06, seconds + 0.06),
@@ -529,11 +479,9 @@ fn the_seams_at_a_transpose() {
                 );
             }
         }
-        // Is anything near the seam played twice? Lags of 20 to 400 ms, the
-        // phrase's own 0.5 s beat left out.
         for at in [3.95_f64, 4.0, 4.05, 4.06, 4.07, 4.08, 4.09, 4.1, 4.11, 4.15] {
             let frame = (at * f64::from(RATE)) as usize;
-            let window = RATE as usize / 33; // 30 ms
+            let window = RATE as usize / 33;
             eprintln!(
                 "{which} {preset:?}: repeats at {at:.2} s: chunked {:?} single {:?}",
                 best_repeat(&chunked, frame, window, RATE as usize / 2),
@@ -543,7 +491,6 @@ fn the_seams_at_a_transpose() {
     }
 }
 
-/// The library alone, for the record: no chunk grid at all.
 #[test]
 #[ignore = "investigation: prints measurements for MT-PITCH-1, needs no pass/fail"]
 fn the_library_alone_at_a_transpose() {

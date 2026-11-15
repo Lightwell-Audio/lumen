@@ -1,8 +1,3 @@
-//! Parallax and Afterglow in the app (M8 slice B3): their commands put each
-//! device on a track with its personality, a delay's echoes are still heard
-//! after Stop, and an export keeps a reverb's tail — read from the devices'
-//! own tails rather than a flat ten seconds.
-
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
@@ -15,7 +10,6 @@ use lumen_project::model::{Id, PluginRef};
 use super::lane_view::{run_command, tone};
 use super::{Lumen, wav};
 
-/// The built-in device of `name` on the project's first track that has one.
 fn builtin(lumen: &Lumen, name: &str) -> Option<Id> {
     lumen
         .app()
@@ -27,7 +21,6 @@ fn builtin(lumen: &Lumen, name: &str) -> Option<Id> {
         .map(|d| d.id)
 }
 
-/// The normalised value of `id` at `value` in its own units.
 fn at(table: &'static [params::ParamInfo], id: u32, value: f32) -> f64 {
     f64::from(
         params::find(table, id)
@@ -46,8 +39,6 @@ fn the_two_commands_add_their_device_with_its_personality_and_one_undo_step() {
     lumen.show_whole_cards();
     let delay = builtin(&lumen, lumen_devices::delay::NAME).expect("Parallax is on the track");
     assert!(lumen.shows("Parallax on tone"), "the card's spoken name");
-    // The card's controls are the face's: the idea names, with the parameter's
-    // own beside them, and the other parameters are in All parameters.
     let strip = lumen.app().strip_parameters(delay);
     for id in [
         lumen_devices::delay::TIME,
@@ -58,7 +49,6 @@ fn the_two_commands_add_their_device_with_its_personality_and_one_undo_step() {
     ] {
         assert!(strip.contains(&id), "{id} is on the strip");
     }
-    // The delay follows the tempo by default, so the Time dial is the note.
     assert!(lumen.shows("Time (Note), parameter: 1/4"));
     assert!(lumen.shows("Feedback (Repeats), parameter: 35 %"));
     assert!(lumen.is_on("Sync (Note)"), "the delay follows the tempo");
@@ -96,7 +86,6 @@ fn the_two_commands_add_their_device_with_its_personality_and_one_undo_step() {
         lumen.harness.query_by_label("All parameters (7)").is_some(),
         "the reverb's seven are all there"
     );
-    // Each is one undo step.
     lumen.key(Modifiers::COMMAND, Key::Z);
     lumen.wait_for("Afterglow undone", |app| {
         !app.project().tracks.iter().any(|track| {
@@ -115,7 +104,6 @@ fn the_two_commands_add_their_device_with_its_personality_and_one_undo_step() {
     });
 }
 
-/// Puts the built-in effect `name` on the tone track with its whole card shown.
 fn launched(file: &str, command: &str, name: &'static str) -> (Lumen, Id) {
     let (mut lumen, _) = tone(file);
     run_command(&mut lumen, command);
@@ -157,9 +145,7 @@ fn dragging_the_echo_trail_moves_the_note_and_the_feedback_in_one_undo_step() {
     use lumen_devices::delay::{FEEDBACK, NOTE, TABLE, TIME};
     let (mut lumen, device) = launched("b3-trail", "Add Parallax", lumen_devices::delay::NAME);
     let (note, feedback) = (param(&lumen, device, NOTE), param(&lumen, device, FEEDBACK));
-    // The trail is one handle for two parameters, named for both.
     assert!(lumen.shows("Echo trail (Note and Repeats): 1/4, 35 %"));
-    // Across and up: a longer note and more feedback, one gesture.
     let from = handle_centre(&lumen, "Echo trail");
     lumen.drag(from, from + vec2(60.0, -40.0), Modifiers::NONE);
     lumen.frames(10);
@@ -178,14 +164,12 @@ fn dragging_the_echo_trail_moves_the_note_and_the_feedback_in_one_undo_step() {
         "{:?}",
         lumen.app().undo_label()
     );
-    // One undo takes both back.
     lumen.key(Modifiers::COMMAND, Key::Z);
     lumen.frames(10);
     assert!((param(&lumen, device, NOTE) - note).abs() < 1e-6);
     assert!((param(&lumen, device, FEEDBACK) - feedback).abs() < 1e-6);
     assert_eq!(lumen.app().undo_label(), Some("Add Parallax"));
 
-    // Free, the same drag is the time in milliseconds.
     lumen.app_mut().set_device_param(device, NOTE, 0.0);
     lumen.frames(10);
     let time = param(&lumen, device, TIME);
@@ -222,7 +206,6 @@ fn dragging_the_glow_is_space_and_dragging_the_outer_ring_is_fade() {
     let (mut lumen, device) = launched("b3-glow", "Add Afterglow", lumen_devices::reverb::NAME);
     assert!(lumen.shows("Glow size (Size): 55 %"));
     assert!(lumen.shows("Fade ring (Decay): 2.00 s"));
-    // Out from the middle of the glow: the room grows, in one undo step.
     let (size, decay) = (param(&lumen, device, SIZE), param(&lumen, device, DECAY));
     let from = handle_centre(&lumen, "Glow size");
     lumen.drag(from, from + vec2(50.0, 0.0), Modifiers::NONE);
@@ -242,7 +225,6 @@ fn dragging_the_glow_is_space_and_dragging_the_outer_ring_is_fade() {
     );
     assert_eq!(lumen.app().undo_label(), Some("Add Afterglow"));
 
-    // Outward from the corner of the screen, past the glow: the fade lengthens.
     let rings = lumen.harness.get_by_label_contains("Fade ring").rect();
     let corner = pos2_in(rings, 0.97, 0.9);
     lumen.drag(corner, corner + vec2(-30.0, -20.0), Modifiers::NONE);
@@ -258,7 +240,6 @@ fn dragging_the_glow_is_space_and_dragging_the_outer_ring_is_fade() {
     );
 }
 
-/// The point `across` and `down` (0 to 1) of the way through `rect`.
 fn pos2_in(rect: eframe::egui::Rect, across: f32, down: f32) -> Pos2 {
     rect.min + vec2(rect.width() * across, rect.height() * down)
 }
@@ -270,8 +251,6 @@ fn a_delay_s_echoes_are_heard_after_stop() {
     lumen.wait_for("Parallax's card", |app| app.project().tracks.iter().any(|track| track.devices.iter().any(|d| matches!(&d.plugin, PluginRef::Builtin { name } if name == lumen_devices::delay::NAME))));
     lumen.frames(20);
     let device = builtin(&lumen, lumen_devices::delay::NAME).expect("Parallax is on the track");
-    // Wet, with a long feedback and a free 200 ms time, so the echoes are
-    // still there a moment after the transport stops.
     lumen
         .app_mut()
         .set_device_param(device, lumen_devices::delay::NOTE, 0.0);
@@ -311,8 +290,6 @@ fn a_delay_s_echoes_are_heard_after_stop() {
     });
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.frames(10);
-    // The project's automatic tail is the delay's own (what the engine keeps
-    // after Stop and an export adds).
     let tail = lumen.app().project_tail();
     assert!(tail > 48_000, "the delay rings on: {tail}");
     let heard = lumen.listen(Duration::from_millis(300), 3_000);
@@ -324,9 +301,6 @@ fn a_delay_s_echoes_are_heard_after_stop() {
 
 #[test]
 fn an_export_keeps_a_reverb_s_tail_and_no_more() {
-    // A fifth of a second of tone, a reverb whose decay is a second: the
-    // export runs past the span for a tail of about a second, not the flat
-    // ten it used to add whatever the project held.
     let mut lumen = Lumen::start("b3-export-tail");
     let input = wav(&lumen.dir().join("take.wav"), 0.2);
     lumen.drop_files(&[input]);
@@ -367,7 +341,6 @@ fn an_export_keeps_a_reverb_s_tail_and_no_more() {
     lumen.wait_for("the audio thread to have it", |app| {
         app.builtin_attached(device)
     });
-    // The export window, with its default (tails on).
     lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::E);
     lumen.frames(5);
     assert!(lumen.app().audio_export_open());

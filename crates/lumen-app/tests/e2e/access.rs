@@ -1,8 +1,3 @@
-//! Accessibility (M3 slice 8): every control a user can reach has a name a
-//! screen reader can say, in the main window and in every window and menu
-//! M3 added, and in M4's mixer, sends, returns and menus (M4 review). A control without one is a test failure, listed by role and
-//! place so it can be found.
-
 use eframe::egui::accesskit::{Action, Role};
 use eframe::egui::{self, Event, Key, Modifiers, PointerButton};
 use egui_kittest::kittest::{NodeT, Queryable, by};
@@ -10,7 +5,6 @@ use egui_kittest::kittest::{NodeT, Queryable, by};
 use super::Lumen;
 use super::properties::{select, with_two_clips};
 
-/// Controls a user can act on that have no name, as "role at (x, y)".
 pub(super) fn unnamed(lumen: &Lumen) -> Vec<String> {
     lumen
         .harness
@@ -24,8 +18,6 @@ pub(super) fn unnamed(lumen: &Lumen) -> Vec<String> {
                 );
             let named = node.label().is_some_and(|l| !l.trim().is_empty())
                 || node.value().is_some_and(|v| !v.trim().is_empty());
-            // Containers (a menu's frame) are acted on through their
-            // named children; scroll bars are known by their role.
             let container = node.children().next().is_some()
                 && !matches!(node.role(), Role::Button | Role::Label);
             acts && !named && !container && !matches!(node.role(), Role::Window | Role::ScrollBar)
@@ -107,7 +99,6 @@ fn every_control_in_every_m3_view_has_a_name() {
     lumen.key(Modifiers::NONE, Key::Escape);
     lumen.key(Modifiers::NONE, Key::Escape);
 
-    // A clip's right-click menu.
     let ctx = lumen.harness.ctx.clone();
     let r = lumen.app().clip_rect(&ctx, kick).expect("in view");
     let p = r.left_top() + eframe::egui::vec2(12.0, 6.0);
@@ -143,10 +134,6 @@ fn every_control_in_every_m3_view_has_a_name() {
     );
 }
 
-/// M4's views (review finding M4): the Mixer tab with a group, a return
-/// and the master; tracks unfolded to their sends and a return to its
-/// senders; every track selected (controls step up); a strip's output
-/// menu and the mixer's pan-law menu.
 #[test]
 fn every_control_in_every_m4_view_has_a_name() {
     let mut lumen = Lumen::start("access-m4");
@@ -213,19 +200,16 @@ fn every_control_in_every_m7_view_has_a_name() {
     let (mut lumen, track) = tone("access-m7");
     let mut problems = Vec::new();
 
-    // The lane over the clips, with its chip, tool strip and a point.
     lumen.key(Modifiers::NONE, Key::A);
     lumen.frames(40);
     let at = spot(&lumen, track, 4.0, -12.0);
     click_at(&mut lumen, at);
     check(&lumen, "lane, tool strip and a point", &mut problems);
 
-    // The chip's menu: parameters, the modes, the plugin list.
     lumen.click("Automation lane of tone: Volume");
     check(&lumen, "lane chip menu", &mut problems);
     lumen.key(Modifiers::NONE, Key::Escape);
 
-    // A control the lane drives, moved: the override state and its button.
     lumen.app_mut().set_track_volume(track, -3.0);
     lumen.frames(10);
     assert!(lumen.app().shows_lane_overridden(track, Target::Volume));
@@ -233,7 +217,6 @@ fn every_control_in_every_m7_view_has_a_name() {
     lumen.app_mut().reenable_lane(track, Target::Volume);
     lumen.frames(10);
 
-    // The right-click menu every automatable control ends with.
     lumen.click("Fold tone");
     lumen.frames(40);
     let slider = lumen.harness.get_by_label_contains("Volume tone:").rect();
@@ -245,7 +228,6 @@ fn every_control_in_every_m7_view_has_a_name() {
     check(&lumen, "control menu", &mut problems);
     lumen.key(Modifiers::NONE, Key::Escape);
 
-    // The mapping list, empty and with one mapping.
     run_command(&mut lumen, "Controller mappings");
     assert!(lumen.app().mappings_window_open());
     check(&lumen, "mappings window, empty", &mut problems);
@@ -257,7 +239,6 @@ fn every_control_in_every_m7_view_has_a_name() {
     check(&lumen, "mappings window, one mapping", &mut problems);
     lumen.key(Modifiers::NONE, Key::Escape);
 
-    // The tempo and meter lanes, with a change in each.
     lumen.key(Modifiers::NONE, Key::T);
     lumen.frames(40);
     let tempo = lumen.app().song_tempo_spot(8.0, 100.0).unwrap();
@@ -269,7 +250,6 @@ fn every_control_in_every_m7_view_has_a_name() {
     lumen.key(Modifiers::NONE, Key::T);
     lumen.frames(40);
 
-    // A clip's envelope, with its chip.
     let clip = lumen.app().project().tracks[0].clips[0].id;
     lumen.app_mut().select_clip(clip);
     lumen.frames(5);
@@ -290,8 +270,6 @@ fn every_control_in_every_m7_view_has_a_name() {
     );
 }
 
-/// What a screen reader says for the control with the keyboard focus:
-/// its name, or its text.
 pub(super) fn focused(lumen: &Lumen) -> Option<String> {
     lumen
         .harness
@@ -303,7 +281,6 @@ pub(super) fn focused(lumen: &Lumen) -> Option<String> {
         })
 }
 
-/// Where `name` comes in `order`.
 fn place(order: &[String], name: &str) -> usize {
     order
         .iter()
@@ -311,15 +288,10 @@ fn place(order: &[String], name: &str) -> usize {
         .unwrap_or_else(|| panic!("{name} is never focused: {order:#?}"))
 }
 
-/// Tab goes through the window in reading order: the transport bar from
-/// left to right (its panel toggles last, slice 8: they came first), then
-/// the panes, each pane's name before its controls. Every stop is named.
 #[test]
 fn tab_walks_the_window_in_reading_order() {
     let (mut lumen, _, _) = with_two_clips("access-tab");
     let mut order = Vec::new();
-    // Far enough to pass the browser's controls (M6 slice 1: its list is one
-    // stop, the pane's, so rows cost no Tabs) and reach the arrangement.
     for _ in 0..60 {
         lumen.key(Modifiers::NONE, Key::Tab);
         order.push(focused(&lumen).unwrap_or_default());
@@ -355,11 +327,6 @@ fn tab_walks_the_window_in_reading_order() {
 
 #[test]
 fn switches_and_segmented_choices_work_by_name() {
-    // M4.5 slice 2: on/off settings are switches (named as checkboxes) and
-    // small choices segmented controls (radio buttons); Preferences holds
-    // most of them since M9 R7 (`preferences.rs` clicks its switches). The
-    // owner's C: the menu stays open through changes, fades once the
-    // pointer leaves it, and a command closes it at once.
     let mut lumen = Lumen::start("switches");
     lumen.open_preferences("Mixing");
     assert!(!lumen.is_on("Meters in track colors"));
@@ -371,15 +338,12 @@ fn switches_and_segmented_choices_work_by_name() {
     lumen.key(egui::Modifiers::NONE, egui::Key::Escape);
     lumen.click("Lumen");
     lumen.click("Appearance");
-    // Not the theme or Reduce motion: they are process-wide, and would reach
-    // the tests running beside this one.
     assert!(lumen.is_on("100%") && !lumen.is_on("125%"));
     lumen.click("125%");
     assert!(
         lumen.is_on("125%") && !lumen.is_on("100%"),
         "one choice at a time"
     );
-    // The pointer leaves: after a moment, it fades away.
     lumen.harness.hover_at(egui::pos2(900.0, 500.0));
     lumen.frames(10);
     assert!(lumen.shows("Project settings\u{2026}"), "not at once");
@@ -388,7 +352,6 @@ fn switches_and_segmented_choices_work_by_name() {
         !lumen.shows("Project settings\u{2026}"),
         "gone after the pause and fade"
     );
-    // A command closes it straight away: its fading picture has no controls.
     lumen.click("Lumen");
     lumen.click("History\u{2026}");
     assert!(!lumen.shows("Project settings\u{2026}"));
@@ -396,15 +359,10 @@ fn switches_and_segmented_choices_work_by_name() {
 
 #[test]
 fn a_menus_segmented_controls_line_up_with_its_labels() {
-    // M4.5 slice 6, the design sweep: switches, segmented controls and
-    // captions sat at a menu's very edge, a little left of its rows'
-    // labels. They now come in as far as the labels do.
     let mut lumen = Lumen::start("menu-inset");
     lumen.click("Lumen");
     lumen.click("Appearance");
     lumen.frames(30);
-    // A segment sits 2 pt inside its control (`space::XXS`); in a menu the
-    // control itself comes in as well, by the rows' padding.
     let row = lumen.harness.get_by_label("Reduce motion").rect();
     let dark = lumen.harness.get_by_label("Dark").rect();
     let inset = dark.left() - row.left();
@@ -416,15 +374,10 @@ fn a_menus_segmented_controls_line_up_with_its_labels() {
 
 #[test]
 fn a_closing_menu_asks_for_the_frames_its_fade_needs() {
-    // Owner, MT-POL-2: menus vanished instead of fading. The frame that
-    // closed one asked for no next frame, so an idle window drew the next
-    // one only after the fade was over.
     let mut lumen = Lumen::start("menu-fade");
     lumen.click("Lumen");
     lumen.frames(30);
     lumen.harness.get_by_label("History\u{2026}").click();
-    // The frame that closes it is the first without its controls (from
-    // then on only its picture fades): that frame must ask for the next.
     let mut closing_frame_asked = None;
     for _ in 0..5 {
         lumen.harness.step();
@@ -441,10 +394,6 @@ fn a_closing_menu_asks_for_the_frames_its_fade_needs() {
     );
 }
 
-/// The record controls are named (M5 slice 6d): Record and Overdub in the
-/// bar, Overdub a toggle that is on after a click; the metronome's menu has
-/// the count-in choices and the record-only switch, which stay where they
-/// are as they are changed (the menu stays open).
 #[test]
 fn the_record_controls_are_named_and_the_count_in_is_in_the_metronome_menu() {
     let mut lumen = Lumen::start("access-record");

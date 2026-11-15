@@ -1,11 +1,3 @@
-//! The disk thread (M9 slice R6, ADR-0109): keeps the pages of streamed
-//! files that the engine will read next in its page pool. It plans from the
-//! clip list the engine plays and the playhead the engine publishes
-//! ([`plan::Scene`]), reads what is missing nearest first, and frees what is
-//! furthest away when the pool is full. It never waits for the audio thread
-//! and the audio thread never waits for it: a page that is late is an
-//! underrun, which the clip player fades around and counts.
-
 pub use lumen_engine::stream_plan as plan;
 
 use std::collections::HashSet;
@@ -20,21 +12,12 @@ use lumen_media::MediaError;
 
 use plan::{Horizon, Position, Scene, Want};
 
-/// How long the thread sleeps when it has nothing to read.
 const IDLE: Duration = Duration::from_millis(10);
-/// The wait before asking again for pages that were not ready.
 const RETRY: Duration = Duration::from_millis(20);
-/// How long it reads before it plans again, so a jump is followed at once.
 const ROUND: Duration = Duration::from_millis(5);
-/// How long it waits when the pool is full of pages the audio thread may be
-/// reading (the grace period is one block).
 const FULL: Duration = Duration::from_millis(2);
 
-/// Reads pages of streamed files. The real one reads stream files
-/// ([`Readers`]); tests inject slow or failing ones.
 pub trait Pages: Send {
-    /// Reads `audio`'s `page` into `left` and `right` ([`PAGE`] frames each;
-    /// `right` is left alone for a mono file). Returns the frames read.
     fn read(
         &mut self,
         audio: &StreamAudio,
@@ -43,7 +26,6 @@ pub trait Pages: Send {
         right: &mut [f32],
     ) -> Result<usize, MediaError>;
 
-    /// The files of the scene are now `streams`: readers of others can go.
     fn keep(&mut self, streams: &[StreamAudio]);
 }
 
@@ -63,30 +45,19 @@ impl Pages for Readers {
     }
 }
 
-/// What the app tells the thread.
 enum Message {
-    /// The clip list the engine now plays.
     Scene(Arc<Scene>),
-    /// Read from here first: the app is about to start or jump there. The
-    /// thread keeps reading there first until the engine's playhead has
-    /// arrived, so a start sent once its audio is ready is followed at once.
     Cue(Option<i64>),
-    /// End the thread. Sent rather than closing the channel, which the
-    /// [`Cuer`]s keep open.
     Stop,
 }
 
-/// What the thread reports.
 #[derive(Debug, Default)]
 pub struct Stats {
-    /// The share of the last second spent reading, as `f32` bits.
     load: AtomicU32,
-    /// Pages read that failed (a file gone or unreadable), all told.
     failed: AtomicU32,
 }
 
 impl Stats {
-    /// The share of the last second the thread spent reading (0.0 to 1.0).
     pub fn load(&self) -> f32 {
         f32::from_bits(self.load.load(Ordering::Relaxed))
     }
@@ -96,20 +67,14 @@ impl Stats {
     }
 }
 
-/// The disk thread. Dropping it stops the thread.
 pub struct Disk {
     messages: Option<Sender<Message>>,
     stats: Arc<Stats>,
     thread: Option<std::thread::JoinHandle<()>>,
-    /// Why the thread could not start: streaming then plays nothing, and the
-    /// interface says so instead of waiting on audio that never comes.
     failure: Option<String>,
 }
 
 impl Disk {
-    /// Starts the thread that fills `pool`, reading through `pages`, following
-    /// the transport `transport` reads. It reads ahead by the rate of each
-    /// clip list it is given.
     pub fn start(pool: &Arc<PagePool>, pages: Box<dyn Pages>, transport: TransportReader) -> Self {
         let (messages, inbox) = channel();
         let stats = Arc::new(Stats::default());
@@ -145,7 +110,6 @@ impl Disk {
         }
     }
 
-    /// Why the disk thread could not start, if it could not.
     pub fn failure(&self) -> Option<&str> {
         self.failure.as_deref()
     }
@@ -154,37 +118,30 @@ impl Disk {
         &self.stats
     }
 
-    /// The clip list the engine now plays.
     pub fn set_scene(&self, scene: impl Into<Arc<Scene>>) {
         self.send(Message::Scene(scene.into()));
     }
 
-    /// A handle that cues this thread from elsewhere (the transport, L A).
     pub fn cuer(&self) -> Cuer {
         Cuer(self.messages.clone())
     }
 
     fn send(&self, message: Message) {
         if let Some(messages) = &self.messages {
-            // The thread only ends when this handle drops.
             let _ = messages.send(message);
         }
     }
 }
 
-/// Cues a disk thread from its owner or elsewhere. Does nothing once
-/// the thread has stopped.
 #[derive(Clone)]
 pub struct Cuer(Option<Sender<Message>>);
 
 impl Cuer {
-    /// A cuer with no disk thread behind it, for tests of what is held.
     #[cfg(test)]
     pub fn idle() -> Self {
         Self(None)
     }
 
-    /// Reads the audio after `sample` first, until the next cue.
     pub fn cue(&self, sample: Option<i64>) {
         if let Some(messages) = &self.0 {
             let _ = messages.send(Message::Cue(sample));
@@ -212,12 +169,9 @@ struct Worker {
     cue: Option<i64>,
     stats: Arc<Stats>,
     wants: Vec<Want>,
-    /// Pages that could not be read, by file id: not tried again until the
-    /// clip list changes.
     broken: HashSet<(u64, usize)>,
     left: Vec<f32>,
     right: Vec<f32>,
-    /// Time spent reading since `since`.
     busy: Duration,
     since: Instant,
 }
@@ -255,8 +209,6 @@ impl Worker {
         }
     }
 
-    /// Plans, frees what is not wanted when room is needed, and reads what is
-    /// missing for a while. Returns how long to wait before the next round.
     fn round(&mut self) -> Duration {
         if self.scene.is_empty() {
             return IDLE;
@@ -294,8 +246,6 @@ impl Worker {
         for want in missing {
             if self.writer.make_room() == 0 {
                 self.busy += started.elapsed();
-                // Pages the audio thread may still read are free in a block;
-                // otherwise the pool holds all it can of what is wanted.
                 return if self.writer.retiring() > 0 {
                     FULL
                 } else {
@@ -317,14 +267,9 @@ impl Worker {
                     );
                 }
                 Err(MediaError::NotReady) => {
-                    // Waiting on background work (a Rhythmic clip's file is
-                    // being read for its transients): not a failure. Left
-                    // out for now, and asked for again shortly.
                     waiting = true;
                 }
                 Err(_) => {
-                    // Left out: the clip stays silent there, and the app
-                    // shows the file as missing when it next checks.
                     self.broken.insert((audio.id(), want.page));
                     self.stats.failed.fetch_add(1, Ordering::Relaxed);
                 }
@@ -348,11 +293,6 @@ impl Worker {
     }
 }
 
-/// The cue still to read first with the playhead at `sample`: none once the
-/// playhead has arrived there, since reading at the playhead then reads the
-/// same audio. Until then it is kept, also after the start was sent: the
-/// engine moves the playhead at its next block, and the disk thread reads
-/// what follows the cue meanwhile.
 fn kept_cue(cue: Option<i64>, sample: i64, horizon: Horizon) -> Option<i64> {
     cue.filter(|cue| !(*cue..cue + horizon.near.max(1)).contains(&sample))
 }

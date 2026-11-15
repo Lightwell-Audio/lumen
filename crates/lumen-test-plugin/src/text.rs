@@ -1,10 +1,7 @@
-//! Fixed-size text fields of the VST3 structs.
-
 use std::ffi::c_char;
 
 use vst3::Steinberg::Vst::TChar;
 
-/// Copies `src` into a NUL-terminated `char8` field, truncating to fit.
 pub(crate) fn copy_cstring(src: &str, dst: &mut [c_char]) {
     let room = dst.len().saturating_sub(1);
     let mut n = 0;
@@ -17,7 +14,6 @@ pub(crate) fn copy_cstring(src: &str, dst: &mut [c_char]) {
     }
 }
 
-/// Copies `src` into a NUL-terminated UTF-16 field, truncating to fit.
 pub(crate) fn copy_wstring(src: &str, dst: &mut [TChar]) {
     let room = dst.len().saturating_sub(1);
     let mut n = 0;
@@ -30,7 +26,6 @@ pub(crate) fn copy_wstring(src: &str, dst: &mut [TChar]) {
     }
 }
 
-/// Reads a NUL-terminated `char8` field.
 #[cfg(test)]
 pub(crate) fn read_cstring(src: &[c_char]) -> String {
     let bytes: Vec<u8> = src
@@ -41,7 +36,6 @@ pub(crate) fn read_cstring(src: &[c_char]) -> String {
     String::from_utf8_lossy(&bytes).into_owned()
 }
 
-/// Reads a NUL-terminated UTF-16 field.
 #[cfg(test)]
 pub(crate) fn read_wstring(src: &[TChar]) -> String {
     let units: Vec<u16> = src.iter().take_while(|&&c| c != 0).copied().collect();

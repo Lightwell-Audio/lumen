@@ -1,25 +1,3 @@
-//! The user documentation covers every action (docs/USER_DOCS.md §5.3).
-//!
-//! The inventory is every command (its id, `midi.split_notes`), every
-//! Preferences row (`pref:audio.driver`), every transport bar control and
-//! app menu row that runs no command (`bar:Tempo`, `menu:Open recent`; one
-//! that runs a command is documented with it), and every gesture in
-//! `site/docs/data/gestures.toml` (`gesture.trim_clip_edge`). An action is documented when a guide,
-//! recipe or quick-start page lists its id under `[taxonomies] actions`.
-//!
-//! Until the docs are complete, the actions not yet documented are listed
-//! in `site/docs/data/undocumented.txt`, and the backlog only shrinks: a
-//! documented action must leave the list. A slice that finishes before the
-//! interface around it has settled may add an action with the tag of its
-//! milestone (`transport.follow @m9.5`, ADR-0133); the milestone's docs
-//! pass writes the page and removes the line, and cannot close
-//! (`site/docs/data/docs_pass.txt`) while a line carries its tag.
-//!
-//! The pages are checked too: a guide opens with a lead clip, a recipe or
-//! the quick start has a walkthrough video, every task page has a
-//! screenshot, and every clip and shot a page shows is made by a scene
-//! (`tests/shared/scenes.rs`).
-
 #[path = "shared/controls.rs"]
 mod controls;
 #[path = "shared/scenes.rs"]
@@ -42,7 +20,6 @@ fn site() -> PathBuf {
     repo().join("site/docs")
 }
 
-/// A page's path as a reader of the failure finds it: from the repository.
 fn shown(path: &Path) -> String {
     path.strip_prefix(repo())
         .unwrap_or(path)
@@ -50,19 +27,13 @@ fn shown(path: &Path) -> String {
         .to_string()
 }
 
-/// A gesture: direct manipulation no table holds (§5.2).
 #[derive(serde::Deserialize)]
 struct Gesture {
     id: String,
-    /// Where it happens: "arrangement", "piano roll", "device card".
     place: String,
-    /// The input: "drag", "Alt+drag", "double-click".
     input: String,
-    /// What it does, in one sentence.
     does: String,
-    /// The E2E scenario that covers it: a test function in `tests/e2e/`.
     scenario: String,
-    /// The clip that shows it, made by a scene.
     clip: String,
 }
 
@@ -79,14 +50,11 @@ fn gestures() -> Vec<Gesture> {
         .gesture
 }
 
-/// Every action's id, with what kind it is.
 fn inventory() -> BTreeMap<String, &'static str> {
     let mut all = BTreeMap::new();
     for c in docs::commands() {
         all.insert(c.id.to_owned(), "command");
     }
-    // A setting can share its key with the command that changes it
-    // (`edit.lock_envelopes`), so settings are listed as `pref:<key>`.
     for p in docs::preferences() {
         all.insert(format!("pref:{}", p.id), "preference");
     }
@@ -108,8 +76,6 @@ fn inventory() -> BTreeMap<String, &'static str> {
     all
 }
 
-/// A page of the docs: where it is, its kind (`[extra] kind`), the actions
-/// it lists and the body after its front matter.
 struct Page {
     path: PathBuf,
     kind: String,
@@ -171,13 +137,10 @@ fn markdown(dir: &Path, into: &mut Vec<PathBuf>) {
     }
 }
 
-/// The arguments of each of the body's calls to the shortcode `name`: from
-/// `name(` to the `)` that closes it, outside quoted text.
 fn calls<'a>(body: &'a str, name: &str) -> Vec<&'a str> {
     let open = format!("{name}(");
     let mut found = Vec::new();
     for (at, _) in body.match_indices(&open) {
-        // A shortcode, not a word ending in the name: "{{ clip(" or "{% tryit(".
         let before = body[..at].trim_end();
         if !(before.ends_with("{{") || before.ends_with("{%")) {
             continue;
@@ -198,11 +161,9 @@ fn calls<'a>(body: &'a str, name: &str) -> Vec<&'a str> {
     found
 }
 
-/// The value of `key="…"` in a call's arguments.
 fn arg(call: &str, key: &str) -> Option<String> {
     let needle = format!("{key}=\"");
     let mut from = 0;
-    // A key, not the end of a longer one (`id` in `grid="…"`).
     while let Some(start) = call[from..].find(&needle).map(|i| i + from) {
         let before = call[..start].chars().next_back();
         if before.is_none_or(|c| c == ' ' || c == ',' || c == '(') {
@@ -214,7 +175,6 @@ fn arg(call: &str, key: &str) -> Option<String> {
     None
 }
 
-/// The values of `key="…"` in the body's calls to the shortcode `name`.
 fn shortcode_args(body: &str, name: &str, key: &str) -> Vec<String> {
     calls(body, name)
         .into_iter()
@@ -222,12 +182,10 @@ fn shortcode_args(body: &str, name: &str, key: &str) -> Vec<String> {
         .collect()
 }
 
-/// Whether the body has a call to the shortcode `name` with `arg` in it.
 fn has_call_with(body: &str, name: &str, arg: &str) -> bool {
     calls(body, name).iter().any(|call| call.contains(arg))
 }
 
-/// The names in a call's `callouts=["…", "…"]`.
 fn callout_names(call: &str) -> Vec<String> {
     let Some(start) = call.find("callouts=[") else {
         return Vec::new();
@@ -241,7 +199,6 @@ fn callout_names(call: &str) -> Vec<String> {
         .collect()
 }
 
-/// The page kinds that teach a task, and so need pictures.
 const TASKS: [&str; 3] = ["Guide", "Recipe", "Quick start"];
 
 fn documented(pages: &[Page]) -> BTreeSet<String> {
@@ -252,24 +209,17 @@ fn documented(pages: &[Page]) -> BTreeSet<String> {
         .collect()
 }
 
-/// One line of `undocumented.txt`: an action id, and the milestone whose
-/// docs pass owes its page (`@m9.5`) when the slice deferred it (ADR-0133).
-/// A line with no tag is the backlog of USER_DOCS.md §11, which only shrinks.
 #[derive(Debug, PartialEq)]
 struct Entry {
     id: String,
     owed_by: Option<String>,
 }
 
-/// Reads one line; `None` for a blank line or a comment. A malformed tag is
-/// kept in `owed_by` so that the tag test names it.
 fn parse_entry(line: &str) -> Option<Entry> {
     let line = line.trim();
     if line.is_empty() || line.starts_with('#') {
         return None;
     }
-    // An id can hold spaces (`menu:Open recent`), so the tag is what follows
-    // the last ` @`.
     Some(match line.rsplit_once(" @") {
         Some((id, tag)) => Entry {
             id: id.trim_end().to_owned(),
@@ -282,8 +232,6 @@ fn parse_entry(line: &str) -> Option<Entry> {
     })
 }
 
-/// A milestone tag: `m` and a number, with an optional `.` and number
-/// (`m9`, `m9.5`).
 fn is_milestone(tag: &str) -> bool {
     let Some(rest) = tag.strip_prefix('m') else {
         return false;
@@ -307,7 +255,6 @@ fn baseline() -> Vec<String> {
     entries().into_iter().map(|e| e.id).collect()
 }
 
-/// The milestones whose docs pass is done (`data/docs_pass.txt`).
 fn closed_milestones() -> Vec<String> {
     fs::read_to_string(site().join("data/docs_pass.txt"))
         .expect("docs_pass.txt reads")
@@ -510,8 +457,6 @@ fn every_gesture_names_its_scenario_and_its_clip() {
     assert!(problems.is_empty(), "{}", problems.join("\n"));
 }
 
-/// The reader's words for commands (`data/also.toml`) name real commands,
-/// so a renamed or removed command does not leave its words behind.
 #[test]
 fn every_synonym_names_a_command() {
     let text = fs::read_to_string(site().join("data/also.toml")).expect("also.toml reads");
@@ -550,21 +495,8 @@ fn a_bracket_in_quoted_text_does_not_end_a_call() {
     assert_eq!(callout_names(calls(body, "shot")[0]), ["First", "Second"]);
 }
 
-// ---- What the deploy renders (USER_DOCS.md §13, the owner's choice A) ----
-//
-// The deploy renders a scene again only when what it is made from changed
-// since the published site: its own function in `tests/docs_media/main.rs`,
-// the code every scene shares (the rest of that folder), its entry in
-// `scenes.rs`, the pages that show its media, and the gestures that name its
-// clips. The app's own code is left out on purpose: between milestones a
-// picture may show the interface as it was, and the full render at each
-// milestone's docs pass (§10.2) brings every picture up to date.
-
-/// Raised to render every scene again at the next deploy.
 const RENDER_EPOCH: u64 = 1;
 
-/// FNV-1a, 64 bits: the same on every machine and toolchain, unlike
-/// `DefaultHasher`, so the deploy compares fingerprints made on other runs.
 #[derive(Clone)]
 struct Fnv(u64);
 
@@ -573,8 +505,6 @@ impl Fnv {
         Self(0xcbf2_9ce4_8422_2325)
     }
 
-    /// Adds `text`, ending it so that "ab" + "c" differs from "a" + "bc".
-    /// Line ends count as `\n` (a Windows checkout writes `\r\n`).
     fn text(&mut self, text: &str) {
         for byte in text.bytes().filter(|&b| b != b'\r').chain([0xff]) {
             self.0 ^= u64::from(byte);
@@ -587,8 +517,6 @@ impl Fnv {
     }
 }
 
-/// Where the scene `test` is in the scene target's `main.rs`: its doc
-/// comment, attributes and function.
 fn scene_span(main: &str, test: &str) -> Option<std::ops::Range<usize>> {
     let head = format!("\nfn {test}() {{\n");
     let fn_at = main.find(&head)? + 1;
@@ -604,8 +532,6 @@ fn scene_span(main: &str, test: &str) -> Option<std::ops::Range<usize>> {
     Some(start..end)
 }
 
-/// The scene target's sources with line ends as `\n`: `main.rs`, and every
-/// other file in the folder by name.
 fn scene_target() -> (String, BTreeMap<String, String>) {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/docs_media");
     let mut main = String::new();
@@ -629,7 +555,6 @@ fn scene_target() -> (String, BTreeMap<String, String>) {
     (main, others)
 }
 
-/// Each scene's fingerprint: what its media is made from, short of the app.
 fn fingerprints() -> BTreeMap<&'static str, String> {
     let (main, others) = scene_target();
     let mut spans: Vec<_> = scenes::SCENES
@@ -641,7 +566,6 @@ fn fingerprints() -> BTreeMap<&'static str, String> {
         })
         .collect();
     spans.sort_by_key(|(_, span)| span.start);
-    // Everything that is not a scene's own source is shared by all of them.
     let mut shared = Fnv::new();
     shared.text(&RENDER_EPOCH.to_string());
     let mut at = 0;
@@ -695,13 +619,10 @@ fn fingerprints() -> BTreeMap<&'static str, String> {
         .collect()
 }
 
-/// A scene as the published site records it in `media/manifest.json`.
 #[derive(serde::Deserialize, serde::Serialize, Clone)]
 struct Published {
     fingerprint: String,
-    /// The commit it was last rendered at.
     commit: String,
-    /// How long it took to render, for sharing scenes out among the jobs.
     seconds: f64,
     files: Vec<String>,
 }
@@ -712,10 +633,6 @@ struct Manifest {
     scenes: BTreeMap<String, Published>,
 }
 
-/// The pieces a scene is rendered in, with the seconds each is expected to
-/// take (the scene's, shared out): `test:theme` for a scene that runs in
-/// every theme, `test` for one that runs once (`DOCS_THEME` names the theme
-/// a piece renders; `.github/scripts/docs-media.sh render`).
 fn pieces_of(test: &str, seconds: f64) -> Vec<(String, f64)> {
     let scene = scenes::SCENES
         .iter()
@@ -732,11 +649,6 @@ fn pieces_of(test: &str, seconds: f64) -> Vec<(String, f64)> {
     }
 }
 
-/// Writes the deploy's render plan to `DOCS_PLAN` (a JSON file), against
-/// the published `media/manifest.json` at `DOCS_PLAN_PUBLISHED` (when it is
-/// absent or unreadable, everything renders). `DOCS_PLAN_FULL=true` renders
-/// every scene (the milestone pass); `DOCS_PLAN_JOBS` is how many jobs may
-/// share the work (4 by default). Run by `.github/workflows/pages.yml`.
 #[test]
 #[ignore = "writes the deploy's render plan; run by pages.yml"]
 fn plan_the_render() {
@@ -764,8 +676,6 @@ fn plan_the_render() {
             None => "not published yet",
             Some(p) if &p.fingerprint != fingerprint => "changed",
             Some(p) => {
-                // Fetched from the site as they are; the file names come
-                // from scenes.rs, whose entry is in the fingerprint.
                 let mut entry = p.clone();
                 entry.files = scene.files(scenes::THEMES).into_iter().collect();
                 reuse.insert(
@@ -778,9 +688,6 @@ fn plan_the_render() {
         render.push((scene.test, before.map_or(60.0, |p| p.seconds)));
         why.insert(scene.test.into(), reason.into());
     }
-    // A scene is rendered in pieces, one for each theme (`test:theme`; the
-    // themes do not depend on each other), so the longest scene is not the
-    // longest job. Longest first, each to the job with the least so far.
     let mut pieces: Vec<(String, f64)> = render
         .iter()
         .flat_map(|(test, seconds)| pieces_of(test, *seconds))
@@ -832,7 +739,6 @@ fn a_themed_scene_is_rendered_in_a_piece_for_each_theme() {
         expected.iter().map(String::as_str).collect::<Vec<_>>()
     );
     assert!((pieces.iter().map(|(_, s)| s).sum::<f64>() - 100.0).abs() < 1e-9);
-    // Walkthroughs run in the dark theme only, whole.
     let walk = scenes::SCENES
         .iter()
         .find(|s| !s.themed())

@@ -1,29 +1,12 @@
-//! A drum map as a file (M8 slice D1): the `.lumendrums` format, Lumen's own
-//! folder of saved maps, and reading that folder.
-//!
-//! A file is JSON with a `version` at the top, so a map written by a later
-//! copy of Lumen is refused with a message that says so rather than read
-//! wrongly. A map saved here comes back exactly: every field of every sound,
-//! in the map's order (the lanes').
-//!
-//! Reading and writing run off the interface's thread (`App::drum_map_file`):
-//! a file dialog, a parse or a save never holds a frame.
-
 use std::path::{Path, PathBuf};
 
 use lumen_project::model::{DrumMap, Sound};
 use serde::{Deserialize, Serialize};
 
-/// The format's version: 1 for the first (M8 D1). A file with a higher one is
-/// from a later copy of Lumen, and is refused.
 pub const VERSION: u32 = 1;
-/// The extension every drum map file has.
 pub const EXTENSION: &str = "lumendrums";
-/// The folder saved maps are kept in, inside the user's settings folder.
 pub const FOLDER: &str = "Drum Maps";
 
-/// A map as a file holds it. The `id` is the project's business, not the
-/// file's: an imported map gets the project's own.
 #[derive(Debug, Serialize, Deserialize)]
 struct File {
     version: u32,
@@ -31,7 +14,6 @@ struct File {
     sounds: Vec<Sound>,
 }
 
-/// `map` as the bytes of a `.lumendrums` file.
 pub fn encode(map: &DrumMap) -> Result<Vec<u8>, String> {
     let file = File {
         version: VERSION,
@@ -44,8 +26,6 @@ pub fn encode(map: &DrumMap) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
-/// The map in `bytes`, or why a person cannot use the file, in a sentence read
-/// in full. `what` names the file in the message (a path or a name).
 pub fn decode(bytes: &[u8], what: &str) -> Result<DrumMap, String> {
     let file: File = serde_json::from_slice(bytes).map_err(|error| {
         format!(
@@ -71,9 +51,6 @@ pub fn decode(bytes: &[u8], what: &str) -> Result<DrumMap, String> {
     ))
 }
 
-/// Why a file's map cannot be a project's map, in a few words, or `Ok`. The
-/// same rules the project keeps (`lumen_project::validate`): a hundred and
-/// twenty-eight notes, unique, each a note; names that fit; no choke group 0.
 fn check(name: &str, sounds: &[Sound]) -> Result<(), String> {
     if name.trim().is_empty() {
         return Err("it has no name".to_owned());
@@ -111,24 +88,18 @@ fn check(name: &str, sounds: &[Sound]) -> Result<(), String> {
     Ok(())
 }
 
-/// A map saved in the user's folder.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Saved {
-    /// The map's name, as the file says (the file's name when it cannot be
-    /// read).
     pub name: String,
     pub path: PathBuf,
 }
 
-/// The folder saved maps live in: `<settings folder>/Drum Maps`.
 pub fn user_folder(settings: Option<&Path>) -> Option<PathBuf> {
     let settings = settings?;
     let folder = settings.parent()?.join(FOLDER);
     Some(folder)
 }
 
-/// The maps in `folder`, by name, quietly skipping what is not one: one bad
-/// file must not hide the others. A folder that is not there is empty.
 pub fn list(folder: &Path) -> Vec<Saved> {
     let Ok(entries) = std::fs::read_dir(folder) else {
         return Vec::new();
@@ -153,9 +124,6 @@ pub fn list(folder: &Path) -> Vec<Saved> {
     found
 }
 
-/// Saves `map` in `folder` and gives the file it wrote. A name already taken
-/// is kept: the new file is "Name 2.lumendrums", then 3 and so on, so saving
-/// never loses an earlier map. The folder is made if it is not there.
 pub fn save_user(map: &DrumMap, folder: &Path) -> Result<PathBuf, String> {
     std::fs::create_dir_all(folder)
         .map_err(|e| format!("the folder {} could not be made: {e}", folder.display()))?;
@@ -179,9 +147,6 @@ pub fn save_user(map: &DrumMap, folder: &Path) -> Result<PathBuf, String> {
     Ok(path)
 }
 
-/// A file name for a map called `name`: letters, digits, spaces, dashes and
-/// underscores kept, runs of spaces folded, and nothing longer than 64
-/// characters.
 pub fn file_stem(name: &str, fallback: &str) -> String {
     let mut stem: String = name
         .chars()
@@ -204,7 +169,6 @@ pub fn file_stem(name: &str, fallback: &str) -> String {
     }
 }
 
-/// A path's file name, for a message.
 pub fn file_name(path: &Path) -> String {
     path.file_name().map_or_else(
         || path.display().to_string(),
@@ -221,7 +185,6 @@ mod tests {
 
     use super::*;
 
-    /// A map with one of everything in it.
     fn busy() -> DrumMap {
         let mut map = Preset::EIGHT_OH_EIGHT.map(Id(7));
         map.name = "Desk kit".into();
@@ -277,7 +240,6 @@ mod tests {
         assert!(why.contains("later"), "{why}");
         assert!(why.contains("version 7"), "{why}");
         assert!(why.contains("up to version 1"), "{why}");
-        // A file that does not say which version it is is damaged, not new.
         let bare = "{\"name\": \"K\", \"sounds\": []}";
         assert!(decode(bare.as_bytes(), "Old.lumendrums").is_err());
     }
@@ -316,7 +278,6 @@ mod tests {
         let saved = list(dir.path());
         assert_eq!(saved.len(), 2);
         assert_eq!(saved[0].name, "Desk kit");
-        // What is not a drum map is left out of the list.
         std::fs::write(dir.path().join("notes.txt"), b"hello").unwrap();
         std::fs::write(dir.path().join("broken.lumendrums"), b"{").unwrap();
         assert_eq!(list(dir.path()).len(), 2);

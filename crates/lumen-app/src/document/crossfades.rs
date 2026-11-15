@@ -1,7 +1,3 @@
-//! Undoable crossfades (M7b E2, ADR-0094). The rules and the shape of a
-//! crossfade are in `crate::crossfades`; these are the edits that make,
-//! resize and remove one.
-
 use std::sync::Arc;
 
 use lumen_core::fade::Fade;
@@ -12,8 +8,6 @@ use lumen_project::model::{Clip, ClipContent, Id, Project};
 use super::Document;
 
 impl Document {
-    /// Enables or disables automatic crossfades for eligible audio joins.
-    /// The setting is part of the project history.
     pub fn set_auto_crossfade(&mut self, enabled: bool) {
         let label = if enabled {
             "Enable automatic crossfades"
@@ -25,21 +19,12 @@ impl Document {
         });
     }
 
-    /// Makes (or resizes) the crossfade into `right` by dragging the end of
-    /// the clip before it, which met `right` at `from`, to `until`: that clip
-    /// is extended to `until` and `right` is trimmed to start there, so the
-    /// crossfade lasts from `from` to `until` and ends where `right` starts.
-    /// Dragged back to `from` the two are as they were. The gesture passes
-    /// a `merge` key and is one undo step.
     pub fn crossfade_across(&mut self, right: Id, from: Ticks, until: Ticks, merge: Option<&str>) {
         self.history.apply("Crossfade", merge, |project| {
             cross(project, right, from, until);
         });
     }
 
-    /// Sets the length of the crossfade into `right`, the clips staying
-    /// where they are (the outgoing clip's fade-out handle): as long as the
-    /// two have audio for, and zero removes it.
     pub fn set_crossfade_length(&mut self, right: Id, length: Ticks, merge: Option<&str>) {
         self.history.apply("Crossfade length", merge, |project| {
             let Some((track, clip)) = locate(project, right) else {
@@ -56,8 +41,6 @@ impl Document {
         });
     }
 
-    /// Makes a short crossfade into each of `ids` (as dragging the clip
-    /// before it 5 ms over would), or removes theirs.
     pub fn set_crossfade(&mut self, ids: &[Id], enabled: bool) {
         self.history.apply("Crossfade", None, |project| {
             for &id in ids {
@@ -82,7 +65,6 @@ impl Document {
     }
 }
 
-/// The unlocked audio clip `id` and its track.
 fn locate(project: &Project, id: Id) -> Option<(Id, Clip)> {
     project.tracks.iter().find_map(|t| {
         t.clips
@@ -101,10 +83,6 @@ fn replace(project: &mut Project, id: Id, change: impl FnOnce(&mut Clip)) {
     }
 }
 
-/// The crossfade into `right`, made over the end of the audio clip that ends
-/// where `right` starts: that clip is trimmed to end at `until` (no earlier
-/// than `from`) and `right` to start there, which lengthens the first and
-/// shortens the second, each as far as its audio and length allow.
 fn cross(project: &mut Project, right: Id, from: Ticks, until: Ticks) {
     let Some(t) = project
         .tracks
@@ -137,7 +115,6 @@ fn cross(project: &mut Project, right: Id, from: Ticks, until: Ticks) {
         first_new.start + first_new.length,
         false,
     );
-    // A clip too short to give up that much: they meet where it can.
     let meeting = next_new.start;
     if meeting < first_new.start + first_new.length {
         first_new = edit::trim(project, &tempo, &first_new, Edge::End, meeting, false);
@@ -166,8 +143,6 @@ mod tests {
     use crate::document::Document;
     use crate::document::tests::file;
 
-    /// A two-second file split at beat 2 (120 BPM): two clips side by side
-    /// that continue each other.
     fn split_pair() -> (Document, Id, Id) {
         let mut doc = Document::new(crate::empty_project());
         let media = doc.fresh_id();
@@ -211,9 +186,7 @@ mod tests {
         assert_eq!(b2.start + b2.length, b.start + b.length, "its end stays");
         assert!(b2.crossfade);
         assert_eq!(b2.fade_in.length, half);
-        // Its sound is unmoved: a quarter of a second further into the file.
         assert!((b2.audio_phase_seconds - b.audio_phase_seconds - 0.25).abs() < 1e-9);
-        // The whole drag is one step.
         doc.undo();
         assert_eq!(*doc.project(), before);
     }
@@ -255,7 +228,6 @@ mod tests {
         let b = clip(&doc, right);
         assert_eq!(b.fade_in.length, Ticks(half.0 / 2));
         assert_eq!(b.start, at, "the clips stay where they are");
-        // More than the two have audio for is held to what they have.
         doc.set_crossfade_length(right, Ticks::quarters(40), None);
         let b = clip(&doc, right);
         assert!(b.fade_in.length <= clip(&doc, left).length);

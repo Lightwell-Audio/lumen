@@ -1,6 +1,3 @@
-//! A row of tabs with its sliding underline: a note after a label, a group at
-//! the right end, and a tab the keyboard can focus.
-
 use eframe::egui::{self, FontId, Id as EguiId, Rect, Sense, Ui, pos2, vec2};
 
 use crate::widgets::raised;
@@ -8,33 +5,21 @@ use crate::{light, motion, theme};
 
 use super::slide_between;
 
-/// One tab of [`tabs_with`].
 #[derive(Debug, Clone, Copy)]
 pub struct Tab<'a> {
     pub label: &'a str,
-    /// A small word after the label, in caption type: what the tab shows
-    /// (the opened clip's name, DP1). Truncates past `theme::size::TAB_NOTE`.
     pub note: Option<&'a str>,
-    /// Said on hover: why an unbuilt tab cannot be opened.
     pub disabled_because: Option<&'a str>,
     pub tip: &'a str,
 }
 
-/// How a row of [`tabs_with`] is laid out.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct TabsLayout {
-    /// The first tab has no room to its left: its word lines up with a
-    /// pane title above it.
     pub flush: bool,
-    /// The tabs from this index on stand at the right end of the row,
-    /// after a 1 × 14 pt hairline (the detail panel's Mixer, DP1).
     pub right_from: Option<usize>,
-    /// Give this tab the keyboard focus this frame.
     pub focus: Option<usize>,
 }
 
-/// A hairline between groups of a tab row: 1 × 14 pt in `border_strong`,
-/// centred in a row `height` tall at `x`.
 pub fn tab_divider(ui: &Ui, x: f32, middle: f32) {
     let line = Rect::from_center_size(
         pos2(x, middle),
@@ -44,8 +29,6 @@ pub fn tab_divider(ui: &Ui, x: f32, middle: f32) {
         .rect_filled(line, 0.0, theme::p().border_strong);
 }
 
-/// A row of tabs, laid out by `layout`: with notes, a group at the right end and
-/// a tab to focus. The underline slides across both groups.
 pub fn tabs_with(
     ui: &mut Ui,
     id: EguiId,
@@ -59,8 +42,6 @@ pub fn tabs_with(
     let mut picked = None;
     let mut spans = Vec::with_capacity(tabs.len());
     let mut bottom = 0.0;
-    // Each tab's words, laid out first so the right-hand group's width is
-    // known before it is placed.
     let laid: Vec<_> = tabs
         .iter()
         .enumerate()
@@ -114,12 +95,10 @@ pub fn tabs_with(
             tabs.iter().zip(laid).enumerate()
         {
             if layout.right_from == Some(i) {
-                // The rest stand at the right end, after a hairline.
                 let rest: f32 =
                     widths[i..].iter().sum::<f32>() + (widths.len() - i - 1) as f32 * gap;
                 let room = (ui.available_width() - rest - gap).max(gap);
                 let (spacer, _) = ui.allocate_exact_size(vec2(room, size.y), Sense::hover());
-                // At the tab's own edge, so its word stands 12 pt after it.
                 tab_divider(ui, spacer.right() + gap, spacer.center().y);
             }
             let sense = if enabled {
@@ -155,7 +134,6 @@ pub fn tabs_with(
                 if hover { palette.text } else { colour },
             );
             if let Some(note) = note {
-                // On the label's baseline: the caption sits a little lower.
                 let at = pos2(
                     label_right + note_room,
                     rect.center().y - note.size().y / 2.0 + theme::stroke::HAIRLINE,
@@ -166,19 +144,12 @@ pub fn tabs_with(
             if response.clicked() && !selected {
                 picked = Some(i);
             }
-            // The underline spans the words, whatever room the tab has
-            // around them.
             spans.push((rect.left() + left_room, rect.right() - theme::space::M));
             bottom = rect.bottom();
         }
     });
-    // The tab just picked counts as chosen, so the click lands where it is
-    // drawn.
     let index = picked.unwrap_or(chosen);
     if index < spans.len() {
-        // Glide the *index* and slide between the live tabs, so a strip
-        // that itself moves (a panel being resized) carries the underline
-        // along rigidly; only a change of choice glides.
         let ctx = ui.ctx().clone();
         let at = motion::glide(&ctx, id.with("underline at"), index as f32, true);
         let (left, right) = slide_between(&spans, at);

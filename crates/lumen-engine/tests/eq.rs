@@ -1,8 +1,3 @@
-//! Iris, the parametric equaliser, in the engine (M8 slice B1): a lane moves a
-//! band's frequency and the sound follows on the exact frames at any block
-//! size, the render is pinned by its samples, a full table of lanes fills one
-//! queue each, and nothing here allocates.
-
 use std::sync::Arc;
 
 use lumen_core::automation::Shape;
@@ -24,14 +19,12 @@ const MASTER: u64 = 100;
 const DEVICE: u64 = 7;
 const TRACK: u64 = 1;
 
-/// The normalised value of `id` at `value` in its own units.
 fn at(id: u32, value: f32) -> f32 {
     params::find(eq::TABLE, id)
         .expect("a parameter of the table")
         .normalised(value)
 }
 
-/// The values a project holds for Iris with `set`'s own-units values.
 fn values(set: &[(u32, f32)]) -> Vec<(u32, f32)> {
     eq::TABLE
         .iter()
@@ -45,10 +38,8 @@ fn values(set: &[(u32, f32)]) -> Vec<(u32, f32)> {
         .collect()
 }
 
-/// A clip of `frames` frames of a tone at `hz`, on `TRACK`.
 fn tone(hz: f32, frames: usize) -> Clip {
     let samples: Vec<f32> = (0..frames)
-        // In double: the platforms' `f32` sine differs in a last bit.
         .map(|k| {
             (0.3 * (std::f64::consts::TAU * f64::from(hz) * k as f64 / f64::from(RATE)).sin())
                 as f32
@@ -70,7 +61,6 @@ fn tone(hz: f32, frames: usize) -> Clip {
     }
 }
 
-/// The routing: a track with Iris on it, into the master.
 fn routing(values: &[(u32, f32)], lanes: Vec<(u32, AutoLane)>) -> Routing {
     let mut track = NodeSpec::unity(TRACK, Destination::Node(MASTER));
     track.devices = vec![Device::Builtin {
@@ -127,7 +117,6 @@ impl Rig {
         self.transport.send(Command::Play).unwrap();
     }
 
-    /// Renders `frames` in blocks of `block`; returns the left channel.
     fn run(&mut self, frames: usize, block: usize) -> Vec<f32> {
         let mut data = vec![0.0; 2 * block];
         let mut out = Vec::with_capacity(frames);
@@ -142,7 +131,6 @@ impl Rig {
     }
 }
 
-/// A lane of `id` from `from` to `to` in its own units, over `frames`.
 fn sweep(id: u32, from: f32, to: f32, frames: usize, shape: Shape) -> (u32, AutoLane) {
     let lane = AutoLane::new(vec![
         AutoPoint {
@@ -160,8 +148,6 @@ fn sweep(id: u32, from: f32, to: f32, frames: usize, shape: Shape) -> (u32, Auto
     (id, lane)
 }
 
-/// The brief's block-size test, through the plan: 64, 128, 512, 1024 and an
-/// odd 97 give the same sound.
 #[test]
 fn a_swept_band_is_the_same_at_every_block_size() {
     let frames = 5000;
@@ -194,21 +180,12 @@ fn a_swept_band_is_the_same_at_every_block_size() {
         let parts = render(block);
         assert_eq!(parts.len(), whole.len());
         for (frame, (a, b)) in whole.iter().zip(&parts).enumerate() {
-            // The same curves, interpolated along stretches of different
-            // lengths: the two agree to a ten-thousandth of the signal's
-            // loudest. A resonant band magnifies the last bit of a lane's
-            // interpolation, and the difference does not grow (the last fifth
-            // of the render agrees to four millionths); a band settled on a
-            // different frame would move the sound by a tenth, not a
-            // ten-thousandth.
             assert!(
                 (a - b).abs() < 5e-4,
                 "block {block} frame {frame}: {a} against {b}"
             );
         }
     }
-    // The lanes are heard: the bell comes up to the 600 Hz tone with 12 dB on
-    // it.
     let early: f32 = whole[100..400]
         .iter()
         .fold(0.0, |most, x| most.max(x.abs()));
@@ -218,9 +195,6 @@ fn a_swept_band_is_the_same_at_every_block_size() {
     assert!(late > early * 1.5, "early {early}, late {late}");
 }
 
-/// The golden render: a band's gain automated, pinned by twenty of its samples,
-/// its level and its energy (the platforms' maths libraries round a last bit
-/// apart, so a golden is not pinned by its bits).
 #[test]
 fn a_golden_render_of_an_automated_iris_is_pinned_to_its_samples() {
     let frames = 5000;
@@ -242,8 +216,6 @@ fn a_golden_render_of_an_automated_iris_is_pinned_to_its_samples() {
     rig.play();
     let heard = rig.run(frames, 128);
     assert_eq!(heard.len(), frames);
-    // Pinned within a millionth rather than by its bits: the platforms' maths
-    // libraries round a last bit apart (CI runs three).
     const PINS: [f32; 20] = [
         0.0,
         -1.3711277e-1,
@@ -288,14 +260,10 @@ fn a_golden_render_of_an_automated_iris_is_pinned_to_its_samples() {
     );
 }
 
-/// B0's review N7: each automated parameter used to take two of a block's
-/// queues, its value and its lane. Iris has thirty-eight parameters; a lane on
-/// every one of them must fill one queue each, or the last ones would be cut.
 #[test]
 fn a_full_table_of_lanes_fills_one_queue_each() {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    /// Counts the queues and the cut ones of each block.
     struct Counting {
         most: Arc<AtomicUsize>,
         cut: Arc<AtomicUsize>,
@@ -349,8 +317,6 @@ fn a_full_table_of_lanes_fills_one_queue_each() {
     );
 }
 
-/// The audio thread's rules, through the plan: a block with Iris and a lane on
-/// its band allocates nothing.
 #[test]
 fn a_block_with_an_eq_never_touches_the_heap() {
     assert!(guard_is_active(), "the guarded allocator is installed");
@@ -359,7 +325,6 @@ fn a_block_with_an_eq_never_touches_the_heap() {
     let mut rig = rig(vec![tone(600.0, 48_000)], &routing);
     rig.attach(Box::new(Eq::new()));
     rig.play();
-    // Past the attach's fade, so the plan's own path is the one measured.
     rig.run(2048, 128);
     let mut data = vec![0.0; 2 * 128];
     let ((), heap) = count_rt_violations(|| {
@@ -368,7 +333,6 @@ fn a_block_with_an_eq_never_touches_the_heap() {
     assert_eq!(heap, 0, "the audio thread allocated");
 }
 
-/// The power button works on Iris as on Prism: bypassed, the tone comes back.
 #[test]
 fn bypassing_iris_gives_the_tone_back() {
     let values = values(&[

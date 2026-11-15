@@ -1,6 +1,3 @@
-//! The pointer in the notes (M5 slice 3c): presses, drags and releases,
-//! and what a double-click is.
-
 use std::sync::Arc;
 
 use eframe::egui::{self, PointerButton, Pos2, pos2};
@@ -15,7 +12,6 @@ use crate::App;
 use crate::document::Resize;
 
 impl App {
-    /// Presses, drags and releases in the notes: the gesture state machine.
     pub(super) fn editor_pointer(
         &mut self,
         ctx: &egui::Context,
@@ -58,11 +54,7 @@ impl App {
         let at = latest.unwrap_or(gesture.origin);
         if (at - gesture.origin).length() > DRAG_THRESHOLD {
             gesture.dragging = true;
-            // A drag is not the first press of a double-click.
             ed.last_empty_press = None;
-            // Latch what the drag is on the first frame past the threshold:
-            // in the lanes, a drag that starts up or down on a picked hit is
-            // the velocity, and one that starts sideways is a move (M3).
             gesture.latch(at);
         }
         let cell = self.grid_cell_at_zoom(clip.start, view.time.zoom);
@@ -77,9 +69,6 @@ impl App {
             snap: &snap,
         };
         if down {
-            // A box selects as it grows. In the lanes it takes the diamonds
-            // (and the length bars, where they show), not the notes' boxes
-            // (review M2).
             if let Kind::Marquee { base } = &gesture.kind
                 && gesture.dragging
                 && let Resolved::Marquee(rect) = gesture.resolve(at, &env)
@@ -111,7 +100,6 @@ impl App {
             }
             return;
         }
-        // Released.
         let resolved = gesture.resolve(at, &env);
         let gesture = ed.gesture.take().expect("a gesture was just used");
         self.end_audition();
@@ -154,14 +142,10 @@ impl App {
         match result {
             Some(indices) => self.select_notes(ed, indices),
             None if matches!(gesture.kind, Kind::Marquee { .. }) && gesture.dragging => {
-                // The box picks what it held, once, so the roll's boxes are
-                // rebuilt once for it.
                 let picked = std::mem::take(&mut ed.boxed);
                 self.select_notes(ed, picked);
             }
             None => {
-                // A click without a drag. On one of several picked notes it
-                // picks that one alone.
                 let shift = modifiers.shift;
                 if !gesture.dragging
                     && !shift
@@ -192,12 +176,9 @@ impl App {
         };
         let free = modifiers.alt;
         let id = clip.id;
-        // Only a press on empty space with the pointer can start a
-        // double-click, so any other press forgets the last one.
         let previous = ed.last_empty_press.take();
         match (ed.tool, hit) {
             (Tool::Draw, Some((i, _))) => {
-                // A click on a note removes it.
                 let removed = self.document.delete_notes(id, &[i]);
                 self.select_notes(ed, removed);
             }
@@ -208,7 +189,6 @@ impl App {
                 let mut picked = ed.picked().to_vec();
                 if modifiers.shift {
                     if let Ok(at) = picked.binary_search(&i) {
-                        // Shift on a picked note lets it go.
                         picked.remove(at);
                         self.select_notes(ed, picked);
                         return;
@@ -219,8 +199,6 @@ impl App {
                 }
                 picked.sort_unstable();
                 self.select_notes(ed, picked.clone());
-                // A lane's hit has no ends to grab: its diamond is the whole
-                // hit, and a vertical drag on it sets the velocity (DE A).
                 let zone = if view.lanes { Zone::Body } else { zone };
                 let kind = match zone {
                     Zone::Start => Kind::Resize { end: End::Start },
@@ -229,8 +207,6 @@ impl App {
                         copy: modifiers.command,
                     },
                 };
-                // A move previews every picked note as a chord; a resize, the
-                // note grabbed.
                 let heard: Vec<_> = match zone {
                     Zone::Body => lumen_project::edit::notes::picked(&picked, notes.len())
                         .iter()
@@ -252,8 +228,6 @@ impl App {
                 });
             }
             (Tool::Pointer, None) => {
-                // A second press on empty space, soon and near enough, draws
-                // a note as the Draw tool does.
                 if !modifiers.shift
                     && timing.is_double(previous, p)
                     && self.start_draw(ed, view, clip, p, free)
@@ -282,10 +256,6 @@ impl App {
         }
     }
 
-    /// Starts drawing a note where the pointer is (the Draw tool's press,
-    /// and a double-click with the pointer): in the grid cell under it, or
-    /// exactly there with Alt or no snapping; dragging sets its length. The
-    /// note is made on release. False when the press is outside the clip.
     fn start_draw(
         &mut self,
         ed: &mut NoteEditor,
@@ -311,8 +281,6 @@ impl App {
         if start < Ticks::ZERO || start >= content {
             return false;
         }
-        // In the lanes a press below the last lane (or with no lanes) draws
-        // nothing (review M1).
         let pitch = if view.lanes {
             let Some(row) = view.lane_at(p.y) else {
                 return false;
@@ -343,9 +311,6 @@ impl App {
     }
 }
 
-/// When a press happened, and what egui counts as a double-click (its
-/// input options): the longest wait between presses, and the farthest they
-/// may be apart.
 #[derive(Debug, Clone, Copy)]
 struct Timing {
     now: f64,
@@ -354,9 +319,6 @@ struct Timing {
 }
 
 impl Timing {
-    /// Whether a press at `at` now is the second of a double-click that
-    /// began with `previous`, the time and place of the last press on empty
-    /// space.
     fn is_double(self, previous: Option<(f64, Pos2)>, at: Pos2) -> bool {
         previous.is_some_and(|(time, place)| {
             (0.0..=self.delay).contains(&(self.now - time)) && (at - place).length() <= self.dist

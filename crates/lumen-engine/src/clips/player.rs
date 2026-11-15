@@ -1,6 +1,3 @@
-//! The audio thread's clip player: takes new lists, crossfades the clips
-//! that moved, and plays each clip into its track's bus.
-
 use crate::envelope::EnvelopeGains;
 use crate::mixer::{BUS_CHANNELS, Buses, TrackSource};
 use crate::source::{Jump, Mode, RenderContext};
@@ -15,34 +12,17 @@ use super::seams::{Seam, resolve as set_seams};
 use super::set::ClipSet;
 use super::{Clip, ClipAudio};
 
-/// Clip edge fades: 2 ms.
 const FADE_PER_SECOND: u32 = 500;
-/// How fast a level glides: full scale in 20 ms (owner: pan and volume
-/// drags crackled while the level stepped once per screen frame).
 const GLIDE_PER_SECOND: f32 = 50.0;
-/// A streamed clip needs its pages 40 ms ahead (twice a full glide).
 const LOOKAHEAD_PER_SECOND: u32 = 25;
 
-/// Audio side: plays the clips. A [`Source`] for the engine.
-///
-/// `L` decides whether a streamed page it misses may be loaded: the audio
-/// thread's player is `ClipPlayer<NoLoader>` (what [`clip_player`] makes) and
-/// has no way to reach a loader at all; only an offline render's player may
-/// load ([`PageLoad`], sweep M16b).
-///
-/// [`Source`]: crate::source::Source
-/// [`clip_player`]: super::handle::clip_player
 pub struct ClipPlayer<L = NoLoader> {
     incoming: rtrb::Consumer<Box<ClipSet>>,
     retired: rtrb::Producer<Box<ClipSet>>,
-    /// A replaced list that did not fit in the retired queue yet.
     stash: Option<Box<ClipSet>>,
     current: Box<ClipSet>,
-    /// The list `current` replaced, while its moved clips fade out.
     swap: Option<Swap>,
-    /// The envelope gains of the clip being played.
     gains: EnvelopeGains,
-    /// What this player may load: nothing, for the audio thread's.
     policy: std::marker::PhantomData<L>,
 }
 
@@ -51,9 +31,6 @@ fn fade_length(rate: u32) -> u32 {
 }
 
 impl<L: PageLoad> ClipPlayer<L> {
-    /// A player on `incoming`, handing replaced lists back through
-    /// `retired`, starting with no clips. Allocates, so call it off the
-    /// audio thread.
     pub(super) fn new(
         incoming: rtrb::Consumer<Box<ClipSet>>,
         retired: rtrb::Producer<Box<ClipSet>>,
@@ -74,21 +51,14 @@ impl<L: PageLoad> ClipPlayer<L> {
     }
 }
 
-/// The block being rendered.
 struct Block {
-    /// Timeline samples of the first frame and one past the last.
     from: i64,
     to: i64,
-    /// Edge fade length, in frames.
     edge: i64,
-    /// How far a level moves in one frame.
     glide: f32,
-    /// How far past the block a streamed clip's pages must be in memory: more
-    /// than a glide, so a clip that will run out fades while it still plays.
     ahead: i64,
 }
 
-/// The block being rendered and the room to work out its envelope gains.
 struct Work<'a> {
     block: Block,
     gains: &'a mut EnvelopeGains,
@@ -100,10 +70,6 @@ struct ClipRender<'a> {
     seam: Seam,
 }
 
-/// Plays `clip` at its kept level into its track's bus in `buses`, faded
-/// by `ramp`. A tail (rendered ahead of a jump) reads the level but does
-/// not move it. `L` says whether a missing streamed page may be loaded: the
-/// audio thread's player passes [`NoLoader`], which cannot (sweep M16b).
 fn play<L: PageLoad>(
     clip: &Clip,
     kept: Kept<'_>,
@@ -122,8 +88,6 @@ fn play<L: PageLoad>(
     let mut scratch = *kept.level;
     let level = if cx.tail { &mut scratch } else { kept.level };
     let Some(mut bus) = buses.track(clip.track) else {
-        // Its track is not in the routing: not heard, so it fades in if
-        // the track joins while it plays.
         *level = f32::NAN;
         return;
     };
@@ -135,14 +99,10 @@ fn play<L: PageLoad>(
         b = b.min(x.end);
     }
     if a >= b {
-        // Silent in this block: nothing to glide from.
         *level = goal;
         return;
     }
     if let ClipAudio::Stream(stream) = &*clip.audio {
-        // Read from disk: while any page it reads in this block or a little
-        // after is missing, it glides out (on audio it still has) and back in
-        // once its pages are there. Each time it has to is one underrun.
         let ready = for_each_page(clip, start, a..b + block.ahead, stream.frames(), &mut |p| {
             L::ensure(stream, p)
         });
@@ -157,8 +117,6 @@ fn play<L: PageLoad>(
         }
     }
     if level.is_nan() {
-        // First heard. At its start the edge fade covers it; partway
-        // through, it fades in.
         *level = if a == start { goal } else { 0.0 };
     }
     if goal == 0.0 && *level == 0.0 {
@@ -166,7 +124,6 @@ fn play<L: PageLoad>(
     }
     let sources = clip.audio.channels();
     if sources == 0 {
-        // A clip with no channels has nothing to play (and no side to pick).
         return;
     }
     let enveloped = !clip.envelope.is_empty();
@@ -184,7 +141,6 @@ fn play<L: PageLoad>(
     let gains: &EnvelopeGains = gains;
     let plain = clip.shape.plain() && !enveloped;
     let mut gain = *level;
-    // A crossfade half needs no 2 ms edge fade at its end of the clip.
     let blend = [clip.shape.fade_in.blend, clip.shape.fade_out.blend];
     let seamless = [seam.edges[0] || blend[0], seam.edges[1] || blend[1]];
     let seam_lead = if blend[0] {
@@ -214,7 +170,6 @@ fn play<L: PageLoad>(
             ramp,
             plain,
         };
-        // Mono plays on both sides; extra channels are ignored.
         gain = match &*clip.audio {
             ClipAudio::Memory { channels, .. } => {
                 side_mix.run(target, channels[side.min(sources - 1)].as_slice())
@@ -225,16 +180,12 @@ fn play<L: PageLoad>(
     *level = gain;
 }
 
-/// A clip's kept state across blocks.
 struct Kept<'a> {
     level: &'a mut f32,
-    /// A streamed clip faded out because its audio was not in memory.
     starved: &'a mut bool,
 }
 
 impl<L: PageLoad> ClipPlayer<L> {
-    /// Takes a new clip list if one arrived and no crossfade is running.
-    /// With `fade`, clips that moved crossfade into it. Real-time safe.
     fn take_new(&mut self, fade: bool) {
         if let Some(old) = self.stash.take() {
             self.retire(old);
@@ -248,12 +199,6 @@ impl<L: PageLoad> ClipPlayer<L> {
         let Ok(mut new) = self.incoming.pop() else {
             return;
         };
-        // Only the newest list matters: lists that queued up (while
-        // stopped, or during a crossfade) go straight back unplayed, so a
-        // drag's old positions never play late.
-        // Skipping a list needs room for it and for the one it replaces
-        // in the end, or the stash would be overwritten and a list freed
-        // here; newer lists then wait a block.
         while self.retired.slots() >= 2
             && let Ok(newer) = self.incoming.pop()
         {
@@ -272,16 +217,12 @@ impl<L: PageLoad> ClipPlayer<L> {
         }
     }
 
-    /// Hands `old` back to be freed, keeping it if the queue is full. Only
-    /// called while the stash is empty.
     fn retire(&mut self, old: Box<ClipSet>) {
         if let Err(rtrb::PushError::Full(old)) = self.retired.push(old) {
             self.stash = Some(old);
         }
     }
 
-    /// The page pools the lists playing read from: at most one each, and the
-    /// old list's only when it is another pool.
     fn pools(&self) -> [Option<&PagePool>; 2] {
         let current = self.current.pool.as_deref();
         let old = self
@@ -300,7 +241,6 @@ impl<L: PageLoad> ClipPlayer<L> {
         self.pools().into_iter().flatten().for_each(PagePool::leave);
     }
 
-    /// Ends the crossfade once it is done, or at once with `now`.
     fn finish_swap(&mut self, now: bool) {
         if self.stash.is_some() {
             return;
@@ -312,18 +252,9 @@ impl<L: PageLoad> ClipPlayer<L> {
 }
 
 impl<L: PageLoad> ClipPlayer<L> {
-    /// One block of the player, written once for both sides. The two
-    /// [`TrackSource`] impls below are concrete, so each side's code is
-    /// compiled here in this crate, as the one non-generic player was: a
-    /// generic impl was instantiated in whichever crate built the player, and
-    /// the audio thread's clips ran half as fast again in `engine_clips_64`.
     #[inline(always)]
     fn render_block(&mut self, cx: &RenderContext<'_>, out: &mut Buses<'_>) {
         if cx.mode == Mode::Ring {
-            // Stopped, and only instrument and effect tails ring. The engine
-            // renders instead of idling while a note rings, so lists sent
-            // meanwhile are taken here, or a held live note would fill the
-            // queue and the interface would hold its next edits back.
             self.idle_now();
             return;
         }
@@ -339,7 +270,6 @@ impl<L: PageLoad> ClipPlayer<L> {
             glide: GLIDE_PER_SECOND / rate as f32,
             ahead: i64::from(rate / LOOKAHEAD_PER_SECOND),
         };
-        // Pages read in this block stay in memory until it ends.
         self.enter_pools();
         set_seams(&mut self.current, cx);
         let crossfade = self.swap.as_mut().map(|swap| {
@@ -419,8 +349,6 @@ impl<L: PageLoad> ClipPlayer<L> {
     }
 
     fn locate_now(&mut self) {
-        // A jump is crossfaded by the engine: a crossfade between lists ends
-        // here, and levels start at their targets rather than gliding.
         self.finish_swap(true);
         self.take_new(false);
         let set = &mut *self.current;
@@ -430,8 +358,6 @@ impl<L: PageLoad> ClipPlayer<L> {
     }
 }
 
-/// The two sides' [`TrackSource`] impls are concrete, so each is compiled in
-/// this crate whoever builds the player (see `render_block`).
 macro_rules! track_source {
     ($side:ty) => {
         impl TrackSource for ClipPlayer<$side> {

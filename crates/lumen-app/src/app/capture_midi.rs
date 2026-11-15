@@ -1,15 +1,9 @@
-//! Capture MIDI (M9 slice R3, ADR-0104): turns the notes last played on a
-//! MIDI track, while not recording, into a clip. The buffer is
-//! `played::Played`; `app/record.rs` fills it from the engine's queue.
-
 use lumen_project::model::{ClipContent, Id, TrackKind};
 
 use crate::App;
 use crate::played::{self, Phrase};
 
 impl App {
-    /// The MIDI tracks to try, best first: the selected ones, then the armed
-    /// ones, then the track played last.
     fn capture_candidates(&self) -> Vec<Id> {
         let project = self.document.project();
         let usable = |id: &Id| {
@@ -37,14 +31,12 @@ impl App {
         found
     }
 
-    /// The phrase Capture MIDI would place, and the track it goes on.
     fn phrase_to_capture(&self) -> Option<(Id, Phrase)> {
         self.capture_candidates()
             .into_iter()
             .find_map(|id| self.record.played.newest(id.0).map(|p| (id, p)))
     }
 
-    /// Whether Capture MIDI can run now, and why not if it cannot.
     pub(crate) fn capture_midi_ready(&self) -> Result<(), &'static str> {
         if self.record.active() {
             return Err("Not while recording");
@@ -58,7 +50,6 @@ impl App {
         Ok(())
     }
 
-    /// Places the newest phrase as a clip on its track.
     pub(crate) fn capture_midi(&mut self) {
         if let Err(why) = self.capture_midi_ready() {
             self.say(why.to_owned());
@@ -78,8 +69,6 @@ impl App {
         let timeline = &self.transport.timeline;
         let playhead = timeline.sample_at(snap.ticks, rate);
         let ticks = |sample: i64| timeline.ticks_at(sample, rate);
-        // A take on a mapped track keeps the map's input notes, as a
-        // recording does (M8 D0; review M2).
         let store = self.document.drum_map_of(track);
         let Some(take) =
             played::take_of(&phrase, playhead, latency, &ticks, &timeline.meter, store)

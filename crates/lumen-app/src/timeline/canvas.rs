@@ -1,8 +1,3 @@
-//! Canvases drawn by `lumen-render` inside egui (ADR-0002). egui owns the
-//! window and widgets; dense content goes through paint callbacks that share
-//! egui's wgpu device: the arrangement grid, and clip bodies (M3 slice 4b,
-//! ADR-0026).
-
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -24,45 +19,29 @@ use lumen_render::{
 struct Resources {
     renderer: Renderer,
     grid: LayerId,
-    /// The lines the grid layer holds.
     grid_lines: Option<GridLines>,
     clips: BoxLayerId,
-    /// The generation of clip boxes and waves on the GPU.
     clips_generation: Option<u64>,
-    /// Peak slots already in the atlas.
     peaks_uploaded: HashSet<u32>,
-    /// The atlas is full: waves of further files are not drawn.
     atlas_full: bool,
-    /// The peak list last checked for peaks no longer drawn, by address.
     peaks_checked: usize,
-    /// The notes inside the arrangement's MIDI clips (M5 slice 3b): a box
-    /// layer beside the clips, with its own row table.
     mini: BoxLayerId,
     mini_rows: Vec<RowSlot>,
-    /// The tracks being recorded, while a take grows (after MT-MIDI-7): their
-    /// clips and notes, rebuilt every frame on layers of their own so the
-    /// rest of the arrangement is not.
     live: BoxLayerId,
     live_mini: BoxLayerId,
     live_generation: Option<u64>,
     live_mini_rows: Vec<RowSlot>,
-    /// The piano roll's grid and notes, one set per [`Surface`].
     rolls: [Roll; 2],
 }
 
-/// One piano roll's layers.
 struct Roll {
     grid: LayerId,
     grid_lines: Option<GridLines>,
     notes: BoxLayerId,
-    /// The generation of note boxes on the GPU.
     notes_generation: Option<u64>,
-    /// The row height the pitch rows were laid out for (physical pixels).
     row_height: Option<f32>,
 }
 
-/// Where a piano roll is shown. Each place has layers of its own, so the
-/// docked roll and a popped-out window never rebuild each other's notes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Surface {
     Docked,
@@ -81,15 +60,10 @@ impl Surface {
     }
 }
 
-/// Drawing targets: each paint callback prepares its own.
 const GRID_TARGET: usize = 0;
 const CLIPS_TARGET: usize = 1;
-/// The piano rolls' targets start here: a grid and a notes target each.
 const ROLL_TARGETS: usize = 2;
 
-/// What the arrangement grid shows: the editing grid, the time signatures
-/// it counts from, and the line colours (theme tokens `grid_bar`,
-/// `grid_beat`, `grid_sub`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct GridLook {
     pub grid: Grid,
@@ -97,10 +71,6 @@ pub struct GridLook {
     pub colors: [egui::Color32; 3],
 }
 
-/// The grid lines around the view, covering a few screens so scrolling
-/// rarely rebuilds them. The lines depend on the zoom only through the
-/// step drawn in each time signature (`steps`), so zooming rebuilds them
-/// only when a step changes.
 #[derive(Debug, Clone, PartialEq)]
 struct GridLines {
     look: GridLook,
@@ -111,8 +81,6 @@ struct GridLines {
 }
 
 impl GridLines {
-    /// The lines for `time` across `width` points: whole windows of a
-    /// power of two quarter notes, one before the view and two after it.
     fn around(time: TimeView, width: f32, look: &GridLook) -> Self {
         let steps = look
             .meter
@@ -133,7 +101,6 @@ impl GridLines {
         }
     }
 
-    /// One line instance per grid line; one row spans the canvas height.
     fn instances(&self) -> Vec<RectInstance> {
         let [bar, beat, sub] = self.look.colors;
         let mut instances: Vec<RectInstance> = self
@@ -151,15 +118,12 @@ impl GridLines {
                 RectInstance::new(at, at, 0.0, rgba(c.r(), c.g(), c.b(), 255))
             })
             .collect();
-        // A layer is never empty.
         if instances.is_empty() {
             instances.push(RectInstance::new(0.0, 0.0, 0.0, 0));
         }
         instances
     }
 
-    /// Whether these lines also do for `wanted`: the same grid, steps and
-    /// colours, over a range that covers it.
     fn covers(&self, wanted: &Self) -> bool {
         self.look == wanted.look
             && self.steps == wanted.steps
@@ -168,16 +132,12 @@ impl GridLines {
     }
 }
 
-/// Compiled GPU pipelines cached between launches (ADR-0002), read on a
-/// thread of its own while the window and the GPU start, so the UI thread
-/// never waits on the disk for it (KNOWN_ISSUES, M3 review L3).
 pub struct PipelineCache {
     path: PathBuf,
     read: std::thread::JoinHandle<Option<Vec<u8>>>,
 }
 
 impl PipelineCache {
-    /// Starts reading the cache, if there is a place for it.
     pub fn prefetch() -> Option<Self> {
         let base = std::env::var_os("LOCALAPPDATA")?;
         let path = PathBuf::from(base)
@@ -192,12 +152,10 @@ impl PipelineCache {
         Some(Self { path, read })
     }
 
-    /// The cache's bytes; read by now, as the GPU takes longer to start.
     fn data(self) -> Option<Vec<u8>> {
         self.read.join().ok().flatten()
     }
 
-    /// Writes `data` back in the background.
     fn store(path: PathBuf, data: Vec<u8>) {
         let _ = std::thread::Builder::new()
             .name("lumen-pipeline-cache".into())
@@ -210,8 +168,6 @@ impl PipelineCache {
     }
 }
 
-/// Installs the renderer, with the pipeline cache when the device can use
-/// one (tests pass `None`: they never touch the user's cache).
 pub fn install(
     state: &egui_wgpu::RenderState,
     pipelines: Option<PipelineCache>,
@@ -224,7 +180,6 @@ pub fn install(
     if let (Some(path), Some(data)) = (path, lumen_render::pipeline_cache_data(cache.as_ref())) {
         PipelineCache::store(path, data);
     }
-    // Filled in on the first frame (`GridLines`); a buffer cannot be empty.
     let grid = renderer.add_layer(&state.device, &[RectInstance::new(0.0, 0.0, 0.0, 0)]);
     let clips = renderer.add_box_layer(&state.device);
     let mini = renderer.add_box_layer(&state.device);
@@ -266,7 +221,6 @@ struct GridCallback {
     view: View,
     port: Port,
     lines: GridLines,
-    /// The arrangement's grid (`None`), or a piano roll's.
     surface: Option<Surface>,
 }
 
@@ -276,10 +230,6 @@ impl GridCallback {
     }
 }
 
-/// A callback's viewport, as egui-wgpu sets it: each edge rounded to a
-/// whole pixel. `offset` is where the callback's rect really starts
-/// within it (under a pixel), so GPU content rounds to the same pixels as
-/// egui's own shapes.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Port {
     size_px: [u32; 2],
@@ -369,7 +319,6 @@ impl egui_wgpu::CallbackTrait for GridCallback {
     }
 }
 
-/// Paint shape for the arrangement grid in `rect`, at `time`.
 pub fn grid_shape(
     rect: Rect,
     pixels_per_point: f32,
@@ -379,8 +328,6 @@ pub fn grid_shape(
     grid_shape_on(None, rect, pixels_per_point, time, look)
 }
 
-/// Paint shape for a piano roll's vertical grid lines in `rect` (the
-/// lanes), at `time`, the arrangement's zoom.
 pub(crate) fn roll_grid_shape(
     surface: Surface,
     rect: Rect,
@@ -412,34 +359,20 @@ fn grid_shape_on(
     egui::Shape::Callback(egui_wgpu::Callback::new_paint_callback(rect, callback))
 }
 
-/// Clip bodies and waveforms for the GPU: the boxes and waves, rebuilt
-/// only when they change (`generation` says when), and where each row is
-/// this frame.
 pub struct ClipFrame {
-    /// Samples for waves drawn sample by sample, when they change.
     pub strips: Option<crate::arrangement::StripUpdate>,
     pub boxes: Arc<Vec<BoxInstance>>,
     pub waves: Arc<Vec<WaveInstance>>,
-    /// Every peak slot the waves may use; the GPU side uploads the ones it
-    /// does not have yet.
     pub peaks: Arc<Vec<(u32, Arc<Peaks>)>>,
     pub generation: u64,
     pub rows: Vec<RowSlot>,
-    /// Scroll and zoom; the vertical scroll in points.
     pub time: TimeView,
     pub top: f32,
-    /// Clip sizes, in physical pixels ([`box_style`]).
     pub style: BoxStyle,
     pub wave_style: WaveStyle,
-    /// The notes inside MIDI clips, rebuilt with `generation`, the row
-    /// slots of their bands (`piano_roll::mini`) each frame, and their
-    /// sizes.
     pub mini: Arc<Vec<BoxInstance>>,
     pub mini_rows: Vec<RowSlot>,
     pub mini_style: BoxStyle,
-    /// The clips and notes of the tracks being recorded, drawn over the
-    /// rest (which leaves them out), rebuilt with `live_generation`; the
-    /// clips use `rows`, the notes `live_mini_rows`.
     pub live: Arc<Vec<BoxInstance>>,
     pub live_mini: Arc<Vec<BoxInstance>>,
     pub live_mini_rows: Vec<RowSlot>,
@@ -465,10 +398,6 @@ impl egui_wgpu::CallbackTrait for ClipsCallback {
             return Vec::new();
         };
         let frame = &self.frame;
-        // Peaks in the atlas that are no longer drawn (another rate's after a
-        // rate change, a removed file's): start the atlas again with those
-        // that are, so their space is reclaimed (M9 slice R6). Rare, and
-        // cheap next to the change that caused it.
         let list = Arc::as_ptr(&frame.peaks) as usize;
         if r.peaks_checked != list
             && r.peaks_uploaded
@@ -590,7 +519,6 @@ impl egui_wgpu::CallbackTrait for ClipsCallback {
     }
 }
 
-/// Paint shape for clip bodies in `rect` (the lanes).
 pub fn clips_shape(rect: Rect, pixels_per_point: f32, frame: ClipFrame) -> egui::Shape {
     let callback = ClipsCallback {
         frame,
@@ -600,8 +528,6 @@ pub fn clips_shape(rect: Rect, pixels_per_point: f32, frame: ClipFrame) -> egui:
     egui::Shape::Callback(egui_wgpu::Callback::new_paint_callback(rect, callback))
 }
 
-/// How clip bodies are drawn, in physical pixels: the same sizes as the
-/// design system's clip (DESIGN §7a).
 pub fn box_style(pixels_per_point: f32, inset: f32, title: f32) -> BoxStyle {
     BoxStyle {
         inset: inset * pixels_per_point,
@@ -612,8 +538,6 @@ pub fn box_style(pixels_per_point: f32, inset: f32, title: f32) -> BoxStyle {
     }
 }
 
-/// How the notes inside arrangement clips are drawn, in physical pixels:
-/// thin bands, square-ish, one pixel wide at the least.
 pub fn mini_style(pixels_per_point: f32) -> BoxStyle {
     BoxStyle {
         inset: 0.0,
@@ -624,26 +548,15 @@ pub fn mini_style(pixels_per_point: f32) -> BoxStyle {
     }
 }
 
-/// The piano roll's notes for the GPU: the boxes (one row per pitch, see
-/// `piano_roll::notes`), rebuilt only when `generation` changes, and how
-/// the view looks this frame. Changing the zoom, the scroll or the row
-/// height uploads nothing but a 128-slot row table.
 pub(crate) struct NoteFrame {
     pub boxes: Arc<Vec<BoxInstance>>,
     pub generation: u64,
-    /// The horizontal view, shared with the arrangement.
     pub time: TimeView,
-    /// The vertical scroll, in points from the top of pitch 127.
     pub scroll: f32,
-    /// Points per pitch row.
     pub row_height: f32,
-    /// Sizes in physical pixels ([`note_style`]).
     pub style: BoxStyle,
 }
 
-/// How piano-roll notes are drawn, in physical pixels: a hairline gap
-/// between rows, the owner's slightly rounded corners, a 1-px lighter top
-/// edge (the title bar) and a 1.5 pt outline for selected notes.
 pub(crate) fn note_style(pixels_per_point: f32) -> BoxStyle {
     BoxStyle {
         inset: 0.5 * pixels_per_point,
@@ -732,8 +645,6 @@ impl egui_wgpu::CallbackTrait for NotesCallback {
     }
 }
 
-/// Paint shape for a piano roll's notes in `rect` (the lanes, without the
-/// key column), over its grid.
 pub(crate) fn notes_shape(
     surface: Surface,
     rect: Rect,
@@ -767,8 +678,6 @@ mod tests {
 
     #[test]
     fn grid_lines_cover_the_view_wherever_it_is() {
-        // Bar 2,000, 24 points a beat: 1,000 points show about 10 bars; the
-        // Narrow grid draws eighths there.
         let view = TimeView {
             left: 8_000.0,
             zoom: 24.0,
@@ -779,14 +688,11 @@ mod tests {
         let instances = lines.instances();
         let quarters = (lines.to - lines.from).as_quarters();
         assert_eq!(instances.len() as f64, quarters * 2.0, "an eighth apart");
-        // Scrolling a little: the same lines do; zooming within the same
-        // step does too.
         let moved = TimeView {
             left: 8_001.0,
             zoom: 25.0,
         };
         assert!(lines.covers(&GridLines::around(moved, 1_000.0, &look)));
-        // A different grid does not.
         let triplet = self::look(Grid {
             feel: lumen_core::grid::Feel::Triplet,
             ..Grid::default()
@@ -796,7 +702,6 @@ mod tests {
 
     #[test]
     fn grid_lines_stay_calm_far_out() {
-        // 0.1 points a beat: every 32 bars (12.8 points).
         let far = TimeView {
             left: 0.0,
             zoom: 0.1,
@@ -816,8 +721,6 @@ mod tests {
     fn a_port_rounds_like_egui_wgpu_and_keeps_the_remainder() {
         let rect = Rect::from_min_max(egui::pos2(10.3, 20.6), egui::pos2(110.3, 70.6));
         let port = Port::of(rect, 1.5);
-        // Edges at 15.45, 30.9, 165.45 and 105.9 pixels round to 15, 31,
-        // 165 and 106.
         assert_eq!(port.size_px, [150, 75]);
         assert!((port.offset[0] - 0.45).abs() < 1e-4);
         assert!((port.offset[1] + 0.1).abs() < 1e-4);

@@ -1,8 +1,3 @@
-//! Gravity and Horizon in the app (M8 slice B2): adding each from the command,
-//! its drawn face and its four controls, a value typed on the face, a lane
-//! driving one, a sidechain from another track ducking it, and the power
-//! button.
-
 use std::time::Duration;
 
 use eframe::egui::{Key, Modifiers, Pos2, vec2};
@@ -17,7 +12,6 @@ use lumen_project::model::{Id, PluginRef};
 use super::Lumen;
 use super::lane_view::{run_command, tone};
 
-/// The built-in device a track has, by the saved name it is.
 fn builtin(lumen: &Lumen, track: usize, name: &str) -> Option<Id> {
     lumen
         .app()
@@ -30,7 +24,6 @@ fn builtin(lumen: &Lumen, track: usize, name: &str) -> Option<Id> {
         .map(|d| d.id)
 }
 
-/// Starts with a tone on one audio track, selected, and `command` run.
 fn launched(name: &str, command: &str, saved: &str) -> (Lumen, Id, Id) {
     let (mut lumen, track) = tone(name);
     run_command(&mut lumen, command);
@@ -50,7 +43,6 @@ fn at(lumen: &Lumen, label: &str) -> Pos2 {
     lumen.harness.get_by_label_contains(label).rect().center()
 }
 
-/// What the app is playing now: the loudest frame of a moment.
 fn heard(lumen: &mut Lumen) -> f32 {
     lumen
         .listen(Duration::from_millis(120), 1_000)
@@ -79,10 +71,7 @@ fn the_commands_put_gravity_and_horizon_on_the_track_each_with_its_face() {
     lumen.wait_for("the audio thread to have it", |app| {
         app.builtin_attached(gravity)
     });
-    // The card says the device's own name, with what it is under it.
     assert!(lumen.shows("Gravity on tone"), "the card's spoken name");
-    // The face has five dials (it is a set piece, not the strip), and every
-    // other parameter is one button away.
     lumen.show_whole_cards();
     lumen.frames(10);
     for name in ["Pull", "Ratio", "Attack", "Release", "Makeup"] {
@@ -102,7 +91,6 @@ fn the_commands_put_gravity_and_horizon_on_the_track_each_with_its_face() {
             .is_some(),
         "every parameter is one button away"
     );
-    // Its meter is read, so its face can draw the gain reduction.
     assert!(lumen.app().has_meter(gravity));
 
     let (mut lumen, _, horizon) = launched(
@@ -128,7 +116,6 @@ fn the_commands_put_gravity_and_horizon_on_the_track_each_with_its_face() {
     }
     assert!(lumen.shows("Ceiling, parameter: \u{2212}0.3 dB"));
     assert!(lumen.harness.query_by_label("All parameters (4)").is_some());
-    // Its lookahead is a latency the transport is compensated for.
     lumen.wait_for("the compensation", |app| app.compensation() >= 72);
 }
 
@@ -153,7 +140,6 @@ fn a_value_typed_on_the_face_is_read_at_once_and_is_one_undo_step() {
     lumen.key(Modifiers::NONE, Key::Enter);
     lumen.frames(10);
     let pulled = param(&lumen, device, compressor::THRESHOLD).expect("it moved");
-    // −40 dB of −60 to 0.
     assert!((pulled - 0.3333).abs() < 1e-3, "{pulled}");
     assert_eq!(lumen.app().undo_label(), Some("Change Pull"));
     lumen.frames(5);
@@ -164,7 +150,6 @@ fn a_value_typed_on_the_face_is_read_at_once_and_is_one_undo_step() {
     assert!(back > 0.69, "{back}");
 }
 
-/// A lane of Horizon's ceiling, from the bottom to the top over two quarters.
 #[test]
 fn a_lane_drives_the_ceiling_and_a_drag_takes_it_over() {
     let (mut lumen, track, device) = launched(
@@ -183,7 +168,6 @@ fn a_lane_drives_the_ceiling_and_a_drag_takes_it_over() {
     .unwrap();
     lumen.app_mut().give_lane(track, target, lane).unwrap();
     lumen.frames(20);
-    // The knob's own menu shows the lane it drives.
     lumen.right_click(at(&lumen, "Ceiling, parameter"));
     lumen.click("Automate");
     lumen.frames(30);
@@ -191,19 +175,14 @@ fn a_lane_drives_the_ceiling_and_a_drag_takes_it_over() {
     lumen.wait_for("playback", |app| app.playhead() > Ticks::quarters(1));
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.frames(5);
-    // The control follows the lane where the playhead is.
     let at_playhead = param(&lumen, device, limiter::CEILING).expect("a value");
     assert!(at_playhead > 0.4, "the lane lifted it: {at_playhead}");
-    // Moving the knob takes the lane over: the control's own value is heard.
     let knob = at(&lumen, "Ceiling, parameter");
     lumen.drag(knob, knob + vec2(0.0, 30.0), Modifiers::NONE);
     lumen.frames(20);
     assert!(lumen.app().lane_taken_over(track, target));
 }
 
-/// A key from another track ducks Gravity: the chooser is the plugin card's
-/// own row (one code path for both kinds of device), and the light follows
-/// what arrives.
 #[test]
 fn a_sidechain_from_another_track_ducks_gravity() {
     let (mut lumen, first, device) = launched(
@@ -211,8 +190,6 @@ fn a_sidechain_from_another_track_ducks_gravity() {
         "Add Gravity",
         lumen_devices::dynamics::compressor::NAME,
     );
-    // A second track with a loud tone, to key it from (a dropped file makes
-    // its own track).
     let file = super::wav(&lumen.dir().join("key.wav"), 20.0);
     lumen.drop_files(&[file]);
     lumen.frames(30);
@@ -228,7 +205,6 @@ fn a_sidechain_from_another_track_ducks_gravity() {
     lumen.show_whole_cards();
     lumen.frames(20);
 
-    // The row is Gravity's, with no source yet.
     lumen.click("Sidechain source, none");
     lumen.frames(5);
     lumen.click(&name);
@@ -244,13 +220,10 @@ fn a_sidechain_from_another_track_ducks_gravity() {
     assert!(keyed.is_some(), "Gravity is keyed from {name}");
     assert_eq!(lumen.app().undo_label(), Some("Sidechain Gravity"));
     assert!(lumen.shows(&format!("Sidechain source, {name}, Post FX")));
-    // The light follows the key arriving (it sits on the keyed track's card;
-    // the test tone's own peak is 0.09).
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.wait_for("playback", |app| app.playhead() > Ticks::quarters(1));
     lumen.wait_for("the key's light", |app| app.sidechain_light(first) > 0.02);
     lumen.key(Modifiers::NONE, Key::Space);
-    // Undo lets it through again.
     lumen.key(Modifiers::COMMAND, Key::Z);
     lumen.frames(10);
     let back = lumen
@@ -265,7 +238,6 @@ fn a_sidechain_from_another_track_ducks_gravity() {
     assert!(lumen.shows("Sidechain source, none"));
 }
 
-/// The power button bypasses Horizon, and its dry signal comes back.
 #[test]
 fn the_power_button_bypasses_horizon_and_the_dry_signal_returns() {
     let (mut lumen, _, device) = launched(
@@ -289,8 +261,6 @@ fn the_power_button_bypasses_horizon_and_the_dry_signal_returns() {
         "the power button bypassed it"
     );
     let after = heard(&mut lumen);
-    // The ceiling is −0.3 dB and the tone is quiet, so the two are close: what
-    // matters is that nothing steps or drops out.
     assert!(
         (after - before).abs() < before * 0.5,
         "bypassed, the dry signal is there: {before} then {after}"
@@ -298,7 +268,6 @@ fn the_power_button_bypasses_horizon_and_the_dry_signal_returns() {
     lumen.key(Modifiers::NONE, Key::Space);
 }
 
-/// The track's own menu adds Gravity, so it is reachable without the palette.
 #[test]
 fn the_track_menu_adds_gravity_to_that_track() {
     let (mut lumen, track) = tone("gravity-menu");
@@ -328,8 +297,6 @@ fn the_track_menu_adds_gravity_to_that_track() {
     );
 }
 
-/// The gain reduction the face draws comes from the audio: playing a loud
-/// signal through Gravity publishes a reading the interface can see.
 #[test]
 fn gravity_publishes_the_gain_reduction_its_face_draws() {
     let (mut lumen, _, device) = launched(
@@ -337,8 +304,6 @@ fn gravity_publishes_the_gain_reduction_its_face_draws() {
         "Add Gravity",
         lumen_devices::dynamics::compressor::NAME,
     );
-    // Pull the threshold down and the ratio up, so the quiet test tone is
-    // compressed plainly.
     lumen.app_mut().set_device_param(
         device,
         compressor::THRESHOLD,
@@ -357,8 +322,6 @@ fn gravity_publishes_the_gain_reduction_its_face_draws() {
     lumen.key(Modifiers::NONE, Key::Space);
 }
 
-/// M2: dragging the lookahead while the song plays re-times the routing once,
-/// when the drag ends — the audio keeps the delay it has while the knob moves.
 #[test]
 fn dragging_the_lookahead_re_times_the_routing_once_when_it_ends() {
     let (mut lumen, _, device) = launched(
@@ -372,8 +335,6 @@ fn dragging_the_lookahead_re_times_the_routing_once_when_it_ends() {
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.wait_for("playback", |app| app.playhead() > Ticks::quarters(1));
 
-    // The knob is dragged in steps, as a hand does: the compensation does not
-    // move while the pointer is down.
     let knob = at(&lumen, "Look, parameter");
     lumen.harness.hover_at(knob);
     lumen.frames(2);
@@ -388,7 +349,6 @@ fn dragging_the_lookahead_re_times_the_routing_once_when_it_ends() {
             "the routing keeps its delay mid-drag (step {step})"
         );
     }
-    // Let go: once, and once only, the new lookahead reaches the routing.
     lumen.harness.drop_at(knob - vec2(0.0, 80.0));
     lumen.frames(30);
     lumen.wait_for("the routing to be re-timed", |app| app.compensation() > 72);
@@ -400,8 +360,6 @@ fn dragging_the_lookahead_re_times_the_routing_once_when_it_ends() {
     lumen.key(Modifiers::NONE, Key::Space);
 }
 
-/// M6: a device with a face has no strip, so its All-parameters panel offers no
-/// star and says where the controls are.
 #[test]
 fn the_all_parameters_panel_of_a_face_says_where_its_controls_are() {
     let (mut lumen, _, _) = launched(
@@ -429,8 +387,6 @@ fn the_all_parameters_panel_of_a_face_says_where_its_controls_are() {
     assert!(lumen.shows("All 10 parameters"), "the footer counts them");
 }
 
-/// N1: the All-parameters panel's menu for a device's timing offers no
-/// Automate and no Learn either, and says why — as the strip's does.
 #[test]
 fn the_lookahead_offers_no_automate_and_no_learn_in_either_menu() {
     let (mut lumen, _, _) = launched(
@@ -441,7 +397,6 @@ fn the_lookahead_offers_no_automate_and_no_learn_in_either_menu() {
     lumen.show_whole_cards();
     lumen.frames(10);
     let why = "Not automatable: it is the device's timing.";
-    // The card's own control (the face's Look knob).
     lumen.right_click(at(&lumen, "Look, parameter"));
     lumen.frames(5);
     assert!(lumen.shows(why), "the strip's menu says why");
@@ -453,7 +408,6 @@ fn the_lookahead_offers_no_automate_and_no_learn_in_either_menu() {
     }
     lumen.key(Modifiers::NONE, Key::Escape);
     lumen.frames(3);
-    // And the row in All parameters.
     lumen.click("All parameters (4)");
     lumen.frames(10);
     let row = lumen
@@ -474,7 +428,6 @@ fn the_lookahead_offers_no_automate_and_no_learn_in_either_menu() {
     }
     lumen.key(Modifiers::NONE, Key::Escape);
     lumen.frames(3);
-    // A parameter that may be automated still offers both.
     let ceiling = lumen
         .harness
         .get_all_by_label_contains("Ceiling, parameter")
@@ -488,13 +441,11 @@ fn the_lookahead_offers_no_automate_and_no_learn_in_either_menu() {
     lumen.key(Modifiers::NONE, Key::Escape);
 }
 
-/// N7: the tray's own menu adds both devices, as it does Prism.
 #[test]
 fn the_device_trays_menu_adds_gravity_and_horizon() {
     let (mut lumen, track) = tone("dynamics-tray");
     lumen.show_whole_cards();
     lumen.frames(20);
-    // The tray is empty: its menu offers both.
     let browse = lumen.harness.get_by_label("Browse devices").rect();
     let room = Pos2::new(browse.right() + 120.0, browse.center().y + 40.0);
     lumen.right_click(room);
@@ -519,7 +470,6 @@ fn the_device_trays_menu_adds_gravity_and_horizon() {
             .map(|t| t.devices.len()),
         Some(1)
     );
-    // Past the last card the menu is there still.
     lumen.show_whole_cards();
     lumen.frames(20);
     let card = lumen
@@ -533,7 +483,6 @@ fn the_device_trays_menu_adds_gravity_and_horizon() {
     lumen.key(Modifiers::NONE, Key::Escape);
 }
 
-/// A whole card with `command` run: the handles are on the picture.
 fn whole(file: &str, command: &str, saved: &str) -> (Lumen, Id) {
     let (mut lumen, _, device) = launched(file, command, saved);
     lumen.wait_for("the audio thread to have it", |app| {
@@ -544,7 +493,6 @@ fn whole(file: &str, command: &str, saved: &str) -> (Lumen, Id) {
     (lumen, device)
 }
 
-/// Undoing once puts back what the drag changed and leaves the card added.
 #[track_caller]
 fn undone_once(lumen: &mut Lumen, added: &str) {
     assert!(
@@ -566,8 +514,6 @@ fn dragging_the_ring_out_lowers_the_threshold_in_one_undo_step() {
     assert!(lumen.shows("Threshold ring (Pull): \u{2212}18.0 dB"));
     let before = param(&lumen, device, compressor::THRESHOLD).expect("set");
     let ratio = param(&lumen, device, compressor::RATIO).expect("set");
-    // The ring's edge, left of the ball: out from the middle is a lower
-    // threshold.
     let field = lumen.harness.get_by_label_contains("Threshold ring").rect();
     let edge = Pos2::new(field.left() + 4.0, field.center().y);
     lumen.drag(edge, edge + vec2(-24.0, 0.0), Modifiers::NONE);
@@ -625,7 +571,6 @@ fn the_handles_and_the_pill_are_reachable_by_their_own_names() {
     }
     let (mut lumen2, _) = whole("horizon-tab", "Add Horizon", limiter::NAME);
     assert!(lumen2.shows("Ceiling line (Ceiling): \u{2212}0.3 dB"));
-    // The "True" pill is a switch with the parameter's own name beside it.
     assert!(
         lumen2.harness.query_by_label_contains("True").is_some(),
         "the detection pill"
