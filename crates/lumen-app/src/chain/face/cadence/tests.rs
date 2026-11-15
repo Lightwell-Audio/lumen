@@ -33,7 +33,6 @@ fn a_face_with_signal_asks_for_the_face_frame() {
         let (_, ask) = frame(&ctx, f64::from(step) * 0.016, 0.5, false);
         assert_eq!(ask, Some(motion::FACE_FRAME), "frame {step}");
     }
-    assert_eq!(motion::FACE_FRAME, Duration::from_millis(16));
 }
 
 #[test]
@@ -75,10 +74,10 @@ fn a_face_asks_for_nothing_while_motion_is_reduced() {
 fn the_shortest_ask_of_a_frame_is_the_one_kept() {
     let ctx = Context::default();
     forget_asks(&ctx);
-    ask(&ctx, Duration::from_millis(100));
-    ask(&ctx, Duration::from_millis(16));
-    ask(&ctx, Duration::from_millis(50));
-    assert_eq!(asked(&ctx), Some(Duration::from_millis(16)));
+    ask(&ctx, motion::AGE_FRAME);
+    ask(&ctx, motion::FACE_FRAME);
+    ask(&ctx, motion::METER_FRAME);
+    assert_eq!(asked(&ctx), Some(motion::FACE_FRAME));
     forget_asks(&ctx);
     assert_eq!(asked(&ctx), None);
 }

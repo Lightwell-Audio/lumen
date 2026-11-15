@@ -462,6 +462,12 @@ pub mod alpha {
 }
 
 pub mod glow {
+    use super::Color32;
+
+    pub fn additive(lit: Color32) -> Color32 {
+        Color32::from_rgba_premultiplied(lit.r(), lit.g(), lit.b(), 0)
+    }
+
     pub const STOPS: [f32; 4] = [0.0, 0.35, 0.7, 1.0];
     pub const ALPHAS: [f32; 4] = [1.0, 0.42, 0.10, 0.0];
     pub const SIDES: usize = 24;

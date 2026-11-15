@@ -114,11 +114,7 @@ pub(super) fn glow_ladder(
     }
     let tint = |alpha: f32| {
         let lit = colour.gamma_multiply(alpha * share.clamp(0.0, 1.0));
-        if additive {
-            Color32::from_rgba_premultiplied(lit.r(), lit.g(), lit.b(), 0)
-        } else {
-            lit
-        }
+        if additive { ladder::additive(lit) } else { lit }
     };
     let sides = ladder::SIDES;
     let mut mesh = Mesh::default();
