@@ -1,39 +1,13 @@
-//! Who is heard: mute and solo across groups, returns and the master (M4
-//! slice 4). The owner agreed these rules as a table of cases before they
-//! were built (`docs/milestones/M4.md` §5); the tests below are that table.
-//!
-//! A track's *path* is the track, the tracks that play into it, and the
-//! tracks it plays out through (its groups, a return it outputs to, the
-//! master).
-//! - Nothing soloed: everything not muted is heard.
-//! - While something is soloed, only the soloed tracks' paths are heard.
-//!   Returns are solo-safe (they stay open while tracks are soloed) unless
-//!   a return is soloed itself; the master is never silenced by a solo.
-//! - A soloed return plays wet only: the sends into it stay on while the
-//!   sending tracks' own outputs go silent.
-//! - Mute beats solo along the whole path: a muted track silences its
-//!   output and every send, and so does a muted group or return it plays
-//!   through.
-
 use std::collections::{HashMap, HashSet};
 
 use crate::model::{Id, Project, Track, TrackKind};
 use crate::routing::{Destination, all_tracks, destination};
 
-/// What one track lets out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Hearing {
-    /// Its output is heard.
     pub output: bool,
-    /// Its sends are heard (they can be while its output is not: a soloed
-    /// return plays wet only).
     pub sends: bool,
-    /// Its output is silent although the track is not muted itself:
-    /// another track's solo, or a muted group it plays through (shown as a
-    /// hollow M).
     pub silenced: bool,
-    /// Not soloed itself, but heard because something it plays into is
-    /// (a track in a soloed group; shown as a hollow S).
     pub soloed_through: bool,
 }
 
@@ -46,28 +20,22 @@ impl Hearing {
     };
 }
 
-/// What every track in a project lets out.
 #[derive(Debug, Clone, Default)]
 pub struct Heard(HashMap<Id, Hearing>);
 
 impl Heard {
-    /// The track's hearing; a track the project does not have is open.
     pub fn of(&self, id: Id) -> Hearing {
         self.0.get(&id).copied().unwrap_or(Hearing::OPEN)
     }
 }
 
-/// Whether any track (never the master) is soloed.
 pub fn any_soloed(project: &Project) -> bool {
     project.tracks.iter().any(|t| t.solo)
 }
 
-/// Applies the rules to every track and the master.
 pub fn hearing(project: &Project) -> Heard {
     let tracks: Vec<&Track> = all_tracks(project).collect();
     let by_id: HashMap<Id, &Track> = tracks.iter().map(|t| (t.id, *t)).collect();
-    // The tracks each track plays out through, in order. Validation refuses
-    // loops; the walk stops after every track anyway.
     let chain = |track: &Track| {
         let mut out = Vec::new();
         let mut at = destination(project, track);
@@ -90,13 +58,11 @@ pub fn hearing(project: &Project) -> Heard {
     let muted = |id: Id| by_id.get(&id).is_some_and(|t| t.mute);
     let is_return = |id: Id| by_id.get(&id).is_some_and(|t| t.kind == TrackKind::Return);
 
-    // Downstream of a soloed track: open so the solo reaches the device.
     let downstream: HashSet<Id> = soloed
         .iter()
         .flat_map(|id| chains[id].iter().copied())
         .collect();
     let a_return_soloed = soloed.iter().any(|&id| is_return(id));
-    // Tracks sending into a soloed return: their sends stay on.
     let wet: HashSet<Id> = tracks
         .iter()
         .filter(|t| t.sends.iter().any(|s| soloed.contains(&s.to)))
@@ -115,7 +81,6 @@ pub fn hearing(project: &Project) -> Heard {
             let safe = track.kind == TrackKind::Master
                 || (track.kind == TrackKind::Return && !a_return_soloed);
             let on_path = soloed.contains(&id) || into_solo || downstream.contains(&id);
-            // Its sound reaches a track whose sends feed a soloed return.
             let feeds_wet = through.iter().any(|t| wet.contains(t));
             let output = on_path || safe || feeds_wet;
             (output, output || wet.contains(&id))
@@ -141,7 +106,6 @@ mod tests {
     use crate::model::{Color, Level, Output, Send};
     use crate::testing::small_project;
 
-    /// Drums (group: Kick, Snare), Bass, Vocal, returns A and B.
     struct Setup {
         p: Project,
     }
@@ -217,7 +181,6 @@ mod tests {
             self
         }
 
-        /// The tracks whose output is heard, in id order.
         fn out(&self) -> Vec<Id> {
             let heard = hearing(&self.p);
             let mut ids: Vec<Id> = all_tracks(&self.p)
@@ -366,7 +329,7 @@ mod tests {
         assert!(s.of(s.p.master.id).output);
         let master = s.p.master.id;
         let mut s = Setup::new();
-        s.track(master).solo = true; // ignored: the master cannot solo
+        s.track(master).solo = true;
         s.track(BASS).output = Output::Device(1);
         let s = s.mute(&[master]);
         assert_eq!(s.out(), vec![BASS], "only what bypasses the master");

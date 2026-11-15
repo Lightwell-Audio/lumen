@@ -1,8 +1,3 @@
-//! A strip's output: the button that says where it plays to, and the menu
-//! that chooses (M4 slice 5, the owner's B6: groups, returns, the master
-//! and the device's pairs; choices that would feed back are never
-//! offered). Split from `strip.rs` (M4 review M1).
-
 use eframe::egui::{self, Align2, FontId, Id as EguiId, Rect, Sense, Ui, pos2};
 use eframe::emath::GuiRounding as _;
 use lumen_project::model::{Id, Output, Project, Track, TrackKind};
@@ -15,15 +10,10 @@ use crate::widgets::{self, raised};
 use crate::{motion, theme};
 use lumen_core::product::PRODUCT_NAME;
 
-/// Where a menu row's words start, from its left edge.
 const TEXT_INSET: f32 = 5.0;
-/// The down arrow's centre, from the row's right edge, and the room its
-/// words leave for it.
 const ARROW_INSET: f32 = 8.0;
 const ARROW_ROOM: f32 = 15.0;
 
-/// Where `track` plays to, in words: a group's or return's name, "Master",
-/// or a pair of outputs ("1/2").
 fn destination_text(project: &Project, track: &Track) -> String {
     match rules::destination(project, track) {
         Destination::Track(id) if id == project.master.id => "Master".into(),
@@ -36,8 +26,6 @@ fn destination_text(project: &Project, track: &Track) -> String {
     }
 }
 
-/// Whether sending track `id` to `output` would feed the audio back into
-/// itself: such choices are never offered (risk R4).
 fn would_loop(project: &Project, id: Id, output: Output) -> bool {
     let mut trial = project.clone();
     if let Some(track) = trial.tracks.iter_mut().find(|t| t.id == id) {
@@ -46,9 +34,6 @@ fn would_loop(project: &Project, id: Id, output: Output) -> bool {
     rules::has_loop(&trial)
 }
 
-/// A strip's row that opens a menu (the output, and a MIDI track's From and
-/// To): `text` shortened to fit beside an arrow, named `name`, with `tip` on
-/// hover. `part` names the row, to tell the rows of one strip apart.
 pub(super) fn row_button(
     ui: &mut Ui,
     row: Rect,
@@ -65,7 +50,6 @@ pub(super) fn row_button(
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, name));
     let hover = motion::hover(ui.ctx(), id.with((part, "hover")), response.hovered());
     let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&response));
-    // A raised combo (ADR-0052), on while its menu is open.
     let face = raised::Face::new(theme::controls(false))
         .hover(hover)
         .pressed(response.is_pointer_button_down_on())
@@ -83,8 +67,6 @@ pub(super) fn row_button(
     let painter = ui.painter();
     let font = FontId::proportional(theme::size::CAPTION);
     let mut left = row.left() + TEXT_INSET;
-    // "In  None", "Mon  Auto": the caption before the two spaces in hint
-    // grey, the value after it in the row's ink (the interface audit's X7).
     let value = match text.split_once("  ") {
         Some((caption, value)) => {
             let caption = painter.text(
@@ -120,7 +102,6 @@ pub(super) fn row_button(
 }
 
 impl Arrangement {
-    /// Where the track plays to; a click opens the choices.
     pub(super) fn output_button(
         &mut self,
         ui: &mut Ui,
@@ -146,9 +127,6 @@ impl Arrangement {
         });
     }
 
-    /// The choices of where `track` plays to: inside Lumen, the master and
-    /// the groups that would not feed back; then the device's output pairs
-    /// (the owner's B6), the main pair marked, the cue pair greyed.
     fn output_menu(&mut self, ui: &mut Ui, doc: &mut Document, track: &Track) {
         let palette = *theme::p();
         let project = doc.project().clone();
@@ -195,7 +173,6 @@ impl Arrangement {
             ui.separator();
         }
         heading(ui, "Audio outputs");
-        // The device's outputs are looked up while a menu wants them.
         self.outputs.wanted = true;
         if let Some(status) = &self.outputs.status {
             ui.label(egui::RichText::new(status).small().color(palette.text_hint));
@@ -221,8 +198,6 @@ impl Arrangement {
                 _ => false,
             };
             let text = if main { format!("{label} Main") } else { label };
-            // The master on the main pair follows it, whichever pair the
-            // audio settings make main.
             let output = if master && main {
                 Output::Auto
             } else {

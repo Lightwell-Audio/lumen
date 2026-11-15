@@ -1,9 +1,3 @@
-//! Flare, the built-in polysynth (M8 slice B4), in the app: its card and its
-//! parameters, a value that changes the sound, a lane on the cutoff, and both
-//! of them back after a save and a reopen. The synth's own sound is tested in
-//! `lumen-devices`; what is here is the path from the interface and the
-//! project to the audio thread.
-
 use std::time::Duration;
 
 use eframe::egui::{Event, Key, Modifiers, Pos2, vec2};
@@ -22,7 +16,6 @@ fn q(beats: i64) -> Ticks {
     Ticks::quarters(beats)
 }
 
-/// A MIDI track named "Keys" with Flare on Poly and one long note.
 fn one_note() -> Project {
     project_of(
         "One note",
@@ -55,8 +48,6 @@ fn launched(name: &str) -> (Lumen, Id, Id) {
 
 #[track_caller]
 fn at(lumen: &Lumen, label: &str) -> Pos2 {
-    // The card is drawn above the panel, so a control that appears in both
-    // (the cutoff's knob and its row in All parameters) is the card's first.
     lumen
         .harness
         .get_all_by_label_contains(label)
@@ -75,7 +66,6 @@ fn param(lumen: &Lumen, device: Id, id: u32) -> Option<f64> {
         .map(|(_, value)| *value)
 }
 
-/// The loudest frame of what plays now.
 fn heard(lumen: &mut Lumen) -> f32 {
     lumen
         .listen(Duration::from_millis(150), 2_000)
@@ -83,13 +73,9 @@ fn heard(lumen: &mut Lumen) -> f32 {
         .fold(0.0f32, |m, f| m.max(f[0].abs()))
 }
 
-/// Puts the cutoff on the card's strip: thirty-four parameters do not fit
-/// eight knobs, so one comes off first, the way a person chooses them (All
-/// parameters, searched, with its star).
 fn cutoff_on_the_strip(lumen: &mut Lumen) {
     lumen.click("All parameters (34)");
     lumen.frames(10);
-    // The search field takes the keyboard when the panel opens.
     lumen.harness.event(Event::Text("detune".to_owned()));
     lumen.frames(10);
     lumen.click("Take Oscillator 2 detune off the strip");
@@ -110,7 +96,6 @@ fn cutoff_on_the_strip(lumen: &mut Lumen) {
 fn a_midi_track_s_synth_is_flare_with_its_own_knobs_and_words() {
     let (lumen, _, device) = launched("card");
     assert!(lumen.shows("Flare on Keys"), "the card's spoken name");
-    // The table is the device's: 34 parameters, the first eight as its knobs.
     assert_eq!(
         lumen.app().strip_parameters(device),
         [1, 2, 3, 4, 5, 6, 7, 8]
@@ -122,8 +107,6 @@ fn a_midi_track_s_synth_is_flare_with_its_own_knobs_and_words() {
             .is_some(),
         "every parameter is one button away"
     );
-    // A value reads in the device's own words: a knob under its name, a
-    // chooser as its own word.
     assert!(
         lumen.shows("Oscillator 1 detune, parameter: \u{2212}7 ct"),
         "the knob's own words"
@@ -134,9 +117,6 @@ fn a_midi_track_s_synth_is_flare_with_its_own_knobs_and_words() {
         lumen.shows("Oscillator 1 shape, choice: Saw"),
         "the shape reads as its word"
     );
-    // The round-2 labels are the description's data, and the plain names are
-    // the table's (a drawn face reads them; the card shows the plain ones):
-    // Shape, Cutoff, Reso, Attack and Release are the five that map.
     assert_eq!(params::short_label(params::OSC1_SHAPE), "Shape");
     assert_eq!(params::short_label(params::FILTER_CUTOFF), "Cutoff");
     assert_eq!(params::short_label(params::FILTER_RESO), "Reso");
@@ -157,8 +137,6 @@ fn closing_the_cutoff_makes_the_note_darker_and_undo_opens_it_again() {
     let open = heard(&mut lumen);
     assert!(open > 0.01, "the note is heard: {open}");
 
-    // The cutoff's knob is dragged down: the corner closes and the note gets
-    // quieter and darker.
     cutoff_on_the_strip(&mut lumen);
     assert_eq!(
         lumen.app().strip_parameters(device)[7],
@@ -187,7 +165,6 @@ fn a_lane_on_the_cutoff_is_its_own_lane_and_plays() {
         device,
         param: params::FILTER_CUTOFF,
     };
-    // A lane from Poly's corner down to a closed one over two quarters.
     let lane = Lane::new(vec![
         Point::new(Ticks::ZERO, 0.492_032_53),
         Point::new(q(2), 0.05),
@@ -195,8 +172,6 @@ fn a_lane_on_the_cutoff_is_its_own_lane_and_plays() {
     .unwrap();
     lumen.app_mut().give_lane(track, target, lane).unwrap();
     lumen.frames(20);
-    // Its knob's menu shows the lane, named for the device and the parameter,
-    // and opening it draws the lane.
     cutoff_on_the_strip(&mut lumen);
     lumen.right_click(at(&lumen, "Filter cutoff, parameter"));
     lumen.click("Automate");
@@ -208,7 +183,6 @@ fn a_lane_on_the_cutoff_is_its_own_lane_and_plays() {
             .is_some(),
         "the lane names Flare and its parameter"
     );
-    // It plays: the note starts open and ends shut.
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.wait_for("playback", |app| app.playhead() > Ticks::ZERO);
     let early = peak(&mut lumen);
@@ -231,7 +205,6 @@ fn the_values_and_the_lane_are_back_after_a_save_and_a_reopen() {
     lumen.frames(10);
     let changed = param(&lumen, device, params::FILTER_CUTOFF).expect("the cutoff moved");
     assert!(changed < 0.45, "dragged down: {changed}");
-    // A lane on the resonance too, so both a value and a lane are saved.
     let target = Target::Device {
         device,
         param: params::FILTER_RESO,
@@ -259,7 +232,6 @@ fn the_values_and_the_lane_are_back_after_a_save_and_a_reopen() {
         Some("poly"),
         "the preset's name stays as the record of where the sound started"
     );
-    // The lane is back, aimed at the synth's resonance.
     let lanes = &again.app().project().tracks[0].automation;
     assert_eq!(lanes.len(), 1, "one lane, saved");
     assert_eq!(

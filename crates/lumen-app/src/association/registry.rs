@@ -1,7 +1,3 @@
-//! The real hive: `HKEY_CURRENT_USER`, through the registry's own calls.
-//! Only a normal start uses it (`Launch::from_args` with no isolation
-//! flags).
-
 use std::io;
 
 use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_MORE_DATA, ERROR_SUCCESS};
@@ -32,7 +28,6 @@ impl Hive for Registry {
         let mut buf: Vec<u16> = vec![0; 260];
         loop {
             let mut bytes = (buf.len() * 2) as u32;
-            // SAFETY: the strings are NUL-terminated; `buf` holds `bytes`.
             let code = unsafe {
                 RegGetValueW(
                     HKEY_CURRENT_USER,
@@ -57,7 +52,6 @@ impl Hive for Registry {
 
     fn set(&mut self, key: &str, name: &str, value: &str) -> io::Result<()> {
         let (key, name, value) = (wide(key), wide(name), wide(value));
-        // SAFETY: the strings are NUL-terminated; the data is `value`.
         let code = unsafe {
             RegSetKeyValueW(
                 HKEY_CURRENT_USER,
@@ -76,18 +70,15 @@ impl Hive for Registry {
 
     fn remove_value(&mut self, key: &str, name: &str) -> io::Result<()> {
         let (key, name) = (wide(key), wide(name));
-        // SAFETY: the strings are NUL-terminated.
         checked(unsafe { RegDeleteKeyValueW(HKEY_CURRENT_USER, key.as_ptr(), name.as_ptr()) })
     }
 
     fn remove_key(&mut self, key: &str) -> io::Result<()> {
         let key = wide(key);
-        // SAFETY: the string is NUL-terminated.
         checked(unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, key.as_ptr()) })
     }
 
     fn announce(&mut self) {
-        // SAFETY: no items are passed with this event.
         unsafe {
             SHChangeNotify(
                 SHCNE_ASSOCCHANGED as _,

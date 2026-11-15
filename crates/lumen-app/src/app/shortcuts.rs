@@ -1,10 +1,3 @@
-//! Changing shortcuts (M3 slice 7c; the owner's E2 with E3). The Keyboard
-//! shortcuts window shows a keyboard lit by area over the list of every
-//! command: click a shortcut and press new keys. A clash is shown on the
-//! row, with Reassign or Cancel. The palette records the same way (Ctrl+
-//! Enter on a row, or a click on its keycaps). Changes are saved in the
-//! settings by command id; only what differs from the defaults is kept.
-
 use eframe::egui::{self, Align2, FontId, Key, Rect, RichText, Sense, Stroke, Vec2, pos2, vec2};
 use eframe::emath::GuiRounding as _;
 
@@ -12,47 +5,31 @@ use crate::commands::{ALL, Area, Chord, Command};
 use crate::widgets::raised;
 use crate::{App, theme, widgets};
 
-/// The window's width.
 const WIDTH: f32 = 820.0;
-/// The keyboard: the main block is 15 key widths, the arrows and the keys
-/// above them 3, with half a key between.
 const KEYBOARD_UNITS: f32 = 18.5;
-/// The space between two keys on the map, and the letters' inset in a key.
 const KEY_GAP: f32 = 3.0;
 const KEY_INSET: f32 = 4.0;
-/// The light under a command's key on the map: as in the keycaps (K5), its
-/// halo and its height.
 const KEY_LIGHT_HEIGHT: f32 = 2.0;
 const KEY_LIGHT_HALO: f32 = 1.5;
 const KEY_LIGHT_HALO_ALPHA: f32 = 0.3;
-/// An area's light beside its name: in the layer row and in a heading.
 const AREA_LIGHT: Vec2 = vec2(8.0, 3.0);
 const AREA_DOT: f32 = 8.0;
 
-/// A chord being recorded for a command, in the window or the palette.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Rebind {
     pub command: Command,
-    /// The chord replaced; `None` adds one.
     pub slot: Option<usize>,
-    /// The chord pressed, and the command that has it, waiting for
-    /// Reassign or Cancel.
     pub clash: Option<(Chord, Command)>,
 }
 
-/// The window between frames (not saved).
 #[derive(Debug, Default)]
 pub(crate) struct Shortcuts {
     pub open: bool,
     query: String,
-    /// Layers chosen on the map (Ctrl, Shift, Alt).
     layer: (bool, bool, bool),
-    /// The chord of the key last clicked on the map.
     picked: Option<Chord>,
 }
 
-/// A key on the map: what it is (none for a modifier), its label and its
-/// width in keys.
 struct MapKey {
     key: Option<Key>,
     label: &'static str,
@@ -83,7 +60,6 @@ const fn modifier(label: &'static str, width: f32) -> MapKey {
     }
 }
 
-/// The main block, row by row.
 const MAIN: [&[MapKey]; 6] = [
     &[
         k(Key::Escape, "Esc"),
@@ -170,7 +146,6 @@ const MAIN: [&[MapKey]; 6] = [
     ],
 ];
 
-/// The keys right of the main block: two rows above the arrows.
 const SIDE: [&[MapKey]; 2] = [
     &[
         k(Key::Insert, "Ins"),
@@ -185,7 +160,6 @@ const SIDE: [&[MapKey]; 2] = [
 ];
 
 impl Shortcuts {
-    /// The chord for `key` on the layer showing now.
     fn chord(&self, held: egui::Modifiers, key: Key) -> Chord {
         let (ctrl, shift, alt) = self.layer;
         Chord {
@@ -198,13 +172,10 @@ impl Shortcuts {
 }
 
 impl App {
-    /// Opens the Keyboard shortcuts window.
     pub(crate) fn open_shortcuts(&mut self) {
         self.shortcuts.open = true;
     }
 
-    /// Starts recording a chord for `command`, replacing chord `slot`
-    /// (`None` adds one).
     pub(crate) fn start_rebind(&mut self, command: Command, slot: Option<usize>) {
         self.rebind = Some(Rebind {
             command,
@@ -213,16 +184,11 @@ impl App {
         });
     }
 
-    /// The keymap changed: keep it for saving.
     fn keymap_changed(&mut self) {
         self.settings.commands.shortcuts = self.keymap.saved();
         self.settings_changed = Some(std::time::Instant::now());
     }
 
-    /// While a chord is recorded, the next key pressed is it (Esc
-    /// cancels); with a clash waiting, Enter reassigns and Esc cancels.
-    /// Every key and letter typed this frame is taken, so nothing else
-    /// runs or types it. Runs before the command keys.
     pub(crate) fn capture_chord(&mut self, ctx: &egui::Context) {
         let Some(rebind) = self.rebind else {
             return;
@@ -258,7 +224,6 @@ impl App {
         ctx.request_repaint();
     }
 
-    /// Records `chord` for the command being rebound, or notes the clash.
     fn record(&mut self, chord: Chord) {
         let Some(rebind) = self.rebind.as_mut() else {
             return;
@@ -272,7 +237,6 @@ impl App {
         }
     }
 
-    /// Takes the clashing chord for the command being rebound.
     pub(crate) fn reassign_clash(&mut self) {
         if let Some(Rebind {
             command,
@@ -285,7 +249,6 @@ impl App {
         }
     }
 
-    /// The Keyboard shortcuts window, when open.
     pub(crate) fn shortcuts_window(&mut self, ctx: &egui::Context) {
         if !self.shortcuts.open {
             return;
@@ -294,7 +257,6 @@ impl App {
             ctx.content_rect().center().x,
             ctx.content_rect().top() + 48.0,
         );
-        // Esc while recording cancels the recording, not the window.
         let dialog = widgets::Dialog::new("shortcuts", "Keyboard shortcuts", WIDTH)
             .at(at, Align2::CENTER_TOP);
         let recording = self.rebind.is_some();
@@ -310,7 +272,6 @@ impl App {
         }
     }
 
-    /// The layer chips (Ctrl, Shift, Alt) and the areas' lights.
     fn layer_chips(&mut self, ui: &mut egui::Ui) {
         let palette = *theme::p();
         ui.horizontal(|ui| {
@@ -340,9 +301,6 @@ impl App {
         });
     }
 
-    /// The keyboard: each key that runs a command on this layer is
-    /// outlined, with the command's name on it and its area's light under
-    /// it. Clicking a key searches the list for its chord.
     fn keyboard_map(&mut self, ui: &mut egui::Ui) {
         let palette = *theme::p();
         let held = ui.input(|i| i.modifiers);
@@ -356,7 +314,6 @@ impl App {
         let mut draw = |ui: &mut egui::Ui, map_key: &MapKey, rect: Rect| {
             let rect = rect.shrink(gap / 2.0).round_to_pixels(ppp);
             let Some(key) = map_key.key else {
-                // A modifier: lit while its layer shows.
                 let (ctrl, shift, alt) = self.shortcuts.layer;
                 let on = match map_key.label {
                     "Ctrl" => ctrl || held.command,
@@ -371,7 +328,6 @@ impl App {
                 };
                 ui.painter().rect_filled(rect, theme::radius::SMALL, fill);
                 if on {
-                    // One accent hairline, as every control that is on has.
                     ui.painter().rect_stroke(
                         rect,
                         theme::radius::SMALL,
@@ -450,8 +406,6 @@ impl App {
                     );
                 }
             }
-            // Hover is Ember, washed over the key; the accent ring is the
-            // keyboard's focus.
             if response.hovered() {
                 painter.rect_filled(rect, theme::radius::SMALL, palette.ember);
             }
@@ -499,7 +453,6 @@ impl App {
         }
     }
 
-    /// The search field and every command with its shortcuts, by area.
     fn shortcut_list(&mut self, ui: &mut egui::Ui) {
         let palette = *theme::p();
         ui.horizontal(|ui| {
@@ -602,7 +555,6 @@ impl App {
                     self.keymap_changed();
                 }
                 if let Some(rebind) = rebind {
-                    // A clash waiting is answered on its own line below.
                     if rebind.clash.is_some() {
                         return;
                     }
@@ -677,7 +629,6 @@ impl App {
     }
 }
 
-/// `text` on one line in `width`, ending in "…" when it does not fit.
 fn elided(
     painter: &egui::Painter,
     text: &str,
@@ -698,7 +649,6 @@ fn elided(
     painter.layout_job(job)
 }
 
-/// Every area, in the table's order.
 const AREAS: [Area; 11] = [
     Area::Transport,
     Area::Edit,
@@ -713,7 +663,6 @@ const AREAS: [Area; 11] = [
     Area::File,
 ];
 
-/// A group's heading in the list: its light and its name.
 fn area_heading(ui: &mut egui::Ui, area: Area) {
     let palette = theme::p();
     ui.add_space(theme::space::XS);

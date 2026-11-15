@@ -1,9 +1,3 @@
-//! A MIDI clip's notes as GPU box instances for the piano roll: one box
-//! per note on the row of its pitch (the layer's row table puts pitch `p`
-//! at `127 - p` rows from the top), in the track's colour, shaded by
-//! velocity. Built only when the clip's content or the selection changes;
-//! panning and zooming only move the view (ADR-0026).
-
 use std::collections::BTreeSet;
 
 use eframe::egui::Color32;
@@ -13,45 +7,25 @@ use lumen_render::{BoxInstance, beats, rgba};
 
 use crate::theme;
 
-/// Most boxes one clip builds, loop repeats included: a clip looped by a
-/// tiny period over a long length must not ask for gigabytes.
 pub(crate) const MAX_BOXES: usize = 600_000;
-/// Most loop repeats walked, for the same reason.
 const MAX_REPEATS: i64 = 100_000;
 
-/// The opacity of a note at velocity 0; velocity adds the rest, so a note
-/// is about 0.62 + 0.38 × velocity / 127 opaque (the owner's look A).
 const VELOCITY_FLOOR: f32 = 0.62;
-/// Repeats of a looped clip are drawn this much fainter than the content.
 const GHOST: f32 = 0.5;
-/// A selected note is this much brighter.
 const SELECTED_LIGHTER: f32 = 0.3;
-/// The 1-px top edge is this much lighter than the body.
 const EDGE_LIGHTER: f32 = 0.4;
 
-/// What the piano roll needs of a MIDI clip.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ClipNotes<'a> {
     pub start: Ticks,
     pub length: Ticks,
     pub loop_length: Option<Ticks>,
-    /// Source loop position playing at the clip's timeline start.
     pub loop_phase: Ticks,
     pub notes: &'a [Note],
-    /// Notes (by index) that carry on into the clip across a seam with the
-    /// clip before it (`edit::seams`): they start before the clip and are
-    /// drawn from its start, as they sound.
     pub carried: &'a [usize],
-    /// Also place the notes outside the clip's window, whole, at their own
-    /// times, and draw the content's notes whole past its end: the clip
-    /// editor shows them (in the dimmed time outside the clip) to be edited;
-    /// the arrangement does not (ADR-0059).
     pub outside: bool,
 }
 
-/// One note placed on the timeline: `index` into the clip's notes, `rep`
-/// the loop repeat it is in (0 is the content itself), and where it sits,
-/// in quarter notes from the project's start.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Placed {
     pub index: usize,
@@ -61,7 +35,6 @@ pub(crate) struct Placed {
 }
 
 impl ClipNotes<'_> {
-    /// The ticks one repeat lasts: the loop's length, or the whole clip.
     fn period(&self) -> i64 {
         self.loop_length
             .map(|p| p.0)
@@ -70,16 +43,10 @@ impl ClipNotes<'_> {
             .max(1)
     }
 
-    /// Whether note `index` is muted.
     pub fn is_muted(&self, index: usize) -> bool {
         self.notes.get(index).is_some_and(|n| n.muted())
     }
 
-    /// Every note as it plays, the way the engine reads the clip
-    /// (`midi/hold.rs`): each repeat plays the notes that start inside it,
-    /// cut at the repeat's end, and at least a tick long; notes carried on
-    /// into the clip play from its start. Calls `f` for each, repeat by
-    /// repeat, until [`MAX_BOXES`].
     pub fn each_placed(&self, mut f: impl FnMut(Placed, Note)) {
         if self.length.0 <= 0 {
             return;
@@ -171,8 +138,6 @@ impl ClipNotes<'_> {
                 if at < 0 || at >= span {
                     continue;
                 }
-                // The editor draws the content whole, past the window's
-                // end too, as it is edited; repeats are cut as they play.
                 let end = if self.outside && rep == 0 {
                     at + note.length().0.max(1)
                 } else {
@@ -198,19 +163,14 @@ impl ClipNotes<'_> {
     }
 }
 
-/// The colours notes are drawn in, from the theme.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct NoteColors {
-    /// The track's (or clip's) colour.
     pub track: Color32,
-    /// Muted notes.
     pub muted: Color32,
-    /// The outline of a selected note.
     pub outline: Color32,
 }
 
 impl NoteColors {
-    /// The colours for notes in `track` colour.
     pub fn new(track: Color32) -> Self {
         Self {
             track,
@@ -220,13 +180,11 @@ impl NoteColors {
     }
 }
 
-/// A colour with straight alpha `alpha` (0 to 1), as the GPU takes it.
 pub(crate) fn pack(c: Color32, alpha: f32) -> u32 {
     let [r, g, b, _] = c.to_array();
     rgba(r, g, b, (alpha.clamp(0.0, 1.0) * 255.0).round() as u8)
 }
 
-/// The opacity of a note struck at `velocity`.
 pub(crate) fn velocity_alpha(velocity: u8) -> f32 {
     VELOCITY_FLOOR + (1.0 - VELOCITY_FLOOR) * f32::from(velocity.min(127)) / 127.0
 }
@@ -235,7 +193,6 @@ fn lighter(c: Color32, by: f32) -> Color32 {
     c.lerp_to_gamma(Color32::WHITE, by)
 }
 
-/// One note's box. `row` is the pitch.
 fn note_box(
     placed: Placed,
     note: Note,
@@ -246,8 +203,6 @@ fn note_box(
     let base = if muted { colors.muted } else { colors.track };
     let ghost = if placed.rep > 0 { GHOST } else { 1.0 };
     let (body, alpha) = if selected {
-        // Brighter: lighter on the dark theme; on the light one, where
-        // lighter would wash out, the colour at full strength.
         let lit = if theme::is_light() {
             base
         } else {
@@ -262,7 +217,6 @@ fn note_box(
         end: beats(placed.end),
         row: u32::from(note.pitch().min(127)),
         body: pack(body, alpha * ghost),
-        // The 1-px lighter top edge (the layer's title bar is 1 px).
         bar: pack(lighter(body, EDGE_LIGHTER), (alpha + 0.2).min(1.0) * ghost),
         border: if selected {
             pack(colors.outline, 1.0)
@@ -274,9 +228,6 @@ fn note_box(
     }
 }
 
-/// The boxes of a clip's notes: repeats first (fainter), then the
-/// content, then the selected notes last so their outlines lie on top.
-/// `selected` holds note indices.
 pub(crate) fn note_instances(
     clip: &ClipNotes<'_>,
     selected: &BTreeSet<usize>,
@@ -393,7 +344,6 @@ mod tests {
             0,
             "a hidden note can be picked"
         );
-        // The arrangement's clip places only the window, cut at its end.
         let built = note_instances(&clip(&notes), &BTreeSet::new(), &colors());
         assert_eq!(built.len(), 1);
         assert_eq!((start_of(&built[0]), end_of(&built[0])), (11.0, 12.0));
@@ -416,10 +366,7 @@ mod tests {
         c.length = q(5);
         c.loop_length = Some(q(2));
         let built = note_instances(&c, &BTreeSet::new(), &colors());
-        // Repeats 0 and 1 hold both notes (the second cut at the period);
-        // repeat 2 lasts one beat: only the first note starts in it.
         assert_eq!(built.len(), 5);
-        // The ghosts come first, fainter than the content.
         assert!(alpha(&built[0]) < alpha(built.last().unwrap()));
         let last_repeat: Vec<_> = built.iter().filter(|b| start_of(b) >= 12.0).collect();
         assert_eq!(last_repeat.len(), 1);

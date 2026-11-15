@@ -1,10 +1,3 @@
-//! The tempo a file says it was made at (M9.5 S4d, W A): the loop tag some
-//! WAV files carry, the BPM tag of other formats, and a BPM in the file's
-//! name. Detection from the audio is S5a's.
-//!
-//! Quick work (a header or a tag, never the audio), but it opens the file:
-//! for a background thread.
-
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
@@ -14,27 +7,19 @@ use symphonia::core::formats::probe::Hint;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::{MetadataOptions, RawValue, StandardTag};
 
-/// The tempos a file may claim: Lumen's own limits.
 const SLOWEST: f64 = 20.0;
 const FASTEST: f64 = 999.0;
 
-/// A tempo a file states.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FileTempo {
     pub bpm: f64,
-    /// The file says it is a one-shot, not a loop (the loop tag of a WAV
-    /// file has a flag for it).
     pub one_shot: bool,
 }
 
-/// The tempo `path` states in itself: the loop tag of a WAV file, or a BPM tag.
 pub fn in_file(path: &Path) -> Option<FileTempo> {
     find(path, false)
 }
 
-/// The tempo `path` states: [`in_file`], then a BPM in the file's name. A WAV
-/// file's loop tag that calls it a one-shot keeps saying so whichever of them
-/// the tempo comes from.
 pub fn stated(path: &Path) -> Option<FileTempo> {
     find(path, true)
 }
@@ -54,9 +39,6 @@ fn find(path: &Path, by_name: bool) -> Option<FileTempo> {
     bpm.map(|bpm| FileTempo { bpm, one_shot })
 }
 
-/// A tempo written in a file's name: "120 BPM", "bpm_92.5", "Funk-98bpm".
-/// Only a number beside the letters `bpm` counts, so "808", "Kick 01" and
-/// "Take 120" state nothing.
 pub fn in_name(name: &str) -> Option<f64> {
     let lower = name.to_ascii_lowercase();
     let bytes = lower.as_bytes();
@@ -64,7 +46,6 @@ pub fn in_name(name: &str) -> Option<f64> {
     while let Some(found) = lower[from..].find("bpm") {
         let at = from + found;
         from = at + 3;
-        // The number before: "120bpm", "120 bpm", "120_bpm".
         let mut end = at;
         while end > 0 && matches!(bytes[end - 1], b' ' | b'_' | b'-') {
             end -= 1;
@@ -76,7 +57,6 @@ pub fn in_name(name: &str) -> Option<f64> {
         if let Some(bpm) = number(&lower[start..end]) {
             return Some(bpm);
         }
-        // The number after: "bpm120", "bpm_120", "bpm 92.5".
         let mut start = at + 3;
         while start < bytes.len() && matches!(bytes[start], b' ' | b'_' | b'-') {
             start += 1;
@@ -97,17 +77,12 @@ fn number(text: &str) -> Option<f64> {
     (SLOWEST..=FASTEST).contains(&bpm).then_some(bpm)
 }
 
-/// What the loop chunk of a WAV file says.
 #[derive(Clone, Copy)]
 struct LoopTag {
-    /// The tempo, when it is one Lumen can use.
     bpm: Option<f64>,
     one_shot: bool,
 }
 
-/// The tempo in the loop chunk ("acid") of a WAV file: a flag word (bit 0:
-/// one-shot), the root note, two reserved words, the beat count, the meter,
-/// and the tempo as a 32-bit float.
 fn loop_tag(path: &Path) -> Option<LoopTag> {
     let mut file = File::open(path).ok()?;
     let mut head = [0_u8; 12];
@@ -115,8 +90,6 @@ fn loop_tag(path: &Path) -> Option<LoopTag> {
     if &head[..4] != b"RIFF" || &head[8..] != b"WAVE" {
         return None;
     }
-    // Chunks are a tag, a length and the data, padded to an even length. The
-    // sound is skipped over, so a long file costs a seek.
     for _ in 0..64 {
         let mut chunk = [0_u8; 8];
         file.read_exact(&mut chunk).ok()?;
@@ -126,8 +99,6 @@ fn loop_tag(path: &Path) -> Option<LoopTag> {
             file.read_exact(&mut data).ok()?;
             let flags = u32::from_le_bytes(data[..4].try_into().ok()?);
             let bpm = f64::from(f32::from_le_bytes(data[20..24].try_into().ok()?));
-            // A tempo outside the limits (or not a number) is no tempo, but
-            // the flag is still the file's.
             return Some(LoopTag {
                 bpm: (SLOWEST..=FASTEST).contains(&bpm).then_some(bpm),
                 one_shot: flags & 1 != 0,
@@ -139,7 +110,6 @@ fn loop_tag(path: &Path) -> Option<LoopTag> {
     None
 }
 
-/// The BPM tag of a file: ID3's, Vorbis comments', and the like.
 fn tag(path: &Path) -> Option<f64> {
     let file = File::open(path).ok()?;
     let stream = MediaSourceStream::new(Box::new(file), Default::default());

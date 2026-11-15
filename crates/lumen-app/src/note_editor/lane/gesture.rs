@@ -1,15 +1,3 @@
-//! The lane's mouse gestures (M5 slice 4b) as pure arithmetic, in the style
-//! of `note_editor::gesture`: a [`LaneGesture`] remembers where its button
-//! went down, and [`LaneGesture::resolve`] turns the pointer's place now into
-//! what the gesture means ([`Resolved`]). The release commits that same
-//! `Resolved` through the `Document` lane methods, so what was drawn is what
-//! is made. Nothing here draws or touches the document.
-//!
-//! Times are clip time. Values are the lane's own units: velocities in the
-//! velocity lane, controller values, pitch-bend and pressure elsewhere. A
-//! stroke over the velocity lane changes notes; over any other lane it
-//! changes events.
-
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 
@@ -20,10 +8,8 @@ use lumen_project::model::{ClipEvent, Note};
 
 use super::geometry::{HIT, LaneKind, LaneView};
 
-/// Points the pointer must travel from the press before it counts as a drag.
 pub(crate) const DRAG_THRESHOLD: f32 = 3.0;
 
-/// The tool the lane is used with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum LaneTool {
     #[default]
@@ -32,93 +18,58 @@ pub(crate) enum LaneTool {
     Curve,
 }
 
-/// What a gesture reads: the lane's view, the clip's notes and events as the
-/// gesture found them, the pencil's grid step and the clip's length.
 pub(crate) struct Env<'a> {
     pub view: &'a LaneView,
-    /// The clip's notes (their starts are clip time).
     pub notes: &'a [Note],
-    /// The clip's events, all lanes.
     pub events: &'a [ClipEvent],
-    /// The pencil's grid step in ticks; 0 when snapping is off.
     pub step: Ticks,
-    /// Snaps clip time to the grid: the identity when snapping is off.
     pub snap: &'a dyn Fn(Ticks) -> Ticks,
-    /// The clip's content length: points stay inside `[0, length)`.
     pub length: Ticks,
-    /// The notes grouped by start (`velocity::stems`). The caller keeps it
-    /// until the notes change, so a stroke does not regroup 100,000 notes at
-    /// every pointer event.
     pub stems: std::borrow::Cow<'a, [(Ticks, Vec<usize>)]>,
 }
 
-/// What a gesture is doing.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Kind {
-    /// Drawing freehand: the points or velocities along the stroke.
     Pencil,
-    /// A line or curve from the press to the pointer.
     Line,
-    /// Dragging the picked points of the lane; `grabbed` is the point under
-    /// the press (an index into the clip's events), and the one that snaps.
     Move { grabbed: usize, picked: Vec<usize> },
-    /// A box from the press; `base` are the picks kept when it adds (Shift).
     Box { base: Vec<usize> },
-    /// Dragging the velocity heads of `group` (ascending note indices): every
-    /// note moves by the pointer's travel, `grabbed` being the head pressed.
     Heads { grabbed: usize, group: Vec<usize> },
-    /// Dragging the handle dot of a line just drawn from `from` to `to`, to
-    /// shape its curve.
     Bend {
         from: (Ticks, i32),
         to: (Ticks, i32),
     },
 }
 
-/// One pointer gesture on the lane.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct LaneGesture {
     pub kind: Kind,
-    /// Where the button went down.
     pub origin: Pos2,
-    /// Whether the pointer has gone far enough to count as a drag.
     pub dragging: bool,
-    /// Every pointer position seen, the press first: the stroke of the
-    /// pencil.
     pub trail: Vec<Pos2>,
 }
 
-/// What the pointer's place means now.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Resolved {
-    /// Nothing to change.
     Nothing,
-    /// Velocities to set: `(note index, velocity)`, sorted by note index.
     Velocities(Vec<(usize, u8)>),
-    /// Points to draw: `(clip time, value)`, sorted by time, one per tick.
     Points(Vec<(Ticks, i32)>),
-    /// A line or curve between two ends, in the lane's units.
     Span {
         from: (Ticks, i32),
         to: (Ticks, i32),
         curve: Curve,
     },
-    /// A velocity line: `notes` are the notes whose start lies between the
-    /// two ends.
     Ramp {
         from: (Ticks, u8),
         to: (Ticks, u8),
         notes: Vec<usize>,
         curve: Curve,
     },
-    /// Moves the picked points by `time` ticks and `value`.
     Shift { time: Ticks, value: i32 },
-    /// A box in screen points.
     Box(Rect),
 }
 
 impl LaneGesture {
-    /// A gesture pressed at `origin`, not yet a drag.
     pub fn new(kind: Kind, origin: Pos2) -> Self {
         Self {
             kind,
@@ -128,8 +79,6 @@ impl LaneGesture {
         }
     }
 
-    /// Records the pointer's place. It becomes a drag once it is more than
-    /// [`DRAG_THRESHOLD`] points from the press, and stays one.
     pub fn feed(&mut self, pointer: Pos2) {
         if self.trail.last() != Some(&pointer) {
             self.trail.push(pointer);
@@ -139,7 +88,6 @@ impl LaneGesture {
         }
     }
 
-    /// What the gesture means with the pointer at `pointer`.
     pub fn resolve(&self, pointer: Pos2, env: &Env<'_>) -> Resolved {
         match &self.kind {
             Kind::Pencil => self.pencil(pointer, env),
@@ -152,8 +100,6 @@ impl LaneGesture {
         }
     }
 
-    /// The pencil's stroke: the whole trail once dragging, else the press
-    /// point alone (so a click sets one stem or one point).
     fn path(&self, pointer: Pos2) -> Cow<'_, [Pos2]> {
         if !self.dragging {
             return Cow::Owned(vec![self.origin]);
@@ -190,11 +136,6 @@ impl LaneGesture {
     }
 }
 
-/// The velocity pencil. Each stem the stroke reaches gets a velocity; the
-/// stroke's segments are taken in order, so a later one overrides an earlier
-/// one for the same stem. `groups` are the notes grouped by start (time
-/// order), as `velocity::stems` gives them. Returns `(note, velocity)` for
-/// every note of every stem set, sorted by note index.
 fn velocity_pencil(
     view: &LaneView,
     groups: &[(Ticks, Vec<usize>)],
@@ -202,7 +143,6 @@ fn velocity_pencil(
 ) -> Vec<(usize, u8)> {
     let mut levels: BTreeMap<usize, u8> = BTreeMap::new();
     for (k, &cur) in path.iter().enumerate() {
-        // The first point is a segment from itself.
         let prev = path[k.saturating_sub(1)];
         let lo = prev.x.min(cur.x) - HIT;
         let hi = prev.x.max(cur.x) + HIT;
@@ -220,10 +160,6 @@ fn velocity_pencil(
     changes
 }
 
-/// The velocity heads of `group` dragged from `origin` to `pointer`: each
-/// note keeps its own velocity plus the pointer's travel in values (clamped to
-/// 1..=127 per note), so a grab does not jump. Notes the clamp leaves as they
-/// were are left out.
 fn heads(env: &Env<'_>, group: &[usize], origin: Pos2, pointer: Pos2) -> Resolved {
     let delta = env.view.value_at(pointer.y) - env.view.value_at(origin.y);
     if delta == 0 {
@@ -244,30 +180,18 @@ fn heads(env: &Env<'_>, group: &[usize], origin: Pos2, pointer: Pos2) -> Resolve
     }
 }
 
-/// The velocity a stem at `x` takes from the stroke segment `prev` to `cur`,
-/// or `None` when the segment does not reach it. Near the latest place
-/// (within [`HIT`]) the stem takes that place's velocity; between the two
-/// places it takes the velocity interpolated by x (the pointer jumped over
-/// it); near only the earlier place, that place's velocity.
 fn stem_level(view: &LaneView, x: f32, prev: Pos2, cur: Pos2) -> Option<u8> {
     let (before, after) = (view.value_at(prev.y), view.value_at(cur.y));
     if (x - cur.x).abs() <= HIT {
         return Some(clamp_velocity(after));
     }
     if (prev.x.min(cur.x)..=prev.x.max(cur.x)).contains(&x) {
-        // Not both places at one x: that case is caught above.
         let t = f64::from(x - prev.x) / f64::from(cur.x - prev.x);
         return Some(between_velocities(before, after, t));
     }
     ((x - prev.x).abs() <= HIT).then(|| clamp_velocity(before))
 }
 
-/// The point pencil over a controller-style lane. Each path point is snapped
-/// to the grid (rounded down to a multiple of the step when there is one) and
-/// valued by the pointer's height. Between two path points every step is
-/// filled with an interpolated value, so a fast stroke leaves no gaps; with no
-/// grid, one point a pixel of the view. Times are clamped into the clip. The
-/// result is sorted by time with one point per tick (a later one wins).
 fn points_pencil(env: &Env<'_>, path: &[Pos2]) -> Vec<(Ticks, i32)> {
     if env.length <= Ticks::ZERO {
         return Vec::new();
@@ -282,7 +206,6 @@ fn points_pencil(env: &Env<'_>, path: &[Pos2]) -> Vec<(Ticks, i32)> {
     for pair in samples.windows(2) {
         points.extend(fill_between(pair[0], pair[1], fill));
     }
-    // A stable sort keeps a later point after an earlier one on its tick.
     points.sort_by_key(|&(at, _)| at);
     let mut out: Vec<(Ticks, i32)> = Vec::with_capacity(points.len());
     for point in points {
@@ -294,8 +217,6 @@ fn points_pencil(env: &Env<'_>, path: &[Pos2]) -> Vec<(Ticks, i32)> {
     out
 }
 
-/// The snapped, grid-floored time and the value under a path point, with the
-/// time clamped into `[0, last]`.
 fn sample(env: &Env<'_>, last: Ticks, p: Pos2) -> (Ticks, i32) {
     let at = (env.snap)(env.view.local_at(p.x));
     let at = if env.step > Ticks::ZERO {
@@ -306,8 +227,6 @@ fn sample(env: &Env<'_>, last: Ticks, p: Pos2) -> (Ticks, i32) {
     (at.clamp(Ticks::ZERO, last), env.view.value_at(p.y))
 }
 
-/// The spacing of the points a stroke fills in: the grid step, or with no
-/// grid one pixel of the view, so the count follows the pointer's travel.
 fn fill_step(env: &Env<'_>) -> Ticks {
     if env.step > Ticks::ZERO {
         return env.step;
@@ -320,9 +239,6 @@ fn fill_step(env: &Env<'_>) -> Ticks {
     }
 }
 
-/// The points from `a` to `b` every `step` ticks, each interpolated, then `b`.
-/// `a` itself is not repeated: the caller already has it. Equal ticks give `b`
-/// alone.
 fn fill_between(a: (Ticks, i32), b: (Ticks, i32), step: Ticks) -> Vec<(Ticks, i32)> {
     let span = b.0 - a.0;
     if span == Ticks::ZERO {
@@ -341,14 +257,11 @@ fn fill_between(a: (Ticks, i32), b: (Ticks, i32), step: Ticks) -> Vec<(Ticks, i3
     out
 }
 
-/// The value between `a` and `b` at time `at`, rounded.
 fn lerp(a: (Ticks, i32), b: (Ticks, i32), at: Ticks) -> i32 {
     let t = (at - a.0).0 as f64 / (b.0 - a.0).0 as f64;
     (f64::from(a.1) + (f64::from(b.1) - f64::from(a.1)) * t).round() as i32
 }
 
-/// A line from the press to the pointer, the ends in time order: a span in
-/// the controller lanes, a ramp in the velocity lane.
 fn line(env: &Env<'_>, origin: Pos2, pointer: Pos2) -> Resolved {
     let view = env.view;
     let mut from = ((env.snap)(view.local_at(origin.x)), view.value_at(origin.y));
@@ -365,8 +278,6 @@ fn line(env: &Env<'_>, origin: Pos2, pointer: Pos2) -> Resolved {
     shaped(env, from, to, Curve::LINEAR)
 }
 
-/// The two ends with a curve, as the lane's own kind takes them: a span, or
-/// a ramp in the velocity lane.
 fn shaped(env: &Env<'_>, from: (Ticks, i32), to: (Ticks, i32), curve: Curve) -> Resolved {
     match env.view.kind {
         LaneKind::Velocity => Resolved::Ramp {
@@ -379,8 +290,6 @@ fn shaped(env: &Env<'_>, from: (Ticks, i32), to: (Ticks, i32), curve: Curve) -> 
     }
 }
 
-/// Moves the grabbed point by the pointer's travel. Its time snaps; the other
-/// picks keep their offsets from it (the Document clamps the group).
 fn shift_points(env: &Env<'_>, grabbed: usize, origin: Pos2, pointer: Pos2) -> Resolved {
     let Some(event) = env.events.get(grabbed) else {
         return Resolved::Nothing;
@@ -394,9 +303,6 @@ fn shift_points(env: &Env<'_>, grabbed: usize, origin: Pos2, pointer: Pos2) -> R
     }
 }
 
-/// The curve of a line from `from` to `to` that passes through the dot the
-/// pointer drags (C3's handle, with no S-shape). The dot's position is taken
-/// along the line's ends, unrounded, and kept in the handle's range.
 fn bend(env: &Env<'_>, from: (Ticks, i32), to: (Ticks, i32), pointer: Pos2) -> Resolved {
     if from.0 == to.0 || from.1 == to.1 {
         return Resolved::Nothing;
@@ -409,19 +315,15 @@ fn bend(env: &Env<'_>, from: (Ticks, i32), to: (Ticks, i32), pointer: Pos2) -> R
     shaped(env, from, to, curve)
 }
 
-/// A velocity brought into the lane's range (1 to 127).
 fn clamp_velocity(value: i32) -> u8 {
     let (low, high) = LaneKind::Velocity.range();
     value.clamp(low, high) as u8
 }
 
-/// The velocity `t` of the way from `a` to `b`, rounded and in range.
 fn between_velocities(a: i32, b: i32, t: f64) -> u8 {
     clamp_velocity((f64::from(a) + (f64::from(b) - f64::from(a)) * t).round() as i32)
 }
 
-/// The indices of the notes whose start lies between `a` and `b`, both ends
-/// included, ascending. Order of the two does not matter.
 pub(crate) fn notes_between(notes: &[Note], a: Ticks, b: Ticks) -> Vec<usize> {
     let range = a.min(b)..=a.max(b);
     notes
@@ -432,9 +334,6 @@ pub(crate) fn notes_between(notes: &[Note], a: Ticks, b: Ticks) -> Vec<usize> {
         .collect()
 }
 
-/// The notes of the stems a box catches: a stem is caught when its x lies in
-/// the box and its head, the first note's velocity, lies in the box's height.
-/// Returns every note of the caught stems, ascending.
 pub(crate) fn boxed_stems(
     view: &LaneView,
     notes: &[Note],
@@ -469,13 +368,10 @@ mod tests {
     use crate::timeview::TimeView;
     use lumen_project::edit::velocity;
 
-    /// Beats to clip time.
     fn beats(n: f64) -> Ticks {
         Ticks((n * PPQ as f64) as i64)
     }
 
-    /// The velocity lane or a controller lane over beats 0 to 10, 40 points a
-    /// beat, with the plotting area from y 58 to 242.
     fn lane(kind: LaneKind) -> LaneView {
         LaneView {
             body: Rect::from_min_max(pos2(100.0, 50.0), pos2(500.0, 250.0)),
@@ -488,7 +384,6 @@ mod tests {
         }
     }
 
-    /// The screen point at `beat` and `value` in `view`.
     fn at(view: &LaneView, beat: f64, value: i32) -> Pos2 {
         pos2(view.x_of(beats(beat)), view.y_of(value))
     }
@@ -504,7 +399,6 @@ mod tests {
         }
     }
 
-    /// What a gesture reads: owned, so each test can set its parts.
     struct World {
         view: LaneView,
         notes: Vec<Note>,
@@ -537,7 +431,6 @@ mod tests {
         }
     }
 
-    /// Notes at beats 0, 1, 2, 3 and 6: stems at x 100, 140, 180, 220, 340.
     fn stroke_notes() -> Vec<Note> {
         [0.0, 1.0, 2.0, 3.0, 6.0]
             .into_iter()
@@ -545,12 +438,10 @@ mod tests {
             .collect()
     }
 
-    /// Snapping that does nothing.
     fn free(t: Ticks) -> Ticks {
         t
     }
 
-    /// Snapping to the nearest quarter.
     fn quarters(t: Ticks) -> Ticks {
         Ticks((t.as_quarters().round() as i64) * PPQ)
     }
@@ -625,7 +516,6 @@ mod tests {
         let pointer = pos2(press.x + 2.0, press.y + 1.0);
         gesture.feed(pointer);
         assert!(!gesture.dragging, "under the threshold: still a click");
-        // Only the press point is resolved, whatever the pointer has done.
         assert_eq!(
             gesture.resolve(pointer, &world.env(&snap)),
             Resolved::Velocities(vec![(1, 30)])
@@ -641,8 +531,6 @@ mod tests {
         let pointer = pos2(230.0, world.view.y_of(120));
         let mut gesture = LaneGesture::new(Kind::Pencil, press);
         gesture.feed(pointer);
-        // Stems at x 100, 140, 180 and 220 lie between the two places; the
-        // one at x 340 is out of reach.
         assert_eq!(
             gesture.resolve(pointer, &world.env(&snap)),
             Resolved::Velocities(vec![(0, 20), (1, 51), (2, 82), (3, 112)])
@@ -674,14 +562,12 @@ mod tests {
         let mut gesture = LaneGesture::new(Kind::Pencil, press);
         gesture.feed(pointer);
         let resolved = gesture.resolve(pointer, &world.env(&snap));
-        // Stem at beat 1 (x 140) at 10 + 90 * 0.5 = 55; stem at beat 2 at 100.
         assert_eq!(
             resolved,
             Resolved::Velocities(vec![(0, 55), (1, 55), (2, 100)])
         );
     }
 
-    /// A chord at beat 1 (100 and 60) and a lone note at beat 2 (30).
     fn chord_world() -> World {
         let mut world = World::new(lane(LaneKind::Velocity));
         world.notes = vec![note(1.0, 60, 100), note(1.0, 64, 60), note(2.0, 60, 30)];
@@ -728,7 +614,6 @@ mod tests {
     fn a_head_drag_is_relative_so_a_grab_off_the_head_does_not_jump() {
         let world = chord_world();
         let snap = free;
-        // Pressed 10 values above the head and dragged 5 down: it drops by 5.
         let press = at(&world.view, 1.0, 70);
         let pointer = at(&world.view, 1.0, 65);
         let kind = Kind::Heads {
@@ -778,7 +663,6 @@ mod tests {
         };
         let mut gesture = LaneGesture::new(kind.clone(), press);
         gesture.feed(up);
-        // +40: 100 stops at 127, 60 goes to 100, 30 to 70.
         assert_eq!(
             gesture.resolve(up, &world.env(&snap)),
             Resolved::Velocities(vec![(0, 127), (1, 100), (2, 70)])
@@ -786,7 +670,6 @@ mod tests {
         let down = at(&world.view, 1.0, 1);
         let mut gesture = LaneGesture::new(kind, press);
         gesture.feed(down);
-        // -59: 100 to 41, 60 to 1, 30 stops at 1.
         assert_eq!(
             gesture.resolve(down, &world.env(&snap)),
             Resolved::Velocities(vec![(0, 41), (1, 1), (2, 1)])
@@ -852,8 +735,6 @@ mod tests {
         let Resolved::Points(points) = gesture.resolve(pointer, &world.env(&snap)) else {
             panic!("expected points");
         };
-        // One point a pixel: a beat is 40 pixels, so 40 steps of PPQ / 40 and
-        // the origin, which makes 41 points.
         assert_eq!(points.len(), 41);
         assert_eq!(points.first(), Some(&(Ticks::ZERO, 10)));
         assert_eq!(points.last(), Some(&(beats(1.0), 10)));
@@ -974,7 +855,6 @@ mod tests {
         let world = World::new(lane(LaneKind::Controller(7)));
         let snap = quarters;
         let origin = at(&world.view, 1.0, 10);
-        // 1 beat plus 1/40 of a beat: both ends snap to beat 1.
         let pointer = pos2(origin.x + 1.0, world.view.y_of(90));
         let mut gesture = LaneGesture::new(Kind::Line, origin);
         gesture.feed(pointer);
@@ -1027,7 +907,6 @@ mod tests {
             panic!("expected a span");
         };
         assert_eq!((from, to), ((Ticks::ZERO, 0), (beats(4.0), 100)));
-        // The curve passes through the dot: at the middle, 25 of 100.
         assert!((curve.at(0.5) - 0.25).abs() < 1e-3, "{curve:?}");
     }
 
@@ -1054,7 +933,6 @@ mod tests {
             from: (Ticks::ZERO, 0),
             to: (beats(4.0), 100),
         };
-        // A quarter of the way along, at 80 of 100.
         let pointer = at(&world.view, 1.0, 80);
         let mut gesture = LaneGesture::new(kind, pointer);
         gesture.feed(pos2(pointer.x, pointer.y + 10.0));
@@ -1128,7 +1006,6 @@ mod tests {
         };
         assert_eq!((from, to), ((Ticks::ZERO, 20), (beats(4.0), 120)));
         assert_eq!(notes, [0, 1, 2, 3, 4]);
-        // The dot is at half the time and a fifth of the way up.
         assert!((curve.at(0.5) - 0.2).abs() < 2e-3, "{curve:?}");
     }
 
@@ -1147,7 +1024,6 @@ mod tests {
             origin,
         );
         gesture.feed(pointer);
-        // 0.25 + 0.5 = 0.75 beats, which snaps to beat 1: a move of 0.75.
         assert_eq!(
             gesture.resolve(pointer, &world.env(&snap)),
             Resolved::Shift {
@@ -1242,7 +1118,6 @@ mod tests {
             note(3.0, 60, 90),
         ];
         let stems = stems_of(&notes);
-        // x 130 to 190 (beats 1 and 2), velocities 60 to 100.
         let rect = Rect::from_min_max(pos2(130.0, view.y_of(100)), pos2(190.0, view.y_of(60)));
         assert_eq!(boxed_stems(&view, &notes, &stems, rect), [0, 1]);
     }
@@ -1258,7 +1133,6 @@ mod tests {
 
     #[test]
     fn the_stroke_of_a_gesture_is_on_the_resolve_path_only_once_dragging() {
-        // Not dragging: the path is the press alone, whatever the trail holds.
         let world = World::new(lane(LaneKind::Controller(7)));
         let snap = free;
         let press = at(&world.view, 0.0, 10);

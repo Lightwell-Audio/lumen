@@ -1,6 +1,3 @@
-//! M7b E1: join, nudge, crop, unloop and the selection variants, driven by
-//! keys, the palette and the clip menu, each one undo step.
-
 use eframe::egui::{Event, Key, Modifiers, Pos2, Rect, vec2};
 use egui_kittest::kittest::Queryable;
 use lumen_core::time::{PPQ, Ticks};
@@ -51,8 +48,6 @@ fn click_at(lumen: &mut Lumen, at: Pos2) {
     lumen.frames(3);
 }
 
-/// Cuts the clip under `quarter` there: a click puts the playhead and the
-/// selection there, Ctrl+E cuts.
 pub(super) fn cut_at(lumen: &mut Lumen, quarter: i64) {
     let clips = lumen.app().project().tracks[0].clips.clone();
     let zoom = lumen.app().view().zoom as f32;
@@ -72,7 +67,6 @@ pub(super) fn cut_at(lumen: &mut Lumen, quarter: i64) {
     lumen.key(Modifiers::COMMAND, Key::E);
 }
 
-/// An audio clip cut at two and four quarters, all three selected.
 fn three_parts(name: &str) -> Lumen {
     let mut lumen = audio(name);
     cut_at(&mut lumen, 2);
@@ -109,15 +103,12 @@ fn join_needs_two_clips_and_apart_audio_is_consolidated() {
     assert_eq!(lumen.app().project(), &before, "one clip: nothing to join");
 
     cut_at(&mut lumen, 2);
-    // Slide the second part away: the parts no longer meet.
     let second = lumen.app().project().tracks[0].clips[1].id;
     lumen.app_mut().select_clip(second);
     lumen.key(Modifiers::ALT, Key::ArrowRight);
     lumen.key(Modifiers::COMMAND, Key::A);
     let apart = lumen.app().project().clone();
     lumen.key(Modifiers::COMMAND, Key::J);
-    // Parts that do not continue one another are rendered into one clip
-    // (E3; the details are in `consolidate.rs`).
     lumen.wait_for("the render to replace the parts", |app| {
         app.undo_label() == Some("Join into new file")
     });
@@ -245,7 +236,6 @@ fn every_new_clip_command_is_in_the_palette() {
     }
 }
 
-/// A WAV that rises from silence to a loud end over `seconds`.
 fn ramp_wav(path: &std::path::Path, seconds: f32) -> std::path::PathBuf {
     let rate = 48_000_u32;
     let frames = (seconds * rate as f32) as usize;
@@ -283,7 +273,6 @@ fn ramp(name: &str) -> Lumen {
     lumen
 }
 
-/// The loudest sample heard in the next 50 ms, after 50 ms of settling.
 fn start_level(lumen: &mut Lumen) -> f32 {
     lumen.key(Modifiers::NONE, Key::Space);
     let heard = lumen.listen(std::time::Duration::from_millis(50), 2_400);
@@ -323,7 +312,6 @@ fn a_file_that_rises_starts_quiet_and_a_reversed_clip_of_it_starts_loud() {
 fn reverse_and_polarity_are_one_undo_step_each_and_need_an_audio_clip() {
     let mut lumen = ramp("flags-undo");
     let clip = lumen.app().project().tracks[0].clips[0].id;
-    // Nothing selected: the commands are not available and change nothing.
     let before = lumen.app().project().clone();
     for name in ["Reverse", "Invert polarity"] {
         lumen.key(Modifiers::COMMAND, Key::K);
@@ -361,7 +349,6 @@ fn gain_db(lumen: &Lumen) -> f32 {
 fn normalize_raises_a_quiet_clip_to_full_scale_in_one_undo_step() {
     let mut lumen = ramp("normalize");
     let clip = lumen.app().project().tracks[0].clips[0].id;
-    // Nothing selected: not available, nothing happens.
     lumen.key(Modifiers::COMMAND, Key::K);
     lumen.harness.event(Event::Text("Normalize".into()));
     lumen.frames(2);
@@ -374,8 +361,6 @@ fn normalize_raises_a_quiet_clip_to_full_scale_in_one_undo_step() {
     lumen.wait_for("the scan to apply its gain", |app| {
         app.undo_label() == Some("Normalize")
     });
-    // The file's loudest sample is about 0.6 of full scale (20000 of
-    // 32768, at the end of the rise): +4.3 dB.
     let db = gain_db(&lumen);
     assert!((db - 4.3).abs() < 0.3, "normalized to {db} dB");
     lumen.key(Modifiers::COMMAND, Key::Z);
@@ -385,7 +370,6 @@ fn normalize_raises_a_quiet_clip_to_full_scale_in_one_undo_step() {
 #[test]
 fn a_midi_clips_menu_lists_no_audio_only_commands_and_an_audio_clips_does() {
     use lumen_project::testing::{TempDir, midi_track, project_of};
-    // Audio: the rows are there.
     let mut lumen = ramp("menu-audio");
     let at = spot(&lumen, 2.0);
     lumen.right_click(at);
@@ -395,7 +379,6 @@ fn a_midi_clips_menu_lists_no_audio_only_commands_and_an_audio_clips_does() {
         assert!(lumen.harness.query_by_label(row).is_some(), "audio: {row}");
     }
 
-    // MIDI: left out, while the rest of the menu is whole.
     let dir = TempDir::new("e2e-menu-midi");
     let path = dir.path().join("song.lumen");
     let project = project_of(

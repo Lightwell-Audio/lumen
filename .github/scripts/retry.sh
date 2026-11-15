@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# Runs a setup command up to three times, 20 s apart (ADR-0122): for the
-# steps that reach the network (package lists, toolchains), whose failures
-# are the network's, not the code's. Tests are never run through it.
 set -uo pipefail
 
 status=0

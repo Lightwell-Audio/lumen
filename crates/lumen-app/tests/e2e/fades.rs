@@ -1,8 +1,3 @@
-//! Fades and clip gain (M3 slice 6d, the owner's F3 and G1): drag a fade's
-//! handle along, bend it by its middle dot, drag the gain line, reset any
-//! of them with a double-click, and pick any fade shape from the menu.
-//! Each is one undo step, and the audio follows.
-
 use eframe::egui::{Event, Key, Modifiers, PointerButton, Pos2, vec2};
 use lumen_core::fade::FadeShape;
 use lumen_core::time::Ticks;
@@ -12,8 +7,6 @@ use egui_kittest::kittest::Queryable;
 
 use super::{Lumen, keys, wav};
 
-/// Lumen with one two-second file dropped in, zoomed in until its clip is
-/// wide enough for its handles.
 fn with_a_wide_clip(name: &str) -> (Lumen, Id) {
     let mut lumen = Lumen::start(name);
     let file = wav(&lumen.dir().join("tone.wav"), 2.0);
@@ -67,7 +60,6 @@ fn dragging_a_fade_handle_fades_the_clip_in_one_step() {
         lumen.info()
     );
 
-    // A quarter of the way in: a quarter of the clip, unsnapped.
     let to = at.fade_in + vec2(at.wave.width() * 0.25, 0.0);
     lumen.drag(at.fade_in, to, Modifiers::NONE);
     let c = clip(&lumen, id);
@@ -81,7 +73,6 @@ fn dragging_a_fade_handle_fades_the_clip_in_one_step() {
     assert_eq!(c.start, Ticks::ZERO, "the clip stays put");
     assert_eq!(lumen.app().undo_label(), Some("Fade in"));
 
-    // The fade out, from the other corner, can never overlap it.
     let out = handles(&lumen, id).fade_out;
     lumen.drag(
         out,
@@ -97,8 +88,6 @@ fn dragging_a_fade_handle_fades_the_clip_in_one_step() {
     assert!(clip(&lumen, id).fade_in.is_none(), "one undo step each");
 }
 
-/// The owner's C3: the dot moves freely, left and right as well as up and
-/// down, and the curve passes through it; Alt adds S-shape.
 #[test]
 fn the_dot_bends_a_fade_freely_and_alt_adds_s_shape() {
     let (mut lumen, id) = with_a_wide_clip("fade-bend");
@@ -119,7 +108,6 @@ fn the_dot_bends_a_fade_freely_and_alt_adds_s_shape() {
         lumen.info()
     );
 
-    // Left and up: the dot follows the pointer, and the curve with it.
     let to = dot + vec2(-15.0, -6.0);
     lumen.drag(dot, to, Modifiers::NONE);
     let moved = handles(&lumen, id).bend_in.expect("a bend dot");
@@ -132,7 +120,6 @@ fn the_dot_bends_a_fade_freely_and_alt_adds_s_shape() {
     assert!(bent.dot[0] < 0.45 && bent.dot[1] > 0.55, "{bent:?}");
     assert_eq!(lumen.app().undo_label(), Some("Fade curve"));
 
-    // Right and down: the other way.
     let to = moved + vec2(30.0, 10.0);
     lumen.drag(moved, to, Modifiers::NONE);
     let other = clip(&lumen, id).fade_in.curve.handle();
@@ -141,7 +128,6 @@ fn the_dot_bends_a_fade_freely_and_alt_adds_s_shape() {
         "{other:?}"
     );
 
-    // Alt and up: S-shape, the dot staying where it is.
     let dot = handles(&lumen, id).bend_in.expect("a bend dot");
     lumen.drag(dot, dot - vec2(0.0, 20.0), Modifiers::ALT);
     let s = clip(&lumen, id).fade_in.curve.handle();
@@ -170,7 +156,6 @@ fn the_gain_line_sets_clip_gain_finely_with_shift() {
 
     lumen.drag(line, line + vec2(0.0, 16.0), Modifiers::NONE);
     let coarse = gain(&lumen, id);
-    // A short clip: half a dB a point at most, so 16 points are 8 dB.
     assert!((coarse + 8.0).abs() < 0.6, "{coarse} dB");
     assert_eq!(lumen.app().undo_label(), Some("Clip gain"));
     assert!(handles(&lumen, id).gain.y > line.y, "the line went down");
@@ -210,16 +195,12 @@ fn every_fade_shape_is_in_the_right_click_menu() {
         lumen.frames(1);
     }
     lumen.frames(2);
-    // One Fades submenu (owner's A, MT-APP-14 run 2), named without the
-    // arrow it shows (`widgets::submenu`), as screen readers should hear it.
     lumen.harness.get_by_label("Fades").click();
     lumen.frames(3);
     lumen.click("Fade out: S-curve");
     assert_eq!(clip(&lumen, id).fade_out.curve, FadeShape::SCurve.curve());
 }
 
-/// Heard as drawn: a fade in starts the clip from silence, and clip gain
-/// turns the whole clip down.
 #[test]
 fn fades_and_gain_are_heard() {
     let (mut lumen, id) = with_a_wide_clip("fade-heard");
@@ -230,11 +211,9 @@ fn fades_and_gain_are_heard() {
         Modifiers::NONE,
     );
     let line = handles(&lumen, id).gain;
-    // Down about 12 dB, at half a dB a point.
     lumen.drag(line, line + vec2(0.0, 24.0), Modifiers::NONE);
     let db = gain(&lumen, id);
     let fade = clip(&lumen, id).fade_in.length;
-    // 120 BPM: 24,000 frames a beat.
     let fade_frames = (fade.0 as f64 / Ticks::quarters(1).0 as f64 * 24_000.0) as usize;
 
     lumen.app_mut().heard();
@@ -245,8 +224,6 @@ fn fades_and_gain_are_heard() {
     lumen.key(Modifiers::NONE, Key::Space);
     let heard = lumen.app_mut().heard();
     let loudest = |frames: &[(f32, f32)]| frames.iter().map(|s| s.0.abs()).fold(0.0, f32::max);
-    // The test tone peaks at about 0.0916; a centred stereo track keeps
-    // its level.
     let full = 0.0916 * 10f32.powf(db / 20.0);
     let start = loudest(&heard[..fade_frames / 4]);
     let after = loudest(&heard[fade_frames + 100..fade_frames + 4_000]);

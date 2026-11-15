@@ -1,10 +1,3 @@
-//! Design-system controls shared across the app (audit M2): the value
-//! slider (drag, Shift for fine, double-click to reset, click and type,
-//! arrow keys), floating dialogs and their title row, the fold arrow,
-//! gradients and the accent glow line; shortcuts drawn as keycaps in
-//! menus and tooltips are in `keys.rs` (M3 slice 7). The track headers use
-//! them now; the mixer (M4) and devices reuse them.
-
 use eframe::egui::{self, Color32, FontId, Painter, Pos2, Rect, Stroke, pos2, vec2};
 
 use eframe::emath::GuiRounding as _;
@@ -60,7 +53,6 @@ pub use toggle::{
     tab_divider, tabs_with, toggle_button, toggle_button_width,
 };
 
-/// `text` as it is when it fits `width`, else cut to fit.
 pub fn fit(painter: &egui::Painter, text: &str, font: FontId, width: f32) -> String {
     let whole = painter.layout_no_wrap(text.to_owned(), font.clone(), Color32::WHITE);
     if whole.size().x <= width {
@@ -70,7 +62,6 @@ pub fn fit(painter: &egui::Painter, text: &str, font: FontId, width: f32) -> Str
     }
 }
 
-/// `text` cut to fit `width`, ending in "…".
 pub fn shorten(painter: &egui::Painter, text: &str, font: FontId, width: f32) -> String {
     let mut cut = text.to_owned();
     while !cut.is_empty() {
@@ -84,12 +75,6 @@ pub fn shorten(painter: &egui::Painter, text: &str, font: FontId, width: f32) ->
     format!("{cut}\u{2026}")
 }
 
-/// Whether a double-click landed on `response`'s control this frame, for a
-/// field that must return to its default on one. A `DragValue` begins
-/// editing on the first click, so its own response never sees the second
-/// one; the pointer's double-click is read against the field's rect
-/// instead. The edit the first click began ends too, so the reset value is
-/// what the field shows.
 pub fn double_click_reset(ui: &mut egui::Ui, response: &egui::Response) -> bool {
     let hit = ui.input(|i| {
         i.pointer
@@ -104,11 +89,8 @@ pub fn double_click_reset(ui: &mut egui::Ui, response: &egui::Response) -> bool 
     hit
 }
 
-/// How wide and tall [`draw_arrow`]'s arrow is, for laying out beside it.
 pub const ARROW_SIZE: f32 = 8.0;
 
-/// The fold arrow: pointing right when folded, down when unfolded (`t`
-/// glides from 0 to 1).
 pub fn draw_arrow(painter: &Painter, center: Pos2, t: f32, color: Color32) {
     let angle = t * std::f32::consts::FRAC_PI_2;
     let (s, c) = angle.sin_cos();
@@ -120,18 +102,14 @@ pub fn draw_arrow(painter: &Painter, center: Pos2, t: f32, color: Color32) {
     ));
 }
 
-/// The glowing accent line on a track's resize handle (`t` fades it): the
-/// [`light::LIT`] level.
 pub fn draw_edge_glow(painter: &Painter, x: egui::Rangef, y: f32, t: f32) {
     light::hline(painter, light::LIT, x, y, theme::p().accent, t);
 }
 
-/// The same glow along a vertical edge at `x` (the header column's edge).
 pub fn draw_edge_glow_vertical(painter: &Painter, x: f32, y: egui::Rangef, t: f32) {
     light::vline(painter, light::LIT, x, y, theme::p().accent, t);
 }
 
-/// A horizontal gradient from `left` to `right` across `rect`.
 pub fn gradient(painter: &Painter, rect: Rect, left: Color32, right: Color32) {
     let mut mesh = egui::Mesh::default();
     let i = mesh.vertices.len() as u32;
@@ -148,16 +126,10 @@ pub fn gradient(painter: &Painter, rect: Rect, left: Color32, right: Color32) {
     painter.add(egui::Shape::mesh(mesh));
 }
 
-/// A small chip by the pointer with a live value while dragging (a fade's
-/// length, a gain; M4 slice 0: what a drag does is said in the info line,
-/// not here). Placed with its left edge at `at.x`, centred on `at.y`, kept
-/// inside `bounds`. Returns where it was drawn.
 pub fn draw_hint(painter: &Painter, at: Pos2, text: &str, bounds: Rect) -> Rect {
     draw_hint_tone(painter, at, text, bounds, false)
 }
 
-/// [`draw_hint`] that turns to the warning colour when `warn`: a value held
-/// at its limit (a warp marker at 25% or 400%).
 pub fn draw_hint_tone(painter: &Painter, at: Pos2, text: &str, bounds: Rect, warn: bool) -> Rect {
     let palette = theme::p();
     let ink = if warn { palette.warning } else { palette.text };
@@ -189,8 +161,6 @@ pub fn draw_hint_tone(painter: &Painter, at: Pos2, text: &str, bounds: Rect, war
     rect
 }
 
-/// A quiet caption beside the pointer, kept inside `bounds`: the tape
-/// speed while scrubbing (the owner's choice B2).
 pub fn draw_caption(painter: &Painter, at: Pos2, text: &str, colour: Color32, bounds: Rect) {
     let galley = painter.layout_no_wrap(
         text.to_owned(),
@@ -201,8 +171,6 @@ pub fn draw_caption(painter: &Painter, at: Pos2, text: &str, colour: Color32, bo
     painter.galley(pos2(x, at.y - galley.size().y / 2.0), galley, colour);
 }
 
-/// The selection glow around a clip (the owner's choice S3, like the
-/// record arm's): the [`light::LIT`] level.
 pub fn draw_glow_rect(painter: &Painter, rect: Rect, radius: f32) {
     light::rect(painter, light::LIT, rect, radius, theme::p().accent);
 }

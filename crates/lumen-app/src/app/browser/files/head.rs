@@ -1,8 +1,3 @@
-//! The file list's header as the app runs it (audit M12): the search field
-//! and what sits under it, the breadcrumb, the count and the folder menu,
-//! and the designed empty state, applied to what was pressed. The words and
-//! the card are `crate::browser::files::head`.
-
 use std::path::{Path, PathBuf};
 
 use eframe::egui::{self, Rect, Ui, vec2};
@@ -19,8 +14,6 @@ use crate::icons::{self, Icon};
 use crate::{App, fonts, theme, widgets};
 
 impl App {
-    /// The search field and what sits under it: the count and Refresh, the
-    /// folder menu (Samples), the breadcrumb (Places).
     pub(crate) fn files_controls(&mut self, ui: &mut Ui, ctx: &egui::Context, tab: Tab) {
         let hint = match tab {
             Tab::Samples => "Search samples",
@@ -54,7 +47,6 @@ impl App {
         self.count_line(ui, ctx, tab);
     }
 
-    /// Places' way back up, and where it is; at the top, Add a place….
     fn breadcrumb(&mut self, ui: &mut Ui, ctx: &egui::Context) {
         let at = self.browser.files.at.clone();
         ui.horizontal(|ui| {
@@ -102,8 +94,6 @@ impl App {
         ui.add_space(theme::space::XS);
     }
 
-    /// The count, what a read is doing (with Cancel), Refresh, and in
-    /// Samples the folder menu.
     fn count_line(&mut self, ui: &mut Ui, ctx: &egui::Context, tab: Tab) {
         let words = self.browser.files.words(tab).trim().to_owned();
         let top = tab == Tab::Places && words.is_empty() && self.browser.files.at == At::Top;
@@ -115,8 +105,6 @@ impl App {
             .flatten();
         let listing = self.browser.files.listing(tab);
         let shown = listing.shown(&words, narrow.as_deref()).len();
-        // Only an open folder in Places lists folders: they are counted
-        // apart from the files.
         let folders = if tab == Tab::Places && words.is_empty() {
             let indexes = listing.shown(&words, None).to_vec();
             indexes
@@ -169,8 +157,6 @@ impl App {
         ui.add_space(theme::space::XS);
     }
 
-    /// Samples' folder menu: every folder, one folder of them, adding and
-    /// removing sample folders.
     fn folder_menu(&mut self, ui: &mut Ui, ctx: &egui::Context) {
         let narrow = self.browser.files.narrow.clone();
         let label = narrow.as_ref().map_or_else(
@@ -184,8 +170,6 @@ impl App {
             .on_hover_text("Narrow the list to one folder, or add a sample folder");
         let chosen = self.settings.browser.sample_folders.clone();
         widgets::Menu::below(&button).show(|ui| {
-            // The folders one level in, from what was read: looked for only
-            // while the menu is open.
             let inner = head::inner_sample_folders(
                 &self.sample_folders(),
                 &self.browser.files.samples.rows,
@@ -228,7 +212,6 @@ impl App {
         let _ = ctx;
     }
 
-    /// The list is empty: a designed state for each reason.
     pub(crate) fn files_empty(&mut self, ui: &mut Ui, area: Rect, tab: Tab) {
         let words = self.browser.files.words(tab).trim().to_owned();
         let listing = self.browser.files.listing(tab);
@@ -244,9 +227,6 @@ impl App {
                 .map(|p| PathBuf::from(&p.path)),
             _ => None,
         };
-        // What could not be read is said before "No files match": a search
-        // of a folder that is not there would otherwise hide why. With
-        // words typed, the one action is still to clear them.
         let (title, hint, action) = head::empty_words(
             tab,
             reading,

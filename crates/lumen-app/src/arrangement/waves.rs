@@ -1,8 +1,3 @@
-//! Waveforms for the GPU (M3 slice 4c, ADR-0027): which audio each clip
-//! shows, from which frame and at how many frames per beat. Kept pure, so
-//! the mapping from the project to what is drawn is tested, like the one
-//! to what is heard (`lanes::engine_clips`).
-
 use eframe::egui::Color32;
 use lumen_core::time::{PPQ, TempoMap, Ticks};
 use lumen_project::model::{Clip, ClipContent, Project, Track};
@@ -10,12 +5,8 @@ use lumen_render::{WaveInstance, beats, rgba};
 
 use super::samples::Geometry;
 
-/// The most repeats of one looping clip drawn as waves; past this, a very
-/// short loop over a long clip shows its first repeats only.
 const MAX_REPEATS: usize = 4_096;
 
-/// What the waveform of a media file needs: its atlas slot, how many
-/// channels to show, and the file's own sample rate.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Source {
     pub slot: u32,
@@ -23,18 +14,12 @@ pub struct Source {
     pub native_rate: u32,
 }
 
-/// A wave for the GPU, and its exact place for drawing sample by sample.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct Wave {
     pub instance: WaveInstance,
     pub geometry: Geometry,
 }
 
-/// The waves for every audio clip whose peaks are loaded (`source` gives
-/// them by media id), with frames at the device `rate` as the audio is
-/// held. A clip spanning tempo changes gets one wave per constant tempo
-/// (and one per quarter note over a ramp), since audio plays at its own
-/// speed while beats stretch.
 pub(super) fn wave_instances(
     project: &Project,
     rate: u32,
@@ -45,8 +30,6 @@ pub(super) fn wave_instances(
         return Vec::new();
     };
     let mut waves = Vec::new();
-    // A crossfade is drawn as it is heard: two clips that overlap, each
-    // fading through the crossing.
     let played = crate::crossfades::played(project);
     for (row, track) in project.tracks.iter().enumerate() {
         for model in &track.clips {
@@ -66,10 +49,6 @@ pub(super) fn wave_instances(
     waves
 }
 
-/// One stretch of a clip's wave at one tempo, for drawing it on the CPU:
-/// from beat `start` to `end`, starting at device-rate frame `first_frame`
-/// of `media` (a reversed clip's twin), at the clip's `gain` (negative when
-/// inverted).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Span {
     pub media: u64,
@@ -80,9 +59,6 @@ pub(crate) struct Span {
     pub gain: f32,
 }
 
-/// The waves of `clip`, which need not be in a project (the audio editor's
-/// whole-file view maps a copy of the clip stretched to its file's ends),
-/// as [`Span`]s.
 pub(crate) fn spans_of(
     clip: &Clip,
     tempo: &TempoMap,
@@ -111,8 +87,6 @@ pub(crate) fn spans_of(
         .collect()
 }
 
-/// One clip for [`clip_waves`]: as modelled, as played (cut by a
-/// crossfade), whether that crossfade blends, its row and colour.
 struct Shown<'a> {
     model: &'a Clip,
     clip: &'a Clip,
@@ -121,7 +95,6 @@ struct Shown<'a> {
     color: Color32,
 }
 
-/// Pushes the waves of one clip.
 fn clip_waves(
     waves: &mut Vec<Wave>,
     tempo: &TempoMap,
@@ -145,7 +118,6 @@ fn clip_waves(
     else {
         return;
     };
-    // A reversed clip draws the reversed twin of its file.
     let key = if clip.reversed {
         crate::media::reversed_key(media.0)
     } else {
@@ -158,7 +130,6 @@ fn clip_waves(
         warped_waves(waves, rate, shown, key, &source);
         return;
     }
-    // The file offset in the device-rate frames the peaks index.
     let base = (*offset as f64 * f64::from(rate) / f64::from(source.native_rate.max(1))) as i64;
     let origin = if clip.loop_length.is_some() {
         clip.start - clip.loop_phase
@@ -175,8 +146,6 @@ fn clip_waves(
         .map(|p| p.at)
         .filter(|&at| at > start && at < end)
         .collect();
-    // Over a ramp the audio stretches a little more or less each beat:
-    // one wave per quarter note there, exact where each begins.
     for pair in tempo.points().windows(2) {
         if !pair[0].ramp || pair[0].bpm == pair[1].bpm {
             continue;
@@ -190,8 +159,6 @@ fn clip_waves(
     }
     cuts.sort_unstable();
     cuts.dedup();
-    // A looping clip draws its content again from each repeat
-    // (slice 6c), as the engine plays it.
     let period = clip.loop_length.filter(|p| *p > Ticks::ZERO);
     let cycle = period.and_then(|period| {
         let origin = start - clip.loop_phase;
@@ -212,15 +179,10 @@ fn clip_waves(
         cuts.dedup();
     }
     cuts.push(end);
-    // Drawn at the clip's gain and through its fades (slice 6d),
-    // as the engine plays it.
-    // A polarity-inverted clip is drawn with a negative gain, upside down.
     let gain = 10f32.powf(gain_db / 20.0) * if clip.inverted { -1.0 } else { 1.0 };
     let (curve_in, curve_out) = (clip.fade_in.curve.into(), clip.fade_out.curve.into());
     let fade_start = start - clip.fade_in.offset;
     let fade_end = end + clip.fade_out.offset;
-    // A crossfade that is not played (nothing to blend) is not a
-    // fade-in either.
     let (curve_in, fade_in) = if model.crossfade && !blend {
         (curve_in, [beats(start.as_quarters()); 2])
     } else {
@@ -278,10 +240,6 @@ fn clip_waves(
     }
 }
 
-/// The waves of a warped clip (M9.5 S4d). The map ties the file to music
-/// time, not to the tempo, so the clip is cut where the map has a marker (and
-/// at each repeat of a loop), and each piece is a straight run of the file:
-/// from the second the map puts at its start to the one it puts at its end.
 fn warped_waves(waves: &mut Vec<Wave>, rate: u32, shown: &Shown<'_>, key: u64, source: &Source) {
     let Shown {
         model,
@@ -305,15 +263,11 @@ fn warped_waves(waves: &mut Vec<Wave>, rate: u32, shown: &Shown<'_>, key: u64, s
     };
     let (start, end) = (clip.start, clip.start + clip.length);
     let mut cuts: Vec<Ticks> = Vec::new();
-    // A marker inside one turn of the map cuts every repeat of it.
     let turns = |cuts: &mut Vec<Ticks>, within: Ticks| {
         let mut at = origin + within;
         match period {
             Some(period) => {
                 if at <= start {
-                    // A clip split or trimmed far into a loop starts many
-                    // turns after its origin: jump to the first turn in view
-                    // rather than walking the turns before it.
                     at = at + Ticks((start - at).0 / period.0 * period.0 + period.0);
                 }
                 while at < end && cuts.len() < MAX_REPEATS {
@@ -366,8 +320,6 @@ fn warped_waves(waves: &mut Vec<Wave>, rate: u32, shown: &Shown<'_>, key: u64, s
         if length <= 0.0 {
             continue;
         }
-        // The map's own clock: from the origin, and for a loop from the
-        // start of the turn the piece is in.
         let local = |at: Ticks| match period {
             Some(period) => (at - origin).0.rem_euclid(period.0) as f64,
             None => (at - origin).0 as f64,
@@ -474,8 +426,6 @@ mod tests {
 
     #[test]
     fn a_clip_at_one_tempo_is_one_wave_from_its_offset() {
-        // 120 BPM: 24,000 frames per beat at 48 kHz. The file is 44.1 kHz,
-        // so an offset of 44,100 file frames is 48,000 device frames.
         let waves = waves(&project(vec![bpm(0, 120.0)], 44_100), 44_100);
         assert_eq!(waves.len(), 1);
         let w = waves[0];
@@ -495,10 +445,6 @@ mod tests {
 
     #[test]
     fn a_warped_clip_draws_the_file_at_the_speed_the_map_plays_it() {
-        // A 90 BPM file in a 120 BPM song: a beat of the song is two thirds
-        // of a second of the file, 32,000 frames, not the 24,000 of a beat.
-        // A tempo change inside the clip does not cut it: the file follows
-        // the beats.
         let tempo = vec![bpm(0, 120.0), bpm(6, 60.0)];
         let p = warped(
             project(tempo, 0),
@@ -515,8 +461,6 @@ mod tests {
     fn a_warped_clip_is_cut_at_its_markers_and_each_piece_has_its_own_speed() {
         use lumen_core::warp::Marker;
         let mut warp = lumen_project::model::Warp::new(60.0, 0.0);
-        // A second of the file in the first two beats (48,000 frames in
-        // two beats), then the original tempo of 60 BPM: 48,000 a beat.
         warp.markers.push(Marker::new(1.0, Ticks::quarters(2)));
         let p = warped(project(vec![bpm(0, 120.0)], 0), warp);
         let waves = waves(&p, 48_000);
@@ -527,8 +471,6 @@ mod tests {
         assert_eq!(seen, [(4.0, 0.0, 24_000.0), (6.0, 48_000.0, 48_000.0)]);
     }
 
-    /// Review round 2: a warped loop trimmed far into its repeats keeps a huge
-    /// phase; drawing it must not walk every turn before the clip.
     #[test]
     fn a_warped_loop_far_into_its_turns_is_drawn_without_walking_them() {
         use lumen_core::warp::Marker;
@@ -537,8 +479,6 @@ mod tests {
         let mut p = warped(project(vec![bpm(0, 120.0)], 0), warp);
         let clip = Arc::make_mut(&mut Arc::make_mut(&mut p.tracks[0]).clips[0]);
         clip.loop_length = Some(Ticks::quarters(2));
-        // Two billion turns in: the clip starts at beat 4 of a loop whose
-        // origin is 4 billion beats back.
         clip.loop_phase = Ticks::quarters(4_000_000_000);
         let began = std::time::Instant::now();
         let waves = waves(&p, 48_000);
@@ -567,8 +507,6 @@ mod tests {
 
     #[test]
     fn a_tempo_change_inside_a_clip_splits_it_and_the_audio_runs_on() {
-        // 120 BPM, then 60 BPM from beat 6: the second half's beats are
-        // twice as long, and its audio starts where the first half's ended.
         let waves = waves(&project(vec![bpm(0, 120.0), bpm(6, 60.0)], 0), 48_000);
         assert_eq!(waves.len(), 2);
         assert_eq!((waves[0].start, waves[0].end), ([4.0, 0.0], [6.0, 0.0]));
@@ -630,7 +568,6 @@ mod tests {
 
     #[test]
     fn a_clip_over_a_tempo_ramp_has_a_wave_a_beat_and_the_audio_runs_on() {
-        // 120 BPM gliding to 60 over beats 0 to 8; the clip is beats 4 to 8.
         let ramp = TempoPoint {
             ramp: true,
             ..bpm(0, 120.0)
@@ -639,8 +576,6 @@ mod tests {
         let waves = waves(&p, 48_000);
         let starts: Vec<f32> = waves.iter().map(|w| w.start[0]).collect();
         assert_eq!(starts, [4.0, 5.0, 6.0, 7.0]);
-        // Each beat is longer than the one before, and the audio of a wave
-        // begins where the one before it ended.
         for pair in waves.windows(2) {
             assert!(pair[1].frames_per_beat > pair[0].frames_per_beat);
             let drawn = pair[0].frames_per_beat * (pair[0].end[0] - pair[0].start[0]);
@@ -650,10 +585,6 @@ mod tests {
 
     #[test]
     fn a_crossfade_draws_the_incoming_clip_from_the_start_of_the_crossing() {
-        // Two clips of four beats from beat 0 and beat 4 of an eight-beat
-        // file, the second made a crossfade of half a beat that starts a
-        // beat into the file: it is drawn from half a beat before it starts,
-        // ramping in over the crossing, and the first one ramps out.
         let mut p = project(vec![bpm(0, 120.0)], 24_000);
         p.media.push(lumen_project::model::Media {
             id: Id(3),
@@ -683,7 +614,6 @@ mod tests {
         assert_eq!(inc.start, [3.0, 0.5]);
         assert_eq!(inc.end, [8.0, 0.0]);
         assert_eq!(inc.fade_in, [[3.0, 0.5], [4.0, 0.0]]);
-        // The audio under the clip's start is unmoved: half a beat on.
         assert_eq!(inc.first_frame, 12_000.0);
         assert_eq!(out.fade_out, [[3.0, 0.5], [4.0, 0.0]]);
     }

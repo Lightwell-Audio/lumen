@@ -1,9 +1,3 @@
-//! Built-in effects in the engine (M8 slice B0, ADR-0145): a device runs where
-//! the plan reaches it, the values the project holds reach it with the block,
-//! a lane moves its parameters on the exact frames at any block size, nothing
-//! it does allocates, its latency is compensated and its tail rings on after
-//! a Stop.
-
 use std::sync::Arc;
 
 use lumen_core::automation::{Lane, Point, Shape};
@@ -21,11 +15,9 @@ lumen_rt::install_guarded_allocator!();
 
 const RATE: u32 = 48_000;
 const MASTER: u64 = 100;
-/// The device's id in the plan, and in the mixer's built-in pool.
 const DEVICE: u64 = 7;
 const TRACK: u64 = 1;
 
-/// A clip of `value` on `TRACK`, long enough for any render here.
 fn clip(value: f32) -> Clip {
     Clip {
         envelope: Default::default(),
@@ -43,7 +35,6 @@ fn clip(value: f32) -> Clip {
     }
 }
 
-/// The routing: a track with a built-in device on it, into the master.
 fn routing(values: &[(u32, f32)], latency: u32, lane: Option<AutoLane>) -> Routing {
     let mut track = NodeSpec::unity(TRACK, Destination::Node(MASTER));
     track.devices = vec![Device::Builtin {
@@ -95,7 +86,6 @@ impl Rig {
         self.transport.send(Command::Play).unwrap();
     }
 
-    /// Renders `frames` in blocks of `block`; returns the left channel.
     fn run(&mut self, frames: usize, block: usize) -> Vec<f32> {
         let mut data = vec![0.0; 2 * block];
         let mut out = Vec::with_capacity(frames);
@@ -110,7 +100,6 @@ impl Rig {
     }
 }
 
-/// The normalised value of a gain in decibels.
 fn gain(db: f32) -> f32 {
     lumen_devices::params::find(utility::TABLE, GAIN)
         .unwrap()
@@ -123,7 +112,6 @@ fn a_built_in_plays_the_values_the_project_holds() {
     let mut rig = rig(vec![clip(0.25)], &routing);
     rig.attach(Box::new(Utility::new()));
     rig.play();
-    // Past the glide from the device's default to the project's value.
     rig.run(4096, 128);
     let heard = rig.run(512, 128);
     let want = 0.25 * 10f32.powf(-6.0 / 20.0);
@@ -136,8 +124,6 @@ fn a_built_in_plays_the_values_the_project_holds() {
 
 #[test]
 fn an_unattached_built_in_plays_the_audio_through() {
-    // Nothing is attached: the node's fallback plays, so the track sounds as
-    // if it had no device at all (never silence, never late).
     let routing = routing(&[(GAIN, gain(-60.0))], 0, None);
     let mut rig = rig(vec![clip(0.25)], &routing);
     rig.play();
@@ -154,8 +140,6 @@ fn a_built_ins_latency_is_compensated() {
     assert_eq!(plan.compensation().path, [(TRACK, 240)]);
 }
 
-/// The golden render: a lane moves the utility's gain, and the same audio comes
-/// out at every block size a device is given.
 #[test]
 fn automating_the_utility_s_gain_is_the_same_at_every_block_size() {
     let lane = AutoLane::new(vec![
@@ -193,15 +177,12 @@ fn automating_the_utility_s_gain_is_the_same_at_every_block_size() {
         let parts = render(block);
         assert_eq!(parts.len(), whole.len());
         for (frame, (a, b)) in whole.iter().zip(&parts).enumerate() {
-            // The same curve, interpolated along stretches of different
-            // lengths: the two agree to float rounding, not bit for bit.
             assert!(
                 (a - b).abs() < 1e-4,
                 "block {block} frame {frame}: {a} against {b}"
             );
         }
     }
-    // And the lane is really heard: the gain falls and comes back.
     let quiet = whole[2900];
     assert!(
         (quiet - 0.25 * 10f32.powf(-40.0 / 20.0)).abs() < 2e-4,
@@ -242,8 +223,6 @@ fn a_block_with_automation_never_touches_the_heap() {
     assert_eq!(heap, 0, "the audio thread allocated");
 }
 
-/// A lane's own point is played on its own frame: the value at the point's
-/// sample is the value the lane gives, not one smoothing step behind it.
 #[test]
 fn a_lane_point_is_heard_on_its_own_sample() {
     let points = [(0, gain(0.0)), (1000, gain(-20.0))];
@@ -279,8 +258,6 @@ fn a_lane_point_is_heard_on_its_own_sample() {
     );
 }
 
-/// An offline render of the same project plays what playback plays: the same
-/// mixer, the same device, the same values and lane, at the same samples.
 #[test]
 fn an_offline_render_plays_what_playback_plays() {
     use lumen_engine::{Ended, SourceRender, render_source};
@@ -303,13 +280,11 @@ fn an_offline_render_plays_what_playback_plays() {
         },
     ])
     .unwrap();
-    // Playback.
     let routing = routing(&[(GAIN, gain(0.0))], 0, Some(lane));
     let mut rig = rig(vec![clip(0.25)], &routing);
     rig.attach(Box::new(Utility::new()));
     rig.play();
     let live = rig.run(6000, 128);
-    // A render, with its own mixer over the same routing.
     let (mut clips, player) = clip_player();
     clips.set(vec![clip(0.25)]).unwrap();
     let (mut handle, mut source) = mixer(player);
@@ -338,10 +313,6 @@ fn an_offline_render_plays_what_playback_plays() {
     );
     assert_eq!(ended, Ended::Done);
     assert_eq!(rendered.len(), 6000);
-    // Past the play fade-in (2 ms) the two agree frame for frame: the render
-    // cuts its blocks where playback does (the lead-in is a whole number of
-    // blocks, review L9), so a lane's points land on the same samples and the
-    // device's curves are interpolated along the same stretches.
     let mut worst = 0.0f32;
     for (frame, (a, b)) in live.iter().zip(&rendered).enumerate().skip(300) {
         let difference = (a - b).abs();
@@ -353,20 +324,12 @@ fn an_offline_render_plays_what_playback_plays() {
     assert_eq!(worst, 0.0, "the render differs by {worst}");
 }
 
-/// A pass-through whose latency follows one of its parameters (M8 slice B0,
-/// review H1): it holds its input back by the frames the same function the
-/// routing's latency comes from gives it, so the plan and the running device
-/// agree and a parallel dry path can be compared with it sample for sample.
 struct Timed {
-    /// The delay line of each side, long enough for the longest delay here.
     rings: [Vec<f32>; 2],
     at: usize,
-    /// The gain it was last told, as a device holds a value between blocks.
     value: f32,
 }
 
-/// Frames the device holds its output back by at `values`: 240 at the bottom of
-/// the gain, 480 at the top.
 fn timed_latency(values: &[(u32, f32)]) -> u32 {
     let up = lumen_devices::params::normalised_of(utility::TABLE, GAIN, values);
     240 + (up * 240.0) as u32
@@ -382,10 +345,6 @@ impl Timed {
     }
 }
 
-/// What the block says the gain (and so the latency) is: the last point of the
-/// last queue that names it, or what the device was last told (the engine tells
-/// a device a value only when it changed, so a device holds it between blocks,
-/// as `params::values` does).
 fn timed_value(block: &lumen_devices::Block<'_>, value: &mut f32) {
     for i in 0..block.events.len() {
         let (id, points) = block.events.queue(i);
@@ -413,8 +372,6 @@ impl Effect for Timed {
     }
 }
 
-/// A clip on `track` that is silence with one sample of `value` at `at`, long
-/// enough for any render here.
 fn impulse_clip(track: u64, at: usize, value: f32) -> Clip {
     let mut left = vec![0.0; 480_000];
     left[at] = value;
@@ -434,9 +391,6 @@ fn impulse_clip(track: u64, at: usize, value: f32) -> Clip {
     }
 }
 
-/// H1: a device whose latency follows a parameter plays in line with a
-/// parallel dry path, sample for sample, at both settings — the plan's
-/// compensation and the device's own delay come from the same values.
 #[test]
 fn a_latency_that_follows_a_parameter_keeps_a_parallel_path_in_line() {
     const DRY: u64 = 2;
@@ -484,9 +438,6 @@ fn a_latency_that_follows_a_parameter_keeps_a_parallel_path_in_line() {
     };
     for (latency, gain) in [(240u32, 0.0f32), (480, 1.0)] {
         let loud = render(latency, gain);
-        // The engine plays the timeline as far ahead as the compensation, so
-        // the impulse comes out that much earlier; the point is that both
-        // paths put it in one sample, and that it is both of them.
         let placed: Vec<(usize, f32)> = loud
             .iter()
             .enumerate()
@@ -505,8 +456,6 @@ fn a_latency_that_follows_a_parameter_keeps_a_parallel_path_in_line() {
     }
 }
 
-/// A device that silences what it is given and counts the blocks it is asked
-/// for, so its being asked (or not) can be seen.
 struct Counting(std::sync::Arc<std::sync::atomic::AtomicUsize>);
 
 impl Effect for Counting {
@@ -517,9 +466,6 @@ impl Effect for Counting {
     }
 }
 
-/// M1: the power button means something. A bypassed built-in glides to its dry
-/// signal — never a step — and is not asked for a block at all once it has
-/// faded out; turning it back on glides it in again.
 #[test]
 fn the_power_button_glides_a_built_in_to_its_dry_signal() {
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -543,11 +489,9 @@ fn the_power_button_glides_a_built_in_to_its_dry_signal() {
         out
     };
     transport.send(Command::Play).unwrap();
-    // On, it silences the audio, and the count is the signal that it ran.
     let heard = render(&mut engine, 4);
     assert_eq!(asked.load(Ordering::Relaxed), 4, "asked while on");
     assert!(heard.iter().all(|s| s.abs() < 1e-6), "it silences while on");
-    // Power off: it is asked while it fades (20 ms), then not at all.
     on.nodes[1].devices[0] = Device::Builtin {
         device: DEVICE,
         latency: 0,
@@ -558,8 +502,6 @@ fn the_power_button_glides_a_built_in_to_its_dry_signal() {
     let heard = render(&mut engine, 20);
     let fading = asked.load(Ordering::Relaxed) - before;
     assert!(fading > 0 && fading < 20, "asked while fading: {fading}");
-    // A step would be a jump between two neighbouring frames; a 20 ms glide is
-    // at most a hundredth of the level a frame.
     let worst = heard
         .windows(2)
         .map(|w| (w[1] - w[0]).abs())
@@ -573,7 +515,6 @@ fn the_power_button_glides_a_built_in_to_its_dry_signal() {
     let before = asked.load(Ordering::Relaxed);
     render(&mut engine, 40);
     assert_eq!(asked.load(Ordering::Relaxed), before, "not asked when off");
-    // Back on: it glides in and is asked again.
     on.nodes[1].devices[0] = Device::Builtin {
         device: DEVICE,
         latency: 0,
@@ -587,8 +528,6 @@ fn the_power_button_glides_a_built_in_to_its_dry_signal() {
     );
 }
 
-/// L3: a block that takes a new plan and a device to attach and one to detach
-/// touches no heap at all.
 #[test]
 fn a_plan_swap_with_a_device_to_attach_and_detach_never_touches_the_heap() {
     assert!(guard_is_active(), "the guarded allocator is installed");
@@ -603,8 +542,6 @@ fn a_plan_swap_with_a_device_to_attach_and_detach_never_touches_the_heap() {
     rig.attach(Box::new(Utility::new()));
     rig.play();
     rig.run(1024, 128);
-    // Queued on the interface side: a new plan, one device to attach and the
-    // one it holds to take away.
     assert!(rig.routing.set(&after).unwrap());
     rig.routing
         .attach_builtin(DEVICE + 1, Slot::new(Box::new(Utility::new())))
@@ -617,16 +554,10 @@ fn a_plan_swap_with_a_device_to_attach_and_detach_never_touches_the_heap() {
     assert_eq!(heap, 0, "the audio thread allocated");
 }
 
-/// L6: the values the project holds are carried to a device when they change,
-/// not every block: a still device opens no parameter queue at all, and a
-/// value the interface moved arrives once (the device holds it, as
-/// `params::values` does).
 #[test]
 fn a_still_built_in_is_told_nothing_after_the_first_block() {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    /// Counts the parameters each block carries: the first block's, and the
-    /// most any later one had.
     struct Watching {
         calls: Arc<AtomicUsize>,
         first: Arc<AtomicUsize>,
@@ -670,8 +601,6 @@ fn a_still_built_in_is_told_nothing_after_the_first_block() {
     );
 }
 
-/// A clip on `track` of a constant `value`, silent until `from`, long enough
-/// for any render here.
 fn burst_clip(track: u64, from: usize, value: f32, frames: usize) -> Clip {
     let mut left = vec![0.0; frames];
     left[from..].fill(value);
@@ -691,11 +620,6 @@ fn burst_clip(track: u64, from: usize, value: f32, frames: usize) -> Clip {
     }
 }
 
-/// ADR-0041's promise, with M8's compressor: a key taken from another track
-/// ducks the track it keys **on the sample the key arrives**, with the
-/// compensation that lines the two paths up. The key's track holds its sound
-/// back 240 frames, so without compensation the key would be late and the
-/// first 240 frames of the keyed track would play unducked.
 #[test]
 fn a_key_from_another_track_ducks_on_the_sample_it_arrives() {
     use lumen_devices::dynamics::compressor as gravity;
@@ -741,8 +665,6 @@ fn a_key_from_another_track_ducks_on_the_sample_it_arrives() {
         cue: None,
         measure: None,
     };
-    // The key's 240 frames are the compensation, and the keyed track waits for
-    // them.
     let plan = compile_routing(&routing).expect("a valid routing");
     assert_eq!(plan.compensation().frames, HELD);
     assert_eq!(plan.compensation().path, [(KEY, HELD)]);
@@ -751,8 +673,6 @@ fn a_key_from_another_track_ducks_on_the_sample_it_arrives() {
     let (mut clips, player) = clip_player();
     clips
         .set(vec![
-            // The key starts exactly where the burst it keys does, so a late
-            // key would leave the burst's own start unducked.
             burst_clip(KEY, FROM, 1.0, frames),
             burst_clip(TRACK, FROM, 0.5, frames),
         ])
@@ -771,33 +691,22 @@ fn a_key_from_another_track_ducks_on_the_sample_it_arrives() {
         engine.process(RATE, &mut data, 2, 128);
         left.extend_from_slice(&data[..128]);
     }
-    // What is heard is the keyed track alone: the key is muted, and the tap is
-    // taken after its devices, where mute does not reach.
     let heard = |k: usize| left.get(k).copied().unwrap_or(0.0).abs();
-    // The engine plays the timeline as far ahead as the compensation, so the
-    // burst's own start comes out `HELD` frames later.
     let starts = FROM + HELD as usize;
     assert!(
         heard(starts - 8) < 1e-4,
         "nothing before it: {}",
         heard(starts - 8)
     );
-    // The key arrives with the audio it keys: from a few samples into the
-    // burst (the attack's own few frames) it is ducked, not the loud 0.5 the
-    // track plays. A key 240 frames late would leave all of it at 0.5.
     let first = (starts + 8..starts + 400).fold(0.0f32, |m, k| m.max(heard(k)));
     assert!(
         first < 0.02,
         "the key ducks it from its first sample: {first}"
     );
-    // And it stays ducked long after (the release is two seconds).
     let later = (starts + 1_000..starts + 2_000).fold(0.0f32, |m, k| m.max(heard(k)));
     assert!(later < 0.02, "still ducked: {later}");
 }
 
-/// The limiter's lookahead is compensated: a limiter between a track and the
-/// master holds its output back, and the plan's compensation plus the device's
-/// own delay put an impulse back on the sample a dry track beside it plays.
 #[test]
 fn a_limiter_s_lookahead_keeps_a_parallel_path_in_line() {
     use lumen_devices::dynamics::limiter as horizon;
@@ -867,17 +776,12 @@ fn a_limiter_s_lookahead_keeps_a_parallel_path_in_line() {
     assert!((value - 0.5).abs() < 1e-6, "both paths: {value}");
 }
 
-/// L1: a built-in that was not asked for blocks because its power was off
-/// starts from nothing when it is asked again, as a locate makes it — so a
-/// limiter bypassed during a burst does not play what its line still held.
 #[test]
 fn a_bypassed_limiter_does_not_play_what_it_held() {
     use lumen_devices::dynamics::limiter as horizon;
     const AT: usize = 480;
     const OFF: usize = 2_400;
     const ON: usize = 8_000;
-    /// Where the burst stops: after the bypass has faded the device out, so
-    /// what the line held when it stopped being asked is still loud.
     const BURST_END: usize = 6_000;
     let values = vec![
         (
@@ -893,8 +797,6 @@ fn a_bypassed_limiter_does_not_play_what_it_held() {
                 .normalised(1.5),
         ),
     ];
-    // A burst (a full-scale square) that stops well before the device is turned
-    // on again, so nothing of it should be heard after that.
     let mut burst = vec![0.0f32; 48_000];
     burst[AT..BURST_END].fill(1.5);
     let clip = Clip {
@@ -938,7 +840,6 @@ fn a_bypassed_limiter_does_not_play_what_it_held() {
     let mut left = Vec::new();
     for block in 0..(ON + 2_000) / 128 {
         if block == OFF / 128 {
-            // Power off: the device fades out and is then not asked at all.
             assert!(handle.set(&routing(true)).unwrap());
         }
         if block == ON / 128 {
@@ -947,35 +848,24 @@ fn a_bypassed_limiter_does_not_play_what_it_held() {
         engine.process(RATE, &mut data, 2, 128);
         left.extend_from_slice(&data[..128]);
     }
-    // Nothing of the burst is heard once the power is back on: what the line
-    // held was let go of. The 20 ms glide from the dry signal starts at silence
-    // here, so any stale sound would show at once.
     let after = (ON..ON + 1_000).fold(0.0f32, |m, k| m.max(left[k].abs()));
     assert!(
         after < 1e-4,
         "the bypassed limiter played what it held: {after}"
     );
-    // And it ran before all that: the burst was heard while the power was on.
     assert!(
         left[AT..OFF].iter().any(|x| x.abs() > 0.01),
         "the limiter ran before it was bypassed"
     );
 }
 
-/// N9, as B1 changed it: the block a built-in is handed carries a parameter a
-/// lane drives as the lane's one queue, and the value the project holds is not
-/// told alongside it (so a timing parameter, which no lane may drive, is the
-/// only kind `held_at_rest` reads, from its own queue).
 #[test]
 fn a_block_names_a_lane_driven_parameter_once_as_the_lane() {
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    /// What one block said about `GAIN`: the number of queues that name it, and
-    /// the first and last queues' points.
     type Told = (usize, Vec<(u32, f64)>, Vec<(u32, f64)>);
 
-    /// Records those, block by block.
     struct Queues(Arc<Mutex<Vec<Told>>>);
 
     impl Effect for Queues {
@@ -1011,7 +901,6 @@ fn a_block_names_a_lane_driven_parameter_once_as_the_lane() {
         },
     ])
     .unwrap();
-    // The project holds −12 dB; the lane swings away from it.
     let routing = routing(&[(GAIN, gain(-12.0))], 0, Some(lane));
     let mut rig = rig(vec![clip(0.25)], &routing);
     rig.attach(Box::new(Queues(Arc::clone(&seen))));
@@ -1031,9 +920,6 @@ fn a_block_names_a_lane_driven_parameter_once_as_the_lane() {
     }
 }
 
-/// L2: the golden render of an automated Prism, pinned by its samples (twenty
-/// of them, its level and its energy). A golden is frozen: one that differs from
-/// its pin was changed on purpose, and the pin moves in the same commit.
 #[test]
 fn a_golden_render_of_an_automated_prism_is_pinned_to_its_samples() {
     let lane = AutoLane::new(vec![
@@ -1064,9 +950,6 @@ fn a_golden_render_of_an_automated_prism_is_pinned_to_its_samples() {
     rig.attach(Box::new(Utility::new()));
     rig.play();
     let heard = rig.run(5000, 128);
-    // Pinned within a millionth rather than by its bits: the platforms' maths
-    // libraries round `exp` and `powf` a last bit apart (CI runs three), as
-    // every other golden render here allows.
     const PINS: [f32; 20] = [
         2.712_673_8e-5,
         2.103_488_7e-1,

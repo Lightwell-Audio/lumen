@@ -1,11 +1,3 @@
-//! On/off and small choices (the interface audit's T3, the owner's A):
-//! a switch for anything on or off, and a segmented control for two to
-//! five choices. They replace egui's checkboxes and radio buttons, the only
-//! controls that still looked like egui; longer lists are menu rows
-//! (`menu_toggle`). Their look is the design system's Segmented card
-//! (ADR-0052): sunk troughs, raised neutral thumbs, Ember under the
-//! pointer, a hairline for what is on.
-
 use eframe::egui::{self, FontId, Sense, Ui, vec2};
 use eframe::emath::GuiRounding as _;
 
@@ -24,7 +16,6 @@ pub use segmented::{Choice, segmented, segmented_full, segmented_tool, segmented
 pub use switch::{SWITCH_WIDTH, switch, switch_noted};
 pub use tabs::{Tab, TabsLayout, tab_divider, tabs_with};
 
-/// The width [`toggle_button`] takes for `label`.
 pub fn toggle_button_width(ui: &Ui, label: &str) -> f32 {
     let galley = ui.painter().layout_no_wrap(
         label.to_owned(),
@@ -34,10 +25,6 @@ pub fn toggle_button_width(ui: &Ui, label: &str) -> f32 {
     galley.size().x + 2.0 * theme::space::S
 }
 
-/// A button that stays lit while `on` (Browser, Detail): raised like every
-/// button when off, `accent_muted` with accent letters and a 38% accent
-/// hairline when on (the Button card, ADR-0052; the interface audit's T4:
-/// off still reads as a button).
 pub fn toggle_button(ui: &mut Ui, on: &mut bool, label: &str) -> egui::Response {
     let palette = theme::p();
     let galley = ui.painter().layout_no_wrap(
@@ -72,9 +59,6 @@ pub fn toggle_button(ui: &mut Ui, on: &mut bool, label: &str) -> egui::Response 
     raised::focus_ring(ui.painter(), &response, rect);
     response
 }
-/// The left and right edges at position `at` along `spans` (each a tab's or
-/// segment's left and right): `at` 0 is the first span, 1 the second, and in
-/// between each edge is blended. Clamped to the list; empty gives zeros.
 fn slide_between(spans: &[(f32, f32)], at: f32) -> (f32, f32) {
     let Some(last) = spans.len().checked_sub(1) else {
         return (0.0, 0.0);
@@ -92,9 +76,6 @@ mod tests {
     use super::*;
     use eframe::egui::{Id as EguiId, Rect, pos2};
 
-    /// A switch flipped while it is scrolled out of view is already in its new
-    /// place when it comes back (the outputs menu: "All on", then scroll up,
-    /// showed the knobs gliding across).
     #[test]
     fn a_switch_changed_out_of_view_does_not_glide_when_it_returns() {
         let ctx = context();
@@ -137,8 +118,6 @@ mod tests {
         assert_eq!(slide_between(&spans, 7.0), (14.0, 44.0));
     }
 
-    /// One frame at `t` seconds of `draw` in a strip whose left edge is
-    /// at `x`: every shape it painted.
     fn frame(
         ctx: &egui::Context,
         t: f64,
@@ -160,14 +139,12 @@ mod tests {
     fn context() -> egui::Context {
         let ctx = egui::Context::default();
         crate::fonts::install(&ctx);
-        // Fonts take effect from the next frame.
         ctx.run_ui(egui::RawInput::default(), |_| {})
             .textures_delta
             .clear();
         ctx
     }
 
-    /// The left edge of the 2 pt accent underline among `shapes`.
     fn underline_left(shapes: &[egui::Shape]) -> f32 {
         shapes
             .iter()
@@ -182,7 +159,6 @@ mod tests {
             .expect("the underline was painted")
     }
 
-    /// The left edge of the thumb (the only gradient mesh) among `shapes`.
     fn thumb_left(shapes: &[egui::Shape]) -> f32 {
         shapes
             .iter()
@@ -209,8 +185,6 @@ mod tests {
         let first = underline_left(&frame(&ctx, 0.0, 0.0, &mut draw));
         let still = underline_left(&frame(&ctx, 0.016, 0.0, &mut draw));
         assert_eq!(first, still);
-        // The strip moves 37 pt (a panel resizes): so does the underline,
-        // at once, with no glide of its own.
         let moved = underline_left(&frame(&ctx, 0.032, 37.0, &mut draw));
         assert!((moved - still - 37.0).abs() < 1e-3, "{still} -> {moved}");
     }
@@ -268,7 +242,6 @@ mod tests {
         }
     }
 
-    /// The colour each label is drawn in, by its text.
     fn label_colours(shapes: &[egui::Shape]) -> Vec<(String, Option<egui::Color32>)> {
         shapes
             .iter()
@@ -283,8 +256,6 @@ mod tests {
 
     #[test]
     fn the_tool_switch_is_grey_for_pointer_and_lit_for_draw() {
-        // The owner's TL C: the resting tool is the neutral thumb, a drawing
-        // tool is filled in the accent.
         let ctx = context();
         let list = [Choice::new(0, "Pointer"), Choice::new(1, "Draw")];
         let resting = frame(&ctx, 0.0, 0.0, &mut |ui| {

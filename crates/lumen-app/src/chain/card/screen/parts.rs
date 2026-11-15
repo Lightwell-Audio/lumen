@@ -1,11 +1,3 @@
-//! A drawing's parts (Iris's eight bands): the points on the screen, which are
-//! the control where the picture is the idea, and the numbered pills on the
-//! card, which pick one. The points are dragged, wheeled and double-clicked,
-//! kept by the keys and Tab stops with a name; every edit is the one a dial
-//! makes (`Output`s), so a drag is one undo step. Which parameters a point
-//! moves is the drawing's own (`face::Parts`); how is the same for every
-//! device with parts.
-
 use eframe::egui::{
     self, Align, FontId, Key, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2, pos2, vec2,
 };
@@ -20,18 +12,12 @@ use crate::theme::personality::card as c;
 use crate::widgets::raised;
 use crate::{motion, theme, widgets};
 
-/// What the parts showed and asked this frame.
 #[derive(Default)]
 pub(super) struct Hot {
-    /// How lit each point is, for the drawing.
     pub lit: [f32; MAX_PARTS],
-    /// A part picked this frame (by a click, a drag, a key or its pill).
     pub picked: Option<usize>,
 }
 
-/// The parts' points, registered on the picture: each applies what it was
-/// given. The picked part is registered last, so it is on top where points
-/// overlap.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn points(
     ui: &mut Ui,
@@ -47,7 +33,6 @@ pub(super) fn points(
     let count = parts.count.min(MAX_PARTS);
     let picture = plan.picture;
     let painter = ui.painter().with_clip_rect(picture.expand(2.0));
-    // The compact card's picture is a band too thin to drag in: a point picks.
     let thin = plan.step == Step::Compact;
     let (fine, _free) = ui.input(|i| (i.modifiers.shift, i.modifiers.alt));
     let order = (0..count)
@@ -85,7 +70,6 @@ pub(super) fn points(
             response.request_focus();
             hot.picked = Some(index);
         }
-        // A point reached by Tab is the picked one, so the dials follow it.
         if response.gained_focus() {
             hot.picked = Some(index);
         }
@@ -97,8 +81,6 @@ pub(super) fn points(
             hot.picked = Some(index);
         }
 
-        // A drag moves the point, as far as the pointer goes (a tenth as far
-        // with Shift): where it is now is what the parameters become.
         let drag = id.with("drag");
         if response.dragged()
             && !thin
@@ -118,7 +100,6 @@ pub(super) fn points(
             ui.data_mut(|d| d.remove::<(Pos2, Pos2)>(drag));
         }
 
-        // The wheel is the part's width (its Q).
         let notches = widgets::wheel::steps(ui, id.with("wheel"), reach);
         if notches != 0.0 && !thin {
             if let Some((param, value)) = (parts.wheel)(values, index, notches, fine) {
@@ -127,8 +108,6 @@ pub(super) fn points(
             hot.picked = Some(index);
         }
 
-        // The keyboard: arrows move it, Page Up and Down are its width, Enter
-        // types its frequency into the dial that takes one.
         if response.has_focus() && !thin {
             let (dx, dy, page, enter) = ui.input(|i| {
                 let key = |k: Key| i32::from(i.key_pressed(k)) as f32;
@@ -157,7 +136,6 @@ pub(super) fn points(
             hot.picked = Some(index);
         }
 
-        // Right-click: the part's own actions.
         let switch = (parts.switch)(index);
         let on = (parts.is_on)(values, index);
         widgets::Menu::context(&response).show(|ui| {
@@ -198,8 +176,6 @@ pub(super) fn points(
     hot
 }
 
-/// What a point asked for as one move: a gesture of one undo step, said only
-/// when it changes something.
 fn moved(out: &mut Vec<Output>, values: &Values<'_>, next: Vec<(u32, f64)>) {
     if next
         .iter()
@@ -209,8 +185,6 @@ fn moved(out: &mut Vec<Output>, values: &Values<'_>, next: Vec<(u32, f64)>) {
     }
 }
 
-/// Opens the typing field of the dial that takes a part's frequency, with the
-/// text it holds for that part. A dial's id is made from the card's.
 fn type_into(
     ui: &Ui,
     drawing: &Drawing,
@@ -231,9 +205,6 @@ fn type_into(
     widgets::param::start_typing(ui, card.with(("control", control.param)), &slot.text);
 }
 
-/// The numbered pills under the screen: one for each part, in its colour, the
-/// picked one filled; a click picks it and a double-click turns the part on or
-/// off.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn pills(
     ui: &mut Ui,

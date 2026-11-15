@@ -1,23 +1,8 @@
-//! Counts the driver callbacks running now, so a stream is torn down only
-//! once none is (sweep M5a).
-//!
-//! A driver stops delivering callbacks when its stream is stopped, but the
-//! last one may still be running: freeing the state under it, or disposing
-//! its buffers, would be a use-after-free. The callback counts itself in on
-//! entry and out on exit ([`InFlight::enter`]); the teardown waits for the
-//! count to reach zero, bounded, before it frees anything. Leaking a state
-//! that will not come back is safe; freeing one a callback still reads is not.
-//!
-//! Nothing here allocates or locks: the callback path is real-time code.
-
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-/// How often a wait looks again. Short, so a callback that ends at once does
-/// not hold the teardown for a whole period.
 const POLL_STEP: Duration = Duration::from_micros(200);
 
-/// How many callbacks are running.
 #[derive(Debug)]
 pub(super) struct InFlight(AtomicUsize);
 
@@ -26,21 +11,15 @@ impl InFlight {
         Self(AtomicUsize::new(0))
     }
 
-    /// Counts this callback as running until the returned guard is dropped.
-    /// Real-time safe: no lock and no allocation.
     pub(super) fn enter(&self) -> Running<'_> {
         self.0.fetch_add(1, Ordering::SeqCst);
         Running(self)
     }
 
-    /// Whether no callback is running.
     pub(super) fn idle(&self) -> bool {
         self.0.load(Ordering::SeqCst) == 0
     }
 
-    /// Waits, up to `bound`, for every callback to end; false when one is
-    /// still running then. Called on the control thread, never from a
-    /// callback.
     pub(super) fn wait(&self, bound: Duration) -> bool {
         let started = Instant::now();
         loop {
@@ -56,8 +35,6 @@ impl InFlight {
     }
 }
 
-/// One running callback: the count [`InFlight::enter`] added, taken back when
-/// it goes out of scope, on every path a callback can leave by.
 pub(super) struct Running<'a>(&'a InFlight);
 
 impl Drop for Running<'_> {
@@ -102,7 +79,6 @@ mod tests {
             move || {
                 let _running = count.enter();
                 entered.send(()).expect("the test is listening");
-                // Long enough that the bounded wait below must give up.
                 std::thread::sleep(Duration::from_millis(60));
             }
         });

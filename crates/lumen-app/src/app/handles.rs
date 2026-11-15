@@ -1,15 +1,3 @@
-//! Fade and gain handles on the lanes (M3 slice 6d, the owner's F3, C3 and
-//! G1): drag a fade's handle along to set its length; drag its dot
-//! anywhere to bend it (the curve passes through the dot), with Alt to add
-//! S-shape; drag the gain line up or down (Shift for fine steps). A
-//! double-click resets each; the right-click menu has the preset shapes.
-//! Every drag is one undo step. Where the handles are is worked out in
-//! `arrangement::handles`.
-//!
-//! The audio editor makes the same edits (M9.5 D10): the steps here take a
-//! [`GestureFrame`], the view and lane the gesture is in, and hand back what
-//! changed, so each side keeps its own gesture state and hover.
-
 use std::sync::Arc;
 
 use eframe::egui::{self, CursorIcon, Pos2, Rect, pos2};
@@ -27,11 +15,8 @@ use crate::timeview::TimeView;
 use crate::widgets;
 use crate::{App, ruler};
 
-/// Gain moves a tenth as far with Shift held.
 const FINE: f32 = 0.1;
 
-/// Where a clip gesture is happening: the view positions are read through,
-/// and the lane its guides and values are drawn in.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct GestureFrame {
     pub view: TimeView,
@@ -52,7 +37,6 @@ impl GestureFrame {
     }
 }
 
-/// One trim, from the project as it was when the drag began.
 pub(crate) struct TrimStep<'a> {
     pub base: &'a Project,
     pub clip: Id,
@@ -61,8 +45,6 @@ pub(crate) struct TrimStep<'a> {
     pub grab: Ticks,
 }
 
-/// What one step of a handle drag left: the gesture to carry on with, and
-/// what to show as hot.
 pub(crate) struct HandleStep {
     pub gesture: Gesture,
     pub clip: Id,
@@ -70,7 +52,6 @@ pub(crate) struct HandleStep {
 }
 
 impl App {
-    /// The FR2 message: `track` is frozen, and how to thaw it.
     pub(crate) fn say_frozen(&mut self, track: &str) {
         self.say(format!(
             "{track} is frozen, so its clips can't be changed. \
@@ -78,7 +59,6 @@ impl App {
         ));
     }
 
-    /// A trim of `clip`'s `edge` picked up at `x`.
     pub(crate) fn trim_gesture(
         &self,
         clip: &Clip,
@@ -100,8 +80,6 @@ impl App {
         }
     }
 
-    /// Moves a trim to the pointer at `p`, on the grid unless `free`. Draws
-    /// the guide where the edge landed.
     pub(crate) fn step_trim(
         &mut self,
         ctx: &egui::Context,
@@ -110,8 +88,6 @@ impl App {
         p: Pos2,
         (frame, free): (GestureFrame, bool),
     ) {
-        // The edge keeps its distance from the pointer: picked up a few
-        // pixels inside, it does not jump to the pointer.
         let at = frame.ticks_at(p.x) + step.grab;
         let to = self.snapped_at_zoom(at, free, frame.view.zoom);
         self.document.trim_clip(
@@ -136,8 +112,6 @@ impl App {
         });
     }
 
-    /// Slides `clip`'s content to the pointer at `p`, picked up at `at`.
-    /// Slipping is free: the audio follows the hand exactly.
     pub(crate) fn step_slip(
         &mut self,
         ctx: &egui::Context,
@@ -152,7 +126,6 @@ impl App {
         ctx.set_cursor_icon(CursorIcon::ResizeColumn);
     }
 
-    /// The clip `id`, if it exists.
     pub(crate) fn clip(&self, id: Id) -> Option<&Clip> {
         self.document
             .project()
@@ -163,8 +136,6 @@ impl App {
             .map(|c| &**c)
     }
 
-    /// A temporary drawing/editing view with the eligible automatic fade
-    /// resolved. The preview never changes the saved project.
     pub(crate) fn shown_clip(&self, id: Id) -> Option<Clip> {
         let project = self.document.project();
         let track = project
@@ -175,8 +146,6 @@ impl App {
         Some(crate::crossfades::preview(project, track.id, clip))
     }
 
-    /// A drag starting at `origin` on the handle of `hit`: it selects the
-    /// clip alone.
     pub(super) fn start_handle_gesture(
         &mut self,
         hit: &ClipHit,
@@ -194,8 +163,6 @@ impl App {
         Some(gesture)
     }
 
-    /// A drag starting at `origin` on `clip`'s `handle`, drawn at `handles`.
-    /// `clip` is as shown ([`Self::shown_clip`]).
     pub(crate) fn handle_gesture(
         &self,
         clip: &Clip,
@@ -224,7 +191,6 @@ impl App {
                 Gesture::Gain {
                     clip: clip.id,
                     db: gain_db,
-                    // From where it was pressed, so it does not jump.
                     y: origin.y,
                     per_point: db_per_point(handles.wave.height()),
                 }
@@ -232,10 +198,6 @@ impl App {
         })
     }
 
-    /// Where a crossfade moved by this fade's handle begins: the fade-in
-    /// handle of a clip a crossfade runs into lengthens that crossfade to the
-    /// right, as pulling the clip before it over this one does, and where it
-    /// begins stays.
     pub(crate) fn fade_begins(&self, clip: Id, edge: Edge) -> Option<Ticks> {
         (edge == Edge::Start)
             .then(|| self.clip(clip).filter(|c| c.crossfade))
@@ -243,9 +205,6 @@ impl App {
             .map(|c| c.start - c.fade_in.length)
     }
 
-    /// Moves the handle of `clip`'s fade at `edge` to `at`, under `merge`.
-    /// `from` is where a crossfade being made or lengthened by this handle
-    /// begins. Returns it, for the next step, and the value to show.
     pub(crate) fn fade_to(
         &mut self,
         clip: Id,
@@ -264,23 +223,15 @@ impl App {
             .then(|| crate::crossfades::incoming(project, clip))
             .flatten();
         Some(if let (Edge::Start, Some(begin)) = (edge, from) {
-            // The incoming clip's handle lengthens the crossfade into it to
-            // the right: the clip before it is extended and this one
-            // trimmed, the start of the crossfade staying where it is.
             self.document.crossfade_across(clip, begin, at, merge);
             (from, self.crossfade_text(clip))
         } else if let Some(right) = existing {
-            // The handle of a crossfade sets how long it lasts, the clips
-            // staying where they are.
             self.document
                 .set_crossfade_length(right, (end - at).max(Ticks::ZERO), merge);
             (from, self.crossing_text(clip))
         } else if let Some(right) = next
             && (from.is_some() || at > end)
         {
-            // A fade-out dragged past the end of its clip into the next one
-            // makes a crossfade there: the clip is extended by the drag and
-            // the next one trimmed by it. Dragged back it is as it was.
             let from = from.unwrap_or(end);
             self.document.crossfade_across(right, from, at, merge);
             (Some(from), self.crossing_text(clip))
@@ -294,8 +245,6 @@ impl App {
         })
     }
 
-    /// Continues a handle drag at `p`, showing the value beside the
-    /// pointer. Other gestures are left alone.
     pub(crate) fn continue_handle_gesture(
         &mut self,
         ctx: &egui::Context,
@@ -308,8 +257,6 @@ impl App {
         let at = frame.ticks_at(p.x);
         let (step, text) = match gesture {
             Gesture::Fade { clip, edge, from } => {
-                // Fades follow the hand freely: they are about sound, not
-                // the grid.
                 ctx.set_cursor_icon(CursorIcon::ResizeHorizontal);
                 let (from, text) = self.fade_to(clip, edge, from, at, Some("clip fade"))?;
                 (
@@ -329,16 +276,12 @@ impl App {
                 last,
                 size,
             } => {
-                // Step by step, so Alt can come and go mid-drag. A
-                // crossfade is curved like the incoming clip's fade-in.
                 let mirrored = if crossing { Edge::Start } else { edge };
                 let handle = bend(handle, mirrored, size, p - last, alt);
                 let curve = Curve::from_handle(handle);
                 self.document
                     .set_fade_curve(&[clip], edge, curve, Some("clip fade curve"));
                 ctx.set_cursor_icon(CursorIcon::Move);
-                // A preset's name when the curve lands on one; the S-shape
-                // while Alt sets it.
                 let text = if alt {
                     format!("S {:.0}%", handle.s * 100.0)
                 } else {
@@ -366,7 +309,6 @@ impl App {
                 y,
                 per_point,
             } => {
-                // Step by step, so Shift can come and go mid-drag.
                 let step = if fine { per_point * FINE } else { per_point };
                 let range = crate::document::CLIP_GAIN;
                 let db = (db - (p.y - y) * step).clamp(*range.start(), *range.end());
@@ -395,13 +337,10 @@ impl App {
         Some(step)
     }
 
-    /// The pointer is over a handle: its cursor, and what it does for the
-    /// info line (M4 slice 0).
     pub(super) fn handle_hover(&self, ctx: &egui::Context, hit: &ClipHit) -> Option<Info> {
         self.handle_info(ctx, hit.clip, hit.handle?)
     }
 
-    /// [`Self::handle_hover`] for `handle` of `clip`.
     pub(crate) fn handle_info(
         &self,
         ctx: &egui::Context,
@@ -465,15 +404,12 @@ impl App {
         Some(info)
     }
 
-    /// A double-click on a handle resets it: no fade, a straight fade, or
-    /// 0 dB.
     pub(super) fn reset_handle(&mut self, hit: &ClipHit) {
         if let Some(handle) = hit.handle {
             self.reset_clip_handle(hit.clip, handle);
         }
     }
 
-    /// Resets `clip`'s `handle`: no fade, a straight fade, or 0 dB.
     pub(crate) fn reset_clip_handle(&mut self, clip: Id, handle: Handle) {
         match handle {
             Handle::Fade(edge) => {
@@ -481,7 +417,6 @@ impl App {
                     .then(|| self.crossing_into(clip))
                     .flatten()
                 {
-                    // The crossing at this end is what the handle shows.
                     self.document.set_crossfade_length(right, Ticks::ZERO, None);
                 } else {
                     self.document.set_fade_length(clip, edge, Ticks::ZERO, None);
@@ -495,7 +430,6 @@ impl App {
         }
     }
 
-    /// "125 ms" or "1.50 s": how long a fade lasts.
     pub(crate) fn fade_text(&self, clip: Id, edge: Edge) -> String {
         let Some(c) = self.shown_clip(clip) else {
             return String::new();
@@ -513,7 +447,6 @@ impl App {
         }
     }
 
-    /// How long the crossfade into `right` lasts, for beside the pointer.
     pub(crate) fn crossfade_text(&self, right: Id) -> String {
         let Some(c) = self.clip(right) else {
             return String::new();
@@ -527,7 +460,6 @@ impl App {
         }
     }
 
-    /// The clip that `left`'s crossfade by hand goes into, if it ends one.
     pub(crate) fn crossing_into(&self, left: Id) -> Option<Id> {
         let project = self.document.project();
         let track = project
@@ -538,8 +470,6 @@ impl App {
         crate::crossfades::outgoing(project, track.id, clip).map(|(right, _)| right)
     }
 
-    /// What a crossfade at the end of `left` shows beside the pointer: how
-    /// long it lasts.
     pub(crate) fn crossing_text(&self, left: Id) -> String {
         if self.crossing_into(left).is_some() {
             format!("Crossfade {}", self.fade_text(left, Edge::End))
@@ -548,8 +478,6 @@ impl App {
         }
     }
 
-    /// The preset shapes of `clip`'s fade at `edge`, and Straighten, for the
-    /// audio editor's menu on a fade (M9.5 D19): named as in the Fades submenu.
     pub(crate) fn fade_shape_rows(&mut self, ui: &mut egui::Ui, clip: Id, edge: Edge) {
         let Some(curve) = self.document.fade_curve(clip, edge) else {
             return;
@@ -578,9 +506,6 @@ impl App {
         }
     }
 
-    /// The preset fade shapes for the selected audio clips, in one Fades
-    /// submenu of the clip menu (owner's A, MT-APP-14 run 2): the fade in's
-    /// and the fade out's, under headings; the ones in use are ticked.
     pub(super) fn fade_menu(&mut self, ui: &mut egui::Ui) {
         let project = self.document.project();
         let clips: Vec<&Clip> = project

@@ -1,10 +1,3 @@
-//! Standalone whole-project export rendering (M9 R5).
-//!
-//! The renderer builds the same clip, MIDI, routing and mixer sources used by
-//! playback, but gives them to `render_source` without an audio device. Plugin
-//! hosts belong to this render and remain alive in `Prepared` for its lifetime.
-//! This module does not pace rendering or encode anything beyond float WAV.
-
 use std::cell::Cell;
 use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
@@ -27,16 +20,8 @@ use crate::midi::runs::Cache;
 use crate::routing::{self, Cue, Devices};
 
 const LOAD_WAIT: Duration = Duration::from_secs(60);
-/// How often the wait for a plugin's host looks again.
 const LOAD_POLL: Duration = Duration::from_millis(5);
 
-/// A snapshot to render. `clips` must be the engine clips translated from this
-/// project and already prepared at `rate`; the caller owns media decoding and
-/// rate conversion. `stem=None` renders the master. A selected stem is its
-/// post-device, post-fader bus output; a group includes its child buses, and a
-/// return includes the sends routed into it. Sends leaving the selected bus do
-/// not enter that stem. Sidechain sources are retained as dependencies but are
-/// not added to the stem's audible output.
 pub struct Job {
     pub project: Project,
     pub clips: Vec<lumen_engine::Clip>,
@@ -45,16 +30,10 @@ pub struct Job {
     pub from: i64,
     pub frames: u64,
     pub tail: bool,
-    /// Reserved destination inside the caller's private staging directory.
-    /// Existing files are refused; Writer publishes atomically by rename.
     pub file: PathBuf,
     pub stem: Option<Id>,
 }
 
-/// A prepared independent source, ready to be located and driven by either
-/// offline rendering or a real audio callback. Keep `manager` alive as long as
-/// `source` is in use. The source contains no device monitor input, live MIDI
-/// ports or metronome.
 pub struct Prepared {
     pub source: Box<dyn Source>,
     pub manager: Manager,
@@ -63,7 +42,6 @@ pub struct Prepared {
     pub rate: u32,
 }
 
-/// What the renderer produced.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rendered {
     pub file: PathBuf,
@@ -132,8 +110,6 @@ fn start_hosts(
     Ok(Some(running))
 }
 
-/// Makes an independent full-mixer source from the immutable job snapshot.
-/// `Ok(None)` means cancellation while plugin hosts were starting.
 pub fn prepare(job: &Job, cancel: &AtomicBool) -> Result<Option<Prepared>, String> {
     if job.rate == 0 {
         return Err("The export sample rate must be greater than zero".into());
@@ -169,8 +145,6 @@ pub fn prepare(job: &Job, cancel: &AtomicBool) -> Result<Option<Prepared>, Strin
     }
     devices.builtin = crate::builtin::latencies(&job.project);
     let mut routing = routing::routing(&job.project, &Cue::default(), &devices, job.rate);
-    // An export always takes the master's stereo bus, independent of the
-    // physical output pair selected for listening on this machine.
     if let Some(master) = routing
         .nodes
         .iter_mut()
@@ -186,9 +160,6 @@ pub fn prepare(job: &Job, cancel: &AtomicBool) -> Result<Option<Prepared>, Strin
     let (mut midi, midi_source) = midi_player();
     let (mut mixer_control, mut mixer_source) =
         mixer(lumen_engine::Layered(clip_source, midi_source));
-    // A project of any size attaches: an idle block lets the audio side take
-    // the devices whenever the queue is full (M8 slice B0, review H2), and
-    // only the built-ins this render's routing names are built.
     crate::builtin::attach_all(&job.project, &routing, &mut mixer_control, || {
         mixer_source.idle(job.rate, 256)
     })?;
@@ -219,7 +190,6 @@ pub fn prepare(job: &Job, cancel: &AtomicBool) -> Result<Option<Prepared>, Strin
                     instrument: Box::new(HostedInstrument::new(guard)),
                 },
             );
-            // Export all declared auxiliary outputs the host made available.
             outputs.insert(plugin.device, linked.aux.outputs);
         } else if mixer_control.attach_host(plugin.device.0, guard).is_err() {
             return Err("Too many plugins to export at once".into());
@@ -258,9 +228,6 @@ pub fn prepare(job: &Job, cancel: &AtomicBool) -> Result<Option<Prepared>, Strin
     }))
 }
 
-/// Renders to a private scratch float WAV, publishing it only once complete.
-/// `Ok(None)` means canceled; no partial output or existing destination is
-/// removed. Progress is normalized over the requested span plus tail.
 pub fn render_job(
     job: Job,
     cancel: &AtomicBool,
@@ -302,9 +269,6 @@ pub fn render_job(
             from: job.from,
             frames: job.frames,
             most_tail: if job.tail {
-                // What the project's own devices ring on for: a built-in's
-                // tail (M8 slice B0, review N2, wired in by B3) rather than a
-                // flat ten seconds with nothing in them.
                 crate::builtin::tail_frames(&job.project, job.rate)
             } else {
                 0
@@ -326,7 +290,6 @@ pub fn render_job(
         },
         progress,
         &mut |left, right| {
-            // A filesystem failure is retained and reported after rendering.
             if write_failed.is_none()
                 && let Err(error) = writer.write(&[left, right])
             {
@@ -348,8 +311,6 @@ pub fn render_job(
     if ended == lumen_engine::Ended::Failed {
         return Err("A plugin stopped answering; the export was discarded".into());
     }
-    // The destination belongs to this task's private Stage. Normal rename
-    // works on removable filesystems too; hard-link support is unnecessary.
     if job.file.exists() {
         return Err(format!("{} already exists", job.file.display()));
     }
@@ -364,10 +325,6 @@ pub fn render_job(
     }))
 }
 
-/// Routes a single channel-strip stem while retaining the full upstream audio
-/// and sidechain graph. Direct outputs and sends into the selected bus remain;
-/// unrelated buses are silenced. Sidechain-only nodes are processed but not
-/// included as audible output. The selected bus is tapped after its own mixer.
 fn route_stem(_project: &Project, routing: &mut Routing, stem: Id) -> Result<(), String> {
     let selected = routing
         .nodes
@@ -406,9 +363,6 @@ fn route_stem(_project: &Project, routing: &mut Routing, stem: Id) -> Result<(),
             }
         }
     }
-    // Keep only dependencies reachable through the selected signal graph.
-    // Sidechain sources and the nodes feeding them remain available for their
-    // requested tap, while no path from that auxiliary graph reaches hardware.
     for (index, node) in routing.nodes.iter_mut().enumerate() {
         if index == selected {
             node.output = Destination::Hardware(0);
@@ -521,9 +475,6 @@ mod tests {
         assert!((first_stem - 0.2).abs() < 0.002, "track stem: {first_stem}");
     }
 
-    /// A streamed clip's pages live in its loader's pool, never in a page the
-    /// disk thread left: an export must load them as it reads, or the file
-    /// comes out silent (sweep M16b).
     #[test]
     fn an_export_of_a_streamed_clip_stays_non_silent() {
         let pool = PagePool::new(4);
@@ -539,8 +490,6 @@ mod tests {
                 },
             ),
         );
-        // The stream starts with no page in memory: only the render's loader
-        // can fill it.
         let live = StreamAudio::new(&PagePool::new(1), 1, RATE, 2, FRAMES);
         let mut streamed = source_clip(1, 1, 0.0);
         streamed.audio = Arc::new(ClipAudio::Stream(loader.stream(&live)));

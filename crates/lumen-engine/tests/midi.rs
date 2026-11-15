@@ -1,8 +1,3 @@
-//! MIDI through the engine (M5 slice 1): note starts to the sample, tempo
-//! changes, loop wraps, every way a note can be let go, chase, and the
-//! hardware queue. A probe instrument writes an impulse for every note-on
-//! (+1) and note-off (-1) at its exact frame, and logs what it is sent.
-
 use std::sync::{Arc, Mutex};
 
 use lumen_core::meter::Meter;
@@ -95,10 +90,6 @@ struct Rig {
     log: Log,
     rate: u32,
     output: rtrb::Consumer<MidiOut>,
-    /// Whether the render is checked under the allocation guard. The probe
-    /// instrument logs what it is sent through a mutex and a `Vec` (it
-    /// allocates and locks, as a test's helper may), so only a rig whose
-    /// instrument is the built-in synth can be checked.
     guarded: bool,
 }
 
@@ -147,16 +138,11 @@ fn rig(timeline: Timeline, rate: u32, tracks: Vec<MidiTrack>, log: &Log) -> Rig 
 }
 
 impl Rig {
-    /// Checks this rig's renders under the allocation guard: for a rig whose
-    /// instrument allocates nothing of its own.
     fn guarded(mut self) -> Self {
         self.guarded = true;
         self
     }
 
-    /// Renders `frames` in blocks of `block`; returns the left channel and
-    /// the frames of every impulse (+1 on, -1 off) from the first frame
-    /// rendered by this call, counted from `base`.
     fn run(&mut self, frames: usize, block: usize) -> Vec<f32> {
         let mut out = Vec::with_capacity(frames);
         let mut data = vec![0.0; 2 * block];
@@ -165,8 +151,6 @@ impl Rig {
             let n = block.min(frames - done);
             let rate = self.rate;
             if self.guarded {
-                // The render is the audio thread's work: nothing here may
-                // reach the heap (the allocation guard, `realtime.rs`).
                 let ((), heap) =
                     count_rt_violations(|| self.engine.process(rate, &mut data[..2 * n], 2, n));
                 assert_eq!(heap, 0, "heap operation in process() at sample {done}");
@@ -188,7 +172,6 @@ impl Rig {
     }
 }
 
-/// (frame, +1 or -1) of every impulse.
 fn impulses(out: &[f32]) -> Vec<(usize, i32)> {
     out.iter()
         .enumerate()
@@ -212,7 +195,6 @@ fn offs(log: &[Msg]) -> usize {
 #[test]
 fn notes_start_and_end_on_their_exact_sample() {
     let q = Ticks::quarters;
-    // Odd tick positions, so nothing falls on a convenient sample.
     let notes = vec![
         note(q(2) + Ticks(12_345), q(1), 60),
         note(q(4) + Ticks(777), Ticks(q(1).0 / 3), 64),
@@ -316,22 +298,17 @@ fn a_loop_wrap_releases_the_note_it_cuts_and_starts_the_loop_again() {
         .send(Command::SetLoop(Region::new(Ticks::ZERO, q(4), true)))
         .unwrap();
     rig.play();
-    // 120 bpm: a beat is 24,000 samples. Three passes of the loop.
     let found = impulses(&rig.run(48_000 * 6, 128));
     let wrap = 96_000;
     for pass in 0..3 {
         let base = wrap * pass;
         assert!(found.contains(&(base + 24_000, 1)), "pass {pass} start");
-        // The long note is cut at the wrap and the short one ended before.
         assert!(
             found.contains(&(base + 72_000, -1)),
             "pass {pass} short off"
         );
     }
     let log = rig.log();
-    // Each pass: the long note on, the short one on and off, and the long
-    // note released by the wrap (the 'off' after the last wrap waits for
-    // the next block).
     let keys: Vec<(bool, u8)> = log
         .iter()
         .filter_map(|m| match m.kind() {
@@ -370,7 +347,6 @@ fn stopping_releases_notes_and_lets_the_instrument_ring_out() {
     assert_eq!(rig.engine.source().tracks().1.held(TRACK), 0);
     let log = rig.log();
     assert_eq!(ons(&log), offs(&log));
-    // Nothing more happens once everything is let go.
     assert!(impulses(&rig.run(512, 128)).is_empty());
 }
 
@@ -395,7 +371,6 @@ fn a_jump_releases_and_chases_the_note_under_the_new_position() {
     rig.transport.send(Command::Locate(q(6))).unwrap();
     rig.run(1_000, 128);
     let sent = rig.log();
-    // On 60, (ended), then at the locate the long note starts at once.
     let keys: Vec<(bool, u8)> = sent
         .iter()
         .filter_map(|m| match m.kind() {
@@ -405,15 +380,12 @@ fn a_jump_releases_and_chases_the_note_under_the_new_position() {
         })
         .collect();
     assert_eq!(keys, vec![(true, 60), (false, 60), (true, 64)]);
-    // Leaving the note by jumping out of it releases it.
     rig.transport.send(Command::Locate(q(12))).unwrap();
     rig.run(1_000, 128);
     let sent = rig.log();
     assert_eq!(ons(&sent), offs(&sent));
 }
 
-/// A run of two touching clips meeting at beat 4 (the app joins them so a
-/// note carries on across): a note from beat 2 to 10 began in the first.
 fn seamed_track(log: &Log) -> MidiTrack {
     let q = Ticks::quarters;
     let mut c = clip(
@@ -438,7 +410,6 @@ fn keys_on(sent: &[Msg]) -> Vec<u8> {
 #[test]
 fn play_from_the_next_clip_of_a_run_does_not_strike_a_note_carried_into_it() {
     let q = Ticks::quarters;
-    // From the seam, and from inside the second clip: only its own note.
     for at in [q(4), q(4) + Ticks(q(1).0 / 2)] {
         let log = Log::default();
         let mut rig = rig(Timeline::default(), 48_000, vec![seamed_track(&log)], &log);
@@ -447,13 +418,10 @@ fn play_from_the_next_clip_of_a_run_does_not_strike_a_note_carried_into_it() {
         rig.run(48_000, 128);
         assert_eq!(keys_on(&rig.log()), vec![64], "from {at:?}");
     }
-    // From inside the first clip the note is its own: chased, and it sounds
-    // on through the seam without a second strike.
     let log = Log::default();
     let mut rig = rig(Timeline::default(), 48_000, vec![seamed_track(&log)], &log);
     rig.transport.send(Command::Locate(q(3))).unwrap();
     rig.play();
-    // Beats 3 to 7 (two beats a second).
     rig.run(96_000, 128);
     let sent = rig.log();
     assert_eq!(keys_on(&sent), vec![60, 64]);
@@ -508,7 +476,6 @@ fn play_in_the_middle_of_a_note_starts_it_and_applies_the_controllers_before() {
         number: 1,
         value: 5
     }));
-    // The controllers come before the note.
     let first_note = kinds
         .iter()
         .position(|k| matches!(k, Kind::NoteOn { .. }))
@@ -518,7 +485,6 @@ fn play_in_the_middle_of_a_note_starts_it_and_applies_the_controllers_before() {
         .rposition(|k| !matches!(k, Kind::NoteOn { .. } | Kind::NoteOff { .. }))
         .unwrap();
     assert!(last_control < first_note);
-    // Stopping lets go of the pedal and the bend too.
     rig.transport.send(Command::Stop).unwrap();
     rig.run(512, 128);
     let kinds: Vec<Kind> = rig.log().iter().map(|m| m.kind()).collect();
@@ -552,26 +518,22 @@ fn an_edit_that_removes_or_moves_a_sounding_note_releases_it() {
     rig.play();
     rig.run(30_000, 128);
     assert_eq!(rig.engine.source().tracks().1.held(TRACK), 1);
-    // The same clip with the note gone.
     rig.midi.collect_garbage();
     rig.midi.set(vec![make(vec![])]).ok().unwrap();
     rig.run(512, 128);
     assert_eq!(rig.engine.source().tracks().1.held(TRACK), 0);
     let sent = rig.log();
     assert_eq!((ons(&sent), offs(&sent)), (1, 1));
-    // An edit that leaves it alone does not retrigger it.
     rig.midi.collect_garbage();
     let long_again = vec![note(q(1), q(8), 60), note(q(12), q(1), 72)];
     rig.midi.set(vec![make(long_again.clone())]).ok().unwrap();
     rig.run(512, 128);
-    // The note is added while sounding (it began 6 beats ago): it starts.
     let sent = rig.log();
     assert_eq!(ons(&sent), 2);
     rig.midi.collect_garbage();
     rig.midi.set(vec![make(long_again)]).ok().unwrap();
     rig.run(512, 128);
     assert_eq!(ons(&rig.log()), 2, "an unchanged track is left alone");
-    // Moving the note under the playhead releases then re-chases it.
     rig.midi.collect_garbage();
     rig.midi
         .set(vec![make(vec![
@@ -622,7 +584,6 @@ fn a_changed_target_lets_go_on_the_old_output() {
             msg: Msg::note_on(5, 60, 100)
         }]
     );
-    // Back to the instrument: the port is let go, the instrument chases.
     rig.midi.collect_garbage();
     rig.midi.set(vec![make(Target::Instrument)]).ok().unwrap();
     rig.run(512, 128);
@@ -667,7 +628,6 @@ fn hardware_events_are_stamped_with_the_device_frame_they_are_heard_at() {
     while let Ok(m) = rig.output.pop() {
         sent.push(m);
     }
-    // Playback began at device frame 100.
     let at = |t: Ticks| 100 + timeline.sample_at(t, 48_000) as u64;
     assert_eq!(
         sent,
@@ -743,7 +703,6 @@ fn panic_and_stop_flush_hardware_and_panic_sends_all_notes_off_everywhere() {
 fn every_note_on_has_its_off_through_loops_jumps_stops_and_edits() {
     let q = Ticks::quarters;
     let log = Log::default();
-    // Overlapping notes on one key, long notes, clips that repeat.
     let mut notes = Vec::new();
     for i in 0..40 {
         notes.push(note(Ticks(q(1).0 * i / 2), q(3), 48 + (i % 5) as u8));
@@ -864,7 +823,6 @@ fn the_synth_plays_into_the_track_bus_from_its_exact_sample_and_the_mixer_applie
     let out = half.run(start + 24_000, 100);
     assert!((peak(&out[start..]) - loud_peak * 0.5).abs() < 1e-4);
 
-    // Muted: the instrument keeps receiving notes, the mixer silences it.
     let (mut muted, _) = synth_rig(1.0, false);
     muted.play();
     let out = muted.run(start + 24_000, 100);
@@ -897,8 +855,6 @@ fn an_edit_elsewhere_does_not_cut_the_synth_that_is_sounding() {
     let start = timeline.sample_at(Ticks::quarters(1) + Ticks(77), 48_000) as usize;
     rig.run(start + 3_000, 128);
     let q = Ticks::quarters;
-    // The same track again, with a fresh synth inside: the sounding one
-    // carries over, and so does the note.
     let fresh = MidiTrack::new(
         TRACK,
         Target::Instrument,
@@ -931,9 +887,6 @@ fn an_edit_elsewhere_does_not_cut_the_synth_that_is_sounding() {
 
 #[test]
 fn taking_the_synth_away_lets_its_note_ring_out_instead_of_cutting_it() {
-    // The track loses its instrument while a note sounds (removed, or a
-    // device of another kind in its place): the old synth plays its release
-    // out into the track, then the engine goes idle (M5 slice 1 finding).
     let (mut rig, timeline) = synth_rig(1.0, true);
     rig.play();
     let start = timeline.sample_at(Ticks::quarters(1) + Ticks(77), 48_000) as usize;
@@ -970,8 +923,6 @@ fn taking_the_synth_away_lets_its_note_ring_out_instead_of_cutting_it() {
 
 #[test]
 fn panic_silences_a_synth_that_is_ringing_out_after_it_was_taken_away() {
-    // The removed synth's release is still sounding when Panic comes: Panic
-    // silences it as it does the track's own instrument.
     let (mut rig, timeline) = synth_rig(1.0, true);
     rig.play();
     let start = timeline.sample_at(Ticks::quarters(1) + Ticks(77), 48_000) as usize;
@@ -1002,7 +953,6 @@ fn panic_silences_a_synth_that_is_ringing_out_after_it_was_taken_away() {
     );
 }
 
-/// A synth track on `preset` with one note at beat 1 (+77 ticks).
 fn preset_track(preset: lumen_devices::Preset) -> MidiTrack {
     let q = Ticks::quarters;
     MidiTrack::new(
@@ -1023,10 +973,6 @@ fn preset_track(preset: lumen_devices::Preset) -> MidiTrack {
     )
 }
 
-/// Pins the latency of a preset change (the owner's MT-MIDI-2 finding):
-/// the engine takes the new sound on the very next block, so the next
-/// note-on is the new preset's, bit for bit, even when the list arrives
-/// one block before the note. (A note already sounding glides: below.)
 #[test]
 fn a_preset_change_is_in_effect_on_the_next_block() {
     use lumen_devices::Preset;
@@ -1042,7 +988,6 @@ fn a_preset_change_is_in_effect_on_the_next_block() {
         out.extend(rig.run(start + 12_000 - change_at, block));
         out
     };
-    // The list lands in the block before the one holding the note-on.
     let change_at = (start / block - 1) * block;
     let changed = render(Preset::Poly, Preset::Pad, change_at);
     let reference = render(Preset::Pad, Preset::Pad, change_at);
@@ -1051,10 +996,6 @@ fn a_preset_change_is_in_effect_on_the_next_block() {
     assert_ne!(changed, old, "and it is not the old sound");
 }
 
-// ---- A preset change reaches the notes sounding (owner, after ADR-0045) ----
-
-/// A synth track on `preset` with one note at beat 1 (+77 ticks) of
-/// `beats` beats.
 fn held_track(preset: lumen_devices::Preset, beats: i64) -> MidiTrack {
     let q = Ticks::quarters;
     MidiTrack::new(
@@ -1079,14 +1020,11 @@ fn rms(x: &[f32]) -> f32 {
     (x.iter().map(|v| v * v).sum::<f32>() / x.len() as f32).sqrt()
 }
 
-/// How bright a sound is: the energy of its steps against its own.
 fn brightness(x: &[f32]) -> f32 {
     let d: Vec<f32> = x.windows(2).map(|w| w[1] - w[0]).collect();
     rms(&d) / rms(x)
 }
 
-/// Plays a held note on `first`, makes it each of `then` (a preset and a
-/// time in seconds after the note began), and renders `seconds` in all.
 fn glide_render(
     rate: u32,
     block: usize,
@@ -1114,7 +1052,6 @@ fn glide_render(
     out
 }
 
-/// Seconds into the project of a glide test's note-on (beat 1 at 120 bpm).
 const NOTE_AT: f32 = 0.5;
 
 #[test]
@@ -1127,13 +1064,9 @@ fn a_held_note_glides_to_the_new_preset_without_a_new_note() {
     let poly = glide_render(rate, block, 8, Poly, &[], 5.0);
     let pad = glide_render(rate, block, 8, Pad, &[], 5.0);
     let cut = ((NOTE_AT + after) * rate as f32) as usize / block * block;
-    // Before the change: the old sound, bit for bit.
     assert_eq!(changed[..cut], poly[..cut]);
-    // It starts moving within about a block (not at the next note-on).
     let early = cut + 2 * block;
     assert_ne!(changed[cut..early], poly[cut..early]);
-    // Once the glide is over it has the new preset's steady character: a
-    // held note has no new attack, so its level and brightness are Pad's.
     let settled = cut + (lumen_devices::synth::GLIDE_SECONDS * rate as f32) as usize + block;
     let window = |x: &[f32]| x[settled..settled + 9_600].to_vec();
     let (c, p, d) = (window(&changed), window(&poly), window(&pad));
@@ -1177,14 +1110,6 @@ fn a_glide_does_not_click() {
                 };
                 let level = straight(a).max(straight(b));
                 let worst = steepest_step(&changed[lo..hi]);
-                // A step is judged against the sound's own. A waveform's edge
-                // gliding under an opening filter is the steepest moment —
-                // five times the settled sound's own step at the worst (44.1
-                // kHz, a 480-frame block, Bass into Keys), and it is a slope
-                // over four samples, not a jump: the synth follows the values
-                // frame by frame (M8 slice B4). A retrigger or a stepped
-                // parameter is an order of magnitude beyond — a click is one
-                // sample of the sound's whole amplitude.
                 if worst > level * 6.0 {
                     bad.push(format!("{rate} {block} {a:?}->{b:?}: {worst} vs {level}"));
                 }
@@ -1199,7 +1124,6 @@ fn undo_of_a_preset_change_glides_back_and_every_note_ends() {
     use lumen_devices::Preset::{Pad, Poly};
     let rate = 48_000;
     let block = 128;
-    // A 4-beat note; Pad at 0.3 s, back to Poly (the undo) at 0.6 s.
     let back = glide_render(rate, block, 4, Poly, &[(Pad, 0.3), (Poly, 0.6)], 6.0);
     let poly = glide_render(rate, block, 4, Poly, &[], 6.0);
     let lo = ((NOTE_AT + 0.6) * rate as f32) as usize + 3_000;
@@ -1212,7 +1136,6 @@ fn undo_of_a_preset_change_glides_back_and_every_note_ends() {
         steepest_step(&back[..hi]) <= steep * 1.05,
         "no click going back"
     );
-    // Nothing is left sounding.
     assert!(back[back.len() - 4_800..].iter().all(|v| v.abs() < 1e-4));
 }
 
@@ -1220,8 +1143,6 @@ fn undo_of_a_preset_change_glides_back_and_every_note_ends() {
 fn a_voice_in_release_when_the_preset_changes_still_ends() {
     use lumen_devices::Preset::{Bass, Pad, Pluck, Poly};
     let rate = 48_000;
-    // The note (1 beat = 0.5 s) ends 0.5 s after it began; the change comes
-    // 0.1 s into the release.
     for (a, b) in [(Poly, Pad), (Pad, Bass), (Poly, Pluck), (Pad, Poly)] {
         let x = glide_render(rate, 128, 1, a, &[(b, 0.6)], 8.0);
         assert!(
@@ -1242,10 +1163,6 @@ fn a_voice_in_release_when_the_preset_changes_still_ends() {
     }
 }
 
-// ---- Jumps and loop wraps never pop (owner, MT-MIDI-2) ----
-
-/// A chord that sounds for most of the project, then another: the owner
-/// jumped about and looped the midi-demo's bars 1 to 4 on ASIO at 128.
 fn chord_rig(rate: u32) -> Rig {
     let q = Ticks::quarters;
     let log = Log::default();
@@ -1262,7 +1179,6 @@ fn chord_rig(rate: u32) -> Rig {
             .map(|p| note(at, q(length), p))
             .collect::<Vec<_>>()
     };
-    // The one before the loop end has just begun when the loop wraps.
     let mut notes = chord(Ticks::ZERO, 2);
     notes.extend(chord(Ticks(q(3).0 + half.0), 6));
     notes.extend(chord(q(10), 8));
@@ -1282,8 +1198,6 @@ fn steepest_step(x: &[f32]) -> f32 {
         .fold(0.0, f32::max)
 }
 
-/// The steepest step of the project playing straight through: what the
-/// sound does by itself, attacks of the loudest chords included.
 fn straight(rate: u32) -> f32 {
     let mut rig = chord_rig(rate);
     rig.play();
@@ -1291,9 +1205,6 @@ fn straight(rate: u32) -> f32 {
     steepest_step(&out)
 }
 
-/// The largest step right at a jump (4 frames either side), at 8 places
-/// along the sound's wave: a click is the wave's value where it was cut,
-/// so one place proves little. One value per variant.
 fn pops(rate: u32, block: usize, wrap: bool) -> Vec<f32> {
     let q = Ticks::quarters;
     let timeline = Timeline::default();
@@ -1302,8 +1213,6 @@ fn pops(rate: u32, block: usize, wrap: bool) -> Vec<f32> {
         let mut rig = chord_rig(rate);
         let mut worst = 0.0f32;
         if wrap {
-            // Loop beats 0 to 4, give or take a few ticks: the wrap falls
-            // on another part of the wave each time.
             let end = q(4) + Ticks(v as i64 * 183);
             let lap = timeline.sample_at(end, rate) as usize;
             rig.transport
@@ -1317,11 +1226,9 @@ fn pops(rate: u32, block: usize, wrap: bool) -> Vec<f32> {
         } else {
             rig.play();
             let mut tail = rig.run(rate as usize / 2 + v * 113, block);
-            // Click the ruler: into a held chord, a gap, another chord.
             for beat in [5, 12, 1, 4, 14] {
                 rig.transport.send(Command::Locate(q(beat))).unwrap();
                 let out = rig.run(3_000 + v * 91, block);
-                // The command lands on the next block's first frame.
                 let mut join = tail[tail.len() - 4..].to_vec();
                 join.extend_from_slice(&out[..4]);
                 worst = worst.max(steepest_step(&join));
@@ -1356,8 +1263,6 @@ fn a_jump_or_loop_wrap_under_a_held_chord_does_not_pop() {
     assert!(bad.is_empty(), "{bad:#?}");
 }
 
-/// Frames of every marker the probe writes on the right channel for a
-/// controller, pitch bend or program message (0.5 each).
 fn controller_markers(rig: &mut Rig, frames: usize, block: usize) -> Vec<usize> {
     let mut found = Vec::new();
     let mut data = vec![0.0; 2 * block];
@@ -1377,11 +1282,6 @@ fn controller_markers(rig: &mut Rig, frames: usize, block: usize) -> Vec<usize> 
     found
 }
 
-/// What the controller lanes draw (M5 slice 4): a ramp of mod wheel events and
-/// a pitch bend, a 1/64 note apart from odd start ticks, land on their exact
-/// sample whatever the tempo, rate and block size, in order, with the values
-/// drawn (golden: the expected frame of each is worked out from the
-/// timeline, not read back from the player).
 #[test]
 fn drawn_controllers_and_bends_land_on_their_exact_sample_in_order() {
     let q = Ticks::quarters;
@@ -1431,10 +1331,6 @@ fn drawn_controllers_and_bends_land_on_their_exact_sample_in_order() {
 
 #[test]
 fn resizing_a_clip_or_a_note_under_the_playhead_does_not_retrigger_it() {
-    // Owner: resizing a playing MIDI clip struck its notes again. The app
-    // sends each note cut at the clip's end, in ticks from its start, so
-    // a trimmed end changes the note's length and a trimmed start moves
-    // the clip and every note in it: the note is the same, and sounds on.
     let q = Ticks::quarters;
     let log = Log::default();
     let make = |start: Ticks, end: Ticks, note_length: Ticks| {
@@ -1457,18 +1353,14 @@ fn resizing_a_clip_or_a_note_under_the_playhead_does_not_retrigger_it() {
         &log,
     );
     rig.play();
-    // Two beats in (one into the note) at 120 BPM.
     rig.run(48_000, 128);
     assert_eq!(rig.engine.source().tracks().1.held(TRACK), 1);
     let edits = [
-        // The end drawn in over the note, then out again, as a drag sends.
         (Ticks::ZERO, q(10), q(12)),
         (Ticks::ZERO, q(8), q(12)),
         (Ticks::ZERO, q(14), q(12)),
-        // The start trimmed in (before the note), then back.
         (Ticks(q(1).0 / 2), q(14), q(12)),
         (Ticks(q(1).0 / 4), q(14), q(12)),
-        // The note itself made shorter and longer.
         (Ticks(q(1).0 / 4), q(14), q(6)),
         (Ticks(q(1).0 / 4), q(14), q(10)),
     ];
@@ -1484,7 +1376,6 @@ fn resizing_a_clip_or_a_note_under_the_playhead_does_not_retrigger_it() {
         (1, 0),
         "struck once, never let go"
     );
-    // It ends where the last edit put its end: beat 11, frame 264,000.
     let played = 48_000 + edits.len() * 512;
     rig.run(264_000 - played - 256, 128);
     let sent = rig.log();
@@ -1492,7 +1383,6 @@ fn resizing_a_clip_or_a_note_under_the_playhead_does_not_retrigger_it() {
     rig.run(1_024, 128);
     let sent = rig.log();
     assert_eq!((ons(&sent), offs(&sent)), (1, 1));
-    // The end drawn in past the playhead lets it go at once.
     rig.midi.collect_garbage();
     rig.midi
         .set(vec![make(Ticks::ZERO, q(16), q(12))])
@@ -1514,9 +1404,6 @@ fn resizing_a_clip_or_a_note_under_the_playhead_does_not_retrigger_it() {
     assert_eq!((ons(&sent), offs(&sent)), (2, 2));
 }
 
-/// MIDI clock out (M5 slice 7): a port with Sync gets Start, 24 clocks a
-/// quarter on their frames, Stop, the pointer and Continue at a loop wrap,
-/// and Stop when playback stops.
 #[test]
 fn a_synced_port_gets_start_clocks_on_their_frames_the_loop_wrap_and_stop() {
     use lumen_engine::{CLOCK_TICKS, Region};
@@ -1533,7 +1420,6 @@ fn a_synced_port_gets_start_clocks_on_their_frames_the_loop_wrap_and_stop() {
         .unwrap();
     rig.run(100, 100);
     rig.play();
-    // A bar and a half: the loop wraps once.
     rig.run(144_000, 128);
     rig.transport.send(Command::Stop).unwrap();
     rig.run(256, 128);
@@ -1556,7 +1442,6 @@ fn a_synced_port_gets_start_clocks_on_their_frames_the_loop_wrap_and_stop() {
     for k in 0..96 {
         assert_eq!(msgs[1 + k as usize], (at(k), Msg::CLOCK), "clock {k}");
     }
-    // The wrap: two seconds in.
     let wrap = 100 + 96_000;
     assert_eq!(
         msgs[97..100],
@@ -1576,19 +1461,12 @@ fn a_synced_port_gets_start_clocks_on_their_frames_the_loop_wrap_and_stop() {
     );
 }
 
-/// What [`replay_while_ringing`] measures.
 struct Replay {
-    /// The steepest step where play starts (and where a latent path's start
-    /// is heard), and the steepest while only the release rang.
     join: f32,
     ringing: f32,
-    /// The quietest 1 ms after play starts against the ring's peak.
     quietest: f32,
 }
 
-/// Plays into the middle of the synth's note, stops, and plays again at
-/// once from the same place while the released note still rings and the
-/// chased one starts under it.
 fn replay_while_ringing(latency: u32) -> Replay {
     let (mut rig, _) = synth_rig(1.0, true);
     if latency > 0 {
@@ -1628,8 +1506,6 @@ fn replay_while_ringing(latency: u32) -> Replay {
             .fold(0.0, f32::max)
     };
     let peak = |x: &[f32]| x.iter().fold(0.0f32, |m, v| m.max(v.abs()));
-    // Each over the 2 ms fade: later, the chased note's attack is steeper
-    // than the quiet release.
     let fade = 96;
     let latency = latency as usize;
     let start: Vec<f32> = ringing[ringing.len() - 200..]
@@ -1668,16 +1544,8 @@ fn playing_again_while_the_synth_rings_out_does_not_click() {
     }
 }
 
-// Per-sound routing (M8 slice D4): a drum sound sent to another instrument
-// track plays there. The app gives the engine two track lists' worth of
-// difference — the note leaves the sending track and arrives in the
-// receiving one. An instrument carries across a new list by its track's id,
-// so the sending instrument must let the note go and the receiving one must
-// strike it, and neither may leave a note sounding.
-
 const OTHER: u64 = 2;
 
-/// A rig of two instrument tracks, each probe logging to its own log.
 fn pair_rig(timeline: Timeline, rate: u32, one: MidiTrack, two: MidiTrack, log: &Log) -> Rig {
     let (_clips, players) = clip_player();
     let (mut midi, player) = midi_player();
@@ -1711,9 +1579,6 @@ fn pair_rig(timeline: Timeline, rate: u32, one: MidiTrack, two: MidiTrack, log: 
     }
 }
 
-/// The two probes a sent note goes between: the sending track's log, and the
-/// receiving track's. An instrument stays with its track across a new list,
-/// so one pair of logs serves a whole test.
 fn two_logs() -> (Log, Log) {
     (Log::default(), Log::default())
 }
@@ -1734,7 +1599,6 @@ fn sent_clip(id: u64, notes: Vec<MidiNote>) -> Vec<MidiClip> {
     vec![clip(id, Ticks::ZERO, Ticks::quarters(16), notes)]
 }
 
-/// What one instrument was sent: note-ons and note-offs.
 fn counts(log: &Log) -> (usize, usize) {
     let sent = log.lock().unwrap().clone();
     (ons(&sent), offs(&sent))
@@ -1753,14 +1617,11 @@ fn a_note_sent_to_another_track_mid_note_is_released_here_and_heard_there() {
     );
     let mut rig = pair_rig(Timeline::default(), 48_000, track_one, track_two, &one);
     rig.play();
-    // Into the middle of the note: the kit track's instrument holds it.
     rig.run(30_000, 128);
     assert_eq!(rig.engine.source().tracks().1.held(TRACK), 1);
     assert_eq!(rig.engine.source().tracks().1.held(OTHER), 0);
     assert_eq!(counts(&one), (1, 0), "one on, nothing off yet");
 
-    // The route changes: the note is no longer the sending track's, and the
-    // receiving track's instrument holds it.
     rig.midi.collect_garbage();
     let (track_one, track_two) = probe_pair(
         &one,
@@ -1791,14 +1652,11 @@ fn a_note_sent_to_another_track_mid_note_is_released_here_and_heard_there() {
         "the receiving instrument was given the note"
     );
 
-    // The note ends where it always would: the receiving instrument releases
-    // it, and the sending side is owed nothing more.
     rig.run(30_000, 128);
     assert_eq!(rig.engine.source().tracks().1.held(OTHER), 0);
     assert_eq!(counts(&two), (1, 1));
     assert_eq!(counts(&one), (1, 1), "no second note-off");
 
-    // Stopping leaves nothing sounding on either instrument.
     rig.transport.send(Command::Stop).unwrap();
     rig.run(1_024, 128);
     assert_eq!(rig.engine.source().tracks().1.held(TRACK), 0);
@@ -1814,8 +1672,6 @@ fn a_route_changed_back_and_forth_never_leaves_a_hanging_note() {
         probe_pair(&one, &two, sent_clip(1, held()), sent_clip(2, Vec::new()));
     let mut rig = pair_rig(Timeline::default(), 48_000, track_one, track_two, &one);
     rig.play();
-    // Six changes of route across a note held for the whole song, each one
-    // the pair of track lists the app sends.
     for step in 0..6 {
         rig.run(4_096, 128);
         let (track_one, track_two) = if step % 2 == 0 {
@@ -1829,8 +1685,6 @@ fn a_route_changed_back_and_forth_never_leaves_a_hanging_note() {
     }
     rig.transport.send(Command::Stop).unwrap();
     rig.run(2_048, 128);
-    // Every note-on either instrument was given has its note-off, and no
-    // track holds anything.
     for log in [&one, &two] {
         let (ons, offs) = counts(log);
         assert_eq!(ons, offs, "a note was left sounding: {ons} on, {offs} off");
@@ -1862,9 +1716,6 @@ fn a_route_changed_mid_note_never_touches_the_heap() {
     let mut rig = pair_rig(Timeline::default(), 48_000, one, two, &log).guarded();
     rig.play();
     rig.run(28_000, 100);
-    // The note moves to the other track while it sounds: the sending
-    // instrument releases it and the receiving one chases it, on the audio
-    // thread, with nothing on the heap (both runs are checked).
     let one = MidiTrack::new(TRACK, Target::Instrument, Some(synth()), Vec::new());
     let two = MidiTrack::new(
         OTHER,

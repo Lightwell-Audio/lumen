@@ -1,8 +1,3 @@
-//! The MIDI chip at the end of the transport bar (M5 slice 2d, the owner's
-//! C B): a DIN glyph over two small lights, IN and OUT, that flash with
-//! traffic, and the popover that lists every port with its own light and
-//! its Track and Remote switches, in columns.
-
 use eframe::egui::{self, Id, Pos2, Rect, Sense, Stroke, Ui, vec2};
 use eframe::emath::GuiRounding as _;
 use lumen_midi::{Direction, PortId, Use};
@@ -13,26 +8,18 @@ use crate::midi::{Action, Midi};
 use crate::widgets::warning;
 use crate::{light, motion, settings, theme, widgets};
 
-/// The chip's width; its height is a dense control's.
 const WIDTH: f32 = 34.0;
-/// A switch column's width in the popover (wide enough for "Remote").
 const COLUMN: f32 = 52.0;
-/// The popover's width.
 const PANEL_WIDTH: f32 = 320.0;
-/// A light's radius at rest.
 const LIGHT: f32 = 2.5;
 
-/// One port as the chip shows it.
 #[derive(Debug, Clone)]
 pub struct Row {
     pub id: PortId,
-    /// Plugged in now (a remembered port that is away is not).
     pub present: bool,
     pub using: Use,
     pub failed: bool,
-    /// Traffic so far: a change is a flash.
     pub count: u32,
-    /// A key is held down on it: the light stays lit.
     pub held: bool,
 }
 
@@ -45,20 +32,16 @@ impl Row {
     }
 }
 
-/// What the chip needs from the app each frame.
 #[derive(Debug, Clone, Default)]
 pub struct View {
     pub inputs: Vec<Row>,
     pub outputs: Vec<Row>,
-    /// The computer keyboard's traffic, and whether a key of it is held.
     pub keyboard: u32,
     pub keyboard_held: bool,
-    /// Why MIDI is not there, if it is not.
     pub unavailable: Option<String>,
 }
 
 impl View {
-    /// The ports present now, then the remembered ones that are away.
     pub fn gather(midi: &Midi, saved: &settings::Midi, keyboard: u32, keyboard_held: bool) -> Self {
         let mut view = View {
             keyboard,
@@ -121,7 +104,6 @@ impl View {
         self.outputs.iter().filter(|r| r.present && r.on()).count()
     }
 
-    /// The chip's accessible name.
     pub fn name(&self) -> String {
         if let Some(why) = &self.unavailable {
             return format!("MIDI: unavailable. {why}");
@@ -135,18 +117,14 @@ impl View {
     }
 }
 
-/// What the lights showed when last drawn (for tests, which cannot see
-/// brightness in the accessibility tree).
 #[derive(Debug, Clone, Default)]
 pub struct Lights {
     pub input: f32,
     pub output: f32,
-    /// Each row of the popover, while it is drawn.
     pub rows: Vec<(PortId, f32)>,
     pub keyboard: f32,
 }
 
-/// A port's light memory: the chip and its row share it.
 fn light_id(id: &PortId) -> Id {
     Id::new(("midi light", id.direction, &id.name))
 }
@@ -155,9 +133,6 @@ fn keyboard_id() -> Id {
     Id::new("midi light keyboard")
 }
 
-/// A light at `centre`: grey when the port is open and quiet, a hollow
-/// ring when nothing is switched on (or the port is away), the BEAM level
-/// at `brightness` while it flashes.
 fn paint_light(ui: &Ui, centre: Pos2, resting: Resting, brightness: f32) {
     let palette = theme::p();
     let painter = ui.painter();
@@ -190,10 +165,8 @@ enum Resting {
 }
 
 impl Transport {
-    /// The chip, with its popover. Returns its response.
     pub fn midi_chip(&mut self, ui: &mut Ui, view: &View) -> egui::Response {
         let ctx = ui.ctx().clone();
-        // The lights: each port's own memory, the chip taking the brightest.
         let keyboard = light::flash_held(&ctx, keyboard_id(), view.keyboard, view.keyboard_held);
         let mut lights = Lights {
             keyboard,
@@ -213,8 +186,6 @@ impl Transport {
                 .output
                 .max(light::flash(&ctx, light_id(&row.id), row.count));
         }
-        // Nothing to poll: the drivers wake the interface themselves
-        // (`MidiSystem` waker), so an idle input costs no frames.
 
         let (rect, response) =
             ui.allocate_exact_size(vec2(WIDTH, theme::size::CONTROL_SMALL), Sense::click());
@@ -230,9 +201,6 @@ impl Transport {
                 response.hovered() || response.has_focus() || open,
             );
             let rect = rect.round_to_pixels(ui.pixels_per_point());
-            // Quiet, like the panel toggles beside it (the interface
-            // audit's TB1): bare at rest, the Ember wash under the pointer,
-            // sunk while pressed; the lights carry it.
             let r = f32::from(theme::radius::SMALL);
             if response.is_pointer_button_down_on() {
                 ui.painter().rect_filled(rect, r, controls.press);
@@ -288,9 +256,6 @@ impl Transport {
         response
     }
 
-    /// The popover: inputs, then outputs, then the way to the settings.
-    /// Each port is one row: its light, its name, and switches in a Track
-    /// and a Remote column, captioned once per section.
     fn midi_panel(&mut self, ui: &mut Ui, view: &View) {
         ui.set_min_width(PANEL_WIDTH);
         ui.set_max_width(PANEL_WIDTH);
@@ -326,8 +291,6 @@ impl Transport {
         }
     }
 
-    /// The computer keyboard: an input that is always there for tracks (its
-    /// switch is on and cannot be turned off).
     fn keyboard_row(&mut self, ui: &mut Ui, count: u32, held: bool) {
         let brightness = light::flash_held(ui.ctx(), keyboard_id(), count, held);
         let cells = port_cells(
@@ -367,8 +330,6 @@ impl Transport {
         } else {
             Resting::Hollow
         };
-        // An away port keeps its switches (they apply when it is plugged
-        // back in), quieter, and says so after its name.
         let (colour, note) = if !row.present {
             (
                 palette.text_secondary,
@@ -414,24 +375,18 @@ impl Transport {
             );
         }
         if using != row.using {
-            // The same path as the settings page's switches.
             self.midi_asked.push(Action::Use(row.id.clone(), using));
         }
     }
 }
 
-/// How much an away port's switches keep of their strength.
 const AWAY: f32 = 0.6;
 
-/// Where a port row's switches go.
 struct Cells {
     track: Rect,
     remote: Rect,
 }
 
-/// A switch with no label centred in `rect`, `on` and `enabled`, without
-/// taking room in the row (which is laid out already); `id` keeps each
-/// switch's own, and `away` dims it.
 fn switch_in(
     ui: &mut Ui,
     rect: Rect,
@@ -452,7 +407,6 @@ fn switch_in(
     widgets::switch(&mut cell, on, "", enabled)
 }
 
-/// The columns of a row in `row`, from the right: Remote, then Track.
 fn columns(row: Rect, side: f32) -> Cells {
     let right = row.right() - side;
     let remote = Rect::from_x_y_ranges(right - COLUMN..=right, row.y_range());
@@ -460,7 +414,6 @@ fn columns(row: Rect, side: f32) -> Cells {
     Cells { track, remote }
 }
 
-/// A section's caption ("Inputs") and, over the switch columns, theirs.
 fn section_head(ui: &mut Ui, caption: &str, columns_shown: &[&str]) {
     let font = egui::TextStyle::Small.resolve(ui.style());
     let colour = ui.visuals().weak_text_color();
@@ -487,9 +440,6 @@ fn section_head(ui: &mut Ui, caption: &str, columns_shown: &[&str]) {
     }
 }
 
-/// Lays out a port row: its light and its name (shortened to the room left
-/// of the switches, the whole name on hover), with an optional `note` after
-/// it. Returns where the switches go.
 fn port_cells(
     ui: &mut Ui,
     (resting, brightness): (Resting, f32),
@@ -535,8 +485,6 @@ fn port_cells(
         egui::Align2::LEFT_CENTER.anchor_size(egui::pos2(left, row.center().y), galley.size());
     let end = name_rect.right();
     painter.galley(name_rect.min, galley, colour);
-    // The name and the note are painted, so each is named for a screen
-    // reader here.
     let label = |rect, salt: &str, text: &str| {
         let text = text.to_owned();
         let read = ui.interact(rect, response.id.with(salt), Sense::hover());

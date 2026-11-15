@@ -1,9 +1,3 @@
-//! The browser's Devices tab (M6 slice 1): plugins found by a scan in child
-//! processes, listed by vendor, narrowed by type, category and words, with
-//! favorites, a blocked section and a way to retry. Each module is a copy of
-//! the test plugin, given a fault by its name; the scan program is the real
-//! `lumen-plugin-host`. Driven by accessible names and keys.
-
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
@@ -19,7 +13,6 @@ use super::Lumen;
 const INSTRUMENT: &str = "Deterministic Test Instrument";
 const EFFECT: &str = "Deterministic Test Effect";
 
-/// The test plugin's library and the scan program, built once.
 pub(super) fn built() -> &'static (PathBuf, PathBuf) {
     static BUILT: OnceLock<(PathBuf, PathBuf)> = OnceLock::new();
     BUILT.get_or_init(|| {
@@ -35,13 +28,9 @@ pub(super) fn built() -> &'static (PathBuf, PathBuf) {
         if !cfg!(debug_assertions) {
             build.arg("--release");
         }
-        // CI builds them before its tests (`.github/scripts/ci-test.sh`), and
-        // nextest runs every test in a process of its own: with this set,
-        // no process waits on cargo's build lock to learn nothing changed.
         if std::env::var_os("LUMEN_TEST_PLUGINS_BUILT").is_none() {
             assert!(build.status().expect("run cargo").success(), "build");
         }
-        // target/<profile>/deps/<this test> -> target/<profile>
         let exe = std::env::current_exe().expect("test binary");
         let profile = exe.parent().and_then(Path::parent).expect("profile dir");
         let library = if cfg!(windows) {
@@ -65,15 +54,10 @@ pub(super) fn built() -> &'static (PathBuf, PathBuf) {
     })
 }
 
-/// Set once the module named "Mended" is fixed: its fault goes away.
 static MENDED: AtomicBool = AtomicBool::new(false);
 
-/// Held for the whole of a test that sets [`MENDED`]: the flag is shared by
-/// the process, and two such tests side by side would mend each other's
-/// module mid-scan.
 static MENDING: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// The fault each test module is given, by its name.
 fn faults(stem: &str) -> Option<&'static str> {
     match stem {
         "Crash" => Some("factory_crash"),
@@ -83,7 +67,6 @@ fn faults(stem: &str) -> Option<&'static str> {
     }
 }
 
-/// Puts a copy of the test plugin in `root` as the bundle `<name>.vst3`.
 fn add_module(root: &Path, name: &str) {
     let (arch, extension) = if cfg!(windows) {
         ("x86_64-win", "vst3")
@@ -113,11 +96,6 @@ fn add_module(root: &Path, name: &str) {
     warm(&root.join(format!("{name}.vst3")));
 }
 
-/// Loads a new plugin once, here and alone, on macOS. macOS checks every new
-/// file the first time it is loaded, one file after another at about 0.1 s
-/// each. Tests that each add several plugins and run side by side would queue
-/// behind one another inside the scan, and its two-second deadline would run
-/// out on the queue. A file that has been checked loads at once.
 fn warm(bundle: &Path) {
     if !cfg!(target_os = "macos") {
         return;
@@ -134,7 +112,6 @@ fn warm(bundle: &Path) {
     assert!(status.success(), "the plugin does not load");
 }
 
-/// A folder of plugins in `dir`, holding the modules named.
 pub(super) fn plugin_root(dir: &Path, modules: &[&str]) -> PathBuf {
     let root = dir.join("plugins");
     std::fs::create_dir_all(&root).unwrap();
@@ -144,7 +121,6 @@ pub(super) fn plugin_root(dir: &Path, modules: &[&str]) -> PathBuf {
     root
 }
 
-/// Lumen with `modules` installed, scanning at start.
 fn start(name: &str, modules: &[&str]) -> Lumen {
     let dir = TempDir::new(&format!("e2e-plugins-{name}"));
     let root = plugin_root(dir.path(), modules);
@@ -170,18 +146,15 @@ pub(super) fn start_in(
 }
 
 impl Lumen {
-    /// Waits for the scan, then draws once more.
     fn settled(&mut self) {
         self.wait_for("the plugin scan", |app| !app.plugins_busy());
         self.frames(3);
     }
 
-    /// Whether a control or row whose name starts with `label` is shown.
     fn shows_row(&self, label: &str) -> bool {
         self.harness.query_by_label_contains(label).is_some()
     }
 
-    /// Runs frames until a row whose name starts with `label` is shown.
     #[track_caller]
     fn wait_for_row(&mut self, label: &str) {
         let started = std::time::Instant::now();
@@ -247,7 +220,6 @@ fn a_crashing_and_a_hanging_plugin_are_blocked_with_their_reasons_and_the_rest_s
         "the section header"
     );
 
-    // Selecting one says why, and what Lumen will do.
     lumen.click_row("Crash, blocked");
     assert!(lumen.shows_row("It crashed while loading"));
     assert!(lumen.shows_row("will not try again until its file changes"));
@@ -269,13 +241,11 @@ fn retry_loads_a_blocked_module_again_and_it_joins_the_list_once_it_works() {
     assert_eq!(lumen.app().blocked_plugins(), ["Mended"]);
     assert!(lumen.app().plugin_names().is_empty());
 
-    // Retried while it still fails: still blocked, and only it was loaded.
     lumen.click_row("Mended, blocked");
     lumen.click("Retry");
     lumen.settled();
     assert_eq!(lumen.app().blocked_plugins(), ["Mended"]);
 
-    // Mended, and Retry: its devices are listed and nothing is blocked.
     MENDED.store(true, Ordering::Relaxed);
     lumen.click("Retry");
     lumen.settled();
@@ -340,8 +310,6 @@ fn an_unchanged_restart_lists_plugins_from_the_saved_list_without_loading_any() 
     assert!(cache.is_file(), "the scan saved its answers");
     let dir = first.crash();
 
-    // Scan at startup is off and the scan program is gone: only the saved
-    // list can have made these.
     let mut second = Lumen::start_with(dir, |launch| {
         launch
             .with_plugins(vec![root], Path::new("/no/such/host"), cache)
@@ -381,7 +349,6 @@ fn a_missing_scan_program_says_what_to_build_and_the_saved_list_still_shows() {
 fn words_the_type_switch_and_chips_narrow_the_list_and_clear_filters_brings_it_back() {
     let mut lumen = start("narrow", &["Good"]);
 
-    // Words: only what matches.
     lumen.type_in_search("effect");
     assert!(lumen.shows_row(&format!("{EFFECT}, Test Vendor, effect")));
     assert!(!lumen.shows_row(&format!("{INSTRUMENT}, ")));
@@ -389,7 +356,6 @@ fn words_the_type_switch_and_chips_narrow_the_list_and_clear_filters_brings_it_b
     lumen.click("Clear search");
     assert!(lumen.shows_row(&format!("{INSTRUMENT}, ")));
 
-    // The type switch.
     lumen.click("Instruments only");
     assert!(lumen.shows_row(&format!("{INSTRUMENT}, ")));
     assert!(lumen.shows_row("Synth, Lumen"));
@@ -399,7 +365,6 @@ fn words_the_type_switch_and_chips_narrow_the_list_and_clear_filters_brings_it_b
     assert!(!lumen.shows_row(&format!("{INSTRUMENT}, ")));
     assert!(!lumen.shows_row("Synth, Lumen"));
 
-    // A filter with nothing in it says so and offers the way back.
     lumen.click("Favorites filter");
     assert!(lumen.shows_row("No devices match"));
     lumen.click("Clear filters");
@@ -413,7 +378,6 @@ fn words_the_type_switch_and_chips_narrow_the_list_and_clear_filters_brings_it_b
 #[test]
 fn a_category_chip_narrows_to_that_category_and_turns_off_when_clicked_again() {
     let mut lumen = start("chip", &["Good"]);
-    // The test instrument's category is its factory sub-category.
     let chip = lumen
         .harness
         .query_all_by_label_contains(" filter")
@@ -453,7 +417,6 @@ fn favorites_and_recents_survive_a_restart() {
     let file = dir.path().join("settings.json");
     let mut first = start_in(dir, root.clone(), |l| l.with_settings_file(&file));
     first.click(&format!("Favorite {EFFECT}"));
-    // Double-clicking a device chooses it: it becomes a recent.
     let at = first
         .harness
         .get_by_label_contains(&format!("{INSTRUMENT}, "))
@@ -461,8 +424,6 @@ fn favorites_and_recents_survive_a_restart() {
         .center();
     first.double_click(at);
     assert_eq!(first.app().recent_devices().len(), 1, "chosen");
-    // The file already names the favorite (and the key "recents") from the
-    // click before: wait until the recents list itself holds the device.
     first.wait_for("the settings to be saved", |_| {
         std::fs::read_to_string(&file).is_ok_and(|t| {
             t.split("\"recents\"")
@@ -487,8 +448,6 @@ fn favorites_and_recents_survive_a_restart() {
     assert!(second.is_on(&format!("Favorite {EFFECT}")));
     assert!(!second.is_on(&format!("Favorite {INSTRUMENT}")));
     second.click("Recent filter");
-    // The list fills when the cache has been read, which a busy machine can
-    // put after the first frames.
     second.wait_for_row(&format!("{INSTRUMENT}, "));
     assert!(!second.shows_row(&format!("{EFFECT}, ")));
 }
@@ -496,14 +455,12 @@ fn favorites_and_recents_survive_a_restart() {
 #[test]
 fn the_keyboard_alone_walks_the_list_stars_and_chooses() {
     let mut lumen = start("keys", &["Good"]);
-    // F6 goes to the arrangement, the detail panel, then the browser.
     for _ in 0..3 {
         lumen.key(Modifiers::NONE, Key::F6);
     }
     let ctx = lumen.harness.ctx.clone();
     assert_eq!(lumen.app().focused_pane(&ctx).as_deref(), Some("Browser"));
 
-    // Lumen's header, the synth, Test Vendor's header, then the effect.
     for _ in 0..4 {
         lumen.key(Modifiers::NONE, Key::ArrowDown);
     }
@@ -517,7 +474,6 @@ fn the_keyboard_alone_walks_the_list_stars_and_chooses() {
     lumen.key(Modifiers::NONE, Key::Enter);
     assert_eq!(lumen.app().recent_devices(), [effect]);
 
-    // Up and Home go back; Left on a device goes to its vendor's header.
     lumen.key(Modifiers::NONE, Key::ArrowLeft);
     assert_eq!(lumen.app().selected_device(), None);
     lumen.key(Modifiers::NONE, Key::ArrowLeft);
@@ -533,7 +489,6 @@ fn the_keyboard_alone_walks_the_list_stars_and_chooses() {
 fn ctrl_f_opens_the_search_and_typing_there_runs_no_commands() {
     let mut lumen = start("search-keys", &["Good"]);
     lumen.type_in_search("f");
-    // "F" is the favorite key, and the field has the keyboard.
     assert!(lumen.app().favorite_devices().is_empty());
     lumen.key(Modifiers::NONE, Key::Escape);
     assert!(lumen.shows_row(&format!("{INSTRUMENT}, ")) || lumen.shows_row(&format!("{EFFECT}, ")));
@@ -544,7 +499,6 @@ fn cancel_stops_a_scan_that_is_stuck_in_a_hung_plugin_and_keeps_what_finished() 
     let dir = TempDir::new("e2e-plugins-cancel");
     let root = plugin_root(dir.path(), &["Good", "Hang"]);
     let cache = dir.path().join("plugin-cache.json");
-    // A long deadline: only Cancel can end this scan soon.
     let mut lumen = Lumen::start_with(dir, |launch| {
         launch
             .with_plugins(vec![root], &built().1, cache)
@@ -570,8 +524,6 @@ fn cancel_stops_a_scan_that_is_stuck_in_a_hung_plugin_and_keeps_what_finished() 
     assert!(lumen.shows("Rescan"));
 }
 
-/// Lumen whose start scan of `root` is held up by a module that hangs, so a
-/// folder can be added or removed while it runs (ADR-0114).
 fn start_held_up(
     dir: TempDir,
     root: PathBuf,
@@ -590,8 +542,6 @@ fn start_held_up(
 }
 
 impl Lumen {
-    /// Adds `folder` from the Plugins page while a scan runs, and checks it
-    /// waits for that scan.
     #[track_caller]
     fn add_folder_during_the_scan(&mut self, folder: &Path) {
         self.open_preferences("Plugins");
@@ -616,8 +566,6 @@ fn a_folder_added_during_a_scan_is_scanned_once_it_ends() {
     let dir = TempDir::new("e2e-plugins-added-during");
     let root = plugin_root(dir.path(), &["Hang"]);
     let extra = plugin_root(&dir.path().join("extra"), &["Good"]);
-    // The scan ends by itself here, at the hung module's deadline: long
-    // enough for the folder to be added first on a loaded machine.
     let mut lumen = start_held_up(dir, root, Duration::from_secs(15), |l| l);
     lumen.wait_for("the scan to wait on the hung module", |app| {
         app.plugin_status() == "Scanning { done: 0, total: 1 }"
@@ -626,7 +574,6 @@ fn a_folder_added_during_a_scan_is_scanned_once_it_ends() {
     lumen.add_folder_during_the_scan(&extra);
     assert!(lumen.app().plugin_names().is_empty(), "not scanned yet");
 
-    // The hung module is blocked at its deadline; then the folder is scanned.
     lumen.settled();
     assert_eq!(lumen.app().blocked_plugins(), ["Hang"]);
     assert_eq!(lumen.app().plugin_names(), [EFFECT, INSTRUMENT]);
@@ -639,7 +586,6 @@ fn a_folder_removed_during_a_scan_is_not_scanned_after_it_and_its_plugins_leave(
     let dir = TempDir::new("e2e-plugins-removed-during");
     let root = plugin_root(dir.path(), &[]);
     let extra = plugin_root(&dir.path().join("extra"), &["Good", "Hang"]);
-    // A long deadline: the scan is ended by Cancel once the folder is gone.
     let mut lumen = start_held_up(dir, root, Duration::from_secs(60), |l| {
         l.with_plugin_folder(&extra)
     });
@@ -661,8 +607,6 @@ fn a_folder_removed_during_a_scan_is_not_scanned_after_it_and_its_plugins_leave(
     lumen.key(Modifiers::NONE, Key::Escape);
     lumen.frames(3);
 
-    // The follow-up has no folder with modules left: it ends at once. Had it
-    // read the removed folder, the hung module would hold it past the wait.
     lumen.click("Cancel");
     lumen.settled();
     assert!(lumen.app().plugin_names().is_empty(), "its plugins left");
@@ -678,7 +622,6 @@ fn a_folder_added_during_a_scan_that_is_cancelled_is_scanned_after_it() {
     let dir = TempDir::new("e2e-plugins-added-cancel");
     let root = plugin_root(dir.path(), &["Good", "Hang"]);
     let extra = plugin_root(&dir.path().join("extra"), &["Crash"]);
-    // A long deadline: only Cancel ends these scans soon.
     let mut lumen = start_held_up(dir, root, Duration::from_secs(60), |l| l);
     lumen.wait_for("the good module to be scanned", |app| {
         app.plugin_status().contains("done: 1")
@@ -686,7 +629,6 @@ fn a_folder_added_during_a_scan_that_is_cancelled_is_scanned_after_it() {
 
     lumen.add_folder_during_the_scan(&extra);
     lumen.click("Cancel");
-    // The follow-up checks what the cancelled scan left, the new folder too.
     lumen.wait_for("the new folder's module to be scanned", |app| {
         app.blocked_plugins() == ["Crash"]
     });

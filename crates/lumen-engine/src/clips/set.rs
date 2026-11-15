@@ -1,5 +1,3 @@
-//! Prepared clip-list metadata shared with the real-time player.
-
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -9,13 +7,10 @@ use super::seams::{BARE_LEAD, envelopes_meet, fades_meet, source_meets};
 
 use crate::stream::PagePool;
 
-/// A clip list with its lookup, fade and join metadata prepared off-thread.
 pub(super) struct ClipSet {
     pub(super) clips: Vec<Clip>,
     pub(super) levels: Vec<f32>,
-    /// Streamed clips faded out for want of their pages, carried like levels.
     pub(super) starved: Vec<bool>,
-    /// The page pool the streamed clips read from: one per list.
     pub(super) pool: Option<Arc<PagePool>>,
     pub(super) by_id: Vec<(u64, u32)>,
     pub(super) swapped: Vec<bool>,
@@ -25,14 +20,11 @@ pub(super) struct ClipSet {
     pub(super) seam_lead: Vec<i64>,
     pub(super) seam_total: Vec<i64>,
     pub(super) seam_root: Vec<usize>,
-    /// Outer edges of a track that play without a 2 ms fade (start, end).
     pub(super) bare: Vec<[bool; 2]>,
-    /// Any edge is bare (so the live player, which has none, pays nothing).
     pub(super) any_bare: bool,
 }
 
 impl ClipSet {
-    /// Allocates; called off the audio thread. Fade tables are shared by curve.
     pub(super) fn new(
         clips: Vec<Clip>,
         tables: &mut HashMap<[u32; 4], Table>,
@@ -117,7 +109,6 @@ impl ClipSet {
         set
     }
 
-    /// Marks the outer edges that play bare. Allocation-free.
     pub(super) fn apply_bare(&mut self) {
         if !self.any_bare {
             return;
@@ -133,7 +124,6 @@ impl ClipSet {
         }
     }
 
-    /// Carries levels and marks clips whose own placement changed.
     pub(super) fn carry_levels(&mut self, old: &mut ClipSet) -> bool {
         self.swapped.fill(false);
         old.swapped.fill(true);

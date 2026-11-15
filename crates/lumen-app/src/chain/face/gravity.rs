@@ -1,31 +1,3 @@
-//! Gravity's card (the compressor), from the round-2 specimen
-//! (`docs/specimens/m8/devices.html`, `gravity()`): the signal is a body pulled
-//! into a well, and the deeper it sinks the more it is pressed. A warped grid
-//! is the well, a lit ball is the body, a dashed ring is the threshold, and the
-//! gain pulled away is the big number in the corner.
-//!
-//! What the picture says comes from the device's own values and its meter:
-//!
-//! * **Pull** (the threshold) is the dashed ring: a lower threshold is a wider
-//!   ring, and its words ("−18 dB") are the real value.
-//! * **Ratio** is how heavy the body is: a bigger ratio makes the well deeper
-//!   and the ball larger.
-//! * **The gain reduction** is the ball's sink into the well, how far the grid
-//!   is drawn in around it and the number ("−4.1", "dB pulled"): the most the
-//!   compressor took away since the last frame, falling back over a moment.
-//!
-//! The screen is alive: the well deepens and the ball sinks while the device is
-//! pulling, the ball glows with the level it hears, and it is calm when nothing
-//! plays and still while motion is reduced.
-//!
-//! It is a control too: dragging the ball up or down is Ratio, and dragging
-//! anywhere in the ring (the field the threshold marks), out or in, is Pull. Each
-//! is the same edit as its dial, one undo step. Under the screen sit five lit
-//! dials (Pull, Ratio, Attack, Release, Makeup); the knee, the mix, the
-//! detector, the key's high-pass and Listen are in All parameters. When the
-//! effect is keyed from another track a chip on the screen says so and opens the
-//! sidechain choice (`card/screen/key.rs`).
-
 use eframe::egui::{
     Align2, Color32, CursorIcon, FontId, Pos2, Rect, Shape, Stroke, Vec2, pos2, vec2,
 };
@@ -39,26 +11,13 @@ use crate::fonts;
 use crate::theme::personality as p;
 use crate::theme::personality::card;
 
-/// The card: 380 x 330 with a 176 pt screen, as the specimen draws it.
 const WHOLE: Vec2 = Vec2::new(380.0, 330.0);
 const SPECIMEN: Vec2 = Vec2::new(352.0, 176.0);
-/// The dials' centres across the card and down from its top. The specimen
-/// spreads them to 304; here the last stops at 284 so the "All n" link in the
-/// card's corner keeps a clear gap from the Makeup value.
 const DIAL_X: [f32; 5] = [44.0, 104.0, 164.0, 224.0, 284.0];
 const DIALS_Y: f32 = 278.0;
-/// How far "dB pulled" is paled toward white, so it reads on the light theme's
-/// paler top of the screen as well as on the dark one.
 const PULLED_PALE: f32 = 0.45;
 
-/// Where the well's middle stands, as a share of the picture's width and
-/// height.
 const CENTRE: (f32, f32) = (0.42, 0.52);
-/// The grid: rows (`-ROWS..=ROWS`) and columns (`-COLUMNS..=COLUMNS`), the gap
-/// between them, how far the well reaches along each, and how far it sags a
-/// row (in total at the middle, then the deepest row's share) or draws a
-/// column in; all in the specimen's points, and how bright a line is (the
-/// middle row's strength and what each row out loses).
 const ROWS: i32 = 6;
 const ROW_PITCH: f32 = 13.0;
 const ROW_REACH: f32 = 70.0;
@@ -70,44 +29,28 @@ const COLUMN_REACH: f32 = 60.0;
 const COLUMN_PINCH: f32 = 0.25;
 const COLUMN_ALPHA: f32 = 0.12;
 const GRID_WIDTH: f32 = 1.0;
-/// Points on a row across the picture, and on a column down it.
 const ROW_POINTS: usize = 29;
 const COLUMN_POINTS: usize = 15;
 
-/// The body: its radius, where it rests below the well's middle and how far it
-/// sinks (`SINK_MOST * tanh(reduction / SINK_OVER)`, so the specimen's 4.1 dB
-/// is its 12 pt), the halo round it and the focus of its highlight.
 const BODY: f32 = 17.0;
 const REST_DOWN: f32 = 4.0;
 const SINK_MOST: f32 = 28.0;
 const SINK_OVER: f32 = 9.0;
 const HALO: f32 = 46.0;
 const HALO_ALPHA: f32 = 0.55;
-/// How the body's colours run: the pale ring at this share of the way, and
-/// where the highlight stands (off the middle, as a share of the radius).
 const BODY_PALE_AT: f32 = 0.35;
 const BODY_LIGHT: Vec2 = Vec2::new(-0.3, -0.4);
 const BODY_LIGHT_REACH: f32 = 1.4;
-/// What the level the device hears adds to the halo.
 const LEVEL_HALO: f32 = 0.2;
-/// How much heavier a bigger Ratio makes the body (its radius, at the largest
-/// ratio the screen shows): `1 - HEAVY + HEAVY * ratio / specimen ratio`.
 const HEAVY: f32 = 0.2;
 
-/// The well's depth: shallow at rest and 1 at the specimen's 4.1 dB (more
-/// beyond it, up to this much), as `WELL_REST + WELL_GAIN * (1 - e^(-r / over))`
-/// over the same at 4.1 dB.
 const WELL_REST: f32 = 0.4;
 const WELL_OVER: f32 = 3.5;
 const WELL_AT: f32 = 4.1;
 const WELL_MOST: f32 = 1.3;
-/// A bigger Ratio digs the well deeper: 1 at the specimen's 4:1.
 const RATIO_AT: f32 = 4.0;
 const WELL_RATIO: (f32, f32) = (0.6, 1.8);
 
-/// The threshold ring: its half width at a Pull of 0 and what each unit of
-/// Pull adds (the specimen's 74 at its -18 dB), its height as a share of its
-/// width, how far below the well's middle it stands, and its dashes.
 const RING: (f32, f32) = (40.0, 113.0);
 const RING_SQUASH: f32 = 22.0 / 74.0;
 const RING_DOWN: f32 = 18.0;
@@ -116,19 +59,12 @@ const RING_ALPHA: f32 = 0.45;
 const RING_LIT_ALPHA: f32 = 0.9;
 const RING_WIDTH: f32 = 1.0;
 const RING_LIT_WIDTH: f32 = 1.6;
-/// The words on the ring: how far right of it and below its middle.
 const RING_WORDS: (f32, f32) = (4.0, 4.0);
 const RING_WORDS_ALPHA: f32 = 0.7;
-/// The ball's grab, as a half size, and how far a drag of the whole picture's
-/// height moves Ratio.
 const ORB_GRAB: f32 = 30.0;
 const ORB_TRAVEL: f32 = 0.8;
-/// The ring of light round the ball while it is lit.
 const ORB_RING: f32 = 3.0;
 
-/// The words in the corner: their inset from the right, the baseline of the
-/// hero and of the line under it, from the picture's top, and the hero's size
-/// on the whole card and the short one.
 const WORDS_INSET: f32 = 14.0;
 const HERO_DOWN: f32 = 30.0;
 const SUB_DOWN: f32 = 46.0;
@@ -136,7 +72,6 @@ const HERO_SIZE: f32 = 26.0;
 const HERO_SHORT: f32 = 18.0;
 const HERO_SHORT_DOWN: f32 = 20.0;
 const SUB_SHORT_DOWN: f32 = 32.0;
-/// The smallest a picture is scaled to, so a thin band still has a well.
 const LEAST_SCALE: f32 = 0.3;
 const MINUS: char = '\u{2212}';
 
@@ -153,8 +88,6 @@ pub(crate) static DRAWING: Drawing = Drawing {
         Control::knob(device::RELEASE, "Release", |c| dial(c, 3)).showing(tidy),
         Control::knob(device::MAKEUP, "Makeup", |c| dial(c, 4)).showing(lower),
     ],
-    // The ring's field is first, under the ball's: where they overlap the ball
-    // is what is taken.
     handles: &[
         Handle {
             name: "Threshold ring",
@@ -189,7 +122,6 @@ pub(crate) static DRAWING: Drawing = Drawing {
     ],
 };
 
-/// The cell of dial `index` on the whole card, centred on its place.
 fn dial(card_rect: Rect, index: usize) -> Rect {
     Rect::from_center_size(
         pos2(card_rect.left() + DIAL_X[index], card_rect.top() + DIALS_Y),
@@ -197,32 +129,26 @@ fn dial(card_rect: Rect, index: usize) -> Rect {
     )
 }
 
-/// "-18.0 dB" as "-18 dB", "4.0:1" as "4:1", "5.00 ms" as "5 ms".
 fn tidy(text: &str) -> String {
     text.replace(".00 ", " ")
         .replace(".0 ", " ")
         .replace(".0:", ":")
 }
 
-/// "Auto" as "auto".
 fn lower(text: &str) -> String {
     text.to_lowercase()
 }
 
-/// A level as the screen words it: "−18.0 dB", with the minus sign the
-/// typesetting uses.
 fn db_words(db: f32) -> String {
     format!("{db:.1} dB").replace('-', &MINUS.to_string())
 }
 
-/// How big the picture is against the specimen's.
 fn scale(rect: Rect) -> f32 {
     (rect.width() / SPECIMEN.x)
         .min(rect.height() / SPECIMEN.y)
         .clamp(LEAST_SCALE, 1.0)
 }
 
-/// The well's middle in the picture.
 fn centre(rect: Rect) -> Pos2 {
     pos2(
         rect.left() + rect.width() * CENTRE.0,
@@ -230,41 +156,31 @@ fn centre(rect: Rect) -> Pos2 {
     )
 }
 
-/// The ring's half width at a Pull (0 to 1: how far the threshold is below 0 dB)
-/// of `pull`, in points.
 fn ring_half(pull: f32, s: f32) -> f32 {
     (RING.0 + RING.1 * pull) * s
 }
 
-/// The ring's centre and half sizes, from the threshold's value (0 to 1).
 fn ring(rect: Rect, threshold: f32) -> (Pos2, Vec2) {
     let s = scale(rect);
     let half = ring_half(1.0 - threshold, s);
-    // A thin band (the compact card's) keeps the ring inside it.
     let tall = (half * RING_SQUASH).min(rect.height() * 0.42);
     let at = centre(rect) + vec2(0.0, RING_DOWN * s);
     (at, vec2(half, tall))
 }
 
-/// The field the ring marks, for its grab.
 fn ring_box(values: &Values<'_>, rect: Rect) -> Rect {
     let (at, radii) = ring(rect, values.norm(device::THRESHOLD));
     Rect::from_center_size(at, radii * 2.0).intersect(rect)
 }
 
-/// The Threshold a pointer at `pointer` stands for: the ring's edge is where
-/// the pointer is. Not held to 0 to 1: a drag is the change in it, and the
-/// handle clamps what it adds up to.
 fn ring_value(pointer: Pos2, rect: Rect) -> f64 {
     let s = scale(rect);
     let at = pointer - (centre(rect) + vec2(0.0, RING_DOWN * s));
     let reach = (at.x / (ring_half(0.3, s))).hypot(at.y / (ring_half(0.3, s) * RING_SQUASH));
-    // A ring half as wide as the specimen's is a Pull of (74 * r - 40) / 113.
     let pull = (ring_half(0.3, 1.0) * reach - RING.0) / RING.1;
     f64::from(1.0 - pull)
 }
 
-/// Where the ball rests, and the box its grab is.
 fn orb_centre(rect: Rect) -> Pos2 {
     centre(rect) + vec2(0.0, (REST_DOWN + SINK_MOST / 2.0) * scale(rect))
 }
@@ -274,14 +190,10 @@ fn orb_box(rect: Rect) -> Rect {
         .intersect(rect)
 }
 
-/// The Ratio a pointer at `pointer` stands for: lower on the screen is heavier, as a
-/// body is pulled further into the well. A drag of 80 % of the picture's height is the
-/// whole range.
 fn orb_value(pointer: Pos2, rect: Rect) -> f64 {
     f64::from((pointer.y - rect.top()) / (rect.height() * ORB_TRAVEL))
 }
 
-/// How deep the well is: shallow at rest, 1 at the specimen's reduction.
 fn depth(reduction: f32, ratio: f32) -> f32 {
     let grown = |r: f32| 1.0 - (-r / WELL_OVER).exp();
     let well = WELL_REST + (1.0 - WELL_REST) * grown(reduction) / grown(WELL_AT);
@@ -303,7 +215,6 @@ fn draw(scene: &Scene<'_>) {
 
     grid(scene, at, s, depth);
 
-    // The body in its well: a halo, then the ball with its highlight.
     let sunk = SINK_MOST * (reduction / SINK_OVER).tanh();
     let body = pos2(at.x, at.y + (REST_DOWN + sunk) * s);
     let weight = 1.0 - HEAVY + HEAVY * (ratio / RATIO_AT).min(2.0);
@@ -339,7 +250,6 @@ fn draw(scene: &Scene<'_>) {
         );
     }
 
-    // The threshold ring and its words.
     let (ring_at, radii) = ring(rect, values.norm(device::THRESHOLD));
     let lit = scene.handle_lit[0];
     let white_ring = scene.ink(Color32::WHITE);
@@ -374,7 +284,6 @@ fn draw(scene: &Scene<'_>) {
         white_ring.gamma_multiply(RING_WORDS_ALPHA),
     );
 
-    // The hero: what the compressor is taking away, and what it is.
     let short = scene.step == Step::Short;
     let right = rect.right() - WORDS_INSET;
     let (hero_y, sub_y, size) = if short {
@@ -405,8 +314,6 @@ fn draw(scene: &Scene<'_>) {
     );
 }
 
-/// The warped grid, the well: one mesh of feathered lines, rows sagging and
-/// columns drawing in toward the well's middle by `depth`.
 fn grid(scene: &Scene<'_>, at: Pos2, s: f32, depth: f32) {
     let rect = scene.rect;
     let ink = scene.ink(scene.hue);

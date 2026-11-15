@@ -1,8 +1,3 @@
-//! A built-in card's dials and pills: Lumen's own controls (drag, Shift for
-//! fine, the wheel, double-click for the default, click and type, the arrow
-//! keys, the right-click menu with automation and MIDI learn), lit in the
-//! device's hue, under the idea name the device gives them.
-
 use eframe::egui::{self, Align, Color32, FontId, Rect, Sense, Stroke, StrokeKind, Ui, pos2};
 
 use super::chrome::on_baseline;
@@ -14,8 +9,6 @@ use crate::widgets::param::{DialLook, ParamLook, param_dial, start_typing};
 use crate::widgets::raised;
 use crate::{motion, theme, widgets};
 
-/// The ink of the names and values under the dials: the card's on the whole
-/// and the compact card, the screen's white on the short one.
 #[derive(Clone, Copy)]
 pub(super) struct Ink {
     pub name: Color32,
@@ -34,7 +27,6 @@ impl Ink {
         }
     }
 
-    /// The card's own ink, for what sits on the card and not on the screen.
     pub(super) fn card() -> Self {
         let palette = theme::p();
         Self {
@@ -44,8 +36,6 @@ impl Ink {
     }
 }
 
-/// What a control says to a screen reader and in tooltips: its idea name, and
-/// the parameter's own beside it when they differ ("Ø L (Polarity L)").
 fn said(idea: &str, parameter: &str) -> String {
     if idea.eq_ignore_ascii_case(parameter) || parameter.ends_with(idea) {
         parameter.to_owned()
@@ -54,8 +44,6 @@ fn said(idea: &str, parameter: &str) -> String {
     }
 }
 
-/// What a dial is called under it: the idea name, and a shorter one for the
-/// short and compact cards.
 #[derive(Clone, Copy)]
 struct Idea {
     name: &'static str,
@@ -63,14 +51,10 @@ struct Idea {
     shown: fn(&str) -> String,
 }
 
-/// `colour` as the screen shows it at `power` (0 to 1): its own when lit, a cool
-/// grey when off.
 pub(super) fn live(colour: Color32, power: f32) -> Color32 {
     theme::grey_of(colour).lerp_to_gamma(colour, power)
 }
 
-/// Paints every control of `drawing` at this step and collects what they ask
-/// for.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn paint(
     ui: &mut Ui,
@@ -95,12 +79,8 @@ pub(super) fn paint(
         let id = id.with(("control", control.param));
         match control.kind {
             Kind::Knob => {
-                // On a drawing with parts a dial is the picked part's, in its
-                // colour: the parameter and the name are the part's, and a part
-                // with nothing for it (a notch has no gain) leaves it still.
                 let aim = match parts {
                     Some(p) => Some((p.aim)(values, picked, index)),
-                    // A dial that stands for another parameter by the values.
                     None => control.follows.map(|f| Some(f(values))),
                 };
                 let colour = match parts {
@@ -123,8 +103,6 @@ pub(super) fn paint(
                             short: control.short.unwrap_or(aim.name),
                             shown: control.shown,
                         };
-                        // A dial that follows a parameter is a new control when
-                        // the parameter changes: a drag in progress ends there.
                         let id = if control.follows.is_some() {
                             id.with(aim.param)
                         } else {
@@ -142,7 +120,6 @@ pub(super) fn paint(
                     }
                 }
             }
-            // A pill sits on the card, under the screen, at every step.
             Kind::Pill => pill(ui, (control, values), slot, cell, id, hue, Ink::card(), out),
         }
     }
@@ -245,9 +222,6 @@ fn dial(
     });
 }
 
-/// The menu's last rows: Automate and Learn where the parameter allows them,
-/// and the reason where it does not (a device's timing), as the strip's menu
-/// says it.
 fn automation_rows(ui: &mut Ui, slot: &Slot, out: &mut Vec<Output>) {
     if slot.automatable {
         if let Some(ask) = widgets::control_items(ui, slot.mapped, slot.waiting) {
@@ -258,8 +232,6 @@ fn automation_rows(ui: &mut Ui, slot: &Slot, out: &mut Vec<Output>) {
     }
 }
 
-/// A pill: a two-state switch under an idea name ("Ø L"), lit in the device's
-/// hue while it is on. A click flips it.
 #[allow(clippy::too_many_arguments)]
 fn pill(
     ui: &mut Ui,

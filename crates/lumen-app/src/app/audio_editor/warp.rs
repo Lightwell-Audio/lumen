@@ -1,16 +1,3 @@
-//! The Warp chip of the audio editor's strip (M9.5 S5a) and the detection that
-//! feeds it. The chip sits beside the File chip and opens a popover: the warp
-//! switch, the mode, the tempo the clip's file was made at (typed, doubled or
-//! halved, or taken from what detection found), the sensitivity of the
-//! transients shown on the wave, Set project tempo from clip and Warp from
-//! here. Every control edits the opened clip, as Gain does, and is one undo
-//! step; the chip is a Tab stop with an accessible name, opened by a click,
-//! Enter or Space and closed by Esc.
-//!
-//! Detection (`audio_editor::detect`) starts when the opened clip's file is
-//! ready, runs on a worker and is kept in the cache; this module starts it,
-//! takes its answer each frame, and says what it found.
-
 use eframe::egui::{self, FontId, Rect, RichText, Sense, Ui, vec2};
 use lumen_media::detect::{Analysis, CONFIDENT};
 use lumen_project::edit::warp::Change;
@@ -29,7 +16,6 @@ use crate::timeview::TimeView;
 use crate::widgets::{self, Dropdown, Menu, SliderKind, raised};
 use crate::{App, theme};
 
-/// The words for a warp mode in the dropdown.
 pub(crate) fn mode_name(mode: WarpMode) -> &'static str {
     match mode {
         WarpMode::Repitch => "Repitch",
@@ -39,7 +25,6 @@ pub(crate) fn mode_name(mode: WarpMode) -> &'static str {
     }
 }
 
-/// What the Warp chip says: "Warp" when off, "Warp 93.0" when on.
 pub(super) fn chip_text(clip: &Clip) -> String {
     match &clip.warp {
         Some(warp) => format!("Warp {:.1}", warp.original_bpm),
@@ -47,16 +32,12 @@ pub(super) fn chip_text(clip: &Clip) -> String {
     }
 }
 
-/// How wide the Warp chip is for `text`. The text's width is rounded up to
-/// a whole point and given one more, so a chip given exactly this width
-/// never cuts its label to "Wa…" for a fraction of a pixel.
 pub(super) fn chip_width(ui: &Ui, text: &str) -> f32 {
     let s = theme::space::S;
     let text = text_width(ui, text, FontId::proportional(theme::size::BODY)).ceil() + 1.0;
     s + text + s + CHEVRON + s
 }
 
-/// The tempo `analysis` found, in words.
 fn detected_words(analysis: &Analysis) -> Option<String> {
     let tempo = analysis.tempo?;
     Some(if tempo.confidence >= CONFIDENT {
@@ -67,9 +48,6 @@ fn detected_words(analysis: &Analysis) -> Option<String> {
 }
 
 impl App {
-    /// Starts detection for the opened clip's file when it has not been read
-    /// yet, takes the worker's answer, and keeps the screen coming while it
-    /// works. Called once a frame before the strip is drawn.
     pub(super) fn drive_detection(
         &mut self,
         ctx: &egui::Context,
@@ -98,7 +76,6 @@ impl App {
         }
     }
 
-    /// What detection found for `clip`'s file, with the sensitivity.
     fn editor_found(ed: &AudioEditor, clip: &Clip) -> Found {
         let key = file_key(clip)?;
         ed.detect
@@ -106,12 +83,6 @@ impl App {
             .map(|a| (key, std::sync::Arc::clone(a), ed.detect.sensitivity))
     }
 
-    /// The detected hits on the wave of a clip that is not warped: the same
-    /// small grey triangle a warped clip shows in its strip, at the top of the
-    /// wave body and pointing down into the wave, roughly where they sit once
-    /// warp is on. They cannot be grabbed (a warp marker is made in the strip);
-    /// they are drawn only while the Warp popover is open. Only the hits in
-    /// view are looked at.
     pub(super) fn paint_transients(
         painter: &egui::Painter,
         body: Rect,
@@ -134,8 +105,6 @@ impl App {
         }
     }
 
-    /// The Warp chip in `rect`: a Tab stop that opens the popover. True when
-    /// it has the keyboard.
     pub(super) fn warp_chip(
         &mut self,
         ui: &mut Ui,
@@ -171,9 +140,7 @@ impl App {
         response.has_focus()
     }
 
-    /// What the Warp chip opens.
     pub(super) fn warp_popover(&mut self, ui: &mut Ui, clip: &Clip, ed: &mut AudioEditor) {
-        // The wave shows a clip's transients for as long as this is open.
         ed.detect.previewing = true;
         let palette = *theme::p();
         let ctx = ui.ctx().clone();
@@ -256,9 +223,6 @@ impl App {
             });
         });
         if warped && !self.settings.playback.from_disk {
-            // A warped clip is played from a stream the disk thread prepares,
-            // so with "Play audio from disk" off the wave is drawn warped and
-            // the clip is heard as it was recorded.
             widgets::hint(
                 ui,
                 "Play audio from disk is off, so this clip is heard at its own speed. \
@@ -316,7 +280,6 @@ impl App {
         }
     }
 
-    /// The popover's detection rows: what was found, and the sensitivity.
     fn detection_rows(
         &mut self,
         ui: &mut Ui,
@@ -401,8 +364,6 @@ impl App {
             }
         });
         let count = analysis.transients_at(ed.detect.sensitivity).count();
-        // A warped clip shows them in its strip; one that is not, on the wave
-        // while this is open.
         let place = if clip.warp.is_some() {
             "in the strip"
         } else {

@@ -1,13 +1,8 @@
-//! Tap tempo (M9 R7): the Tap piece after the tempo counts a run's taps and
-//! sets the tempo from the third, as one undo step; a key held down taps
-//! once. The times are given (`App::next_tap_at`), so the tempo is exact.
-
 use eframe::egui::{Event, Key, Modifiers};
 use egui_kittest::kittest::{NodeT, Queryable};
 
 use super::Lumen;
 
-/// A tap on the Tap piece at `time` seconds.
 fn tap(lumen: &mut Lumen, time: f64) {
     lumen.app_mut().next_tap_at(time);
     lumen.click("Tap tempo");
@@ -18,7 +13,6 @@ fn bpm(lumen: &Lumen) -> f64 {
     lumen.app().project().tempo[0].bpm
 }
 
-/// The count the Tap piece shows, as its accessible value.
 fn count(lumen: &Lumen) -> Option<f64> {
     lumen
         .harness
@@ -36,7 +30,6 @@ fn taps_set_the_tempo_from_the_third_and_one_undo_takes_the_run_back() {
     assert_eq!(count(&lumen), Some(1.0));
     tap(&mut lumen, 10.6);
     assert_eq!(bpm(&lumen), 120.0, "two taps change nothing");
-    // 0.6 s apart is 100 BPM.
     for time in [11.2, 11.8, 12.4] {
         tap(&mut lumen, time);
         assert_eq!(bpm(&lumen), 100.0);
@@ -46,7 +39,6 @@ fn taps_set_the_tempo_from_the_third_and_one_undo_takes_the_run_back() {
 
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert_eq!(bpm(&lumen), 120.0, "the run was one step");
-    // Undo was another edit: the run ended, and the piece says Tap again.
     assert_eq!(count(&lumen), None);
 }
 
@@ -72,7 +64,6 @@ fn a_key_held_down_taps_once() {
     lumen.harness.event(press(false));
     lumen.frames(2);
     assert_eq!(count(&lumen), Some(1.0));
-    // The repeats of the held key are not taps.
     for _ in 0..5 {
         lumen.harness.event(press(true));
         lumen.frames(1);
@@ -80,8 +71,6 @@ fn a_key_held_down_taps_once() {
     assert_eq!(count(&lumen), Some(1.0));
 }
 
-/// Another project ends the run: a tap after New starts one of its own, and
-/// does not carry the old project's taps (review of M9 R7).
 #[test]
 fn a_new_project_ends_the_run() {
     let mut lumen = Lumen::start("tap-tempo-new");

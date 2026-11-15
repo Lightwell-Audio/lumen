@@ -1,6 +1,3 @@
-//! The scan thread: reads the cache, scans, saves the cache. It never
-//! touches the UI; it sends messages the frame loop polls (M6 slice 1).
-
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -11,20 +8,14 @@ use eframe::egui;
 use lumen_plugin_catalog::cache::{Cache, Entry};
 use lumen_plugin_catalog::scan::{Event, Mode, Scanner, Summary};
 
-/// What the thread tells the frame loop.
 pub(super) enum Message {
-    /// The cache read from disk, and why it was thrown away, if it was.
     Loaded { cache: Cache, note: Option<String> },
-    /// The plan: how many modules will be loaded.
     Planned { total: usize },
-    /// One module finished.
     Scanned {
         done: usize,
         total: usize,
         entry: Entry,
     },
-    /// Over. `cache` is the cache as it now stands; `saved` is how writing
-    /// it went.
     Finished {
         summary: Summary,
         cache: Cache,
@@ -32,24 +23,18 @@ pub(super) enum Message {
     },
 }
 
-/// A per-module fault for the test plugin, chosen by the module's file name
-/// (end-to-end tests).
 pub(crate) type Faults = fn(&str) -> Option<&'static str>;
 
-/// What to do.
 pub(super) struct Job {
-    /// The scan program; `None` reads the cache and stops.
     pub host: Option<PathBuf>,
     pub roots: Vec<PathBuf>,
     pub mode: Mode,
     pub cache_path: Option<PathBuf>,
-    /// The cache to start from; `None` reads it from `cache_path`.
     pub cache: Option<Cache>,
     pub deadline: Option<Duration>,
     pub faults: Option<Faults>,
 }
 
-/// Starts the scan thread; an error when the system would not give one.
 pub(super) fn spawn(
     job: Job,
     tx: Sender<Message>,
@@ -81,8 +66,6 @@ fn run(job: Job, tx: &Sender<Message>, cancel: &AtomicBool, ctx: &egui::Context)
     let Some(host) = job.host else {
         return;
     };
-    // Without its program there is nothing to scan with: the cache stands,
-    // and the browser says what is missing and how to build it.
     if !host.is_file() {
         send(Message::Finished {
             summary: Summary {
@@ -132,8 +115,6 @@ fn run(job: Job, tx: &Sender<Message>, cancel: &AtomicBool, ctx: &egui::Context)
     });
 }
 
-/// The cache on disk. A missing file is a first run, not a problem; one
-/// that cannot be read or understood is thrown away with a note.
 fn read(path: Option<&Path>) -> (Cache, Option<String>) {
     let Some(path) = path else {
         return (Cache::new(), None);

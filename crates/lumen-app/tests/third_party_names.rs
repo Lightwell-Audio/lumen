@@ -1,15 +1,6 @@
-//! The owner's naming rule (CLAUDE.md, "Documentation naming rule") reaches
-//! the code: a comment, a test name or a label the user reads does not use
-//! another digital audio workstation as a reference ("as in X"). State the
-//! behavior itself. Hardware, driver, platform and legal names are allowed
-//! and are not on this list. This scans every crate's Rust sources and
-//! the user documentation (`site/docs/`).
-
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Names of other workstations, matched without regard to case, with a
-/// space, underscore or hyphen between words (`pro tools`, `pro_tools`).
 const NAMES: &[&str] = &[
     "ableton",
     "cubase",
@@ -36,7 +27,6 @@ fn sources(dir: &Path, into: &mut Vec<PathBuf>) {
     }
 }
 
-/// The names a line uses.
 fn names_in(line: &str) -> Vec<&'static str> {
     let flat: String = line
         .to_lowercase()
@@ -77,8 +67,6 @@ fn no_source_names_another_workstation() {
     );
 }
 
-/// The user documentation's files: its pages, templates, data, styles
-/// and scripts, but not a built site or generated data.
 fn docs_files(dir: &Path, into: &mut Vec<PathBuf>) {
     for entry in fs::read_dir(dir).expect("the folder reads") {
         let path = entry.expect("an entry reads").path();
@@ -99,9 +87,6 @@ fn docs_files(dir: &Path, into: &mut Vec<PathBuf>) {
     }
 }
 
-/// The owner's rule covers the user docs too (docs/USER_DOCS.md §9.4): no
-/// page, template or data file names another workstation, and neither
-/// does the documentation strategy.
 #[test]
 fn no_docs_page_names_another_workstation() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");

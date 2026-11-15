@@ -1,33 +1,18 @@
-//! Editing the song's tempo and time-signature maps (M7 slice A6): adding,
-//! moving, changing and removing the points the two lanes show. Pure
-//! functions over the lists a project holds; each leaves a valid map or
-//! leaves the list as it was and says so.
-//!
-//! Content never moves with a change in either map: ticks are the music, so
-//! a tempo change moves where a tick falls in time, and a meter change moves
-//! where the bar lines fall. A time-signature change is always on a bar line
-//! of the meter before it, so when an edit changes the length of a bar the
-//! later changes move to the nearest bar line (`lumen_core::meter::tidy`).
-
 use lumen_core::meter::{Meter, MeterMap, MeterPoint, tidy};
 use lumen_core::time::{MAX_BPM, MIN_BPM, TempoPoint, Ticks, bpm_at};
 
 use crate::validate::LONGEST;
 
-/// Most changes either map may hold.
 pub const MOST_CHANGES: usize = 4_096;
 
-/// The index of the point whose segment holds `at`.
 fn segment<T>(points: &[T], at: Ticks, place: impl Fn(&T) -> Ticks) -> usize {
     points.partition_point(|p| place(p) <= at).saturating_sub(1)
 }
 
-/// The tempo playing at `at`: a step's own, or the point a ramp has reached.
 pub fn tempo_in(points: &[TempoPoint], at: Ticks) -> f64 {
     bpm_at(points, at)
 }
 
-/// The last point has no next point to ramp to.
 fn settle(points: &mut [TempoPoint]) {
     if let Some(last) = points.last_mut() {
         last.ramp = false;
@@ -42,7 +27,6 @@ fn clamp_bpm(bpm: f64) -> f64 {
     }
 }
 
-/// Sets the tempo of the segment `at` falls in, clamped to 20 to 999 BPM.
 pub fn set_tempo_in(points: &mut [TempoPoint], at: Ticks, bpm: f64) {
     let index = segment(points, at, |p| p.at);
     if let Some(point) = points.get_mut(index) {
@@ -50,9 +34,6 @@ pub fn set_tempo_in(points: &mut [TempoPoint], at: Ticks, bpm: f64) {
     }
 }
 
-/// Puts a tempo at `at`: a new point, or the value of the one already
-/// there. Before the start it is the first point's. False when the map is
-/// full.
 pub fn put_tempo(points: &mut Vec<TempoPoint>, at: Ticks, bpm: f64) -> bool {
     let (at, bpm) = (at.clamp(Ticks::ZERO, LONGEST), clamp_bpm(bpm));
     match points.binary_search_by_key(&at, |p| p.at) {
@@ -61,8 +42,6 @@ pub fn put_tempo(points: &mut Vec<TempoPoint>, at: Ticks, bpm: f64) -> bool {
             if points.len() >= MOST_CHANGES {
                 return false;
             }
-            // Inside a ramp the new point is on its line: the ramp goes on
-            // from it to the next point.
             let ramp = index > 0 && points[index - 1].ramp;
             points.insert(index, TempoPoint { at, bpm, ramp });
         }
@@ -71,8 +50,6 @@ pub fn put_tempo(points: &mut Vec<TempoPoint>, at: Ticks, bpm: f64) -> bool {
     true
 }
 
-/// Makes tempo point `index` ramp to the next point (or hold its tempo up
-/// to it). False when there is no such point or no next point.
 pub fn set_ramp(points: &mut [TempoPoint], index: usize, ramp: bool) -> bool {
     if index + 1 >= points.len() {
         return false;
@@ -81,9 +58,6 @@ pub fn set_ramp(points: &mut [TempoPoint], index: usize, ramp: bool) -> bool {
     true
 }
 
-/// Moves tempo point `index` to `at` and `bpm`. The first point stays at
-/// zero (only its value changes); another stays between its neighbours.
-/// False when there is no such point.
 pub fn move_tempo(points: &mut [TempoPoint], index: usize, at: Ticks, bpm: f64) -> bool {
     if index >= points.len() {
         return false;
@@ -99,7 +73,6 @@ pub fn move_tempo(points: &mut [TempoPoint], index: usize, at: Ticks, bpm: f64) 
     true
 }
 
-/// Removes tempo point `index`; the first point stays.
 pub fn remove_tempo(points: &mut Vec<TempoPoint>, index: usize) -> bool {
     if index == 0 || index >= points.len() {
         return false;
@@ -109,13 +82,10 @@ pub fn remove_tempo(points: &mut Vec<TempoPoint>, index: usize) -> bool {
     true
 }
 
-/// The map of `points`, which are valid unless a file was damaged.
 fn map_of(points: &[MeterPoint]) -> MeterMap {
     MeterMap::new(tidy(points)).expect("a tidy list is a valid map")
 }
 
-/// Sets the meter of the segment `at` falls in. The changes after it move
-/// to the nearest bar line of the new bars.
 pub fn set_meter_in(points: &mut Vec<MeterPoint>, at: Ticks, meter: Meter) -> bool {
     if !meter.is_valid() {
         return false;
@@ -124,8 +94,6 @@ pub fn set_meter_in(points: &mut Vec<MeterPoint>, at: Ticks, meter: Meter) -> bo
     set_meter_of(points, index, meter)
 }
 
-/// Sets the meter of change `index`. The changes after it move to the
-/// nearest bar line of the new bars.
 pub fn set_meter_of(points: &mut Vec<MeterPoint>, index: usize, meter: Meter) -> bool {
     if !meter.is_valid() || index >= points.len() {
         return false;
@@ -135,10 +103,6 @@ pub fn set_meter_of(points: &mut Vec<MeterPoint>, index: usize, meter: Meter) ->
     true
 }
 
-/// Puts `meter` on the bar line nearest `at` (a new change, or the meter of
-/// the one already there). The changes after it move to the nearest bar
-/// line of the new bars. False when the map is full or the meter is not
-/// one.
 pub fn put_meter(points: &mut Vec<MeterPoint>, at: Ticks, meter: Meter) -> bool {
     if !meter.is_valid() {
         return false;
@@ -157,9 +121,6 @@ pub fn put_meter(points: &mut Vec<MeterPoint>, at: Ticks, meter: Meter) -> bool 
     true
 }
 
-/// Moves change `index` to the bar line nearest `at`, between the changes
-/// on either side of it. The first change stays at zero. False when there
-/// is no such change or no bar line between its neighbours.
 pub fn move_meter(points: &mut Vec<MeterPoint>, index: usize, at: Ticks) -> bool {
     if index == 0 || index >= points.len() {
         return false;
@@ -180,8 +141,6 @@ pub fn move_meter(points: &mut Vec<MeterPoint>, index: usize, at: Ticks) -> bool
     true
 }
 
-/// Removes change `index`; the first stays. The changes after it move to the
-/// nearest bar line of the bars now before them.
 pub fn remove_meter(points: &mut Vec<MeterPoint>, index: usize) -> bool {
     if index == 0 || index >= points.len() {
         return false;
@@ -289,7 +248,6 @@ mod tests {
         assert_eq!(p.len(), 3);
         assert!(p[0].ramp && p[1].ramp, "both halves ramp");
         assert!(!p[2].ramp);
-        // Added past the end, the new last point holds.
         assert!(put_tempo(&mut p, Ticks::quarters(12), 80.0));
         assert!(!p[3].ramp && !p[2].ramp);
         TempoMap::new(p).unwrap();
@@ -302,7 +260,6 @@ mod tests {
         set_ramp(&mut p, 1, true);
         assert!(remove_tempo(&mut p, 2));
         assert!(p[0].ramp && !p[1].ramp);
-        // Taking away the middle point makes the first ramp to the last.
         let mut p = vec![tempo(0, 120.0), tempo(4, 100.0), tempo(8, 60.0)];
         set_ramp(&mut p, 0, true);
         assert!(remove_tempo(&mut p, 1));
@@ -322,14 +279,12 @@ mod tests {
     #[test]
     fn a_meter_is_put_on_the_nearest_bar_line() {
         let mut p = vec![meter(0, 4, 4)];
-        // 5.5 quarters is nearer the bar at 4 than the one at 8.
         assert!(put_meter(
             &mut p,
             Ticks::quarters(5) + Ticks(PPQ / 2),
             m(7, 8)
         ));
         assert_eq!(p[1].at, Ticks::quarters(4));
-        // The same place again changes that meter.
         assert!(put_meter(&mut p, Ticks::quarters(4), m(3, 4)));
         assert_eq!((p.len(), p[1].meter), (2, m(3, 4)));
         MeterMap::new(p).unwrap();
@@ -340,8 +295,6 @@ mod tests {
         let mut p = vec![meter(0, 4, 4), meter(8, 3, 4)];
         assert!(put_meter(&mut p, Ticks::ZERO, m(5, 4)));
         assert_eq!(p[0].meter, m(5, 4));
-        // The later change keeps its meter and moves to the nearest bar
-        // line of 5/4 bars (5 quarters): 8 quarters is nearer 10 than 5.
         assert_eq!(p[1].at, Ticks::quarters(10));
         MeterMap::new(p).unwrap();
     }
@@ -349,16 +302,12 @@ mod tests {
     #[test]
     fn changing_a_meter_moves_later_changes_to_bar_lines_and_drops_collisions() {
         let mut p = vec![meter(0, 4, 4), meter(8, 3, 4), meter(11, 7, 8)];
-        // 4/4 -> 2/4: bars of 2 quarters, so 8 is still a bar line.
         assert!(set_meter_in(&mut p, Ticks::quarters(1), m(2, 4)));
         assert_eq!(p.len(), 3);
-        // 4/4 -> 5/4: 8 quarters is nearer the bar at 10 than at 5.
         let mut p = vec![meter(0, 4, 4), meter(8, 3, 4), meter(11, 7, 8)];
         assert!(set_meter_of(&mut p, 0, m(5, 4)));
         assert_eq!(p[1].at, Ticks::quarters(10));
         MeterMap::new(p).unwrap();
-        // Bars of 16 quarters put the 3/4 change on the line at 16 and leave
-        // the 7/8 change before it: the later one is dropped.
         let mut p = vec![meter(0, 4, 4), meter(8, 3, 4), meter(11, 7, 8)];
         assert!(set_meter_of(&mut p, 0, m(16, 4)));
         assert_eq!(p.len(), 2);
@@ -369,10 +318,8 @@ mod tests {
     #[test]
     fn a_meter_change_moves_between_its_neighbours_on_bar_lines() {
         let mut p = vec![meter(0, 4, 4), meter(8, 3, 4), meter(20, 4, 4)];
-        // Dragged far right it stops on the last bar line before the next.
         assert!(move_meter(&mut p, 1, Ticks::quarters(100)));
         assert_eq!(p[1].at, Ticks::quarters(16));
-        // Dragged left past the start it keeps one bar after the first.
         assert!(move_meter(&mut p, 1, Ticks::quarters(-9)));
         assert_eq!(p[1].at, Ticks::quarters(4));
         assert!(
@@ -385,8 +332,6 @@ mod tests {
     #[test]
     fn a_meter_change_with_no_bar_line_to_move_to_stays_put() {
         let mut p = vec![meter(0, 4, 4), meter(4, 3, 4), meter(7, 4, 4)];
-        // The next change is 3 quarters on: one 3/4 bar. Moving the middle
-        // one needs a 4/4 bar line before 7: only 4, where it is.
         assert!(move_meter(&mut p, 1, Ticks::quarters(6)));
         assert_eq!(p[1].at, Ticks::quarters(4));
     }
@@ -396,7 +341,6 @@ mod tests {
         let mut p = vec![meter(0, 4, 4), meter(8, 3, 4), meter(17, 7, 8)];
         assert!(!remove_meter(&mut p, 0));
         assert!(remove_meter(&mut p, 1));
-        // 17 quarters is not on a 4/4 bar line: it moves to 16.
         assert_eq!(p[1].at, Ticks::quarters(16));
         MeterMap::new(p).unwrap();
     }

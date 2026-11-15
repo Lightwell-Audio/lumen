@@ -1,14 +1,3 @@
-//! The Audio page of Preferences (M2 slice 8; a page of Preferences since
-//! M9 R7): driver, device, sample rate, buffer size, channels, latencies,
-//! the ASIO control panel and the test tone. Every change applies at once;
-//! a change the device refuses reverts to the setup that worked, with the
-//! reason shown. One change runs at a time: the device controls are
-//! disabled until the device answers (ADR-0113), and the control used gets
-//! the keyboard back afterwards.
-//!
-//! Device lists and details load in the background and never block the
-//! window. ASIO drivers are queried in a helper process (`probe.rs`).
-
 mod catalog;
 mod devices;
 mod latency;
@@ -30,57 +19,36 @@ use crate::widgets::{hint, khz, row, section, warning};
 use crate::{theme, widgets};
 use widgets::Dropdown;
 
-/// Rates offered for the device that is running (a running ASIO driver
-/// reports only its current rate).
 const COMMON_RATES: [u32; 6] = [44_100, 48_000, 88_200, 96_000, 176_400, 192_000];
 
-/// What the page asks the transport and the app to do.
 pub enum Action {
     Apply(AudioSettings),
     ControlPanel,
     TestTone(bool),
-    /// The recording offset, in milliseconds (M9 slice R2).
     RecordOffset(f32),
-    /// "Play audio from disk" on or off (M9 slice R6).
     FromDisk(bool),
-    /// Measure the round trip through a cable (M9 slice R2b).
     Measure(Cable),
-    /// Make a measured offset the recording offset, remembering what it was
-    /// measured with.
     UseMeasured(f32, MeasuredWith),
     DismissNotice,
 }
 
-/// A driver's devices as (id, name), or why they could not be listed.
 type DeviceList = Result<Vec<(DeviceId, String)>, String>;
 
-/// The page between frames (not saved).
 #[derive(Default)]
 pub struct State {
     catalog: Catalog,
-    /// The driver whose devices are shown (may differ from the one in use
-    /// until a device is chosen).
     driver: Option<String>,
-    /// The notice shown last, kept while it fades out.
     last_notice: Option<String>,
-    /// The loopback helper's card in the Latency section.
     measure: Card,
-    /// The control that had the keyboard when it asked for a change: it
-    /// gets it back once the change is done (disabled meanwhile, it lost
-    /// it).
     refocus: Option<egui::Id>,
 }
 
 impl State {
-    /// Unfolds the loopback helper's card and brings it into view.
     pub fn open_measure(&mut self) {
         self.measure.open = true;
         self.measure.reveal = true;
     }
 
-    /// The output channel names of `driver`'s device `id`, looked up in the
-    /// background the first time (an ASIO driver in a helper process, as
-    /// the window does). `None` while looking.
     pub fn output_names(
         &mut self,
         driver: &str,
@@ -97,8 +65,6 @@ impl State {
                 .map_err(Clone::clone)
         })
     }
-    /// The input channel names of `driver`'s device `id` (the counterpart of
-    /// [`State::output_names`]). `None` while looking.
     pub fn input_names(
         &mut self,
         driver: &str,
@@ -117,28 +83,19 @@ impl State {
     }
 }
 
-/// The widest the device and driver menus are drawn, and the room kept
-/// beside them for the look-again button.
 const DEVICE_MENU: f32 = 280.0;
 const BESIDE_DEVICE_MENU: f32 = 40.0;
 
-/// What the page shows of settings it does not own, lent each frame.
 #[derive(Debug, Clone, Copy)]
 pub struct Lent<'a> {
     pub test_tone: bool,
-    /// The recording offset, in milliseconds.
     pub record_offset_ms: f32,
-    /// What the offset was measured with, if the loopback helper set it.
     pub offset_measured: Option<&'a MeasuredWith>,
-    /// Why the loopback helper cannot measure now (playing, recording).
     pub measure_held: Option<&'static str>,
-    /// "Play audio from disk".
     pub from_disk: bool,
 }
 
 impl State {
-    /// The page: what it asks for goes in `actions`. `marks` outlines the
-    /// row a search led to.
     pub fn page(
         &mut self,
         ui: &mut Ui,
@@ -152,9 +109,6 @@ impl State {
         });
     }
 
-    /// The Device section alone: the driver, the device, what is happening
-    /// and the notice. The first-run window shows it (M9 R7b), so a device
-    /// is chosen, applied, refused and restored there as on the page.
     pub fn device(&mut self, ui: &mut Ui, audio: &Audio, marks: &Marks, actions: &mut Vec<Action>) {
         self.refocused(ui, audio, actions, |state, ui, locked, actions| {
             state.catalog.poll();
@@ -162,9 +116,6 @@ impl State {
         });
     }
 
-    /// Draws with `add`, the device controls disabled while a change runs;
-    /// the control that asked for a change gets the keyboard back once it
-    /// is done.
     fn refocused(
         &mut self,
         ui: &mut Ui,
@@ -189,13 +140,10 @@ impl State {
         }
     }
 
-    /// Shows `driver`'s devices in the Device section, to choose one.
     pub fn show_driver(&mut self, driver: &str) {
         self.driver = Some(driver.to_owned());
     }
 
-    /// The ASIO drivers installed, by name, once listed (`None` while
-    /// looking). Not on other platforms.
     pub fn asio_drivers(&mut self, ctx: &egui::Context) -> Option<Vec<(DeviceId, String)>> {
         if !audio::drivers_for(audio::DEFAULT_DRIVER)
             .iter()
@@ -210,7 +158,6 @@ impl State {
         }
     }
 
-    /// The page's rows; the device controls are disabled while `locked`.
     fn rows(
         &mut self,
         ui: &mut Ui,
@@ -232,7 +179,6 @@ impl State {
         let chosen = self.device_rows(ui, audio, marks, locked, actions);
         let current = audio.settings();
 
-        // Everything below describes the device in use.
         let Some(current) = current.as_ref().filter(|s| s.driver == chosen) else {
             return;
         };
@@ -249,8 +195,6 @@ impl State {
                 return;
             }
             Some(Err(e)) => {
-                // When the device is off or lost, the status line above
-                // already says why.
                 if matches!(audio.status, Status::Running { .. }) {
                     row(ui, "", |ui| {
                         warning(ui, &e, 0.0);
@@ -264,7 +208,6 @@ impl State {
         ui.add_space(theme::space::XS);
         ui.separator();
 
-        // ── Format ──────────────────────────────────────────────────────
         section(ui, "Format");
         marks.row(ui, "audio.rate", |ui| {
             device_controls(ui, locked, |ui| {
@@ -381,7 +324,6 @@ impl State {
         ui.add_space(theme::space::XS);
         ui.separator();
 
-        // ── Channels ────────────────────────────────────────────────────
         section(ui, "Channels");
         let output_names = &info.output_channels;
         marks.row(ui, "audio.output", |ui| {
@@ -392,8 +334,6 @@ impl State {
                             let channels = channels_of(pair, output_names);
                             let on = current.output_channels == channels;
                             if widgets::choice_row(ui, &label, on).clicked() && !on {
-                                // A cue on the new main pair would be the same
-                                // outputs: it goes.
                                 let cue = if current.cue_channels == channels {
                                     Vec::new()
                                 } else {
@@ -410,9 +350,6 @@ impl State {
                 })
             })
         });
-        // The cue pair (M4 slice 4, the owner's O1): headphones, for cued
-        // tracks and, if chosen, the metronome. Any stereo pair but the
-        // main one.
         let cue_pairs: Vec<(usize, String)> = pairs(output_names, "Out")
             .into_iter()
             .filter(|(pair, _)| {
@@ -455,8 +392,6 @@ impl State {
             ui.add_space(theme::space::S);
             marks.row(ui, "audio.input", |ui| device_controls(ui, locked, |ui| row(ui, "Input", |ui| {
                 ui.vertical(|ui| {
-                    // All inputs (the default) lets every track pick any
-                    // input; a pair or None narrows what the device opens.
                     if widgets::choice_row(ui, "All inputs", current.all_inputs).clicked()
                         && !current.all_inputs
                     {
@@ -498,15 +433,12 @@ impl State {
         ui.add_space(theme::space::XS);
         ui.separator();
 
-        // ── Latency ─────────────────────────────────────────────────────
         marks.row(ui, "audio.latency", |ui| section(ui, "Latency"));
         match running {
             Some(i) => {
                 let ms = |frames: u32| f64::from(frames) / f64::from(i.sample_rate) * 1000.0;
                 let line = |ui: &mut Ui, name: &str, frames: u32| {
                     row(ui, name, |ui| {
-                        // Right-aligned in a fixed width so the decimal
-                        // points and the sample counts line up.
                         ui.allocate_ui_with_layout(
                             egui::vec2(56.0, 20.0),
                             egui::Layout::right_to_left(egui::Align::Center),
@@ -599,8 +531,6 @@ impl State {
     }
 }
 
-/// What the Input row says about an input that would not open: its channels
-/// are silent in place, and where to look.
 fn silent_input_words(name: &str) -> String {
     let look = if cfg!(windows) {
         "Windows may be keeping apps from it: see Settings, Privacy & security, Microphone"

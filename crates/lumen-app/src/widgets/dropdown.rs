@@ -1,14 +1,3 @@
-//! Dropdowns (combo boxes) in the design system's control look (ADR-0052): a
-//! closed dropdown is a raised button, its value at the left and a chevron at
-//! the right, with the height, radius, edge, Ember hover, press, disabled
-//! look and focus ring of `raised::button`. It opens the menu look (`Menu::below`, rows as
-//! `choice_row`), so the open list matches every menu.
-//!
-//! Keyboard: Enter or Space opens it; Up and Down step the value while it is
-//! closed; while open, Up and Down move between the rows, Enter picks one and
-//! Esc closes it, returning focus to the button. The button is named
-//! "<name>: <value>" for assistive technology.
-
 use eframe::egui::{
     self, FontId, Id, Key, Modifiers, Sense, Ui, WidgetType, pos2, text::LayoutJob, vec2,
 };
@@ -18,11 +7,8 @@ use eframe::emath::GuiRounding as _;
 use super::{Menu, choice_row, raised};
 use crate::{motion, theme};
 
-/// Room at the right of the value for the chevron: its width and the gap.
 const CHEVRON: f32 = 8.0;
 
-/// A dropdown named `name`, showing `shown` (its current value) in a button
-/// `width` points wide.
 pub struct Dropdown<'a> {
     name: &'a str,
     shown: &'a str,
@@ -34,9 +20,6 @@ impl<'a> Dropdown<'a> {
         Self { name, shown, width }
     }
 
-    /// Shows the dropdown with `options`, of which `chosen` (if any) is
-    /// current. Returns the index of another option picked this frame; the
-    /// current one returns nothing. `id` must be unique and stable.
     pub fn show<S: AsRef<str>>(
         self,
         ui: &mut Ui,
@@ -58,7 +41,6 @@ impl<'a> Dropdown<'a> {
         let open_before = Menu::is_open_for(&ctx, response.id);
         let mut picked = None;
         keep_arrows(&ctx, response.id);
-        // Closed and focused: the arrows step the value, as a native combo.
         if response.has_focus() && !open_before {
             let delta = ui.input_mut(|i| {
                 if i.consume_key(Modifiers::NONE, Key::ArrowDown) {
@@ -81,8 +63,6 @@ impl<'a> Dropdown<'a> {
         let rows_key = id.with("rows");
         let width = self.width;
         Menu::below(&response).show(|ui| {
-            // As wide as the button or the widest choice, not the window: rows
-            // fill the width they are given.
             let text = theme::p().text;
             let widest = options
                 .iter()
@@ -108,8 +88,6 @@ impl<'a> Dropdown<'a> {
                 .max_height(theme::size::MENU_LIST)
                 .auto_shrink([false, true])
                 .show(ui, |ui| {
-                    // Room for the first and last row's focus ring: the
-                    // scroll area clips to its inner rect.
                     raised::ring_room(ui, |ui| {
                         for (i, option) in options.iter().enumerate() {
                             let on = chosen == Some(i);
@@ -137,7 +115,6 @@ impl<'a> Dropdown<'a> {
         });
 
         let open = Menu::is_open_for(&ctx, response.id);
-        // Opened this frame: the chosen row takes focus on the next one.
         ctx.data_mut(|d| {
             d.insert_temp(id.with("was open"), open);
             d.insert_temp(id.with("focus first"), open && !was_open);
@@ -145,13 +122,9 @@ impl<'a> Dropdown<'a> {
         if open && !was_open {
             ctx.request_repaint();
         }
-        // Back to the button when a row is picked, or when Esc closes the list
-        // (a click elsewhere moves focus itself and is left alone).
         let clicked_away = ctx.input(|i| i.pointer.any_pressed());
         let escaped = was_open && !open && !clicked_away;
         if escaped {
-            // Esc closed the list: it must not also close the window it is in
-            // (a dialog closes on Esc after its contents are drawn).
             ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape));
         }
         if menu_pick.is_some() || escaped {
@@ -200,15 +173,10 @@ impl<'a> Dropdown<'a> {
     }
 }
 
-/// The name a dropdown's button has for assistive technology: its label and
-/// its current value.
 fn accessible_name(name: &str, shown: &str) -> String {
     format!("{name}: {shown}")
 }
 
-/// The option one step from `chosen` by `delta` (negative is up), clamped to
-/// the list, or `None` when nothing changes. With nothing chosen, down takes
-/// the first option and up the last.
 fn stepped(chosen: Option<usize>, len: usize, delta: i32) -> Option<usize> {
     if len == 0 {
         return None;
@@ -221,9 +189,6 @@ fn stepped(chosen: Option<usize>, len: usize, delta: i32) -> Option<usize> {
     (Some(target) != chosen).then_some(target)
 }
 
-/// Keeps the vertical arrows for the dropdown while `id` has the keyboard,
-/// so egui does not move focus off it with them (egui moves focus with the
-/// arrows unless the focused widget asks otherwise).
 fn keep_arrows(ctx: &egui::Context, id: Id) {
     ctx.memory_mut(|m| {
         m.set_focus_lock_filter(
@@ -236,7 +201,6 @@ fn keep_arrows(ctx: &egui::Context, id: Id) {
     });
 }
 
-/// Up and down arrows inside an open list: -1, 0 or 1 steps of focus.
 fn list_keys(ui: &mut Ui) -> i32 {
     ui.input_mut(|i| {
         if i.consume_key(Modifiers::NONE, Key::ArrowDown) {
@@ -249,8 +213,6 @@ fn list_keys(ui: &mut Ui) -> i32 {
     })
 }
 
-/// Moves keyboard focus `delta` rows along `rows` from the focused one (the
-/// first or last when none has it).
 fn move_focus(ctx: &egui::Context, rows: &[Id], delta: i32) {
     if rows.is_empty() {
         return;
@@ -274,7 +236,6 @@ mod tests {
     fn arrows_step_within_the_list() {
         assert_eq!(stepped(Some(1), 3, 1), Some(2));
         assert_eq!(stepped(Some(1), 3, -1), Some(0));
-        // Clamped at the ends: no change, nothing to pick.
         assert_eq!(stepped(Some(2), 3, 1), None);
         assert_eq!(stepped(Some(0), 3, -1), None);
     }

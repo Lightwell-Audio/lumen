@@ -1,7 +1,3 @@
-//! A sample clip and a way to draw the piano roll body on its own, for the
-//! shots harness and the frame benchmark (the real roll arrives in slice
-//! 3c, which calls [`draw::roll`] the same way).
-
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
@@ -18,8 +14,6 @@ use crate::canvas::{GridLook, Surface};
 use crate::theme;
 use crate::timeview::TimeView;
 
-/// Two bars of chords and a melody, looped over eight bars; some notes
-/// selected, one muted, velocities varying.
 pub(crate) fn sample_boxes(color: egui::Color32) -> Vec<BoxInstance> {
     let q = Ticks::quarters;
     let mut notes = Vec::new();
@@ -58,8 +52,6 @@ pub(crate) fn sample_boxes(color: egui::Color32) -> Vec<BoxInstance> {
     )
 }
 
-/// Draws the sample roll in `ui`'s whole area: key column, lanes, grid and
-/// notes, at `zoom` points a beat and `row_height` points a pitch.
 pub(crate) fn show(ui: &mut egui::Ui, boxes: &Arc<Vec<BoxInstance>>, zoom: f64, row_height: f32) {
     let rect: Rect = ui.available_rect_before_wrap();
     let p = theme::p();
@@ -70,7 +62,6 @@ pub(crate) fn show(ui: &mut egui::Ui, boxes: &Arc<Vec<BoxInstance>>, zoom: f64, 
     };
     let view = RollView {
         time: TimeView { left: 0.0, zoom },
-        // The top of pitch 84 at the top edge.
         scroll: ((127.0 - 84.0) * row_height)
             .min(draw::content_height(row_height) - rect.height())
             .max(0.0),

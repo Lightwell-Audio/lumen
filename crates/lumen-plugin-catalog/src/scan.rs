@@ -1,12 +1,3 @@
-//! Scanning every module under some folders, a few at a time, and keeping
-//! what is learned in a [`Cache`].
-//!
-//! The plan is made first: discovery lists the modules; each one whose stamp
-//! still matches its cache entry is reused without a process; the rest are
-//! scanned by a pool of child processes, each with its own deadline. Results
-//! arrive as they finish, so the caller can show them at once. Cancel stops
-//! handing out work and kills the children running; what finished stays.
-
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -20,27 +11,18 @@ use crate::catalog::class_id;
 use crate::discover::{self, Module};
 use crate::stamp::Stamp;
 
-/// How long one module may take before it is blocked as unresponsive. Slow
-/// plugins load in a few seconds; the longest seen was under 9.
 pub const DEADLINE: Duration = Duration::from_secs(30);
-/// Scan processes at once, at most.
 pub const MAX_JOBS: usize = 4;
 
-/// Which modules a scan loads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
-    /// New modules and ones whose file changed; the rest come from the cache.
     Changed,
-    /// Every module, ignoring the cache, blocked ones included.
     All,
 }
 
-/// What a running scan reports.
 #[derive(Debug)]
 pub enum Event<'a> {
-    /// The plan: how many modules will be loaded, and how many were reused.
     Planned { total: usize, reused: usize },
-    /// One module finished; `done` of `total` have.
     Scanned {
         done: usize,
         total: usize,
@@ -48,41 +30,26 @@ pub enum Event<'a> {
     },
 }
 
-/// How a scan went.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Summary {
     pub discovered: usize,
-    /// Modules whose cached answer still stood.
     pub reused: usize,
-    /// Modules loaded this time.
     pub scanned: usize,
-    /// Of those, how many came out blocked.
     pub blocked: usize,
-    /// Cache entries dropped because their module is gone.
     pub removed: usize,
     pub cancelled: bool,
-    /// Set when no scan could start at all: the host binary is missing or
-    /// unusable, or a thread the scan needs could not be started. The message
-    /// says what was tried.
     pub host_missing: Option<String>,
-    /// Bundles skipped for having no binary for this platform.
     pub without_binary: usize,
-    /// Folders that do not exist.
     pub missing_roots: usize,
-    /// More modules were found than one scan takes (`discover::MAX_MODULES`):
-    /// the rest were left out.
     pub truncated: bool,
 }
 
 type ChildEnv = Box<dyn Fn(&Module) -> Vec<(String, String)> + Send + Sync>;
 
 pub struct Scanner {
-    /// The `lumen-plugin-host` executable that does the scanning.
     pub host: PathBuf,
     pub jobs: usize,
     pub deadline: Duration,
-    /// Extra environment for each child, chosen per module. A seam for
-    /// tests, which pick a fault for the test plugin that way.
     pub child_env: Option<ChildEnv>,
 }
 
@@ -97,7 +64,6 @@ impl Scanner {
         }
     }
 
-    /// Scans under `roots`, updating `cache`. `on` is called on this thread.
     pub fn scan(
         &self,
         roots: &[PathBuf],
@@ -115,8 +81,6 @@ impl Scanner {
             ..Summary::default()
         };
 
-        // Modules that are gone leave the cache, whether or not this scan
-        // finishes: discovery is already complete.
         let present: HashSet<String> = found
             .modules
             .iter()
@@ -124,7 +88,6 @@ impl Scanner {
             .collect();
         summary.removed = cache.retain(|e| present.contains(&e.path));
 
-        // The plan: a module is reused when its binary's stamp still matches.
         let mut todo: Vec<(Module, Stamp)> = Vec::new();
         for module in found.modules {
             let key = module.path.to_string_lossy();
@@ -140,8 +103,6 @@ impl Scanner {
             if reusable {
                 summary.reused += 1;
             } else {
-                // A module whose file cannot be read is still scanned: the
-                // child will say why, and it gets a zero stamp.
                 todo.push((
                     module,
                     stamp.unwrap_or(Stamp {
@@ -160,8 +121,6 @@ impl Scanner {
             return summary;
         }
 
-        // A scan program that is out of date answers nothing, which would
-        // block every module; find that out before recording anything.
         if let Err(why) = check_host(&self.host) {
             summary.host_missing = Some(why);
             return summary;
@@ -204,9 +163,6 @@ impl Scanner {
                     });
                 match started {
                     Ok(_) => workers += 1,
-                    // A worker the system will not start costs the pool one of
-                    // its threads, not the scan: the others carry on, and a
-                    // pool with none is answered below.
                     Err(error) => {
                         unstarted.get_or_insert_with(|| error.to_string());
                     }
@@ -221,12 +177,10 @@ impl Scanner {
             for (index, outcome) in rx {
                 let (module, stamp) = &todo[index];
                 if let ScanOutcome::Unstarted(why) = &outcome {
-                    // Every module would fail the same way.
                     summary.host_missing.get_or_insert(why.clone());
                     abort.store(true, Ordering::Relaxed);
                     continue;
                 }
-                // A cancelled scan has no answer to keep.
                 let Some(result) = result_of(outcome, self.deadline) else {
                     continue;
                 };
@@ -250,8 +204,6 @@ impl Scanner {
             }
         });
         if workers == 0 {
-            // No module was tried, so none of them is blocked by this: the
-            // scan itself could not run.
             summary.host_missing = Some(no_workers(unstarted.as_deref()));
         }
         summary.cancelled = cancel.load(Ordering::Relaxed);
@@ -259,8 +211,6 @@ impl Scanner {
     }
 }
 
-/// The message for a pool that could not start a thread, so that no module was
-/// tried at all.
 fn no_workers(why: Option<&str>) -> String {
     match why {
         Some(why) => format!("could not start a thread to scan with: {why}"),
@@ -268,11 +218,6 @@ fn no_workers(why: Option<&str>) -> String {
     }
 }
 
-/// A block that says nothing about the module: the scan program ended
-/// cleanly without an answer, which a module cannot do on its own (it would
-/// have crashed, hung or failed with a message). It means the scan program
-/// was faulty, so such an entry is tried again rather than trusted until the
-/// file changes.
 fn scan_fault(entry: &Entry) -> bool {
     matches!(
         entry.result,
@@ -283,8 +228,6 @@ fn scan_fault(entry: &Entry) -> bool {
     )
 }
 
-/// What the cache records for a finished scan; `None` for one that was
-/// cancelled or never started, which says nothing about the module.
 fn result_of(outcome: ScanOutcome, deadline: Duration) -> Option<Result> {
     let blocked = |reason| Result::Blocked { reason, at: now() };
     Some(match outcome {
@@ -330,8 +273,6 @@ fn now() -> u64 {
 mod tests {
     use super::no_workers;
 
-    /// A pool with no worker thread says so: no module was tried, so none of
-    /// them is blocked by it.
     #[test]
     fn a_pool_that_could_not_start_says_why() {
         let why = no_workers(Some("the system is out of threads"));

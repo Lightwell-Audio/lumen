@@ -1,7 +1,3 @@
-//! The measured functions: everything Callgrind counts, one per scenario.
-//! Each one is kept out of the line (`no_mangle`, `inline(never)`) so
-//! `--toggle-collect=measured_<scenario>` finds it.
-
 use std::hint::black_box;
 
 use lumen_core::time::TempoMap;
@@ -39,8 +35,6 @@ pub fn measured_engine_routed_64(engine: &mut Player) {
     for _ in 0..1_000 {
         engine.process(RATE, &mut data, 2, FRAMES);
     }
-    // Not the same code as `measured_engine_clips_64`, or the linker folds
-    // the two into one symbol and Callgrind finds no routed scenario.
     black_box((&data, engine.transport().sample));
 }
 
@@ -51,7 +45,6 @@ pub fn measured_engine_latent_64(engine: &mut Player) {
     for _ in 0..1_000 {
         engine.process(RATE, &mut data, 2, FRAMES);
     }
-    // Distinct from the other scenarios, so the linker keeps it apart.
     black_box((&data, engine.transport().ticks));
 }
 
@@ -62,12 +55,9 @@ pub fn measured_engine_automated_64(engine: &mut Player) {
     for _ in 0..1_000 {
         engine.process(RATE, &mut data, 2, FRAMES);
     }
-    // Distinct from the other scenarios, so the linker keeps it apart.
     black_box((&data, engine.transport().punching));
 }
 
-/// One block that takes a new plan, as during a fader drag. Called once
-/// per block: Callgrind adds up every call.
 #[unsafe(no_mangle)]
 #[inline(never)]
 pub fn measured_engine_latent_swaps_64(engine: &mut Player) {
@@ -83,7 +73,6 @@ pub fn measured_engine_synth_64(engine: &mut SynthPlayer) {
     for _ in 0..1_000 {
         engine.process(RATE, &mut data, 2, FRAMES);
     }
-    // Distinct from the other scenarios, so the linker keeps it apart.
     black_box((&data, engine.transport().marker));
 }
 
@@ -109,7 +98,6 @@ pub fn measured_engine_hosted_64(engine: &mut SynthPlayer) {
     for _ in 0..1_000 {
         engine.process(RATE, &mut data, 2, FRAMES);
     }
-    // Distinct from the other scenarios, so the linker keeps it apart.
     black_box((&data, engine.transport().marker, engine.transport().ticks));
 }
 
@@ -137,7 +125,6 @@ pub fn measured_engine_streamed_64(engine: &mut Player) {
     for _ in 0..1_000 {
         engine.process(RATE, &mut data, 2, FRAMES);
     }
-    // Distinct from the other scenarios, so the linker keeps it apart.
     black_box((&data, engine.transport().playing));
 }
 
@@ -146,7 +133,6 @@ pub fn measured_engine_streamed_64(engine: &mut Player) {
 pub fn measured_stream_plan_64(scene: &Scene) {
     let mut out = Vec::new();
     let mut wanted = 0;
-    // A plan every 100 ms of playback, half of them inside the loop.
     for step in 0..50i64 {
         let at = Position {
             sample: 4_800 * step + if step % 2 == 0 { 0 } else { 8 * 48_000 },

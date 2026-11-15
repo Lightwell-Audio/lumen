@@ -1,6 +1,3 @@
-//! Format v31 (M9 slice R3): a clip may keep the other passes of a loop
-//! recording. Earlier files keep none, and a clip without them writes nothing.
-
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -55,7 +52,6 @@ fn note(pitch: u8) -> Note {
     Note::new(Ticks::ZERO, Ticks::quarters(1), pitch, 90)
 }
 
-/// The model the v31 golden file must always load as. Never change it.
 fn golden_v31_expected() -> Project {
     let mut vocal = Track::new(Id(3_100), "Vocal", TrackKind::Audio, Color(0x4F81BD));
     let mut audio = clip(
@@ -161,8 +157,6 @@ fn takes_that_are_not_a_set_are_refused() {
         edit(clip.takes.as_mut().unwrap());
         validate(&project)
     };
-    // The active pass listed among the others, a number twice, a number
-    // past the count, a count that does not add up.
     assert!(with(&|t| t.others[0].take = t.active).is_err());
     assert!(with(&|t| t.others[1].take = t.others[0].take).is_err());
     assert!(with(&|t| t.others[0].take = 9).is_err());
@@ -199,7 +193,6 @@ fn a_pass_of_the_wrong_kind_or_before_its_file_is_refused() {
         })
         .is_err()
     );
-    // A MIDI pass with a note out of range.
     let mut project = good.clone();
     let track = Arc::make_mut(&mut project.tracks[1]);
     let clip = Arc::make_mut(&mut track.clips[0]);

@@ -1,17 +1,3 @@
-//! Horizon, the limiter (M8 slice B2): a look-ahead limiter with a ceiling, a
-//! release, a reported lookahead (delay compensation lines the track up with
-//! the rest of the song) and a true-peak mode that measures the peaks between
-//! the samples.
-//!
-//! The signal is delayed by the lookahead and played through the average of
-//! the gain each frame of that window needs, so the gain has reached its
-//! target by the time a peak arrives, and the average of values no larger than
-//! a peak's own is never larger than it: **nothing leaves above the ceiling**.
-//! The average's rises are then smoothed by the release time, which never
-//! raises it above that average, so the guarantee holds with a release set.
-//!
-//! It allocates nothing after its constructor and flushes its denormals.
-
 use crate::effect::{Block, Description, Effect, Key, Stereo, Values};
 use crate::params::{self, Glide, ParamInfo, Taper};
 
@@ -20,29 +6,17 @@ use super::{
     number_in, value, word_of,
 };
 
-/// The device's stable name in `PluginRef::Builtin`, as a project saves it.
-/// Never the product name, and never changed.
 pub const NAME: &str = "limiter";
 
-/// The level nothing leaves above, in dBFS.
 pub const CEILING: u32 = 1;
-/// How fast it lets go of a peak, in milliseconds.
 pub const RELEASE: u32 = 2;
-/// How far ahead it looks, in milliseconds; its reported latency.
 pub const LOOK: u32 = 3;
-/// Peak detection on the samples, or on the peaks between them.
 pub const DETECT: u32 = 4;
 
-/// The most lookahead the table offers, and so the longest delay line it can
-/// need: 10 ms at the reference rate (48 kHz).
 const MOST_LOOK_FRAMES: usize = 480;
 
-/// The rough length of the delay line, in frames: the most lookahead, with the
-/// room the sliding window needs.
 const LINE: usize = MOST_LOOK_FRAMES + 2;
 
-/// Frames the line holds back at `values`: the lookahead, the one number the
-/// routing's compensation and the running device agree on.
 pub fn latency(values: Values<'_>) -> u32 {
     frames_of_ms(value(
         TABLE,
@@ -51,13 +25,10 @@ pub fn latency(values: Values<'_>) -> u32 {
     ))
 }
 
-/// Frames Horizon rings on after its input stops: its delay line, which is as
-/// long as its lookahead.
 pub fn tail(values: Values<'_>) -> u32 {
     latency(values)
 }
 
-/// What the columns of the table are for, so a reader sees the shape of a row.
 #[allow(clippy::too_many_arguments)]
 const fn param(
     id: u32,
@@ -87,8 +58,6 @@ const fn param(
     }
 }
 
-/// Horizon's parameters, in the order the card shows them: exactly the four
-/// its face draws.
 pub static TABLE: &[ParamInfo] = &[
     param(
         CEILING,
@@ -144,8 +113,6 @@ pub static TABLE: &[ParamInfo] = &[
     ),
 ];
 
-/// Horizon's description: its table, and a lookahead that is its latency and
-/// its tail.
 pub static DESCRIPTION: Description = Description {
     name: NAME,
     table: TABLE,
@@ -153,12 +120,10 @@ pub static DESCRIPTION: Description = Description {
     tail,
 };
 
-/// "−0.3 dB".
 fn ceiling_parse(text: &str) -> Option<f32> {
     number_in(text, &["db"]).filter(|db| (-24.0..=0.0).contains(db))
 }
 
-/// Milliseconds, as a limiter reads them: "60 ms", "12.5 ms".
 fn ms_text(ms: f32) -> String {
     if ms < 10.0 {
         format!("{ms:.2} ms")
@@ -173,7 +138,6 @@ fn ms_parse(text: &str) -> Option<f32> {
     number_in(text, &["ms", "milliseconds"])
 }
 
-/// "1.50 ms".
 fn look_text(ms: f32) -> String {
     format!("{ms:.2} ms")
 }
@@ -182,7 +146,6 @@ fn look_parse(text: &str) -> Option<f32> {
     number_in(text, &["ms", "milliseconds"])
 }
 
-/// "Sample", "True".
 fn sample_true_text(value: f32) -> String {
     if value >= 0.5 {
         "True".to_owned()
@@ -195,24 +158,14 @@ fn sample_true_parse(text: &str) -> Option<f32> {
     word_of(text, &["Sample", "True"])
 }
 
-/// Oversampling for the true-peak detector: eight phases of a windowed sinc,
-/// so a peak between the samples is found even for a tone near the top of the
-/// band (four phases are a fifth of a decibel short at 19 kHz).
 const PHASES: usize = 8;
-/// Taps per phase: eleven, enough for the windowed sinc to sit on the waveform
-/// within a twentieth of a decibel across the band with eight phases.
 const TAPS: usize = 11;
 
-/// The interpolation filter: a Kaiser-windowed sinc, `PHASES` phases of `TAPS`
-/// taps each, every phase summing to one (the same design the engine's
-/// loudness meter uses, with more phases so a tone near the top of the band is
-/// not a fifth of a decibel short).
 fn interpolator() -> [[f32; TAPS]; PHASES] {
     let length = PHASES * (TAPS - 1) + 1;
     let centre = (length - 1) as f64 / 2.0;
     let beta = 8.0;
     let i0 = |x: f64| {
-        // Modified Bessel function of the first kind, order zero.
         let (mut sum, mut term, mut k) = (1.0, 1.0, 1.0);
         while term > 1e-12 * sum {
             term *= (x / (2.0 * k)).powi(2);
@@ -246,19 +199,14 @@ fn interpolator() -> [[f32; TAPS]; PHASES] {
     phases
 }
 
-/// Finds the peaks between the samples, four times over.
 struct TruePeak {
-    /// Each phase's taps, oldest sample first.
     phases: [[f32; TAPS]; PHASES],
-    /// The last `TAPS` samples, written twice so the window ending at any
-    /// position is one contiguous slice.
     history: [f32; 2 * TAPS],
     at: usize,
 }
 
 impl TruePeak {
     fn new() -> Self {
-        // The taps run oldest sample first, as the window does.
         let mut phases = interpolator();
         for phase in &mut phases {
             phase.reverse();
@@ -270,8 +218,6 @@ impl TruePeak {
         }
     }
 
-    /// The highest of the sample and the points between it and the samples
-    /// before it, linear.
     fn peak(&mut self, x: f32) -> f32 {
         self.at = if self.at + 1 == TAPS { 0 } else { self.at + 1 };
         self.history[self.at] = x;
@@ -296,7 +242,6 @@ impl TruePeak {
     }
 }
 
-/// The parameters' values through one block, normalised.
 struct Curves {
     ceiling: [f32; crate::MOST_FRAMES],
     release: [f32; crate::MOST_FRAMES],
@@ -313,43 +258,24 @@ impl Curves {
     }
 }
 
-/// Horizon.
 pub struct Limiter {
-    /// Where each held parameter was at the end of the last block.
     ceiling: Glide,
     release: Glide,
     detect: Glide,
-    /// The block's curves, worked out once each block.
     curves: Box<Curves>,
-    /// The lookahead the delay line is running at, in frames: the value the
-    /// project holds, read without a glide so it is the number the routing was
-    /// told about.
     look_frames: usize,
-    /// The signal, delayed by the lookahead, per side.
     line: [Vec<f32>; 2],
-    /// The sliding maximum of the level over the lookahead's window: the frames
-    /// whose level is the loudest of those still in it, oldest first (a
-    /// monotonic deque, so a frame costs nothing on average).
     loudest: Vec<(u64, f32)>,
     front: usize,
     back: usize,
-    /// Frames written since the device was made, which names the window.
     clock: u64,
-    /// Where the newest frame is written in the delay line.
     at: usize,
-    /// The gain currently applied: the window's smallest need, or a release on
-    /// its way back up to it.
     gain: f32,
-    /// The true-peak detectors, per side.
     peaks: [TruePeak; 2],
-    /// The gain-reduction meter the card's face reads.
     meter: Reduction,
 }
 
 impl Limiter {
-    /// Horizon at its defaults: a ceiling of −0.3 dB, a 60 ms release, 1.5 ms
-    /// of lookahead and sample-peak detection. Allocates its delay line: call
-    /// it on the interface side.
     pub fn new() -> Self {
         let at = |id: u32| {
             let info = params::find(TABLE, id).expect("the table names its own ids");
@@ -374,34 +300,24 @@ impl Limiter {
         }
     }
 
-    /// The meter the card's face reads: a copy of the one the audio thread
-    /// writes.
     pub fn meter(&self) -> Reduction {
         self.meter.clone()
     }
 
-    /// A device by name, with its meter, so the interface can build one in one
-    /// step.
     pub fn build() -> (Self, Reduction) {
         let device = Self::new();
         let meter = device.meter();
         (device, meter)
     }
 
-    /// The frames of lookahead it is running at.
     pub fn lookahead(&self) -> usize {
         self.look_frames
     }
 
-    /// The reading the meter holds, without reading it.
     pub fn reading(&self) -> Reading {
         self.meter.peek()
     }
 
-    /// Sets the lookahead. A change of it lets go of what the line held: the
-    /// frames already in it were played against one delay and would leave
-    /// against another, above the ceiling (review N6). The gap is short (the
-    /// length that changed) and never a sample over the ceiling.
     fn set_lookahead(&mut self, frames: usize) {
         let frames = frames.min(MOST_LOOK_FRAMES);
         if frames == self.look_frames {
@@ -411,13 +327,10 @@ impl Limiter {
         for side in &mut self.line {
             side.fill(0.0);
         }
-        // The window starts again with the frames that are written from now on.
         self.front = 0;
         self.back = 0;
     }
 
-    /// How many frames the gain's window covers: the lookahead's, and the one
-    /// being written.
     fn window(&self) -> u64 {
         self.look_frames as u64 + 1
     }
@@ -438,10 +351,6 @@ impl Effect for Limiter {
         }
         let rate = block.rate;
         let events = block.events;
-        // The lookahead is the device's timing, not a shape: read straight
-        // from the value the project holds (a lane does not drive a timing, so
-        // a lane on it is ignored) and before the curves are borrowed, because
-        // a changed lookahead starts the window again.
         if let Some(x) = held_at_rest(events, LOOK) {
             self.set_lookahead(frames_of_ms(value(TABLE, LOOK, x)) as usize);
         }
@@ -482,48 +391,31 @@ impl Effect for Limiter {
             let detect = curves.detect[frame];
             let l = left[frame];
             let r = right[frame];
-            // The level to limit: the loudest sample, or the peaks between them.
             let sample = l.abs().max(r.abs());
             let between = self.peaks[0].peak(l).max(self.peaks[1].peak(r));
             let level = sample + (between - sample) * detect;
             input_db = input_db.max(db_of(level));
-            // Into the delay line, **written before it is read**: with no
-            // lookahead the frame written now is the frame played now, so the
-            // device is not a line behind and the ceiling holds at 0.
             at = if at + 1 == LINE { 0 } else { at + 1 };
             self.line[0][at] = l;
             self.line[1][at] = r;
             let read = (at + LINE - self.look_frames) % LINE;
             let delayed_l = self.line[0][read];
             let delayed_r = self.line[1][read];
-            // The sliding maximum of the *level* over the window, which the
-            // ceiling does not enter: the gain is the ceiling the project holds
-            // now divided by the loudest level the window holds, so lowering
-            // the ceiling takes effect at once even while a peak is still in
-            // the window. This frame's level is kept while it is the loudest of
-            // those still in it, and every quieter one goes.
             clock += 1;
             while back != front && self.loudest[(back + LINE - 1) % LINE].1 <= level {
                 back -= 1;
             }
             self.loudest[back % LINE] = (clock, level);
             back += 1;
-            // A frame that has left the window is forgotten.
             while front != back && self.loudest[front % LINE].0 + window <= clock {
                 front += 1;
             }
             let loudest = self.loudest[front % LINE].1;
-            // What the gain has to be for this frame to leave under the
-            // ceiling. The window holds the played frame's own level, so this
-            // can never be too high.
             let target = if loudest > ceiling && loudest > 0.0 {
                 ceiling / loudest
             } else {
                 1.0
             };
-            // Down at once — the lookahead has already held this back — and up
-            // over the release. The gain never rises above the target, so the
-            // sample played now leaves under the ceiling.
             gain = if target <= gain {
                 target
             } else {
@@ -572,15 +464,12 @@ mod tests {
     use super::*;
     use crate::dynamics::REFERENCE_RATE;
 
-    /// A steady tone's true peak is its amplitude, and the interpolator must
-    /// find it wherever the samples fall.
     #[test]
     fn the_true_peak_finds_the_peak_between_the_samples() {
         for frequency in [400.0f32, 5_000.0, 12_000.0, 19_000.0] {
             for phase in [0.0f32, 0.3, 1.1] {
                 let mut peak = TruePeak::new();
                 let mut most = 0.0f32;
-                // Settle the filter, then measure a few cycles.
                 for k in 0..4_800 {
                     let t = k as f32 / REFERENCE_RATE as f32;
                     let x = (std::f32::consts::TAU * frequency * t + phase).sin();
@@ -596,10 +485,8 @@ mod tests {
                 );
             }
         }
-        // And it never misses a sample's own peak.
         let mut peak = TruePeak::new();
         assert!(peak.peak(0.9) >= 0.9);
-        // An amplitude other than one is found too.
         for frequency in [500.0f32, 11_000.0, 17_000.0] {
             let mut peak = TruePeak::new();
             let mut most = 0.0f32;
@@ -628,8 +515,6 @@ mod tests {
         assert_eq!(at(1.5), 72);
         assert_eq!(at(0.0), 0);
         assert_eq!(at(10.0), 480);
-        // The running device's report is the description's, from the same
-        // values (the mixer's tail after a Stop is read from it).
         let mut device = Limiter::new();
         assert_eq!(device.latency(), at(1.5));
         assert_eq!(device.tail(), at(1.5));

@@ -1,14 +1,3 @@
-//! The sidechain row of a plugin effect's card (M6 slice 6c; the owner's B
-//! with the light of I1): shown only when the running plugin has a sidechain
-//! input. The word "Sidechain" and one chooser that says which track keys the
-//! effect and where on it the signal is taken; a light in the chooser follows
-//! what is arriving, so the right track can be seen to be the one that keys.
-//!
-//! The chooser opens a list of the tracks, groups and returns (the ones that
-//! would feed back are greyed with the reason) and, under it, the tap: before
-//! the track's devices, after them, or what the track plays. Every change is
-//! `Document::set_sidechain`: one undo step.
-
 use std::cell::RefCell;
 use std::collections::HashMap;
 
@@ -25,57 +14,40 @@ use crate::theme::Tone;
 use crate::widgets::{self, raised};
 use crate::{App, light, motion, theme};
 
-/// The height the row takes in a card, with the room round it.
 pub(super) const ROOM: f32 = super::geometry::KEY_ROOM;
-/// The chooser's height, and the width of the word before it.
 const HEIGHT: f32 = 22.0;
 const LABEL: f32 = 62.0;
-/// A sidechain that has carried nothing for this long, while the song plays,
-/// is said to be silent (the light turns to a warning ring).
 const QUIET_AFTER: f32 = 2.0;
-/// Below this a source is silent: about -50 dBFS.
 const SILENT: f32 = 0.003;
-/// How fast the light falls back, per second.
 const FALL: f32 = 9.0;
 
-/// Where the chooser says the key comes from.
 pub(super) enum Source {
-    /// No sidechain.
     None,
     Track {
         name: String,
         colour: Color32,
     },
-    /// The track was deleted; the effect keeps naming it (undoing the delete
-    /// brings it back) and plays no sidechain.
     Gone,
 }
 
-/// What a card's row shows.
 pub(super) struct Look {
     pub source: Source,
     pub tap: SidechainTap,
-    /// What arrives now, 0 to 1 (fast to rise, slower to fall).
     pub level: f32,
-    /// The song plays and the key has been silent for a while.
     pub quiet: bool,
     pub playing: bool,
 }
 
-/// What the sidechain of a track carried, as the light shows it.
 #[derive(Default, Clone, Copy)]
 pub(crate) struct Reading {
     level: f32,
     silent: f32,
-    /// Set by a screenshot: the reading stays as it was given.
     frozen: bool,
 }
 
-/// The readings of the shown track's sidechain, kept between frames.
 #[derive(Default)]
 pub(crate) struct Readings(RefCell<HashMap<Id, Reading>>);
 
-/// The tap's words in the chooser and the menu.
 pub(super) fn tap_name(tap: SidechainTap) -> &'static str {
     match tap {
         SidechainTap::PreFx => "Pre FX",
@@ -84,7 +56,6 @@ pub(super) fn tap_name(tap: SidechainTap) -> &'static str {
     }
 }
 
-/// The tap in one word, for a chip.
 pub(super) fn tap_short(tap: SidechainTap) -> &'static str {
     match tap {
         SidechainTap::PreFx => "pre",
@@ -103,21 +74,14 @@ fn tap_about(tap: SidechainTap) -> &'static str {
     }
 }
 
-/// The chooser's id for the card of `device` (the command opens its menu).
 pub(super) fn chooser_id(device: Id) -> EguiId {
     chooser_id_of(EguiId::new(("device", device.0)))
 }
 
-/// The same from the card's own id.
 pub(super) fn chooser_id_of(card: EguiId) -> EguiId {
     card.with("sidechain")
 }
 
-/// The row in `area`, which is `ROOM` tall; answers the chooser.
-///
-/// In a compact card's footer (`footer` holds the footer's own words, which
-/// move into the tooltip) the chooser fills `area` at the small control's
-/// height, without the word before it.
 pub(super) fn paint(
     ui: &mut Ui,
     area: Rect,
@@ -168,7 +132,6 @@ pub(super) fn paint(
         .text
         .lerp_to_gamma(theme::lit(Tone::On).text, face.lit);
     let arrow_x = chooser.right() - 8.0;
-    // The light sits left of the arrow (a source is set), 15 pt in.
     let lamp = pos2(arrow_x - 14.0, body.center().y);
     let mut left = chooser.left() + 7.0;
     let mut right = arrow_x - 8.0;
@@ -235,8 +198,6 @@ pub(super) fn paint(
                     lit_text,
                 );
             }
-            // The light: a ring in the cables' style, lit by what arrives, and
-            // a warning ring when the song plays and nothing has for a while.
             let ring = if look.quiet {
                 palette.warning
             } else {
@@ -279,7 +240,6 @@ pub(super) fn paint(
     }
 }
 
-/// What a screen reader says of the chooser.
 pub(super) fn spoken(look: &Look) -> String {
     match &look.source {
         Source::None => "Sidechain source, none".to_owned(),
@@ -290,7 +250,6 @@ pub(super) fn spoken(look: &Look) -> String {
     }
 }
 
-/// The chooser's tooltip.
 pub(super) fn tip(look: &Look) -> String {
     match &look.source {
         Source::None => "No track keys this effect. Click to choose one".to_owned(),
@@ -314,9 +273,6 @@ pub(super) fn tip(look: &Look) -> String {
 }
 
 impl Readings {
-    /// Reads what arrived for `track`'s sidechain since the last frame (once
-    /// a frame) and moves the light: quick to rise, falling over about a
-    /// tenth of a second.
     pub(crate) fn update(&self, track: Id, peak: f32, playing: bool, dt: f32) -> Reading {
         let mut all = self.0.borrow_mut();
         let reading = all.entry(track).or_default();
@@ -337,7 +293,6 @@ impl Readings {
         *reading
     }
 
-    /// Sets the reading of `track` (screenshots).
     pub(crate) fn pretend(&self, track: Id, level: f32, silent: f32) {
         self.0.borrow_mut().insert(
             track,
@@ -349,7 +304,6 @@ impl Readings {
         );
     }
 
-    /// How lit the light of `track`'s sidechain is.
     pub(crate) fn level_of(&self, track: Id) -> f32 {
         self.get(track).level
     }
@@ -360,8 +314,6 @@ impl Readings {
 }
 
 impl App {
-    /// Moves the light of the shown track's sidechain by what arrived this
-    /// frame. Called once a frame by the Devices tab.
     pub(super) fn read_sidechain(&mut self, ctx: &egui::Context, track: Id, playing: bool) {
         let Some(level) = self.transport.audio.mixer.take_side_level(track.0) else {
             return;
@@ -369,14 +321,11 @@ impl App {
         let peak = level.peak[0].max(level.peak[1]);
         let dt = ctx.input(|i| i.stable_dt).clamp(0.001, 0.1);
         let reading = self.chain.sidechain.update(track, peak, playing, dt);
-        // The light moves while the song plays or while it is still falling.
         if playing || reading.level > 0.02 {
             ctx.request_repaint();
         }
     }
 
-    /// The row of `device`'s card on `track`: none for a card that is not a
-    /// running plugin effect, or a built-in effect, with a sidechain input.
     pub(super) fn sidechain_look(&self, track: Id, device: &Device, playing: bool) -> Option<Look> {
         let takes = match &device.plugin {
             PluginRef::Vst3 { .. } => {
@@ -413,21 +362,18 @@ impl App {
         })
     }
 
-    /// The menu under the chooser of `device`.
     pub(super) fn sidechain_menu(&mut self, chooser: &Response, device: Id) {
         widgets::Menu::below(chooser)
             .keeping_open()
             .show(|ui| self.sidechain_menu_body(ui, device));
     }
 
-    /// Opens the chosen card's sidechain menu (the command).
     pub(crate) fn open_sidechain_menu(&mut self, ctx: &egui::Context) {
         if let Some(device) = self.chain.selected {
             widgets::Menu::open_for(ctx, chooser_id(device));
         }
     }
 
-    /// Whether the chosen card has a sidechain row.
     pub(crate) fn chosen_has_sidechain(&self) -> bool {
         self.chain.selected.is_some_and(|d| {
             find_device(self.document.project(), d).is_some_and(|(_, dev)| match &dev.plugin {

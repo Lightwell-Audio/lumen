@@ -1,15 +1,3 @@
-//! Portable backend through cpal: CoreAudio on macOS, ALSA on Linux. Output
-//! only: this backend offers no input, and says so when one is asked for.
-//!
-//! Compiled and unit-tested in CI on macOS and Linux; not yet tested on
-//! hardware there (Windows is the first-class platform).
-//!
-//! cpal owns the audio thread and wants the callback by value, so the callback
-//! lives in a shared slot. The audio thread takes it for each block with a
-//! swap, runs it and puts it straight back, without a lock; a control thread
-//! holding it between blocks can never turn a block into silence. `close`
-//! takes it out once the stream has stopped.
-
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -27,7 +15,6 @@ use crate::types::{
 
 const RATES: [u32; 6] = [44_100, 48_000, 88_200, 96_000, 176_400, 192_000];
 
-/// Buffer size used when the user has not chosen one.
 const DEFAULT_FRAMES: u32 = 256;
 
 fn kind() -> DriverKind {
@@ -49,7 +36,6 @@ fn map_error(error: &cpal::Error, name: &str) -> AudioError {
     }
 }
 
-/// The platform's default cpal host.
 pub struct CpalBackend {
     host: cpal::Host,
 }
@@ -61,7 +47,6 @@ impl CpalBackend {
         }
     }
 
-    /// The system's default output device.
     pub fn default_output() -> Option<DeviceId> {
         let device = cpal::default_host().default_output_device()?;
         Some(DeviceId {
@@ -124,8 +109,6 @@ impl Backend for CpalBackend {
         let slot = Arc::new(CallbackSlot::new(callback));
         match self.start(config, &slot) {
             Ok(stream) => Ok(stream),
-            // The audio thread never started, so the callback is still in the
-            // slot.
             Err(error) => Err(OpenError {
                 error,
                 callback: slot.take().unwrap_or_else(silent),
@@ -152,8 +135,6 @@ impl CpalBackend {
         let cpal_id: cpal::DeviceId = id
             .parse()
             .map_err(|_| AudioError::DeviceNotFound(id.clone()))?;
-        // An unplugged device is simply not listed, so "absent" counts as
-        // not present: the supervisor keeps retrying.
         let device = self
             .host
             .device_by_id(&cpal_id)
@@ -183,7 +164,6 @@ impl CpalBackend {
         };
         let frames = match buffer_size {
             BufferSize::Fixed(frames) => frames,
-            // Unknown until the stream runs; blocks are sized per callback.
             BufferSize::Default => 0,
         };
 
@@ -215,8 +195,6 @@ impl CpalBackend {
                 },
                 move |data: &mut [f32], _| render.fill(data),
                 move |error: cpal::Error| {
-                    // Route changes are handled by cpal and xruns are
-                    // dropouts, not failures; anything else needs a reopen.
                     if !matches!(error.kind(), ErrorKind::DeviceChanged | ErrorKind::Xrun) {
                         errors.reset.store(true, Ordering::Release);
                     }
@@ -248,14 +226,10 @@ impl CpalBackend {
 
 struct Shared {
     reset: AtomicBool,
-    /// Nanoseconds since `epoch` at the last callback, for the watchdog.
     last_callback_ns: AtomicU64,
     epoch: Instant,
 }
 
-/// State owned by cpal's audio thread: the callback's slot, and everything the
-/// blocks it fills need. The two are separate fields so a block can borrow the
-/// one it runs while it uses the other.
 struct Render {
     slot: Arc<CallbackSlot>,
     state: RenderState,
@@ -265,8 +239,6 @@ impl Render {
     fn fill(&mut self, data: &mut [f32]) {
         let slot = &self.slot;
         let state = &mut self.state;
-        // The callback is taken for this block and put straight back: a
-        // control thread holding it between blocks can never silence one.
         if slot.with(|callback| state.fill(callback, data)).is_none() {
             data.fill(0.0);
         }
@@ -279,7 +251,6 @@ struct RenderState {
     device_channels: usize,
     sample_rate: u32,
     outputs: Vec<f32>,
-    /// Largest block the callback sees; bigger device buffers are split.
     capacity: usize,
     position: u64,
 }
@@ -341,10 +312,7 @@ impl Stream for CpalStream {
     }
 
     fn close(mut self: Box<Self>) -> Box<dyn AudioCallback> {
-        // Dropping the stream stops it; the audio thread no longer runs.
         drop(self.stream.take());
-        // The last block may still be finishing: wait, bounded, for the
-        // callback to come back rather than leave it with a dead stream.
         self.slot
             .take_waiting(Duration::from_secs(1))
             .unwrap_or_else(silent)
@@ -357,7 +325,6 @@ mod tests {
 
     use std::sync::atomic::AtomicBool;
 
-    /// A render over `channels` channels of 64 frames, with `slot`'s callback.
     fn render(slot: &Arc<CallbackSlot>, channels: usize) -> Render {
         Render {
             slot: Arc::clone(slot),
@@ -377,10 +344,6 @@ mod tests {
         }
     }
 
-    /// Filling a block runs the callback (and allocates nothing, on the
-    /// allocation guard): a control thread between blocks cannot make this a
-    /// silent one, because the slot is taken and put back, not locked (sweep
-    /// M6).
     #[test]
     fn a_fill_runs_the_callback_without_allocating() {
         assert!(
@@ -403,8 +366,6 @@ mod tests {
         );
     }
 
-    /// A block that finds the callback held elsewhere is silence, at once: it
-    /// never waits for the holder (sweep M6).
     #[test]
     fn a_fill_with_the_callback_held_elsewhere_is_silence() {
         let slot = Arc::new(CallbackSlot::new(Box::new(|_: &mut Block<'_>| {})));
@@ -421,8 +382,6 @@ mod tests {
         drop(held);
     }
 
-    /// CI runners usually have no audio devices; this checks that
-    /// enumeration is safe and consistent wherever it runs.
     #[test]
     fn enumeration_is_safe_and_consistent() {
         let mut backend = CpalBackend::new();

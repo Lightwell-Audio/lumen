@@ -1,23 +1,3 @@
-//! WASAPI backend (Windows): shared and exclusive mode, event-driven. Input
-//! comes from the capture endpoints of the same adapter, read beside the
-//! render stream (`wasapi_input`, M9 slice R1).
-//!
-//! Each stream runs on its own render thread with the "Pro Audio" MMCSS
-//! class. Shared mode runs at the rate and period Windows chooses; Lumen
-//! never resamples behind the user's back, so asking for another rate is an
-//! `Unsupported` error that names the fix. Exclusive mode opens the device at
-//! the requested rate and buffer size.
-//!
-//! Exclusive mode starts event-driven (one block of latency) and checks the
-//! device clock while playing silence. Some USB drivers signal events far too
-//! slowly in exclusive mode (a Focusrite ran at 60% of real time, MT-AUDIO-4);
-//! those devices are reopened in polling mode, which keeps at most two blocks
-//! queued.
-//!
-//! Device loss shows up either as an error from the audio client (reported
-//! as a reset request; the reopen then fails and the supervisor reports
-//! `Lost`) or as a device that stops consuming audio (reported as a stall).
-
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, SyncSender};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -37,7 +17,6 @@ use wasapi::{
     SampleType, StreamMode, WasapiError, WaveFormat, calculate_period_100ns,
 };
 
-// HRESULTs from audioclient.h and winerror.h.
 const DEVICE_INVALIDATED: u32 = 0x8889_0004;
 const UNSUPPORTED_FORMAT: u32 = 0x8889_0008;
 const DEVICE_IN_USE: u32 = 0x8889_000A;
@@ -46,16 +25,11 @@ const BUFFER_SIZE_ERROR: u32 = 0x8889_0016;
 const BUFFER_SIZE_NOT_ALIGNED: u32 = 0x8889_0019;
 const INVALID_DEVICE_PERIOD: u32 = 0x8889_0020;
 const NOT_FOUND: u32 = 0x8007_0490;
-// ERROR_FILE_NOT_FOUND and ERROR_PATH_NOT_FOUND: seen when a USB device is
-// unplugged mid-stream (MT-AUDIO-4).
 const FILE_NOT_FOUND: u32 = 0x8007_0002;
 const PATH_NOT_FOUND: u32 = 0x8007_0003;
 
-/// Rates offered in exclusive mode when the device accepts them.
 const RATES: [u32; 6] = [44_100, 48_000, 88_200, 96_000, 176_400, 192_000];
 
-/// Exclusive-mode formats in order of preference:
-/// (format, container bits, valid bits, sample type).
 const FORMATS: [(SampleFormat, usize, usize, SampleType); 5] = [
     (SampleFormat::F32, 32, 32, SampleType::Float),
     (SampleFormat::I32, 32, 32, SampleType::Int),
@@ -64,7 +38,6 @@ const FORMATS: [(SampleFormat, usize, usize, SampleType); 5] = [
     (SampleFormat::I16, 16, 16, SampleType::Int),
 ];
 
-/// Largest exclusive-mode buffer offered (about 170 ms at 48 kHz).
 const MAX_EXCLUSIVE_FRAMES: u32 = 8192;
 
 fn hresult(error: &WasapiError) -> Option<u32> {
@@ -87,7 +60,6 @@ pub(crate) fn map_error(error: &WasapiError, name: &str) -> AudioError {
     }
 }
 
-/// 100-ns units to whole frames, rounded to nearest.
 pub(crate) fn hns_to_frames(hns: i64, rate: u32) -> u32 {
     ((hns as f64 * f64::from(rate) / 1e7).round()) as u32
 }
@@ -106,24 +78,16 @@ fn exclusive_format(
     })
 }
 
-/// WASAPI in shared or exclusive mode. Create it on the thread that will use
-/// it (the supervisor's control thread); it joins the multithreaded COM
-/// apartment there.
 pub struct WasapiBackend {
     exclusive: bool,
 }
 
 impl WasapiBackend {
     pub fn new(exclusive: bool) -> Self {
-        // S_FALSE (already initialised) and RPC_E_CHANGED_MODE are both fine:
-        // the audio interfaces are free-threaded.
         let _ = wasapi::initialize_mta();
         Self { exclusive }
     }
 
-    /// The output Windows uses by default (Sound settings), in shared mode.
-    /// Runs on its own short-lived thread, so it works from any thread
-    /// whatever its COM apartment.
     pub fn default_output() -> Option<DeviceId> {
         std::thread::spawn(|| {
             let _ = wasapi::initialize_mta();
@@ -233,8 +197,6 @@ impl Backend for WasapiBackend {
         }
         let flags = Arc::new(Flags::default());
         let (ready_tx, ready_rx) = mpsc::sync_channel(1);
-        // The callback waits in the slot until the stream has opened, so a
-        // render thread that cannot start hands it back to the caller.
         let slot = Arc::new(Mutex::new(Some(callback)));
         let handing = Arc::clone(&slot);
         let thread = {
@@ -265,9 +227,6 @@ impl Backend for WasapiBackend {
                 Err(OpenError { error, callback })
             }
             Err(_) => {
-                // The render thread ended before saying how: it panicked.
-                // Take the callback if it never left the slot; otherwise a
-                // silent stand-in keeps the app alive while it reports why.
                 let _ = thread.join();
                 Err(OpenError {
                     error: AudioError::Driver(
@@ -289,8 +248,6 @@ struct Flags {
 
 type Ready = SyncSender<Result<StreamInfo, (AudioError, Box<dyn AudioCallback>)>>;
 
-/// Takes the callback back out of its slot, or a silent stand-in when it went
-/// with a thread that died before handing it back.
 fn take(slot: &Mutex<Option<Box<dyn AudioCallback>>>) -> Box<dyn AudioCallback> {
     slot.lock()
         .unwrap_or_else(PoisonError::into_inner)
@@ -298,8 +255,6 @@ fn take(slot: &Mutex<Option<Box<dyn AudioCallback>>>) -> Box<dyn AudioCallback> 
         .unwrap_or_else(silent)
 }
 
-/// Owns everything COM-related for one stream; returns the callback when
-/// the stream ends (`None` if it never started).
 fn render_thread(
     config: &StreamConfig,
     exclusive: bool,
@@ -323,14 +278,10 @@ fn render_thread(
     let mut render = match opened {
         Ok(render) => render,
         Err(error) => {
-            // The device did not open: the callback was never used.
             let _ = ready.send(Err((error, take(callback))));
             return None;
         }
     };
-    // The stream runs: the callback leaves the slot for the render loop. A
-    // panic from here on is the supervisor's stall to report, and the
-    // callback is gone with this thread.
     let mut callback = callback
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
@@ -346,18 +297,12 @@ fn render_thread(
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Timing {
-    /// Wait for the device's buffer event.
     Events,
-    /// Poll the buffer level (exclusive mode on drivers whose events are
-    /// unreliable).
     Polling,
 }
 
-/// How long exclusive mode plays silence to check the device clock.
 const CALIBRATION: Duration = Duration::from_millis(250);
 
-/// Whether a device clock that advanced `device_seconds` during
-/// `wall_seconds` of real time is keeping time (within 10%).
 fn keeps_real_time(device_seconds: f64, wall_seconds: f64) -> bool {
     wall_seconds > 0.0 && (0.9..1.1).contains(&(device_seconds / wall_seconds))
 }
@@ -365,20 +310,15 @@ fn keeps_real_time(device_seconds: f64, wall_seconds: f64) -> bool {
 struct Render {
     client: AudioClient,
     render: AudioRenderClient,
-    /// `None` in polling mode.
     event: Option<Handle>,
-    /// Most frames to keep queued on the device.
     fill_limit: usize,
     name: String,
     format: SampleFormat,
     device_channels: usize,
     block_align: usize,
-    /// Device channel for each callback output channel.
     map: Vec<usize>,
-    /// Frames per callback block.
     period: usize,
     info: StreamInfo,
-    /// The inputs, beside the render stream.
     capture: Option<Capture>,
     inputs: Vec<f32>,
     outputs: Vec<f32>,
@@ -422,7 +362,6 @@ impl Render {
                 period_hns,
             },
         };
-        // The period Windows actually uses, in 100-ns units.
         let mut period_hns = default_period;
         let (rate, format, block_align) = if exclusive {
             let rate = config.sample_rate.unwrap_or_else(|| {
@@ -450,8 +389,6 @@ impl Render {
                 if hresult(&e) != Some(BUFFER_SIZE_NOT_ALIGNED) {
                     return Err(fail(e));
                 }
-                // The documented recovery: ask for the size the device
-                // aligned to, on a fresh client.
                 let frames = client.get_buffer_size().map_err(fail)?;
                 client = device.get_iaudioclient().map_err(fail)?;
                 period_hns = calculate_period_100ns(i64::from(frames), i64::from(rate));
@@ -505,8 +442,6 @@ impl Render {
         } else {
             (hns_to_frames(period_hns, rate) as usize).min(buffer)
         };
-        // Polling-mode buffers are much larger than asked for (8 periods on
-        // a Focusrite); queue only two blocks to keep latency low.
         let fill_limit = if polling {
             (2 * period).min(buffer)
         } else {
@@ -545,7 +480,6 @@ impl Render {
         })
     }
 
-    /// Pre-fills the device buffer with silence and starts the stream.
     fn start(&mut self) -> Result<(), AudioError> {
         let name = self.name.clone();
         let fail = |e: WasapiError| map_error(&e, &name);
@@ -561,8 +495,6 @@ impl Render {
         self.render.write_to_device(frames, silence, None)
     }
 
-    /// Plays silence for [`CALIBRATION`] and checks that the device clock
-    /// keeps real time (within 10%). Event-driven streams only.
     fn keeps_time(&mut self) -> bool {
         let Some(event) = self.event.as_ref() else {
             return true;
@@ -583,7 +515,7 @@ impl Render {
         let started = Instant::now();
         while started.elapsed() < CALIBRATION {
             if self.write_silence(self.period).is_err() {
-                return true; // a real failure; the run loop reports it
+                return true;
             }
             let Some(event) = self.event.as_ref() else {
                 return true;
@@ -633,9 +565,6 @@ impl Render {
         }
     }
 
-    /// Polling loop: keeps between one and two blocks queued, waking four
-    /// times per block. A device whose queue stops draining for `stall` is
-    /// reported as stalled.
     fn poll(&mut self, callback: &mut dyn AudioCallback, flags: &Flags, stall: Duration) {
         let block = self.period as f64 / f64::from(self.info.sample_rate.max(1));
         let tick = Duration::from_secs_f64((block / 4.0).max(0.0005));
@@ -718,8 +647,6 @@ impl Stream for WasapiStream {
 
     fn close(mut self: Box<Self>) -> Box<dyn AudioCallback> {
         self.flags.stop.store(true, Ordering::Release);
-        // A render thread that panicked took the callback with it: silence
-        // and a stall report beat taking the app down with it.
         self.thread
             .take()
             .and_then(|t| t.join().ok().flatten())
@@ -750,9 +677,6 @@ mod tests {
         }
     }
 
-    /// A stream whose render thread died (a panic) closes with a silent
-    /// callback. Taking the app down for a callback that is gone is worse
-    /// (sweep M7).
     #[test]
     fn a_stream_whose_thread_is_gone_closes_with_silence() {
         let stream = Box::new(WasapiStream {
@@ -786,7 +710,6 @@ mod tests {
         handed.process(&mut block(&mut outputs));
         assert_eq!(outputs, [0.5; 4], "the callback that was handed back runs");
 
-        // With the callback gone with a dead thread, a stand-in answers.
         let mut stand_in = take(&slot);
         let mut outputs = [1.0f32; 4];
         stand_in.process(&mut block(&mut outputs));
@@ -795,8 +718,6 @@ mod tests {
 
     #[test]
     fn the_clock_check_catches_a_slow_driver() {
-        // MT-AUDIO-4: the Focusrite's exclusive-mode events ran its clock at
-        // 26,623 of 44,100 frames per second.
         assert!(!keeps_real_time(26_623.0 / 44_100.0, 1.0));
         assert!(keeps_real_time(44_070.0 / 44_100.0, 1.0));
         assert!(keeps_real_time(0.25, 0.25));
@@ -806,7 +727,6 @@ mod tests {
 
     #[test]
     fn the_default_output_is_one_of_the_listed_devices() {
-        // CI runners may have no audio device at all; then there is no default.
         let Some(default) = WasapiBackend::default_output() else {
             return;
         };
@@ -814,10 +734,6 @@ mod tests {
         assert!(listed.iter().any(|d| d.id == default), "{default:?}");
     }
 
-    /// On a machine whose first shared-mode device has inputs: opens it for
-    /// all of them, plays silence for half a second and checks that blocks
-    /// arrive with every listed input in them, finite. Elsewhere it has
-    /// nothing to open and passes.
     #[test]
     fn the_inputs_of_a_device_that_has_them_reach_the_callback() {
         use std::sync::atomic::AtomicUsize;
@@ -850,7 +766,7 @@ mod tests {
             seen.fetch_add(1, Ordering::Relaxed);
         };
         let Ok(stream) = backend.open(&config, Box::new(callback)) else {
-            return; // busy, or a privacy setting: nothing to check
+            return;
         };
         assert_eq!(stream.info().input_channels, wanted);
         std::thread::sleep(Duration::from_millis(500));
@@ -862,8 +778,6 @@ mod tests {
         );
     }
 
-    /// Runs wherever Windows audio exists; CI runners may have no devices,
-    /// so this only checks that enumeration is safe and consistent.
     #[test]
     fn enumeration_is_safe_and_consistent() {
         for exclusive in [false, true] {

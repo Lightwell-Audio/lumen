@@ -1,10 +1,3 @@
-//! Loading programs and presets into plugin devices (M6 slice 5). A factory
-//! program is chosen through the plugin's own program parameter: the choice and
-//! what the plugin sets in answer are one undo step. A preset file's state is
-//! tried on the running plugin first and put into the project only when the
-//! plugin took it, so a damaged or foreign state changes nothing; the load is
-//! one undo step ("Load <name>") that undo gives back exactly.
-
 use lumen_hosting::Preset;
 use lumen_project::model::{Id, PluginRef};
 
@@ -12,16 +5,11 @@ use crate::App;
 use crate::document::find_device;
 use crate::hosting::PresetNews;
 
-/// The merge key of one program choice, shared by the choice and the edits the
-/// plugin makes in answer.
 pub(crate) fn load_key(device: Id) -> String {
     format!("load:{}", device.0)
 }
 
 impl App {
-    /// Chooses program `program` of list `list` of `device`'s plugin. One undo
-    /// step: the program parameter, and the values the plugin sets because of
-    /// it. Does nothing for a plugin that offers no way to select a program.
     pub(crate) fn load_program(&mut self, device: Id, list: usize, program: usize) {
         let Some(chosen) = self.hosting.programs(device).get(list) else {
             return;
@@ -31,7 +19,6 @@ impl App {
         };
         let name = name.clone();
         let last = chosen.programs.len().saturating_sub(1);
-        // The standard maps a program onto its parameter in equal steps.
         let value = if last == 0 {
             0.0
         } else {
@@ -47,9 +34,6 @@ impl App {
         );
     }
 
-    /// Gives `device`'s plugin the state of a preset file. A preset made for
-    /// another plugin, or for a plugin that is not running, is refused with
-    /// a note and nothing changes.
     pub(crate) fn load_preset(&mut self, device: Id, name: &str, preset: Preset) {
         let Some((_, held)) = find_device(self.document.project(), device) else {
             return;
@@ -71,10 +55,6 @@ impl App {
         }
     }
 
-    /// Gives a built-in device the values of one of its preset files (M8 slice
-    /// B0): one undo step, as a plugin's state is. A file saved for another
-    /// device is refused with a note and nothing changes; a parameter the file
-    /// does not name goes back to the table's default.
     pub(crate) fn load_builtin_preset(
         &mut self,
         device: Id,
@@ -118,8 +98,6 @@ impl App {
         }
     }
 
-    /// Puts the presets plugins took into the project, and tells the person of
-    /// the ones they refused. Called every frame.
     pub(crate) fn apply_presets(&mut self) {
         for news in self.hosting.take_presets() {
             match news {
@@ -135,7 +113,6 @@ impl App {
                     {
                         Ok(()) => {
                             if let Some((_, held)) = find_device(self.document.project(), device) {
-                                // The plugin already has this sound.
                                 self.hosting.synced(device, held.state_rev);
                                 self.chain.presets.loaded(device, &name, held.state_rev);
                             }

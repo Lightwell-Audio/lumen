@@ -1,51 +1,3 @@
-//! Faults the test plugins inject on purpose, chosen by the
-//! `LUMEN_TEST_PLUGIN_FAULT` environment variable so that a host process
-//! inherits them. The value is a comma-separated list:
-//!
-//! | Entry | Effect |
-//! |---|---|
-//! | `factory_null` | `GetPluginFactory` returns no factory |
-//! | `factory_crash` | `GetPluginFactory` writes through a null pointer |
-//! | `factory_hang` | `GetPluginFactory` never returns |
-//! | `prints` | the factory and every process call write a line to the standard output, as a plugin with a stray `printf` does: a host that lets it reach the protocol's pipe is corrupted |
-//! | `entry_false` | the module's entry point (`InitDll`, `ModuleEntry`, `bundleEntry`) returns false: the module says it could not start |
-//! | `entry_required` | `GetPluginFactory` refuses to run until `bundleEntry` has run: verifies macOS module initialization order |
-//! | `lifecycle_order` | a separate controller crashes the host unless both connection points disconnect before component termination, followed by controller termination |
-//! | `exit_crash` | macOS module-level cleanup crashes the process if the dynamic loader runs it on successful host shutdown |
-//! | `process_crash@N` | the Nth process call after activation crashes |
-//! | `process_hang@N` | the Nth process call never returns |
-//! | `process_error@N` | process calls from the Nth on return an error |
-//! | `process_nan@N` | process calls from the Nth on write NaN |
-//! | `process_slow=US` | every process call busy-waits `US` microseconds |
-//! | `state_fail` | saving state reports failure |
-//! | `state_garbage` | saving state writes bytes loading rejects |
-//! | `state_refused=N` | the component refuses its first `N` `setState` calls: a plugin that is still loading its content |
-//! | `state_hang` | saving state never returns |
-//! | `many_params=N` | the controller lists `N` extra parameters (at most 20,000), ids from 100 |
-//! | `window_edits` | the instrument lists a trigger parameter (id 90); stepping it on makes the plugin edit its wave as a gesture of its own, as a control moved in its window would |
-//! | `bad_buses` | the output bus reports an absurd channel count |
-//! | `bad_params` | the controller reports millions of duplicate parameters |
-//! | `needs_message` | `initialize` asks the host for a message object (and its attribute list) and crashes if it gets none: what plugins with a separate controller do |
-//! | `reports_params` | `process` reports a parameter change through the host's output list and crashes if the host gives it no queue to put it in: what plugins that report their own edits do |
-//! | `aux_buses` | the instrument declares one main and three auxiliary output buses (the auxiliary ones off by default) and crashes in `process` unless the host passes all four, each with a buffer list that is not null even when the bus is off |
-//! | `editor` | the controller offers an editor view (Windows): a text field to type in, a resize button, user resizing and a scale readout; without it there is no view |
-//! | `editor_hang=MS` | as `editor`, and the editor's window thread stops answering `MS` milliseconds after it is attached |
-//! | `set_dirty` | the instrument lists the trigger, and stepping it on makes the plugin tell the host `setDirty(true)` and nothing else: a change inside it that no parameter shows |
-//! | `values_changed` | as `set_dirty`, but the plugin asks the host to restart with `kParamValuesChanged`, as a plugin does when a patch loads |
-//! | `titles_changed` | the instrument lists the trigger, and stepping it on renames the trigger "Triggered", reads every other value with " (new)" after its words, and asks the host to restart with `kParamTitlesChanged`, as a plugin does when a patch names its controls anew |
-//! | `headless_editor` | no effect on the plugin: the host (not this plugin) stands in for an editor window that is only a record of where it would be, for tests where there are no windows (`LUMEN_HOST_HEADLESS_EDITOR`) |
-//! | `headless_hang=MS` | as `headless_editor`, and opening it blocks the host's main thread for `MS` milliseconds |
-//! | `headless_close=MS` | as `headless_editor`, and the "user" closes it `MS` milliseconds after it opens |
-//! | `headless_press=CODE` | as `headless_editor`, and once Lumen asks for the key `CODE` (a Windows virtual-key code) while the window is open, the "user" presses and lets go of it there |
-//! | `presets` | the instrument offers a program list (three programs, selected by a program-change parameter, id 91, that sets its level and wave as edits of its own) and both plugins keep an edit-controller state (a view value) that `getState` writes and `setState` restores |
-//! | `release=MS` | the instrument's released notes fade out over `MS` milliseconds while it reports no tail: what a synth with a long release does |
-//! | `multi_out=N` | the instrument declares one main and `N - 1` auxiliary stereo output buses (off by default) and plays each note on the bus its pitch picks (`pitch % N`) when the host has that bus on, on the main bus when it has not |
-//! | `sidechain` | the effect declares a stereo sidechain input (an auxiliary bus, off by default) and, when the host has it on, silences its output by how loud the sidechain has been (the louder of its two channels, as a peak that falls away over 0.1 s: a level of 0.25 or more mutes it completely, a quiet one takes away a part) |
-//! | `bus_change` | the instrument lists the trigger, and stepping it on adds one more auxiliary output bus and asks the host to restart with `kIoChanged`, as a plugin does when its outputs change |
-//! | `instrument_latency=N` | the instrument reports `N` samples of latency (at most 4096) and plays its notes that late, as a plugin that looks ahead does |
-//!
-//! `@N` counts process calls from 0 and defaults to 0.
-
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
@@ -65,9 +17,7 @@ pub enum Kind {
     FactoryNull,
     FactoryCrash,
     FactoryHang,
-    /// Writes to the standard output, in the factory and in `process`.
     Prints,
-    /// The module's entry point reports failure.
     EntryFalse,
     EntryRequired,
     LifecycleOrder,
@@ -79,8 +29,6 @@ pub enum Kind {
     ProcessSlow,
     StateFail,
     StateGarbage,
-    /// The component refuses its first `arg` `setState` calls (a plugin still
-    /// loading its content).
     StateRefused,
     StateHang,
     BadBuses,
@@ -110,8 +58,6 @@ pub enum Kind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Fault {
     pub kind: Kind,
-    /// The process call it starts at (`@N`), or the busy-wait in
-    /// microseconds for `process_slow`.
     pub arg: u64,
 }
 
@@ -203,8 +149,6 @@ impl Faults {
         Ok(Self(list))
     }
 
-    /// The faults the environment asks for. A malformed value is reported on
-    /// stderr and injects nothing: a typo must not look like a plugin bug.
     pub fn from_env() -> Self {
         let Ok(text) = std::env::var(ENV) else {
             return Self::default();
@@ -219,24 +163,18 @@ impl Faults {
         self.0.iter().any(|f| f.kind == kind)
     }
 
-    /// Whether `kind` applies to process call number `call` (from its
-    /// start call onward).
     pub fn from_call(&self, kind: Kind, call: u64) -> bool {
         self.0.iter().any(|f| f.kind == kind && call >= f.arg)
     }
 
-    /// Whether `kind` applies exactly at process call number `call`.
     pub fn at_call(&self, kind: Kind, call: u64) -> bool {
         self.0.iter().any(|f| f.kind == kind && call == f.arg)
     }
 
-    /// Whether the controller offers an editor view (`editor` or
-    /// `editor_hang`).
     pub fn editor(&self) -> bool {
         self.has(Kind::Editor) || self.has(Kind::EditorHang)
     }
 
-    /// How long after attaching the editor stops answering, if it should.
     pub fn editor_hang(&self) -> Option<Duration> {
         self.0
             .iter()
@@ -244,7 +182,6 @@ impl Faults {
             .map(|f| Duration::from_millis(f.arg))
     }
 
-    /// How many `setState` calls are refused first (`state_refused`).
     pub fn state_refusals(&self) -> u64 {
         self.0
             .iter()
@@ -252,7 +189,6 @@ impl Faults {
             .map_or(0, |f| f.arg)
     }
 
-    /// How long released notes take to fade out (`release`), if asked.
     pub fn release(&self) -> Option<Duration> {
         self.0
             .iter()
@@ -260,7 +196,6 @@ impl Faults {
             .map(|f| Duration::from_millis(f.arg))
     }
 
-    /// The instrument's output buses (`multi_out`), if asked.
     pub fn multi_out(&self) -> Option<u32> {
         self.0
             .iter()
@@ -268,7 +203,6 @@ impl Faults {
             .map(|f| f.arg as u32)
     }
 
-    /// The instrument's latency in samples (`instrument_latency`), if asked.
     pub fn instrument_latency(&self) -> Option<u32> {
         self.0
             .iter()
@@ -276,7 +210,6 @@ impl Faults {
             .map(|f| f.arg.min(u64::from(crate::params::MAX_LATENCY)) as u32)
     }
 
-    /// How many extra parameters `many_params` adds (0 when not asked).
     pub fn many_params(&self) -> u32 {
         self.0
             .iter()
@@ -284,7 +217,6 @@ impl Faults {
             .map_or(0, |f| f.arg.min(20_000) as u32)
     }
 
-    /// The busy-wait asked for by `process_slow`, if any.
     pub fn slow(&self) -> Option<Duration> {
         self.0
             .iter()
@@ -309,21 +241,17 @@ pub fn lifecycle_has(faults: &Faults, events: u32) -> bool {
     !faults.has(Kind::LifecycleOrder) || LIFECYCLE.load(Ordering::Relaxed) & events == events
 }
 
-/// Crashes the way a plugin with a wild pointer does.
 pub fn crash() -> ! {
-    // SAFETY: deliberately not safe: this simulates a plugin crashing.
     unsafe { std::ptr::null_mut::<u32>().write_volatile(0xDEAD) };
     std::process::abort()
 }
 
-/// Never returns.
 pub fn hang() -> ! {
     loop {
         std::thread::sleep(Duration::from_secs(3600));
     }
 }
 
-/// Burns CPU for `d`, as a plugin doing real work does.
 pub fn busy_wait(d: Duration) {
     let start = Instant::now();
     while start.elapsed() < d {

@@ -1,9 +1,3 @@
-//! A plugin's own window and Learn (M6 slice 4f), driven as a person does it.
-//! The host's stand-in window (`headless_editor` in a module's faults) records
-//! where a window would be, so the whole path from the card's button to the
-//! host and back is exercised without a window system; the real Windows
-//! window is MT-VST-4.
-
 use eframe::egui::{Event, Key, Modifiers};
 use egui_kittest::kittest::Queryable;
 use lumen_core::time::Ticks;
@@ -37,27 +31,20 @@ fn project() -> Project {
         "Lumen",
         DeviceKind::Instrument,
     )];
-    // A second track with nothing on it, to go to and come back from.
     let pads = midi_track(PADS.0, "Pads", "poly", (0, 64), None, vec![], vec![]);
     project_of("Editors", vec![track, pads])
 }
 
 fn faults(stem: &str) -> Option<&'static str> {
     match stem {
-        // A window that is only a record, and a plugin that edits its wave
-        // when its trigger is set, as a control moved in its window would.
         "Window" => Some("window_edits,many_params=20,headless_editor"),
-        // Opening the window blocks the host's main thread for a while.
         "Hang" => Some("headless_editor,headless_hang=2500"),
-        // The user closes the window a moment after it opens.
         "Gone" => Some("headless_editor,headless_close=400"),
-        // The user presses A in the window once its host takes A.
         "Press" => Some("headless_editor,headless_press=65"),
         _ => None,
     }
 }
 
-/// Lumen with the instrument on a track, running, and its Devices tab showing.
 fn launch(name: &str, module: &str) -> Lumen {
     let dir = TempDir::new(&format!("e2e-editors-{name}"));
     let path = dir.path().join("song.lumen");
@@ -83,10 +70,8 @@ fn launch(name: &str, module: &str) -> Lumen {
     lumen
 }
 
-/// Takes the knob called `name` off the strip, by its menu.
 #[track_caller]
 fn take_off(lumen: &mut Lumen, name: &str) {
-    // A knob is named "<name>, parameter: <text>", a switch by its name.
     let at = match lumen
         .harness
         .query_by_label_contains(&format!("{name}, parameter"))
@@ -99,7 +84,6 @@ fn take_off(lumen: &mut Lumen, name: &str) {
     lumen.frames(4);
 }
 
-/// Runs the command the palette finds for `words`.
 fn palette(lumen: &mut Lumen, words: &str) {
     lumen.key(Modifiers::COMMAND, Key::K);
     lumen.key(Modifiers::COMMAND, Key::A);
@@ -109,7 +93,6 @@ fn palette(lumen: &mut Lumen, words: &str) {
     lumen.frames(5);
 }
 
-/// Frames until a control called `label` is on screen.
 #[track_caller]
 fn wait_shows(lumen: &mut Lumen, label: &str) {
     lumen.run_until(&format!("`{label}` to appear"), |l| l.shows(label));
@@ -118,8 +101,6 @@ fn wait_shows(lumen: &mut Lumen, label: &str) {
 #[test]
 fn the_editor_button_opens_the_window_where_it_was_and_closes_it() {
     let mut lumen = launch("open", "Window");
-    // Left at a place on an earlier day: it opens there, not where the
-    // system would put it.
     lumen
         .app_mut()
         .set_editor_place(PLUGIN, (321, 123, 640, 480));
@@ -138,11 +119,8 @@ fn a_window_goes_when_another_track_is_chosen_and_comes_back_with_its_own() {
     lumen.click("Open editor");
     wait_shows(&mut lumen, "Close editor");
     assert!(!lumen.app().editor_hidden(PLUGIN));
-    // On the other track the window is hidden, not closed.
     lumen.app_mut().select_tracks(&[PADS]);
     lumen.wait_for("the window to be hidden", |app| app.editor_hidden(PLUGIN));
-    // Back on its own track it is shown again, and the card still reports it
-    // open: nothing was lost.
     lumen.app_mut().select_tracks(&[KEYS]);
     lumen.wait_for("the window to be shown", |app| !app.editor_hidden(PLUGIN));
     lumen.app_mut().choose_card(PLUGIN);
@@ -177,7 +155,6 @@ fn a_window_first_opened_is_remembered_for_next_time() {
     lumen.wait_for("its place to be remembered", |app| {
         app.editor_place(PLUGIN).is_some()
     });
-    // The stand-in's own default place and size.
     assert_eq!(lumen.app().editor_place(PLUGIN), Some((100, 100, 320, 200)));
 }
 
@@ -195,21 +172,15 @@ fn a_plugin_that_stops_answering_is_flagged_and_ended_only_when_the_user_says() 
     lumen.click("Open editor");
     wait_shows(&mut lumen, "Editor not responding");
     assert!(lumen.shows("End plugin"));
-    // It is never ended on its own: the window code finishes after a while
-    // and the button goes on as before.
     wait_shows(&mut lumen, "Close editor");
     assert!(!lumen.shows("End plugin"));
 }
 
-/// The owner's report (MT-VST-4): with the plugin's window in front, the
-/// computer keyboard played nothing, so changes could not be heard without
-/// going back to Lumen. With the mode on, its keys pressed in the window play.
 #[test]
 fn the_computer_keyboard_plays_from_the_plugins_window() {
     let mut lumen = launch("press", "Press");
     lumen.click("Open editor");
     wait_shows(&mut lumen, "Close editor");
-    // Off: the host is asked for no keys, and the window keeps them.
     lumen.frames(20);
     assert!(lumen.app_mut().computer_keyboard_sent().is_empty());
     lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::K);
@@ -252,10 +223,8 @@ fn ending_a_stuck_plugin_shows_the_card_as_stopped_with_reload() {
 #[test]
 fn learn_puts_the_next_control_touched_in_the_window_on_the_strip() {
     let mut lumen = launch("learn", "Window");
-    // Take the wave off the strip, so touching it has something to do.
     assert!(lumen.app().strip_parameters(PLUGIN).contains(&WAVE));
     take_off(&mut lumen, "Wave");
-    // And a slot more, so the strip still has room once the wave is on it.
     take_off(&mut lumen, "Level");
     assert_eq!(lumen.app().strip_parameters(PLUGIN).len(), 6);
     assert!(!lumen.app().strip_parameters(PLUGIN).contains(&WAVE));
@@ -264,15 +233,12 @@ fn learn_puts_the_next_control_touched_in_the_window_on_the_strip() {
     wait_shows(&mut lumen, "Stop learning");
     wait_shows(&mut lumen, "Close editor");
     assert!(lumen.app().learning(PLUGIN));
-    // A control touched in the plugin's window: its trigger makes it edit
-    // its wave as a gesture.
     lumen.app_mut().poke_plugin(PLUGIN, TRIGGER, 1.0);
     lumen.wait_for("the wave to join the strip", |app| {
         app.strip_parameters(PLUGIN).contains(&WAVE)
     });
     let ids = lumen.app().strip_parameters(PLUGIN);
     assert_eq!(*ids.last().unwrap(), WAVE, "it takes the next free slot");
-    // A second click ends it.
     lumen.click("Stop learning");
     lumen.frames(3);
     assert!(!lumen.app().learning(PLUGIN));
@@ -307,7 +273,6 @@ fn the_editor_command_opens_and_closes_the_chosen_plugins_window() {
 #[test]
 fn learn_will_not_start_with_no_room_and_ends_when_the_strip_fills() {
     let mut lumen = launch("learn-full", "Window");
-    // The strip starts full: Learn says so and stays off.
     assert_eq!(lumen.app().strip_parameters(PLUGIN).len(), 8);
     lumen.click("Learn");
     lumen.frames(4);
@@ -320,7 +285,6 @@ fn learn_will_not_start_with_no_room_and_ends_when_the_strip_fills() {
         "{:?}",
         lumen.app().note()
     );
-    // With one slot free, the first control touched fills it and ends Learn.
     take_off(&mut lumen, "Wave");
     lumen.click("Learn");
     wait_shows(&mut lumen, "Stop learning");
@@ -343,8 +307,6 @@ fn where_there_are_no_windows_the_button_says_so_and_learn_hides() {
     assert!(lumen.shows("All parameters (2)"));
 }
 
-/// Whether the track holds a hosted plugin (a new MIDI track has the
-/// built-in synth, which the plugin replaces).
 fn has_plugin(lumen: &Lumen, track: Id) -> bool {
     lumen
         .app()
@@ -374,7 +336,6 @@ fn a_device_dragged_from_the_browser_onto_a_track_header_shows_the_track_and_ope
     assert!(has_plugin(&lumen, PADS), "the device is on the track");
     assert!(lumen.shows("Deterministic Test Instrument on Pads"));
     wait_shows(&mut lumen, "Close editor");
-    // One undo step put it there, and Undo takes it away again.
     assert_eq!(
         lumen.app().undo_label(),
         Some("Replace instrument with Deterministic Test Instrument")
@@ -415,8 +376,6 @@ fn a_drag_that_ends_on_no_track_adds_nothing_and_opens_nothing() {
 
 #[test]
 fn a_value_changed_in_the_plugins_window_is_never_sent_back_to_it() {
-    // The old value must not go back to the plugin in the moment before the
-    // project holds the new one: the control would jump back and forth.
     let mut lumen = launch("no-snap-back", "Window");
     assert_eq!(lumen.app().values_sent_to(PLUGIN), 0);
     lumen.app_mut().poke_plugin(PLUGIN, TRIGGER, 1.0);

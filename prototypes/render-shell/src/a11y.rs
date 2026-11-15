@@ -1,8 +1,3 @@
-//! Spike: what accessibility costs without a toolkit. AccessKit exposes a
-//! hand-built tree (transport buttons, track toggles) to UI Automation. A
-//! real custom toolkit would generate this from its widget tree and keep it
-//! updated, with focus, bounds and actions.
-
 use accesskit::{
     Action, ActionHandler, ActionRequest, ActivationHandler, DeactivationHandler, Node, NodeId,
     Role, Tree, TreeId, TreeUpdate,

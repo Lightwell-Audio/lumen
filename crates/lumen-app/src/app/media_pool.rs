@@ -1,12 +1,3 @@
-//! The media pool in the app (M9 slice R4b, ADR-0106): the state of the
-//! browser's Project media tab, relinking missing files, removing the ones
-//! nothing plays, and clearing files that belong to no project. The rules are
-//! `crate::pool`, `crate::relink` and `crate::strays`; the tab is drawn by
-//! `browser::media_tab`.
-//!
-//! Everything that reads the disk runs on a worker and is answered through a
-//! channel polled once a frame.
-
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver};
@@ -23,7 +14,6 @@ use crate::strays::{self, Cleared, Strays};
 use crate::widgets::raised;
 use crate::{App, media};
 
-/// Which rows the tab lists.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum Filter {
     #[default]
@@ -32,28 +22,23 @@ pub(crate) enum Filter {
     Unused,
 }
 
-/// What the disk said about the project's files and folders.
 #[derive(Debug, Default)]
 struct Scan {
     strays: Strays,
-    /// Files the document knows that are no longer on disk.
     absent: Vec<Id>,
 }
 
-/// A folder search under way.
 pub(crate) struct Search {
     rx: Receiver<Result<Report, Stopped>>,
     pub(crate) control: Control,
     pub(crate) folder: PathBuf,
 }
 
-/// A file the user chose for a missing item, being measured.
 struct Checking {
     id: Id,
     rx: Receiver<(PathBuf, Verdict)>,
 }
 
-/// What the rows were made from, to know when to make them again.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Made {
     session: u64,
@@ -74,41 +59,28 @@ pub(crate) struct MediaPool {
     scanning: Option<Receiver<Scan>>,
     scans: u64,
     scanned: Option<Made>,
-    /// The item a file dialog was opened for.
     locating: Option<Id>,
     checking: Option<Checking>,
-    /// A file of another length, waiting for the user to say it will do.
     pub(crate) confirm: Option<(Id, PathBuf, Option<u64>)>,
     pub(crate) search: Option<Search>,
-    /// What the last folder search found, waiting to be applied.
     pub(crate) report: Option<Report>,
     clearing: Option<Receiver<Cleared>>,
-    /// Clear was pressed once: the next press moves the files.
     pub(crate) armed: bool,
-    /// The banner about missing files was dismissed for this document.
     banner_off: Option<u64>,
-    /// The last thing that happened, in a sentence, until the next.
     pub(crate) note: Option<String>,
-    /// The Locate under way was asked for from the audio editor's File
-    /// chip: its answer is said as a toast too (M9.5 S3).
     pub(crate) say_answer: bool,
-    /// The files shown in the file manager. A test reads them instead of
-    /// opening a window (`App::show_in_file_manager`).
     pub(crate) revealed: Vec<PathBuf>,
 }
 
 impl MediaPool {
-    /// The scan found the file of media `id` gone.
     pub(crate) fn is_absent(&self, id: Id) -> bool {
         self.scan.absent.contains(&id)
     }
 
-    /// A file dialog is open to find the file of media `id`.
     pub(crate) fn is_locating(&self, id: Id) -> bool {
         self.locating == Some(id)
     }
 
-    /// Says `text` in the media tab, and as a toast when the editor asked.
     fn noted(&mut self, text: String) -> Option<String> {
         let say = std::mem::take(&mut self.say_answer);
         self.note = Some(text.clone());
@@ -123,7 +95,6 @@ impl MediaPool {
         &self.scan.strays
     }
 
-    /// Rows the filter and the words leave.
     pub(crate) fn shown(&self) -> Vec<&Row> {
         let words = self.text.trim().to_lowercase();
         self.rows
@@ -149,7 +120,6 @@ impl MediaPool {
         self.search.is_some() || self.checking.is_some() || self.clearing.is_some()
     }
 
-    /// Hides the missing-files banner for the document it is showing for.
     pub(crate) fn dismiss_banner(&mut self, session: u64) {
         self.banner_off = Some(session);
     }
@@ -158,7 +128,6 @@ impl MediaPool {
         self.banner_off == Some(session)
     }
 
-    /// The pool belongs to one document: a new one starts it over.
     pub(crate) fn reset(&mut self) {
         *self = Self {
             text: std::mem::take(&mut self.text),
@@ -169,13 +138,10 @@ impl MediaPool {
 }
 
 impl App {
-    /// Shows the browser on the Project media tab.
     pub(crate) fn show_media_pool(&mut self) {
         self.show_browser_tab(crate::browser::Tab::Media);
     }
 
-    /// The project's media that are not on this machine, as the project knows
-    /// them: what a search looks for.
     pub(crate) fn missing_media(&self) -> Vec<Media> {
         let absent = &self.media_pool.scan.absent;
         self.document
@@ -187,8 +153,6 @@ impl App {
             .collect()
     }
 
-    /// Called every frame: answers from the workers, and the next scan when
-    /// the project or its files changed.
     pub(crate) fn poll_media_pool(&mut self, ctx: &egui::Context) {
         if let Some(scan) = self
             .media_pool
@@ -213,9 +177,6 @@ impl App {
             self.media_pool.scanned = None;
             self.media_pool.note = Some(cleared_note(&cleared));
         }
-        // The rows are cheap, and kept for the frames the project does not
-        // change; the disk is read only while the tab is on screen or a
-        // banner needs the answer.
         let now = self.media_pool_key();
         if self.media_pool.made != Some(now) {
             let folders = Folders {
@@ -250,8 +211,6 @@ impl App {
             match self.start_scan() {
                 Ok(rx) => self.media_pool.scanning = Some(rx),
                 Err(error) => {
-                    // The missing-file answers stay as they were, and the
-                    // next change tries again.
                     let why = crate::spawn::start_failed("the media scan", &error);
                     crate::trace::log(|| format!("media pool: {why}"));
                     self.say(why);
@@ -270,8 +229,6 @@ impl App {
         }
     }
 
-    /// Whether something is writing audio into the work folders, so a file
-    /// there that no entry names yet may be one being made.
     pub(crate) fn is_working_in_files(&self) -> bool {
         self.consolidating.is_some()
             || self.bouncing.is_some()
@@ -316,7 +273,6 @@ impl App {
         Ok(rx)
     }
 
-    /// Asks which file stands in for the missing item `id`.
     pub(crate) fn locate_media(&mut self, ctx: &egui::Context, id: Id) {
         if self.dialog.is_some() || self.media_pool.checking.is_some() {
             return;
@@ -345,11 +301,9 @@ impl App {
         });
     }
 
-    /// The file dialog for Locate answered.
     pub(crate) fn located(&mut self, ctx: &egui::Context, path: Option<PathBuf>) {
         let id = self.media_pool.locating.take();
         let (Some(id), Some(path)) = (id, path) else {
-            // The dialog was cancelled: nothing to say.
             self.media_pool.say_answer = false;
             return;
         };
@@ -371,7 +325,6 @@ impl App {
             ctx.request_repaint();
         });
         if let Err(error) = spawned {
-            // Nothing waits on a check that never started.
             let why = crate::spawn::start_failed("checking the file", &error);
             crate::trace::log(|| format!("media pool: {why}"));
             self.say(why);
@@ -411,7 +364,6 @@ impl App {
         }
     }
 
-    /// Puts a file where the project lost one, and says so.
     pub(crate) fn relink_media(&mut self, id: Id, path: PathBuf) {
         let name = file_name(&path);
         if self.document.relink(id, path) {
@@ -426,14 +378,12 @@ impl App {
         }
     }
 
-    /// The user said the file of another length will do.
     pub(crate) fn accept_confirmed(&mut self) {
         if let Some((id, path, _)) = self.media_pool.confirm.take() {
             self.relink_media(id, path);
         }
     }
 
-    /// Asks which folder to search for the missing files.
     pub(crate) fn search_folder_for_media(&mut self, ctx: &egui::Context) {
         if self.dialog.is_some()
             || self.media_pool.search.is_some()
@@ -458,7 +408,6 @@ impl App {
         });
     }
 
-    /// The folder dialog answered: the search begins.
     pub(crate) fn searching_folder(&mut self, ctx: &egui::Context, folder: PathBuf) {
         let wanted = self.missing_media();
         if wanted.is_empty() {
@@ -491,7 +440,6 @@ impl App {
             return;
         };
         let Ok(result) = search.rx.try_recv() else {
-            // Moves the progress bar.
             ctx.request_repaint_after(crate::motion::PROGRESS_FRAME);
             return;
         };
@@ -507,14 +455,12 @@ impl App {
         }
     }
 
-    /// Esc, or the Stop button.
     pub(crate) fn stop_search(&mut self) {
         if let Some(search) = &self.media_pool.search {
             search.control.stop();
         }
     }
 
-    /// Relinks everything the last search found that is safe to use.
     pub(crate) fn apply_report(&mut self) {
         let Some(report) = self.media_pool.report.take() else {
             return;
@@ -539,7 +485,6 @@ impl App {
         self.media_pool.note = Some(note);
     }
 
-    /// Drops from the project the entries nothing plays, as one undo step.
     pub(crate) fn remove_unused_media(&mut self) {
         let ids: Vec<Id> = self
             .media_pool
@@ -558,8 +503,6 @@ impl App {
         });
     }
 
-    /// Clear is pressed: the first press asks, the second moves the files to
-    /// the trash on a worker.
     pub(crate) fn clear_stray_files(&mut self, ctx: &egui::Context) {
         let strays = self.media_pool.scan.strays.files.clone();
         if strays.is_empty() || self.media_pool.clearing.is_some() || self.is_working_in_files() {
@@ -586,7 +529,6 @@ impl App {
         }
     }
 
-    /// The missing file chosen in the tab, which Locate acts on.
     pub(crate) fn selected_missing_media(&self) -> Option<Id> {
         let id = self.media_pool.selected?;
         self.media_pool
@@ -596,7 +538,6 @@ impl App {
             .then_some(id)
     }
 
-    /// Selects the clips that play `id` in the arrangement.
     pub(crate) fn select_clips_of(&mut self, id: Id) {
         use lumen_project::model::ClipContent;
         let clips: Vec<Id> = self
@@ -611,7 +552,6 @@ impl App {
         self.arrangement.clips = clips.into_iter().collect();
     }
 
-    /// Why the pool's commands cannot run now.
     pub(crate) fn media_pool_unavailable(&self) -> Result<(), &'static str> {
         if self.dialog.is_some() {
             Err(wait::DIALOG)
@@ -622,8 +562,6 @@ impl App {
         }
     }
 
-    /// The banner for audio the project names that is not here, with the way
-    /// to put it back. Called every frame, with the other banners.
     pub(crate) fn missing_media_banner(&mut self, ui: &mut egui::Ui) {
         let Some(missing) = self.missing_banner() else {
             return;
@@ -654,7 +592,6 @@ impl App {
         }
     }
 
-    /// Whether the missing-files banner shows.
     pub(crate) fn missing_banner(&self) -> Option<usize> {
         if self.media_pool.banner_dismissed(self.document.session()) {
             return None;

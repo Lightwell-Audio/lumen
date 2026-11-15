@@ -1,21 +1,13 @@
-//! The Mixer tab (M4 slice 5): a strip per track in the arrangement's order
-//! and folding, returns after the tracks and the master pinned at the
-//! right, every control by name, routing from a strip, and the loudness
-//! column.
-
 use eframe::egui::{Event, Key, Modifiers, PointerButton, vec2};
 use egui_kittest::kittest::{NodeT, Queryable};
 use lumen_project::model::Output;
 
 use super::Lumen;
 
-/// Three audio tracks, the first two grouped (Group 1 › Audio 1, Audio 2),
-/// Audio 3 outside, and a return; the mixer tall enough for every section.
 fn mixed(name: &str) -> Lumen {
     mixed_with(name, 1)
 }
 
-/// As [`mixed`], with `returns` returns.
 fn mixed_with(name: &str, returns: usize) -> Lumen {
     let mut lumen = Lumen::start(name);
     for _ in 0..3 {
@@ -32,8 +24,6 @@ fn mixed_with(name: &str, returns: usize) -> Lumen {
     lumen
 }
 
-/// Drags the detail panel taller, so every strip section shows (a short
-/// panel folds them away, the owner's B7).
 fn tall_mixer(lumen: &mut Lumen) {
     lumen.app_mut().set_detail_size(480.0);
     lumen.frames(3);
@@ -58,7 +48,6 @@ fn track<'a>(lumen: &'a Lumen, name: &str) -> &'a lumen_project::model::Track {
         .expect("track")
 }
 
-/// The strips on screen, left to right.
 fn strips(lumen: &Lumen) -> Vec<String> {
     let mut found: Vec<(f32, String)> = lumen
         .harness
@@ -78,7 +67,6 @@ fn strips(lumen: &Lumen) -> Vec<String> {
     found.into_iter().map(|(_, n)| n).collect()
 }
 
-/// Clicks once at the middle of the control named like `label`.
 fn press(lumen: &mut Lumen, label: &str) {
     let at = lumen.harness.get_by_label_contains(label).rect().center();
     lumen.harness.hover_at(at);
@@ -103,19 +91,15 @@ fn strips_follow_the_arrangement_with_returns_after_and_one_fold_for_both() {
         ],
         "tracks in order, then the returns, then the master"
     );
-    // The master is pinned at the right, with the loudness column.
     assert!(lumen.shows("Mute Master in the mixer"));
     assert!(lumen.shows("Reset integrated loudness"));
 
-    // Folding the group in the arrangement folds it in the mixer (B4)...
     lumen.click("Fold group Group 1");
     assert_eq!(strips(&lumen), ["Group 1", "Audio 3", "Return 1", "Master"]);
-    // ...and unfolding it from its strip shows it in both again.
     lumen.click("Fold group Group 1 in the mixer");
     assert_eq!(strips(&lumen).len(), 6);
     assert!(lumen.shows("Audio 1: double-click to rename"));
 
-    // A click on a strip selects its track, as a click on its header does.
     lumen
         .harness
         .get_by_label_contains(&strip("Audio 3"))
@@ -129,7 +113,6 @@ fn strips_follow_the_arrangement_with_returns_after_and_one_fold_for_both() {
 fn every_strip_control_sets_its_track_in_one_undo_step() {
     let mut lumen = mixed("mixer-controls");
 
-    // The fader: dragged up, one step.
     let fader = lumen
         .harness
         .get_by_label_contains("Audio 3 fader in the mixer:")
@@ -145,14 +128,12 @@ fn every_strip_control_sets_its_track_in_one_undo_step() {
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert_eq!(track(&lumen, "Audio 3").gain_db, 0.0);
 
-    // The volume typed in the field under the fader.
     press(&mut lumen, "Audio 3 volume in the mixer:");
     lumen.key(Modifiers::COMMAND, Key::A);
     lumen.harness.event(Event::Text("-12".into()));
     lumen.key(Modifiers::NONE, Key::Enter);
     assert_eq!(track(&lumen, "Audio 3").gain_db, -12.0);
 
-    // Pan, dragged hard right.
     let pan = lumen
         .harness
         .get_by_label_contains("Audio 3 pan in the mixer:")
@@ -164,7 +145,6 @@ fn every_strip_control_sets_its_track_in_one_undo_step() {
     );
     assert_eq!(track(&lumen, "Audio 3").pan, 1.0);
 
-    // Polarity and trim.
     lumen.click("Invert polarity of Audio 3 in the mixer");
     assert!(track(&lumen, "Audio 3").invert);
     let trim = lumen
@@ -179,7 +159,6 @@ fn every_strip_control_sets_its_track_in_one_undo_step() {
     assert!(track(&lumen, "Audio 3").trim_db > 1.0);
     assert_eq!(lumen.app().undo_label(), Some("Change input trim"));
 
-    // The send to the return, turned up from the strip (O2).
     let send = lumen
         .harness
         .get_by_label_contains("Send Audio 3 to A Return 1 in the mixer")
@@ -192,14 +171,12 @@ fn every_strip_control_sets_its_track_in_one_undo_step() {
     let level = track(&lumen, "Audio 3").sends[0].level.0;
     assert!(level > -30.0, "{level}");
 
-    // Mute and solo, as on the header.
     lumen.click("Mute Audio 3 in the mixer");
     assert!(track(&lumen, "Audio 3").mute);
     assert!(lumen.is_on("Mute Audio 3"), "the header shows it too");
     lumen.click("Solo Audio 3 in the mixer");
     assert!(track(&lumen, "Audio 3").solo);
 
-    // Renamed from its strip.
     let name = lumen
         .harness
         .get_by_label("Audio 3 in the mixer: double-click to rename")
@@ -221,7 +198,6 @@ fn the_output_menu_routes_into_a_group_and_never_offers_a_loop() {
     assert!(lumen.shows("Audio 3 output in the mixer: Group 1"));
     assert_eq!(lumen.app().undo_label(), Some("Change output"));
 
-    // A group is never offered as its own output.
     lumen.click("Group 1 output in the mixer: Master");
     assert!(!lumen.shows("Group 1"), "Group 1 offered as its own output");
     assert!(lumen.shows("Master"));
@@ -249,7 +225,6 @@ fn the_loudness_column_resets_on_click() {
     );
 }
 
-/// A point on `name`'s strip clear of its controls: beside its meter.
 fn grip(lumen: &Lumen, name: &str) -> eframe::egui::Pos2 {
     let rect = lumen.harness.get_by_label_contains(&strip(name)).rect();
     eframe::egui::pos2(rect.right() - 3.0, rect.center().y)
@@ -258,7 +233,6 @@ fn grip(lumen: &Lumen, name: &str) -> eframe::egui::Pos2 {
 #[test]
 fn dragging_a_strip_moves_its_track_and_returns_reorder_among_themselves() {
     let mut lumen = mixed_with("mixer-drag", 2);
-    // Audio 3 onto the middle of the group's strip: it goes in at the end.
     let to = lumen
         .harness
         .get_by_label_contains(&strip("Group 1"))
@@ -272,7 +246,6 @@ fn dragging_a_strip_moves_its_track_and_returns_reorder_among_themselves() {
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert_eq!(track(&lumen, "Audio 3").parent, None);
 
-    // The second return, dragged before the first: the letters follow.
     let names = |lumen: &Lumen| -> Vec<String> {
         lumen
             .app()
@@ -295,7 +268,6 @@ fn dragging_a_strip_moves_its_track_and_returns_reorder_among_themselves() {
         Modifiers::NONE,
     );
     assert_eq!(names(&lumen), ["Return 2", "Return 1"]);
-    // Returns stay among returns: a track strip takes no return.
     let audio = grip(&lumen, "Audio 3");
     let from = grip(&lumen, "Return 1");
     lumen.drag(from, audio, Modifiers::NONE);
@@ -309,7 +281,6 @@ fn the_pan_law_is_chosen_from_the_mixers_menu_and_the_palette() {
     use lumen_core::pan::PanLaw;
     let mut lumen = mixed("mixer-pan-law");
     assert_eq!(lumen.app().project().pan_law, PanLaw::ConstantPower);
-    // Right-click the mixer's empty area, left of the master.
     let master = lumen.harness.get_by_label_contains(&strip("Master")).rect();
     lumen.right_click(eframe::egui::pos2(master.left() - 60.0, master.center().y));
     lumen.click("\u{2212}6 dB, linear");
@@ -318,7 +289,6 @@ fn the_pan_law_is_chosen_from_the_mixers_menu_and_the_palette() {
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert_eq!(lumen.app().project().pan_law, PanLaw::ConstantPower);
 
-    // And from the palette.
     lumen.key(Modifiers::COMMAND, Key::K);
     lumen.harness.event(Event::Text("Pan law: 0 dB".into()));
     lumen.frames(2);
@@ -326,8 +296,6 @@ fn the_pan_law_is_chosen_from_the_mixers_menu_and_the_palette() {
     assert_eq!(lumen.app().project().pan_law, PanLaw::Balance);
 }
 
-/// Turns the wheel `notches` at `at` (up is positive), then lets egui's
-/// smoothed scroll settle.
 fn wheel(lumen: &mut Lumen, at: eframe::egui::Pos2, notches: i32, modifiers: Modifiers) {
     lumen.harness.hover_at(at);
     lumen.frames(2);
@@ -353,11 +321,9 @@ fn the_wheel_sets_a_control_its_gesture_starts_on() {
     wheel(&mut lumen, fader.center(), 3, Modifiers::NONE);
     let db = track(&lumen, "Audio 3").gain_db;
     assert!((db - 3.0).abs() < 0.01, "{db}");
-    // The whole gesture is one undo step.
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert_eq!(track(&lumen, "Audio 3").gain_db, 0.0);
 
-    // Pan: 5% a notch; a send's knob: a dB a notch, from silence to −60.
     let pan = lumen
         .harness
         .get_by_label_contains("Audio 3 pan in the mixer:")
@@ -376,7 +342,6 @@ fn the_wheel_sets_a_control_its_gesture_starts_on() {
 
 #[test]
 fn a_track_plays_straight_to_another_pair_of_outputs() {
-    // The owner's B6, on the four-output test device (no cue pair chosen).
     let mut lumen = Lumen::start("mixer-device-outputs");
     let file = super::wav(&lumen.dir().join("tone.wav"), 20.0);
     lumen.drop_files(&[file]);
@@ -388,7 +353,6 @@ fn a_track_plays_straight_to_another_pair_of_outputs() {
     assert!(lumen.shows("1/2 Main"), "the main pair is marked");
     lumen.click("3/4");
     assert_eq!(lumen.app().project().tracks[0].output, Output::Device(1));
-    // The stream reopens with outputs 3 and 4; the tone plays there only.
     lumen.wait_for("the audio to restart", lumen_app::App::audio_running);
     lumen.key(Modifiers::NONE, Key::Space);
     let heard = lumen.listen(std::time::Duration::from_millis(300), 1_000);
@@ -402,9 +366,6 @@ fn a_track_plays_straight_to_another_pair_of_outputs() {
 
 #[test]
 fn a_strips_sends_and_buttons_are_wells_as_on_the_header() {
-    // The interface audit's X1–X4: every return is a slot in one row on a
-    // strip, as on the header, and M, S and arm sit in one row under pan;
-    // a return has M and S, the master M alone.
     let mut lumen = mixed_with("mixer-wells", 3);
     let rect = |lumen: &Lumen, name: &str| lumen.harness.get_by_label_contains(name).rect();
     let strip = rect(&lumen, "Mixer strip: Audio 3");
@@ -433,7 +394,6 @@ fn a_strips_sends_and_buttons_are_wells_as_on_the_header() {
     assert!(!lumen.shows("Arm Return 1 in the mixer"));
     let master = rect(&lumen, "Mute Master in the mixer");
     assert!((master.center().y - buttons[0].center().y).abs() < 0.5);
-    // A slot is set as the header's is: click and type.
     let to = track(&lumen, "Return 2").id;
     lumen
         .harness

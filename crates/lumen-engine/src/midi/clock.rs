@@ -1,60 +1,28 @@
-//! MIDI clock out (M5 slice 7, ADR-0062; owner's F3: only while playing).
-//!
-//! Ports with Sync on get 24 clocks a quarter note, each at the frame its
-//! tick falls on through the tempo map (the tempo map's rounding, so within
-//! a sample of it), with the transport messages hardware sequencers expect:
-//!
-//! - **Start** when playing from the song's start, **Song Position Pointer**
-//!   then **Continue** from anywhere else;
-//! - **Stop, SPP, Continue** at a loop wrap or a jump while playing;
-//! - **Stop** on stop.
-//!
-//! A follower starts on the first clock after Start or Continue, at the
-//! position the pointer gave. The pointer counts sixteenth notes (six
-//! clocks), so from a place between two the clock waits for the next: the
-//! first clock sent is the one at the pointer's position, and the
-//! follower lines up exactly. The count-in sends nothing: the song, and
-//! the hardware with it, starts after it.
-//!
-//! The generator is plain arithmetic on the tempo map, real-time safe and
-//! tested on its own; the player hands each part to it and stamps what it
-//! makes with device frames, like every message for hardware.
-
 use lumen_core::midi::Msg;
 use lumen_core::time::{PPQ, Ticks};
 
 use crate::source::Jump;
 use crate::timeline::Timeline;
 
-/// Ticks between two clocks: a 24th of a quarter note.
 pub const CLOCK_TICKS: i64 = PPQ / 24;
-/// Clocks in a sixteenth note: the Song Position Pointer's step.
 const PER_SIXTEENTH: i64 = 6;
 
-/// What the next part begins with.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 enum Restart {
     #[default]
     Nothing,
-    /// Playback started: Start, or the pointer and Continue.
     Play,
-    /// A jump while running: Stop, the pointer and Continue.
     Jump,
 }
 
-/// The clock's state between parts.
 #[derive(Debug, Default)]
 pub struct ClockOut {
-    /// The next clock to send, counted from the song's start; `None` to
-    /// find it from the next part's start (after a tempo change).
     next: Option<i64>,
     restart: Restart,
-    /// Start or Continue went out, and Stop has not since.
     running: bool,
 }
 
 impl ClockOut {
-    /// The transport moved: playback started, or jumped.
     pub fn locate(&mut self, jump: Jump) {
         match jump {
             Jump::Play => self.restart = Restart::Play,
@@ -65,32 +33,25 @@ impl ClockOut {
                     Restart::Play
                 };
             }
-            // The same musical place on another sample: clocks carry on.
             Jump::Reposition => {}
         }
         self.next = None;
     }
 
-    /// Playback stopped: whether Stop goes out (it does if the clock was
-    /// running).
     pub fn stop(&mut self) -> bool {
         self.restart = Restart::Nothing;
         self.next = None;
         std::mem::take(&mut self.running)
     }
 
-    /// Forgets the clock without a Stop (no port has Sync on any more).
     pub fn reset(&mut self) {
         *self = Self::default();
     }
 
-    /// Whether Start or Continue went out and Stop has not since.
     pub fn running(&self) -> bool {
         self.running
     }
 
-    /// The messages for the part from timeline sample `start`, `frames`
-    /// long, each with its frame in the part. Real-time safe.
     pub fn part(
         &mut self,
         timeline: &Timeline,
@@ -109,8 +70,6 @@ impl ClockOut {
                 }
             }
             restart => {
-                // From the next sixteenth (or the song's start), where the
-                // pointer can say the follower is.
                 let k = first_clock(timeline, rate, start).max(0);
                 let k = (k + PER_SIXTEENTH - 1) / PER_SIXTEENTH * PER_SIXTEENTH;
                 if restart == Restart::Jump {
@@ -142,7 +101,6 @@ impl ClockOut {
     }
 }
 
-/// The first clock at or after timeline sample `start`.
 fn first_clock(timeline: &Timeline, rate: u32, start: i64) -> i64 {
     let sample_of = |k: i64| timeline.sample_at(Ticks(k * CLOCK_TICKS), rate);
     let t = timeline.ticks_at(start, rate).0;
@@ -165,8 +123,6 @@ mod tests {
 
     const RATE: u32 = 48_000;
 
-    /// Every message for `frames` from `start`, in parts of `block`, with
-    /// its timeline sample.
     fn run(
         clock: &mut ClockOut,
         timeline: &Timeline,
@@ -199,7 +155,6 @@ mod tests {
         let timeline = Timeline::default();
         let mut clock = ClockOut::default();
         clock.locate(Jump::Play);
-        // One 4/4 bar at 120 BPM is two seconds; odd blocks change nothing.
         let messages = run(&mut clock, &timeline, 0, 2 * i64::from(RATE), 127);
         assert_eq!(messages[0], (0, Msg::START));
         let at = clocks(&messages);
@@ -246,7 +201,6 @@ mod tests {
                 timeline.sample_at(Ticks(k as i64 * CLOCK_TICKS), RATE)
             );
         }
-        // 90 BPM at 48 kHz: 1,333⅓ samples a clock.
         assert!((1_333..=1_334).contains(&(at[100] - at[99])));
     }
 
@@ -255,8 +209,6 @@ mod tests {
         let timeline = Timeline::default();
         let mut clock = ClockOut::default();
         clock.locate(Jump::Play);
-        // A little after the second beat: the next sixteenth is the 5th
-        // (beat 2 is sixteenth 4), at clock 30.
         let start = timeline.sample_at(Ticks::quarters(1), RATE) + 10;
         let messages = run(&mut clock, &timeline, start, 24_000, 512);
         assert_eq!(messages[0], (start, Msg::song_position(5)));
@@ -299,7 +251,6 @@ mod tests {
         clock.locate(Jump::Reposition);
         let after = run(&mut clock, &timeline, second, second, 256);
         assert!(after.iter().all(|(_, m)| *m == Msg::CLOCK), "no pointer");
-        // Two seconds at 120 BPM: four quarters.
         assert_eq!(clocks(&before).len() + clocks(&after).len(), 96);
     }
 

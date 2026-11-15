@@ -1,17 +1,7 @@
-//! Traffic counters for the activity lights (M5 slice 2d): one counter per
-//! input slot and per output, bumped with relaxed atomics (no locks, no
-//! allocation) where messages pass; the UI compares them from frame to
-//! frame, and a change is a flash.
-
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
-/// Counters on each side. Input slots stay below the live feed's keyboard
-/// source (63).
 pub const SLOTS: usize = 64;
 
-/// Whether a message is playing, not housekeeping: note, controller, pitch
-/// bend, pressure and program messages count; clock, active sensing and
-/// the other system messages do not.
 pub fn counts(bytes: &[u8]) -> bool {
     bytes.first().is_some_and(|s| (0x80..0xF0).contains(s))
 }
@@ -19,8 +9,6 @@ pub fn counts(bytes: &[u8]) -> bool {
 pub struct Activity {
     inputs: [AtomicU32; SLOTS],
     outputs: [AtomicU32; SLOTS],
-    /// The keys held down on each input slot, one bit a key (any channel):
-    /// a light stays lit for as long as a key is down.
     held: [[AtomicU64; 2]; SLOTS],
 }
 
@@ -35,7 +23,6 @@ impl Default for Activity {
 }
 
 impl Activity {
-    /// A message arrived on input `slot`; real-time safe.
     pub fn input(&self, slot: u16, bytes: &[u8]) {
         if counts(bytes)
             && let Some(c) = self.inputs.get(usize::from(slot))
@@ -45,9 +32,6 @@ impl Activity {
         self.track_held(slot, bytes);
     }
 
-    /// Keeps the keys held on `slot`: a note-on sets its key, a note-off
-    /// (or a note-on of velocity 0) clears it, All Notes Off and All Sound
-    /// Off clear them all.
     fn track_held(&self, slot: u16, bytes: &[u8]) {
         let Some(words) = self.held.get(usize::from(slot)) else {
             return;
@@ -68,7 +52,6 @@ impl Activity {
         }
     }
 
-    /// Lets go of every key held on input `slot` (its port closed).
     pub fn release(&self, slot: u16) {
         if let Some(words) = self.held.get(usize::from(slot)) {
             for word in words {
@@ -77,14 +60,12 @@ impl Activity {
         }
     }
 
-    /// Whether a key is held down on input `slot`.
     pub fn input_held(&self, slot: u16) -> bool {
         self.held
             .get(usize::from(slot))
             .is_some_and(|w| w.iter().any(|w| w.load(Ordering::Relaxed) != 0))
     }
 
-    /// A message was sent on output `slot`.
     pub fn output(&self, slot: u16, bytes: &[u8]) {
         if counts(bytes)
             && let Some(c) = self.outputs.get(usize::from(slot))
@@ -135,10 +116,8 @@ mod tests {
         assert!(!a.input_held(3));
         a.input(2, &[0x80, 60, 0]);
         assert!(a.input_held(2), "key 100 is still down");
-        // A note-on of velocity 0 is a note-off.
         a.input(2, &[0x91, 100, 0]);
         assert!(!a.input_held(2));
-        // Controllers and a stray note-off change nothing.
         a.input(2, &[0xB0, 64, 127]);
         a.input(2, &[0x80, 10, 0]);
         assert!(!a.input_held(2));

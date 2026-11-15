@@ -1,9 +1,3 @@
-//! Level meters (M4 slice 5, ADR-0040): the zones a level is drawn in, and
-//! the strip's stereo meter with its scale. Each bar is a sunken trough
-//! (the design system's FaderMeter, ADR-0052). Colours come from
-//! `theme::meter` (the owner's M1, with M2 as a setting); readings from
-//! `crate::meters`.
-
 use eframe::egui::{Align2, Color32, FontId, Painter, Rangef, Rect, Stroke};
 
 use super::knob::position;
@@ -11,16 +5,10 @@ use super::raised;
 use crate::meters::{FLOOR_DB, Reading};
 use crate::theme;
 
-/// The loudest a meter shows.
 pub const TOP_DB: f32 = 6.0;
 
-/// A bar's corner radius: the trough is 5 pt wide, and its fills are
-/// square, so the corners stay nearly so.
 const BAR_RADIUS: u8 = 1;
 
-/// The stretches of a bar from the floor up to `db`, each in one colour:
-/// below the warning level, up to full scale, and over it. Each is
-/// `(from, to, colour)`.
 pub fn zones(db: f32, base: Color32) -> impl Iterator<Item = (f32, f32, Color32)> {
     let mut from = FLOOR_DB;
     [theme::METER_WARN_DB, 0.0, TOP_DB]
@@ -36,14 +24,10 @@ pub fn zones(db: f32, base: Color32) -> impl Iterator<Item = (f32, f32, Color32)
         })
 }
 
-/// Where `db` sits on a vertical meter or fader spanning `ys`.
 pub fn y_at(ys: Rangef, db: f32) -> f32 {
     ys.max - position(db) * ys.span()
 }
 
-/// A stereo meter: two bars, left then right, in `rect` with `gap`
-/// between them; the peak faint behind the solid RMS, the hold line
-/// across. `heard`: drawn quieter when the track is not heard.
 pub fn vertical(
     painter: &Painter,
     rect: Rect,
@@ -72,7 +56,6 @@ pub fn vertical(
                 );
             }
         }
-        // The head: the level is light rising (ADR-0043).
         let rms = reading.rms[side];
         if rms > FLOOR_DB {
             let y = y_at(rect.y_range(), rms);
@@ -99,12 +82,9 @@ pub fn vertical(
     }
 }
 
-/// The length of a tick standing for a number without room.
 const TICK: f32 = 3.0;
-/// The least room between two numbers on a scale, in points.
 const LABEL_ROOM: f32 = 11.0;
 
-/// A mark on a scale: where it sits, and whether its number fits.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Mark {
     db: f32,
@@ -112,10 +92,6 @@ struct Mark {
     numbered: bool,
 }
 
-/// Places `marks`, given most important first, along `ys`: a mark's number
-/// shows when it is at least [`LABEL_ROOM`] from every number already
-/// placed; otherwise the mark is a tick (the interface audit's S3: on a
-/// short strip, −6 and −12 overlapped).
 fn place(ys: Rangef, marks: &[f32]) -> Vec<Mark> {
     let mut placed: Vec<Mark> = Vec::with_capacity(marks.len());
     for &db in marks {
@@ -129,8 +105,6 @@ fn place(ys: Rangef, marks: &[f32]) -> Vec<Mark> {
     placed
 }
 
-/// The scale between a fader and its meter: dB marks right-aligned at `x`,
-/// `marks` most important first; those without room are short ticks.
 pub fn scale(painter: &Painter, x: f32, ys: Rangef, marks: &[f32]) {
     let palette = theme::p();
     for Mark { db, y, numbered } in place(ys, marks) {
@@ -193,7 +167,6 @@ mod tests {
                 }
             }
         }
-        // A tall strip numbers every mark.
         assert!(
             place(Rangef::new(0.0, 400.0), &marks)
                 .iter()

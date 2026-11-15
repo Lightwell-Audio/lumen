@@ -1,6 +1,3 @@
-//! The set piece's chrome: the header's power button, name and subtitle, the
-//! Preset pill, the quiet "All n" link and the folded rail.
-
 use eframe::egui::text::{LayoutJob, TextFormat};
 use eframe::egui::{
     self, Align, Color32, FontId, Painter, Pos2, Rect, Response, Sense, Stroke, StrokeKind, Ui,
@@ -15,8 +12,6 @@ use crate::theme::personality::card as c;
 use crate::widgets::raised;
 use crate::{fonts, motion, theme, widgets};
 
-/// `text` with its baseline on `at.y`, aligned by `align` to `at.x`; `spacing`
-/// is the extra space between letters.
 pub(super) fn on_baseline(
     painter: &Painter,
     at: Pos2,
@@ -49,8 +44,6 @@ pub(super) fn on_baseline(
     painter.galley(pos2(left, at.y - base), galley, colour);
 }
 
-/// The ink on a lit-hue ground: white in the dark theme, the hue itself in the
-/// light, where white would not show.
 fn on_hue(hue: Color32) -> Color32 {
     if theme::is_light() {
         hue
@@ -59,9 +52,6 @@ fn on_hue(hue: Color32) -> Color32 {
     }
 }
 
-/// The power button of a built-in: a circle of the hue with its glyph, centred
-/// on `centre`. What it is called and what a click does are the plain power
-/// button's.
 pub(super) fn power(
     ui: &mut Ui,
     centre: Pos2,
@@ -119,7 +109,6 @@ pub(super) fn power(
     )
 }
 
-/// How wide the name is set in the display face, letter spacing included.
 pub(super) fn name_width(painter: &Painter, plan: &Plan, name: &str) -> f32 {
     let galley = painter.layout_no_wrap(
         name.to_owned(),
@@ -129,19 +118,15 @@ pub(super) fn name_width(painter: &Painter, plan: &Plan, name: &str) -> f32 {
     galley.size().x + c::NAME_SPACING * name.chars().count() as f32
 }
 
-/// The name in the display face and, under it, what the device is and does.
 pub(super) fn titles(painter: &Painter, plan: &Plan, look: &Look<'_>, muted: bool) {
     let palette = theme::p();
     let left = plan.card.left() + c::NAME_X;
-    // The compact header's "All n" link sits left of the pill.
     let right = if plan.has_subtitle() {
         plan.preset.left()
     } else {
         plan.link.left()
     };
     let room = right - theme::space::S - left;
-    // On the short card the pill is high enough to sit on the name's line only,
-    // so the subtitle under it has the card's whole width.
     let subtitle_room = if plan.step == crate::chain::geometry::Step::Short {
         plan.card.right() - c::PRESET_INSET - left
     } else {
@@ -182,9 +167,6 @@ pub(super) fn titles(painter: &Painter, plan: &Plan, look: &Look<'_>, muted: boo
     }
 }
 
-/// The Preset pill at the header's right: it opens the preset menu (load, save,
-/// previous, next, the folder). Its name says whose preset it is, as the plain
-/// card's field does.
 pub(super) fn preset(
     ui: &mut Ui,
     plan: &Plan,
@@ -227,7 +209,6 @@ pub(super) fn preset(
     );
     let field = look.field.as_ref().map(|f| (f.name, f.changed));
     if matches!(field, Some((_, true))) {
-        // A dot at the pill's corner: the sound was changed since it was chosen.
         painter.circle_filled(
             pos2(rect.right() - 2.0, rect.top() + 2.0),
             3.0,
@@ -242,8 +223,6 @@ pub(super) fn preset(
     })
 }
 
-/// The quiet "All n \u{203A}" link: a text button that opens every parameter,
-/// with search. Returns whether it was clicked.
 pub(super) fn all_link(ui: &mut Ui, plan: &Plan, id: egui::Id, count: usize) -> bool {
     let rect = plan.link;
     let response = ui.interact(rect, id.with("all link"), Sense::click());
@@ -258,8 +237,6 @@ pub(super) fn all_link(ui: &mut Ui, plan: &Plan, id: egui::Id, count: usize) -> 
     let palette = theme::p();
     let ink = palette.text_secondary.lerp_to_gamma(palette.text, hot);
     let painter = ui.painter();
-    // The compact header's name may need the room: then only the chevron is
-    // drawn (the tooltip and accessible name still say "All parameters (n)").
     let narrow = rect.width() < super::plan::COMPACT_LINK_NARROW.x + 1.0;
     if !narrow {
         on_baseline(
@@ -272,7 +249,6 @@ pub(super) fn all_link(ui: &mut Ui, plan: &Plan, id: egui::Id, count: usize) -> 
             0.0,
         );
     }
-    // The chevron.
     let tip = pos2(rect.right() - 3.0, rect.center().y);
     painter.add(egui::Shape::line(
         vec![tip + Vec2::new(-3.0, -3.5), tip, tip + Vec2::new(-3.0, 3.5)],
@@ -284,8 +260,6 @@ pub(super) fn all_link(ui: &mut Ui, plan: &Plan, id: egui::Id, count: usize) -> 
         .clicked()
 }
 
-/// A folded built-in: the hue's bar down the left, glowing with the level, the
-/// name in the display face set on end.
 pub(super) fn rail(
     painter: &Painter,
     rect: Rect,
@@ -327,7 +301,6 @@ pub(super) fn rail(
         },
     );
     let galley = painter.layout_job(job);
-    // Set on end, reading upward, centred on the rail's middle.
     let base = galley
         .rows
         .first()

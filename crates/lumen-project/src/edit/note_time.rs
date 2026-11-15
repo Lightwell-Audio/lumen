@@ -1,33 +1,11 @@
-//! Where a MIDI clip's notes sit on the arrangement (M5 slice 3a).
-//!
-//! A note's start is in **clip time**: ticks from the clip's start. Trimming
-//! the start or slipping moves the notes themselves (`edit::trim` and
-//! `edit::slip`), so the one thing between clip time and the arrangement is
-//! looping: with a `loop_length`, the clip's content is that long and
-//! repeats from the clip's start for as long as the clip lasts; without one,
-//! the content is the clip.
-//!
-//! **A clip is a window onto its notes** (format v15): edits
-//! that shorten, cover or split a clip move its edges and never delete a
-//! note. Notes before the clip's start (a negative start) or at or past its
-//! content's end are kept but hidden: not played, not drawn, not picked
-//! ([`in_window`]). Dragging an edge back shows them again.
-//!
-//! The piano roll edits one content, and shows its repeats beside it.
-
 use lumen_core::time::Ticks;
 
 use crate::model::Clip;
 
-/// How long the clip's content is: its loop length when it loops, otherwise
-/// the clip. Notes live in `[0, content_length)`.
 pub fn content_length(clip: &Clip) -> Ticks {
     clip.loop_length.filter(|l| l.0 > 0).unwrap_or(clip.length)
 }
 
-/// Whether a note starting at clip time `start` is in the clip's window, and
-/// so plays and shows: from the clip's start to the end of its content (or
-/// of the clip, when that is shorter).
 pub fn in_window(clip: &Clip, start: Ticks) -> bool {
     if let Some(period) = clip.loop_length.filter(|p| p.0 > 0) {
         let phase = clip.loop_phase.0.rem_euclid(period.0);
@@ -37,8 +15,6 @@ pub fn in_window(clip: &Clip, start: Ticks) -> bool {
     }
 }
 
-/// The indices of the notes in the clip's window (see [`in_window`]): what
-/// "every note" means for picking all and for tools given no picks.
 pub fn shown_notes(clip: &Clip) -> Vec<usize> {
     match &clip.content {
         crate::model::ClipContent::Midi { notes, .. } => (0..notes.len())
@@ -48,8 +24,6 @@ pub fn shown_notes(clip: &Clip) -> Vec<usize> {
     }
 }
 
-/// Where the arrangement time `t` falls in the clip's content, with the
-/// repeat it is in (0 for the first), or `None` outside the clip.
 pub fn to_clip_time(clip: &Clip, t: Ticks) -> Option<(Ticks, u32)> {
     let local = t - clip.start;
     if local < Ticks::ZERO || local >= clip.length {
@@ -64,8 +38,6 @@ pub fn to_clip_time(clip: &Clip, t: Ticks) -> Option<(Ticks, u32)> {
     ))
 }
 
-/// The arrangement time of clip time `local` in repeat `repeat` (0 is the
-/// clip's own content).
 pub fn to_arrangement(clip: &Clip, local: Ticks, repeat: u32) -> Ticks {
     let content = content_length(clip).0;
     let phase = clip.loop_phase.0.rem_euclid(content);
@@ -73,8 +45,6 @@ pub fn to_arrangement(clip: &Clip, local: Ticks, repeat: u32) -> Ticks {
     clip.start + Ticks(first + content * i64::from(repeat))
 }
 
-/// How many repeats show in the clip: 1 for one that does not loop, counting
-/// a partial last repeat.
 pub fn repeats(clip: &Clip) -> u32 {
     let content = content_length(clip).0.max(1);
     let phase = clip.loop_phase.0.rem_euclid(content);
@@ -83,8 +53,6 @@ pub fn repeats(clip: &Clip) -> u32 {
         .max(1)
 }
 
-/// How much of repeat `repeat`'s content shows before the clip ends (all of
-/// it but in the last repeat).
 pub fn shown(clip: &Clip, repeat: u32) -> Ticks {
     let content = content_length(clip);
     let phase = clip.loop_phase.0.rem_euclid(content.0.max(1));
@@ -177,7 +145,6 @@ mod tests {
             to_arrangement(&c, Ticks::quarters(1), 2),
             Ticks::quarters(17)
         );
-        // The round trip.
         let t = Ticks::quarters(13) + Ticks(5);
         let (local, repeat) = to_clip_time(&c, t).unwrap();
         assert_eq!(to_arrangement(&c, local, repeat), t);

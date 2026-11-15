@@ -1,9 +1,3 @@
-//! Measures the audio path between Lumen and plugin-host processes: the
-//! wake-up in each direction, how many hosts, how short the block, how busy
-//! the machine. Run it on the machine whose answer matters (Windows, ASIO
-//! buffer sizes) and keep the output with the milestone's records. See
-//! `docs/manual-tests/M6.md`, MT-VST-0.
-
 mod options;
 mod platform;
 mod scenario;

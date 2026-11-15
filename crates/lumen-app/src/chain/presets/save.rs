@@ -1,13 +1,7 @@
-//! Saving a card's sound: reading the plugin's state, then writing the preset
-//! file, and the folder the files are kept in.
-
 use super::state::{Saving, Source};
 use super::*;
 
 impl App {
-    /// Starts saving the sound of `device`: its plugin is read (or a built-in's
-    /// values are taken as they are), then the file is written. `over` writes
-    /// over a file (Save); otherwise the file gets an unused name (Save as).
     pub(super) fn begin_preset_save(
         &mut self,
         ctx: &egui::Context,
@@ -23,7 +17,6 @@ impl App {
             return;
         };
         if crate::builtin::is_builtin(held) {
-            // A built-in's sound is what its values say: nothing to read.
             let bytes =
                 crate::preset_files::builtin_bytes(crate::builtin::name_of(held), &held.params);
             self.chain.presets.files.write(
@@ -70,7 +63,6 @@ impl App {
             ));
             return;
         }
-        // Changed while it was read: ask again.
         self.hosting.capture_one(device);
         ctx.request_repaint_after(crate::motion::RECHECK);
     }
@@ -126,15 +118,12 @@ impl App {
         );
     }
 
-    /// Save, for the chosen device (the command).
     pub(crate) fn save_chosen_preset(&mut self, ctx: &egui::Context) {
         if let Some(device) = self.chain.selected {
             self.save_for(ctx, device);
         }
     }
 
-    /// The user's own file the sound of `device` came from, with its name:
-    /// what Save writes over.
     pub(super) fn save_over(&self, device: Id) -> Option<(String, PathBuf)> {
         let current = self.chain.presets.current.get(&device)?;
         match &current.source {
@@ -143,8 +132,6 @@ impl App {
         }
     }
 
-    /// Save for `device` (the command): writes over the user's own file the
-    /// sound came from, or opens the menu on a name.
     fn save_for(&mut self, ctx: &egui::Context, device: Id) {
         match self.save_over(device) {
             Some((name, path)) => self.begin_preset_save(ctx, device, name, Some(path)),
@@ -152,18 +139,14 @@ impl App {
         }
     }
 
-    /// Shows the folder where the device's presets are saved.
     pub(super) fn show_presets_folder(&mut self, ctx: &egui::Context, device: Id) {
         let Some(folder) = self.preset_folder(device) else {
             self.say("There is no presets folder on this computer.".to_owned());
             return;
         };
-        // Whether it is there is found out on the file thread.
         self.chain.presets.files.folder(ctx, folder);
     }
 
-    /// The file thread has looked for a plugin's presets folder: show it, or
-    /// say nothing is saved yet.
     pub(super) fn folder_found(&mut self, folder: PathBuf, exists: bool) {
         if !exists {
             self.say(

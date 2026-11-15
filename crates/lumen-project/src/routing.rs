@@ -1,22 +1,13 @@
-//! Where audio goes (format v7, M4 slice 2): one rule for validating files,
-//! refusing edits that would feed back, and building the engine's routing.
-
 use std::collections::HashMap;
 
 use crate::model::{Id, Output, Project, Track, TrackKind};
 
-/// Where a track's output lands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Destination {
-    /// Another track's input: a group, a return or the master.
     Track(Id),
-    /// A pair of device outputs: 0 is outputs 1 and 2.
     Device(u16),
 }
 
-/// Where `track`'s output goes in `project`. `Auto` is its group when it is
-/// in one, otherwise the master; the master's `Auto` is the device's first
-/// pair of outputs.
 pub fn destination(project: &Project, track: &Track) -> Destination {
     if track.kind == TrackKind::Master {
         return match track.output {
@@ -33,8 +24,6 @@ pub fn destination(project: &Project, track: &Track) -> Destination {
     }
 }
 
-/// The tracks `track` feeds: where its output goes and the returns it
-/// sends to.
 pub fn feeds<'a>(project: &'a Project, track: &'a Track) -> impl Iterator<Item = Id> + 'a {
     let output = match destination(project, track) {
         Destination::Track(id) => Some(id),
@@ -45,7 +34,6 @@ pub fn feeds<'a>(project: &'a Project, track: &'a Track) -> impl Iterator<Item =
         .chain(track.sends.iter().map(|send| send.to))
 }
 
-/// Every track, the master last.
 pub fn all_tracks(project: &Project) -> impl Iterator<Item = &Track> {
     project
         .tracks
@@ -54,9 +42,6 @@ pub fn all_tracks(project: &Project) -> impl Iterator<Item = &Track> {
         .chain(std::iter::once(&*project.master))
 }
 
-/// Whether the routing feeds back into itself: through outputs, groups,
-/// sends or sidechains. Feeds to tracks that are not there are ignored
-/// (validation reports them).
 pub fn has_loop(project: &Project) -> bool {
     let tracks: Vec<&Track> = all_tracks(project).collect();
     let index: HashMap<Id, usize> = tracks.iter().enumerate().map(|(i, t)| (t.id, i)).collect();
@@ -68,7 +53,6 @@ pub fn has_loop(project: &Project) -> bool {
                 .collect()
         })
         .collect();
-    // A sidechain feeds its source's sound into the track of the effect.
     for (to, track) in tracks.iter().enumerate() {
         for sidechain in track.devices.iter().filter_map(|d| d.sidechain) {
             if let Some(&from) = index.get(&sidechain.from) {
@@ -76,7 +60,6 @@ pub fn has_loop(project: &Project) -> bool {
             }
         }
     }
-    // Depth-first, iterative: 0 unvisited, 1 on the path, 2 done.
     let mut state = vec![0u8; tracks.len()];
     for start in 0..tracks.len() {
         if state[start] != 0 {
@@ -151,7 +134,6 @@ mod tests {
     fn loops_through_outputs_groups_and_sends_are_found() {
         let mut p = project(&[TrackKind::Group, TrackKind::Return, TrackKind::Audio]);
         assert!(!has_loop(&p));
-        // A return sending into itself through a group it outputs to.
         track(&mut p, 1).output = Output::Track(Id(1));
         track(&mut p, 0).sends.push(Send {
             to: Id(2),
@@ -159,12 +141,10 @@ mod tests {
             pre_fader: false,
         });
         assert!(has_loop(&p));
-        // Groups inside each other.
         let mut p = project(&[TrackKind::Group, TrackKind::Group]);
         track(&mut p, 0).parent = Some(Id(2));
         track(&mut p, 1).parent = Some(Id(1));
         assert!(has_loop(&p));
-        // A track sending to a return: fine.
         let mut p = project(&[TrackKind::Return, TrackKind::Audio]);
         track(&mut p, 1).sends.push(Send {
             to: Id(1),

@@ -1,13 +1,8 @@
-//! While files are dragged in from the system, where the pointer is.
-
 use eframe::egui;
 
 use crate::App;
 
 impl App {
-    /// While files are dragged in from the system: where the pointer is
-    /// (`App::drag_pointer`), and a frame after frame, so the line or the
-    /// lit lane follows it: the system sends no events while it moves.
     pub(crate) fn follow_file_drag(&mut self, ctx: &egui::Context) {
         let (hovered, dropped) = ctx.input(|i| {
             (

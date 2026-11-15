@@ -1,5 +1,3 @@
-//! Large declared-bus counts stay bounded while unused outputs remain safe.
-
 mod support;
 
 use lumen_plugin_host::instance::{Buffers, Format};
@@ -13,14 +11,10 @@ lumen_rt::install_guarded_allocator!();
 #[test]
 fn declared_buses_configure_with_low_aux_and_warm_processing_allocates_nothing() {
     let fault = lumen_test_plugin::faults::ENV;
-    // This test runs in its own integration-test process and is its only test;
-    // the plugin reads the value when each component is created.
-    // SAFETY: no concurrent tests or plugin threads read this environment.
     unsafe { std::env::set_var(fault, "multi_out=59") };
     let module = Module::load(plugin()).expect("load");
     let mut instance = Instance::create(&module, None).expect("create instrument");
 
-    // The public bus list and routable mask remain bounded to the first 32.
     let (_, outputs) = instance.buses();
     assert_eq!(outputs.len(), 32);
     assert_eq!(outputs[31].name, "Output 32");
@@ -75,9 +69,6 @@ fn declared_buses_configure_with_low_aux_and_warm_processing_allocates_nothing()
         "the enabled low auxiliary bus receives audio"
     );
 
-    // The declared-bus limit prevents excessive plugin-controlled stack and
-    // vector sizes before any bus arrangement is passed back to the plugin.
-    // SAFETY: the deterministic fixture starts no threads; this is the sole test.
     unsafe { std::env::set_var(fault, "multi_out=129") };
     let mut too_many = Instance::create(&module, None).expect("create oversized fixture");
     let error = too_many

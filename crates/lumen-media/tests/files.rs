@@ -1,14 +1,9 @@
-//! Decoding and conversion against files written by the tests themselves:
-//! WAV (16-bit, 24-bit, float) and AIFF. FLAC, MP3 and Ogg Vorbis rely on
-//! symphonia's own tests and the by-ear check (MT-MEDIA-1).
-
 use std::f64::consts::TAU;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 
 use lumen_media::{Audio, MediaError, decode, load, resample};
 
-/// A unique file in the system temp folder, removed when dropped.
 struct TempFile(PathBuf);
 
 impl TempFile {
@@ -32,7 +27,6 @@ impl Drop for TempFile {
     }
 }
 
-/// `frames` of a sine at `hz` on channel 0 and its inverse on channel 1.
 fn stereo_sine(rate: u32, hz: f64, frames: usize) -> Vec<[f64; 2]> {
     (0..frames)
         .map(|i| {
@@ -83,7 +77,6 @@ fn wav(rate: u32, frames: &[[f64; 2]], pcm: Pcm) -> Vec<u8> {
     out
 }
 
-/// 80-bit IEEE extended, as AIFF stores its sample rate.
 fn extended(value: f64) -> [u8; 10] {
     let exponent = value.log2().floor() as i32;
     let mantissa = (value / 2_f64.powi(exponent) * 2_f64.powi(63)) as u64;
@@ -160,7 +153,6 @@ fn aiff_files_decode_to_their_samples() {
     assert_matches(&audio, &frames, 1.0 / 32_767.0);
 }
 
-/// Rising zero crossings per second on channel 0.
 fn frequency(audio: &Audio) -> f64 {
     let samples = audio.channel(0);
     let rising = samples
@@ -187,7 +179,6 @@ fn conversion_keeps_length_and_pitch() {
         );
         let hz = frequency(&converted);
         assert!((hz - 440.0).abs() < 1.0, "{from} -> {to}: {hz} Hz");
-        // The level survives too (no gain change through the filter).
         let peak = converted
             .channel(0)
             .iter()

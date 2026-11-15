@@ -1,13 +1,3 @@
-//! The host's side of the audio path: once a plugin is set up and its first
-//! blocks have grown the host's scratch space, `Instance::process_into` (what
-//! the block thread calls for every block) takes no heap operation, with
-//! events, parameter points, a block longer than the plugin was promised
-//! (given in pieces) and plugin edits in the queue (M6 review M3).
-//!
-//! The plugin's own allocations are its own: the test plugin is a separate
-//! module with an allocator of its own. This does not run the host's block
-//! thread (its locks and the wait are covered by `shm_rt` and the soak).
-
 mod support;
 
 use lumen_plugin_host::instance::{Buffers, Format};
@@ -27,8 +17,6 @@ fn level() -> Vec<ParamQueue> {
     }]
 }
 
-/// Runs `blocks` blocks of `frames` frames through `instance` inside the
-/// real-time section and returns the heap operations counted.
 fn count(
     instance: &mut Instance,
     buffers: &mut Buffers,
@@ -38,7 +26,6 @@ fn count(
 ) -> u64 {
     let events = [note_on(3, 60), note_off(50, 60)];
     let params = level();
-    // The first blocks grow what the host keeps; they are not counted.
     for _ in 0..4 {
         instance
             .process_into(frames, buffers, &events, &params)
@@ -81,7 +68,6 @@ fn an_instrument_is_processed_without_a_heap_operation_once_it_is_warm() {
     };
     let heap = count(&mut instance, &mut buffers, FRAMES, 500, "instrument");
     assert_eq!(heap, 0, "heap operations while processing an instrument");
-    // A block longer than the plugin was promised is given in pieces.
     let heap = count(&mut instance, &mut buffers, 600, 100, "long blocks");
     assert_eq!(heap, 0, "heap operations while splitting long blocks");
 }

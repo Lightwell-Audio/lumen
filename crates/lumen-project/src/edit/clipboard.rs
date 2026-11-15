@@ -1,6 +1,3 @@
-//! The clipboard (M3 slice 6b): copied clips or a copied time range, and
-//! pasting them over what is there.
-
 use std::sync::Arc;
 
 use lumen_core::time::Ticks;
@@ -11,46 +8,26 @@ use super::{carry, clear, slice, sort_clips, tempo_of};
 use crate::automation::{AutomationLane, MAX_LANES, Target};
 use crate::model::{Clip, ClipContent, Id, Project, TrackKind};
 
-/// The points of one lane of a copied clip's track that lay under the copied
-/// clips (M7 slice A7, the owner's E3), measured from the copy's start.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LanePart {
-    /// The track the lane was on.
     pub source: Id,
-    /// Its row, counted from the topmost copied track.
     pub row: usize,
     pub target: Target,
-    /// The copied clips' footprints on that track.
     pub spans: Vec<(Ticks, Ticks)>,
     pub points: Vec<Point>,
 }
 
-/// Copied clips, ready to paste: each with its track counted from the
-/// topmost copied track, and its start from the copy's start.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Clipboard {
     pub clips: Vec<(usize, Clip)>,
-    /// How long the copy lasts.
     pub length: Ticks,
-    /// How many tracks it spans.
     pub tracks: usize,
-    /// The tracks a copied range covers, counted from the topmost copied
-    /// track. They skip tracks in between when the range was copied from a
-    /// selection that is not contiguous. Empty for copied clips.
     pub rows: Vec<usize>,
-    /// Copied from a time range: pasting clears the whole span on every
-    /// track it lands on. Copied clips clear only under themselves.
     pub range: bool,
-    /// The topmost track it was copied from (index), where it pastes back
-    /// when nothing else is chosen.
     pub from_track: usize,
-    /// The automation under copied clips, which pastes with them unless the
-    /// song locks envelopes. Empty for a copied range.
     pub lanes: Vec<LanePart>,
 }
 
-/// The selected clips `ids`, copied (locked ones too: copying changes
-/// nothing).
 pub fn copy_clips(project: &Project, ids: &[Id]) -> Option<Clipboard> {
     let found: Vec<(usize, &Clip)> = project
         .tracks
@@ -84,7 +61,6 @@ pub fn copy_clips(project: &Project, ids: &[Id]) -> Option<Clipboard> {
     })
 }
 
-/// The points of each lane of the copied clips' tracks that lie under them.
 fn lane_parts(
     project: &Project,
     found: &[(usize, &Clip)],
@@ -131,11 +107,6 @@ fn lane_parts(
     parts
 }
 
-/// Puts the automation `clipboard` took from under its clips under the clips
-/// `paste` landed at `at`, from the track with index `track`: each lane's
-/// points go to the same lane of the track their clip landed on (made if it
-/// has none), clearing what the pasted clips cover. A plugin's parameters
-/// land only on the track they came from.
 pub fn paste_lanes(project: &mut Project, clipboard: &Clipboard, at: Ticks, track: usize) {
     let at = at.max(Ticks::ZERO);
     for part in &clipboard.lanes {
@@ -178,7 +149,6 @@ pub fn paste_lanes(project: &mut Project, clipboard: &Clipboard, at: Ticks, trac
     }
 }
 
-/// The time range `[a, b)` on `tracks`, copied: clips cut at its edges.
 pub fn copy_range(project: &Project, tracks: &[Id], a: Ticks, b: Ticks) -> Option<Clipboard> {
     let tempo = tempo_of(project);
     let rows: Vec<usize> = project
@@ -210,9 +180,6 @@ pub fn copy_range(project: &Project, tracks: &[Id], a: Ticks, b: Ticks) -> Optio
     })
 }
 
-/// The ids of the tracks a copied range covers when pasted with its first
-/// track at the index `track`: the copied ones only, so tracks the copy
-/// skipped keep what they have. Tracks that do not exist are left out.
 pub fn landing_tracks(project: &Project, clipboard: &Clipboard, track: usize) -> Vec<Id> {
     clipboard
         .rows
@@ -221,10 +188,6 @@ pub fn landing_tracks(project: &Project, clipboard: &Clipboard, track: usize) ->
         .collect()
 }
 
-/// Pastes `clipboard` at `at`, its first track on the track with index
-/// `track`, overwriting what is there. Clips land only on
-/// tracks of their kind; the rest are left out. Returns the new clips'
-/// ids.
 pub fn paste(
     project: &mut Project,
     clipboard: &Clipboard,
@@ -250,7 +213,6 @@ pub fn paste(
             (row, c)
         })
         .collect();
-    // Make room.
     if clipboard.range {
         let rows = landing_tracks(project, clipboard, track);
         clear(project, &rows, at, at + clipboard.length, fresh);
@@ -282,7 +244,6 @@ mod tests {
         let mut p = song();
         let copy = copy_range(&p, &[Id(1), Id(2)], q(4), q(8)).unwrap();
         assert_eq!((copy.length, copy.tracks), (q(4), 2));
-        // Onto tracks 1 and 2 at quarter 2: track 1's clip is cut back.
         let new = paste(&mut p, &copy, q(2), 1, &mut ids());
         assert_eq!(new.len(), 2);
         assert_eq!(
@@ -306,8 +267,6 @@ mod tests {
         use crate::automation::AutomationLane;
         use lumen_core::automation::{Lane, Point};
         let mut p = song();
-        // Track 1 holds clip 10 from quarter 4 to 12; its volume lane has
-        // points inside it (5, 9) and outside (1, 20).
         let points = [(1, -1.0), (5, -5.0), (9, -9.0), (20, -20.0)];
         Arc::make_mut(&mut p.tracks[0]).automation = vec![AutomationLane::new(
             crate::automation::Target::Volume,
@@ -321,7 +280,6 @@ mod tests {
             "only what lies under the clip"
         );
         assert_eq!(copy.lanes[0].points[0].at, q(1), "from the copy's start");
-        // Paste it at quarter 20 onto track 3, which has no lane yet.
         paste(&mut p, &copy, q(20), 2, &mut ids());
         paste_lanes(&mut p, &copy, q(20), 2);
         let lane = p.tracks[2]
@@ -329,7 +287,6 @@ mod tests {
             .expect("a lane is made");
         let at: Vec<_> = lane.lane.points().iter().map(|x| x.at).collect();
         assert_eq!(at, vec![q(21), q(25)]);
-        // The source track's lane is as it was.
         assert_eq!(
             p.tracks[0]
                 .lane(crate::automation::Target::Volume)
@@ -343,8 +300,6 @@ mod tests {
     #[test]
     fn a_range_from_skipped_tracks_leaves_the_tracks_between_alone() {
         let mut p = song();
-        // Tracks 1 and 3, not 2 (which holds clip 20): the copy covers rows
-        // 0 and 2 only.
         let copy = copy_range(&p, &[Id(1), Id(3)], q(4), q(8)).unwrap();
         assert_eq!((copy.rows.clone(), copy.tracks), (vec![0, 2], 3));
         assert_eq!(landing_tracks(&p, &copy, 0), [Id(1), Id(3)]);

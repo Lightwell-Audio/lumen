@@ -1,11 +1,3 @@
-//! Drum maps in the model (format v35, M8 slice D0).
-//!
-//! The format ones: a golden file that loads forever, an older project that
-//! opens with no maps, a project with none that writes none, and the checks
-//! that refuse a map a project may not hold. The rules ones: translation
-//! (mute, solo, channel, length override, unknown note), the note a recording
-//! keeps, and conversion between maps.
-
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -58,13 +50,8 @@ fn midi_clip(id: u64, notes: Vec<Note>) -> Arc<Clip> {
     })
 }
 
-/// The model the v35 golden file must always load as: a kit track with the
-/// 808-style map, one sound carrying every field, and its pattern. Never
-/// change it.
 fn golden_v35_expected() -> Project {
     let mut map = Preset::EIGHT_OH_EIGHT.map(Id(0x3501));
-    // One sound with every field a sound may hold, so the fixture records
-    // how each is written.
     let snare = map
         .sounds
         .iter_mut()
@@ -104,7 +91,6 @@ fn golden_v35_expected() -> Project {
 fn golden_v35_loads_and_round_trips() {
     let project = common::golden("v35", golden_v35_expected);
     assert_eq!(from_bytes(&to_bytes(&project).unwrap()).unwrap(), project);
-    // Every field of a sound survives the file.
     let snare = &project.drum_maps[0].sound(38).expect("the snare").clone();
     assert_eq!(snare.channel, Some(9));
     assert_eq!(snare.route, Route::Output(2));
@@ -146,8 +132,6 @@ fn an_icon_is_saved_by_name_and_an_unknown_one_reads_as_percussion() {
     let text = String::from_utf8(to_bytes(&project).unwrap()).unwrap();
     assert!(text.contains("\"cowbell\""), "{text}");
 
-    // A name from a later build reads as percussion rather than refusing the
-    // whole project.
     let text = text.replace("\"cowbell\"", "\"tambourine_deep\"");
     let read = from_bytes(text.as_bytes()).expect("an unknown icon still opens");
     assert_eq!(read.drum_maps[0].sounds[0].icon, DrumIcon::Percussion);
@@ -177,8 +161,6 @@ fn a_map_a_project_may_not_hold_is_refused() {
         f(&mut project);
         project
     };
-    // A sound routed to an instrument track of the project is fine: the
-    // kit track itself is id 8.
     assert_eq!(
         validate(&edit(&|p: &mut Project| {
             p.drum_maps[0].sounds[0].route = Route::Track(Id(8));
@@ -186,31 +168,22 @@ fn a_map_a_project_may_not_hold_is_refused() {
         Ok(())
     );
     for operation in [
-        // Two maps with one id.
         &(|p: &mut Project| p.drum_maps.push(p.drum_maps[0].clone())) as &dyn Fn(&mut Project),
-        // Two sounds answering to one note.
         &|p: &mut Project| p.drum_maps[0].sounds[1].input = 36,
-        // A note, a channel or an output pair out of range.
         &|p: &mut Project| p.drum_maps[0].sounds[0].input = 200,
         &|p: &mut Project| p.drum_maps[0].sounds[0].channel = Some(16),
         &|p: &mut Project| p.drum_maps[0].sounds[0].route = Route::Output(0),
-        // A length no clip may hold, and choke group 0.
         &|p: &mut Project| p.drum_maps[0].sounds[0].length = Some(Ticks::ZERO),
         &|p: &mut Project| p.drum_maps[0].sounds[0].choke = Some(0),
-        // A track naming a map that is not there, or a track that is not
-        // MIDI.
         &|p: &mut Project| {
             p.drum_maps.clear();
         },
         &|p: &mut Project| {
             Arc::make_mut(&mut p.tracks[0]).kind = TrackKind::Audio;
         },
-        // A map with no name, and a sound with none (a rename refuses one).
         &|p: &mut Project| p.drum_maps[0].name.clear(),
         &|p: &mut Project| p.drum_maps[0].sounds[0].name.clear(),
         &|p: &mut Project| p.drum_maps[0].sounds[0].name = "   ".into(),
-        // A sound routed to a track that is not there, or that is not an
-        // instrument track.
         &|p: &mut Project| p.drum_maps[0].sounds[0].route = Route::Track(Id(999)),
         &|p: &mut Project| {
             p.tracks.push(Arc::new(Track::new(
@@ -237,8 +210,6 @@ fn a_map_a_project_may_not_hold_is_refused() {
 #[test]
 fn translation_reads_the_sound_by_the_input_note() {
     let map = Preset::GENERAL_MIDI.map(Id(1));
-    // General MIDI's closed hat is its own note; a note with no sound plays
-    // as written.
     assert_eq!(
         drums::played(&map, 42),
         Some(drums::Played {
@@ -257,7 +228,6 @@ fn translation_reads_the_sound_by_the_input_note() {
             route: lumen_project::model::Route::Main,
         })
     );
-    // Swapping a sound's output note changes what plays, never the note.
     let mut edited = map.clone();
     edited.sounds.retain(|s| s.input != 42);
     edited
@@ -284,12 +254,10 @@ fn every_preset_name_gets_an_icon_and_the_kits_are_different() {
         .map(|p| p.sounds().iter().map(|s| s.icon).collect())
         .collect();
     assert!(icons.iter().all(|list| !list.is_empty()));
-    // Each built-in kit has a kick, a snare and an open hat.
     for list in &icons {
         for icon in [DrumIcon::Kick, DrumIcon::Snare, DrumIcon::OpenHat] {
             assert!(list.contains(&icon), "a kit without a {icon:?}");
         }
     }
-    // GM2 is GM with the extra effects and percussion, so it is longer.
     assert!(Preset::GENERAL_MIDI_2.sounds().len() > Preset::GENERAL_MIDI.sounds().len());
 }

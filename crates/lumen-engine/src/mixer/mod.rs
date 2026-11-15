@@ -1,34 +1,3 @@
-//! The mixer graph (M4 slice 1, ADR-0035).
-//!
-//! Each track is a node with a stereo bus. A [`TrackSource`] (the clip
-//! player) plays each track's audio into its bus; the [`Plan`] then runs
-//! the nodes in order: trim, polarity and mute, pre-fader sends, volume
-//! and pan, post-fader sends, and the output (a group, a return, the
-//! master, or a pair of device outputs). Groups sum their children and
-//! returns sum the sends into them, because they are simply nodes that
-//! others feed.
-//!
-//! The UI side compiles the project's [`Routing`] into a plan and sends
-//! it through a lock-free queue; the audio thread takes it at the start of
-//! a block and hands the old one back to be freed, as clip lists are.
-//! Levels carry over by node id and glide (`smooth`). A plan whose shape
-//! differs (outputs or sends changed) crossfades in over 5 ms while the
-//! old one fades out, both fed the same track audio, so rerouting while
-//! playing never clicks. New plans wait while a crossfade runs.
-//!
-//! The plan the listener hears meters every node's output and measures the
-//! loudness of the node the routing names (`meter`); the handle reads
-//! them.
-//!
-//! **Delay compensation** (M4 slice 6, ADR-0041): each node reports the
-//! latency of its devices, and the plan delays every path that would
-//! arrive early (`delay`), so parallel paths line up sample for sample,
-//! sends and sidechains included. The mixer reports the total as its
-//! [`Source::latency`], and the engine renders that far ahead of the
-//! playhead. While latent, the mixer declicks jumps where the tracks play
-//! into their buses, so the crossfade is heard when the jump is: the
-//! engine's crossfade at the output would come too early.
-
 mod auto;
 mod builtins;
 mod compile;
@@ -71,59 +40,33 @@ use crate::source::{Inputs, Jump, Mode, Output, RenderContext, Source};
 use crate::timeline::Timeline;
 
 const QUEUE: usize = 4;
-/// Attach and detach messages waiting for the audio side.
 const HOST_QUEUE: usize = 64;
-/// Attach and detach messages waiting for the audio side for built-in effects:
-/// as deep as the pool, because a render attaches every built-in its routing
-/// names before it plays a block (M8 slice B0, review H2).
 const DEVICE_QUEUE: usize = builtins::MAX_BUILTINS;
-/// A plan of a new shape crossfades in over 5 ms.
 const SWAP_PER_SECOND: u32 = 200;
-/// Audio per track, played into the tracks' buses. Every method must be
-/// real-time safe, as for [`Source`].
 pub trait TrackSource: Send {
-    /// Adds `buses.frames()` frames from timeline sample `cx.start` to the
-    /// buses of the tracks that play. A track with no bus is not heard.
     fn render(&mut self, cx: &RenderContext<'_>, buses: &mut Buses<'_>);
 
-    /// The block about to be rendered brings these inputs, as
-    /// [`Source::input`].
     fn input(&mut self, _inputs: &Inputs<'_>) {}
 
-    /// Playback starts or jumps, as [`Source::locate`].
     fn locate(&mut self, _timeline: &Timeline, _sample_rate: u32, _sample: i64, _jump: Jump) {}
 
-    /// A block passed without rendering, as [`Source::idle`]: take what
-    /// the UI sent meanwhile, so its queues never fill while stopped.
     fn idle(&mut self) {}
 
-    /// Playback stopped or paused, as [`Source::stopped`].
     fn stopped(&mut self) {}
 
-    /// Panic, as [`Source::panic`].
     fn panic(&mut self) {}
 
-    /// Something still rings or waits to be sent, as [`Source::ringing`].
     fn ringing(&self) -> bool {
         false
     }
 
-    /// A plugin host is attached to this source, as [`Source::hosted`].
     fn hosted(&self) -> bool {
         false
     }
 
-    /// Called before [`TrackSource::render`] for the same `frames`, ahead of
-    /// the engine's other work for the block: a source whose instruments run
-    /// in plugin hosts hands them their blocks here, so the hosts work while
-    /// the audio clips render, and collects them in `render` (ADR-0069). A
-    /// source that does not need it ignores the call, and `render` does
-    /// everything.
     fn begin(&mut self, _cx: &RenderContext<'_>, _frames: usize) {}
 }
 
-/// Two track sources played together into the same buses: the audio
-/// clips and the MIDI instruments (M5 slice 1).
 pub struct Layered<A, B>(pub A, pub B);
 
 impl<A: TrackSource, B: TrackSource> TrackSource for Layered<A, B> {
@@ -171,45 +114,25 @@ impl<A: TrackSource, B: TrackSource> TrackSource for Layered<A, B> {
     }
 }
 
-/// The smallest meter bank: room for this many nodes before a bigger one.
 const MIN_METERS: usize = 64;
 
-/// UI side: replaces the routing, frees old plans and reads the meters.
-/// May allocate.
 pub struct MixerHandle {
     incoming: rtrb::Producer<Box<Plan>>,
     retired: rtrb::Consumer<Box<Plan>>,
-    /// Where the plans write their levels.
     meters: Arc<MeterBank>,
-    /// Each node's slot in `meters`. Slots are not reused while the bank
-    /// lasts (a new node never shows an old one's level); when it fills, a
-    /// bigger bank takes only the nodes in use.
     slots: HashMap<u64, u32>,
     loudness: LoudnessReader,
-    /// The compensation of the last routing sent.
     compensation: Compensation,
-    /// Hosts on their way to the audio side, and ones it let go of.
     hosts: rtrb::Producer<HostMsg>,
     hosts_retired: rtrb::Consumer<Guard>,
-    /// A host message waits: set here, cleared when the audio side takes
-    /// them, so a callback with none to take reads one flag.
     hosts_pending: Arc<AtomicBool>,
-    /// Built-in effects on their way to the audio side, and the ones it let go
-    /// of (M8 slice B0).
     devices: rtrb::Producer<DeviceMsg>,
     devices_retired: rtrb::Consumer<Box<Slot>>,
-    /// The ones the pool had no room for (review M3): the audio side gives the
-    /// slot back here with the id, and the interface frees it and says so.
     devices_refused: rtrb::Consumer<(u64, Box<Slot>)>,
-    /// A device message waits: as `hosts_pending`, for built-ins.
     devices_pending: Arc<AtomicBool>,
 }
 
 impl MixerHandle {
-    /// Attaches a plugin host as device `id`, the id a
-    /// [`Device::Hosted`] names. A host already attached under `id` is
-    /// replaced (and freed here, by [`MixerHandle::collect_garbage`]).
-    /// Gives the guard back when the queue is full: try again next frame.
     pub fn attach_host(&mut self, id: u64, guard: Guard) -> Result<(), Guard> {
         match self.hosts.push(HostMsg::Attach(id, guard)) {
             Ok(()) => {
@@ -221,7 +144,6 @@ impl MixerHandle {
         }
     }
 
-    /// Takes the host `id` away. Returns whether the message was queued.
     pub fn detach_host(&mut self, id: u64) -> bool {
         let sent = self.hosts.push(HostMsg::Detach(id)).is_ok();
         if sent {
@@ -230,10 +152,6 @@ impl MixerHandle {
         sent
     }
 
-    /// Attaches a built-in effect as device `id`, the id a
-    /// [`Device::Builtin`] names. A device already attached under `id` is
-    /// replaced (and freed here, by [`MixerHandle::collect_garbage`]). Gives
-    /// the slot back when the queue is full: try again next frame.
     pub fn attach_builtin(&mut self, id: u64, slot: Box<Slot>) -> Result<(), Box<Slot>> {
         match self.devices.push(DeviceMsg::Attach(id, slot)) {
             Ok(()) => {
@@ -245,8 +163,6 @@ impl MixerHandle {
         }
     }
 
-    /// Takes the built-in effect `id` away. Returns whether the message was
-    /// queued.
     pub fn detach_builtin(&mut self, id: u64) -> bool {
         let sent = self.devices.push(DeviceMsg::Detach(id)).is_ok();
         if sent {
@@ -255,9 +171,6 @@ impl MixerHandle {
         sent
     }
 
-    /// The devices the mixer's pool had no room for since the last call
-    /// (review M3): their slots are freed here, on the interface side, and the
-    /// ids say which devices are not running.
     pub fn take_refused_builtins(&mut self) -> Vec<u64> {
         let mut refused = Vec::new();
         while let Ok((id, slot)) = self.devices_refused.pop() {
@@ -267,12 +180,7 @@ impl MixerHandle {
         refused
     }
 
-    /// Compiles `routing` and sends it. Returns whether it was sent: false
-    /// when the queue is full (send it again next frame). A routing that
-    /// cannot play is refused, and the current one keeps playing.
     pub fn set(&mut self, routing: &Routing) -> Result<bool, RoutingError> {
-        // A node's slot, and one more for a node with a sidechain, which
-        // reads what arrives for it.
         let keys = |node: &NodeSpec| {
             [
                 Some(node.id),
@@ -306,51 +214,36 @@ impl MixerHandle {
         Ok(sent)
     }
 
-    /// The delay compensation of the last routing sent: how far the
-    /// device outputs trail the tracks, and the latent nodes on the
-    /// longest path.
     pub fn compensation(&self) -> &Compensation {
         &self.compensation
     }
 
-    /// What node `id` played since its level was last taken: peaks and the
-    /// clip since then, and its RMS now. `None` for a node not routed.
     pub fn take_level(&self, id: u64) -> Option<Level> {
         self.slots.get(&id).map(|&slot| self.meters.take(slot))
     }
 
-    /// What arrived for node `id`'s sidechain since it was last taken
-    /// (peaks and the clip since then, RMS now). `None` for a node without
-    /// one.
     pub fn take_side_level(&self, id: u64) -> Option<Level> {
         self.slots
             .get(&(id | SIDE_KEY))
             .map(|&slot| self.meters.take(slot))
     }
 
-    /// Hands the mean square of every 100 ms loudness block the measured
-    /// node finished since the last call to `block`, oldest first, for
-    /// `lumen_core::loudness::Loudness`.
     pub fn take_loudness(&mut self, block: impl FnMut(f32)) {
         self.loudness.drain(block);
     }
 
-    /// The measured node's highest true peak since the last call (linear).
     pub fn take_true_peak(&self) -> f32 {
         self.loudness.take_true_peak()
     }
 
-    /// Frees plans the audio side has replaced. Call regularly.
     pub fn collect_garbage(&mut self) -> usize {
         let mut freed = 0;
         while self.retired.pop().is_ok() {
             freed += 1;
         }
-        // A host dropped here closes its link to its process.
         while self.hosts_retired.pop().is_ok() {
             freed += 1;
         }
-        // A built-in dropped here is freed off the audio thread.
         while self.devices_retired.pop().is_ok() {
             freed += 1;
         }
@@ -358,50 +251,35 @@ impl MixerHandle {
     }
 }
 
-/// Audio side: runs the plan over what `T` plays. The engine's [`Source`].
 pub struct Mixer<T> {
     tracks: T,
     incoming: rtrb::Consumer<Box<Plan>>,
     retired: rtrb::Producer<Box<Plan>>,
-    /// A replaced plan that did not fit in the retired queue yet.
     stash: Option<Box<Plan>>,
     plan: Box<Plan>,
-    /// The plan `plan` replaced, while it fades out.
     swap: Option<Swap>,
-    /// Loudness and true peak of the measured node.
     loudness: LoudnessTap,
-    /// The timeline sample the tracks play next.
     cursor: i64,
-    /// A jump being blended where the tracks play in (latent plans only).
     blend: Option<Blend>,
-    /// The plugin hosts the plan's hosted devices find by id.
     hosts: HostPool,
     host_msgs: rtrb::Consumer<HostMsg>,
     host_retired: rtrb::Producer<Guard>,
     hosts_pending: Arc<AtomicBool>,
-    /// The built-in effects the plan's built-in devices find by id.
     builtins: BuiltinPool,
     device_msgs: rtrb::Consumer<DeviceMsg>,
     device_retired: rtrb::Producer<Box<Slot>>,
     device_refused: rtrb::Producer<(u64, Box<Slot>)>,
-    /// A refused slot the interface has not taken yet (cannot happen: the ring
-    /// is deeper than the messages one block can carry).
     device_held: Option<(u64, Box<Slot>)>,
     devices_pending: Arc<AtomicBool>,
-    /// The device rate of the last block (0 before the first), for how long
-    /// a host's quiet must last.
     rate: u32,
 }
 
-/// Frames blended so far of `length` (0 until the first block sets it
-/// from the device rate).
 struct Blend {
     done: usize,
     length: usize,
 }
 
 impl Blend {
-    /// A blend from what the plan's input tail holds.
     fn new() -> Self {
         Self { done: 0, length: 0 }
     }
@@ -409,13 +287,10 @@ impl Blend {
 
 struct Swap {
     old: Box<Plan>,
-    /// Frames played of `length` (set on the first block, from its rate).
     done: usize,
     length: usize,
 }
 
-/// Creates the mixer pair around `tracks`, starting with an empty routing
-/// (silence). Allocates, so call it off the audio thread.
 pub fn mixer<T: TrackSource>(tracks: T) -> (MixerHandle, Mixer<T>) {
     let (incoming_tx, incoming_rx) = rtrb::RingBuffer::new(QUEUE);
     let (retired_tx, retired_rx) = rtrb::RingBuffer::new(QUEUE + 1);
@@ -477,8 +352,6 @@ impl<T> Mixer<T> {
         &mut self.tracks
     }
 
-    /// Takes the newest plan if one arrived and no crossfade is running.
-    /// With `fade`, a plan of a new shape crossfades in. Real-time safe.
     fn take_new(&mut self, fade: bool) {
         if let Some(old) = self.stash.take() {
             self.retire(old);
@@ -492,18 +365,13 @@ impl<T> Mixer<T> {
         let Ok(mut new) = self.incoming.pop() else {
             return;
         };
-        // Skipping a list needs room for it and for the one it replaces
-        // in the end, or the stash would be overwritten and a list freed
-        // here; newer lists then wait a block.
         while self.retired.slots() >= 2
             && let Ok(newer) = self.incoming.pop()
         {
             self.retire(std::mem::replace(&mut new, newer));
         }
         let reshaped = new.topology != self.plan.topology;
-        // The old plan plays on only while a new shape crossfades in.
         new.carry(&mut self.plan, !(fade && reshaped));
-        // A new plan has no input tail to blend from.
         self.blend = None;
         let relatent = new.latency() != self.plan.latency();
         let old = std::mem::replace(&mut self.plan, new);
@@ -513,8 +381,6 @@ impl<T> Mixer<T> {
                 done: 0,
                 length: 0,
             });
-            // New delay lines start silent: what the tracks play fades
-            // into them, so it comes out of them without a step.
             if relatent && self.plan.input_tail(0).is_some() {
                 self.blend = Some(Blend::new());
             }
@@ -523,13 +389,8 @@ impl<T> Mixer<T> {
         }
     }
 
-    /// Applies the attach and detach messages that arrived. Real-time safe:
-    /// the pool and the queues have a fixed size, and a message waits while
-    /// the queue that takes the replaced host back is full, so a host is
-    /// never dropped here.
     #[inline]
     fn take_hosts(&mut self) {
-        // A callback with nothing to take reads one flag.
         if self.hosts_pending.load(Ordering::Relaxed) {
             self.apply_hosts();
         }
@@ -538,10 +399,8 @@ impl<T> Mixer<T> {
         }
     }
 
-    /// As [`Mixer::apply_hosts`], for the built-in effects.
     #[inline(never)]
     fn apply_devices(&mut self) {
-        // A refused slot the interface has not taken yet (see below).
         if let Some(held) = self.device_held.take()
             && let Err(rtrb::PushError::Full(held)) = self.device_refused.push(held)
         {
@@ -557,15 +416,7 @@ impl<T> Mixer<T> {
             let gone = match message {
                 DeviceMsg::Attach(id, slot) => match self.builtins.insert(id, slot) {
                     Ok(replaced) => replaced,
-                    // The pool is full: the slot goes back to be freed off
-                    // the audio thread, with the id so the interface says
-                    // which device is not running (review M3).
                     Err(refused) => {
-                        // At most `DEVICE_QUEUE` messages arrive between two
-                        // drains and the refusal ring holds one more, so this
-                        // push cannot fail; holding the slot rather than
-                        // dropping it keeps it off the audio thread's heap
-                        // whatever happens.
                         if let Err(rtrb::PushError::Full(held)) =
                             self.device_refused.push((id, refused))
                         {
@@ -589,8 +440,6 @@ impl<T> Mixer<T> {
 
     #[inline(never)]
     fn apply_hosts(&mut self) {
-        // Cleared before the queue is read, so a message sent meanwhile sets
-        // it again and is not lost.
         if !self.hosts_pending.swap(false, Ordering::AcqRel) {
             return;
         }
@@ -606,26 +455,20 @@ impl<T> Mixer<T> {
                 HostMsg::Detach(id) => self.hosts.remove(id),
             };
             if let Some(guard) = gone {
-                // Room was checked above, and nothing else pushes here.
                 let _ = self.host_retired.push(guard);
             }
         }
-        // Messages left because the retired queue was full wait for the next
-        // block.
         if !self.host_msgs.is_empty() {
             self.hosts_pending.store(true, Ordering::Release);
         }
     }
 
-    /// Hands `old` back to be freed, keeping it if the queue is full. Only
-    /// called while the stash is empty.
     fn retire(&mut self, old: Box<Plan>) {
         if let Err(rtrb::PushError::Full(old)) = self.retired.push(old) {
             self.stash = Some(old);
         }
     }
 
-    /// Ends the crossfade once it is done, or at once with `now`.
     fn finish_swap(&mut self, now: bool) {
         if self.stash.is_some() {
             return;
@@ -637,9 +480,6 @@ impl<T> Mixer<T> {
 }
 
 impl<T: TrackSource> Mixer<T> {
-    /// A latent plan only: the tracks blend into what they play next from
-    /// what they would have played from the cursor in `mode` (what rings,
-    /// for [`Mode::Ring`]), without moving them on.
     fn blend_from(&mut self, timeline: &Timeline, sample_rate: u32, mode: Mode) {
         let cx = RenderContext {
             timeline,
@@ -675,7 +515,6 @@ impl<T: TrackSource> Source for Mixer<T> {
         }
         let rate = cx.sample_rate;
         let advance = !cx.tail;
-        // A scrub is heard as it plays: no path waits for another's latency.
         let scrubbing = cx.mode == Mode::Scrub;
         self.plan.lines.set_bypass(scrubbing);
         if let Some(swap) = self.swap.as_mut() {
@@ -692,14 +531,12 @@ impl<T: TrackSource> Source for Mixer<T> {
                 ..*cx
             };
             self.plan.clear(n);
-            // Hosts start their blocks before the clips render.
             self.tracks.begin(&part_cx, n);
             self.tracks.render(&part_cx, &mut self.plan.buses(n));
             if let Some(swap) = self.swap.as_mut() {
                 swap.old.clear(n);
                 swap.old.copy_inputs(&self.plan, n);
             }
-            // Only the plan the jump or the new latency belongs to blends.
             if advance {
                 if let Some(blend) = self.blend.as_mut() {
                     if blend.length == 0 {
@@ -712,9 +549,6 @@ impl<T: TrackSource> Source for Mixer<T> {
                 self.cursor = part_cx.start + n as i64;
             }
             let mut part = out.part(done, n);
-            // The song's tempo where this part plays: what a built-in device
-            // whose time is in notes follows (M8 slice B3). A project with no
-            // built-in does not read it.
             let bpm = if self.plan.builtins {
                 part_cx.timeline.bpm_at(part_cx.start, rate)
             } else {
@@ -741,7 +575,6 @@ impl<T: TrackSource> Source for Mixer<T> {
                     if swap.length == 0 {
                         swap.length = (rate / SWAP_PER_SECOND).max(1) as usize;
                     }
-                    // In and out always add up to one.
                     let mut fade_in = [0.0f32; CHUNK];
                     let mut fade_out = [0.0f32; CHUNK];
                     for k in 0..n {
@@ -749,11 +582,8 @@ impl<T: TrackSource> Source for Mixer<T> {
                         fade_in[k] = x.min(1.0);
                         fade_out[k] = 1.0 - fade_in[k];
                     }
-                    // Only the plan fading in is metered.
                     let ramp_in = Ramp::Fade(&fade_in[..n]);
                     let tap = Some(&mut self.loudness);
-                    // The plan fading out plays its fallbacks: a host is
-                    // asked once for a block.
                     let mut hosting = Hosting {
                         pool: Some(&mut self.hosts),
                         builtins: Some(&mut self.builtins),
@@ -791,10 +621,6 @@ impl<T: TrackSource> Source for Mixer<T> {
 
     fn idle(&mut self, sample_rate: u32, frames: usize) {
         self.rate = sample_rate;
-        // Routings and clip lists sent while stopped are taken as they
-        // come: a full queue would hold the UI's next ones back until Play,
-        // and playback would start on stale ones (found by the M4 exit
-        // walkthrough). Nothing plays, so nothing crossfades.
         self.finish_swap(true);
         self.take_new(false);
         self.take_hosts();
@@ -805,32 +631,20 @@ impl<T: TrackSource> Source for Mixer<T> {
     fn locate(&mut self, timeline: &Timeline, sample_rate: u32, sample: i64, jump: Jump) {
         self.blend = None;
         if jump == Jump::Locate {
-            // A move of the playhead in the song: no effect's tail carries
-            // over to the new place (the engine crossfades the jump itself).
             self.hosts.flush();
             self.builtins.reset();
         }
         if jump != Jump::Play && self.plan.latency() > 0 {
-            // Latent: the engine's crossfade would come before the jump is
-            // heard. Blend where the tracks play in instead, from what they
-            // would have played next; a plan crossfade carries on.
             self.blend_from(timeline, sample_rate, Mode::Play);
         } else {
-            // The engine crossfades the jump: a plan crossfade ends here,
-            // and levels start at their targets rather than gliding.
             self.finish_swap(true);
             self.take_new(false);
             self.plan.settle();
             self.blend = None;
             if self.plan.latency() > 0 {
                 if self.tracks.ringing() {
-                    // Playback starts while an instrument rings out: the
-                    // delay lines hold its ring, and the tracks blend from
-                    // it into the new audio, so the ring carries on.
                     self.blend_from(timeline, sample_rate, Mode::Ring);
                 } else {
-                    // The delay lines forget what played before, and the
-                    // tracks fade in from silence.
                     self.plan.clear_lines();
                     if self.plan.input_tail(0).is_some() {
                         self.blend = Some(Blend::new());
@@ -847,8 +661,6 @@ impl<T: TrackSource> Source for Mixer<T> {
     }
 
     fn hosted(&self) -> bool {
-        // Hosts waiting to be attached count, so the callback that takes
-        // them already has its deadline.
         self.tracks.hosted() || self.hosts.len() > 0 || self.hosts_pending.load(Ordering::Relaxed)
     }
 
@@ -861,8 +673,6 @@ impl<T: TrackSource> Source for Mixer<T> {
     }
 
     fn ringing(&self) -> bool {
-        // A plugin effect or a built-in rings out after a Stop until its output
-        // has been quiet for a while: a delay or a reverb is not cut off.
         self.tracks.ringing() || self.hosts.sounding(self.rate) || self.builtins.sounding(self.rate)
     }
 }

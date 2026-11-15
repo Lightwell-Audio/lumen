@@ -1,8 +1,3 @@
-//! Delay compensation (M4 slice 6, ADR-0041): latent tracks stay in time
-//! with the rest, and the transport shows the compensation only while
-//! there is some (the owner's D1). Latency comes from the engine's
-//! synthetic device until devices arrive (M6).
-
 use std::time::Duration;
 
 use egui_kittest::kittest::{NodeT, Queryable};
@@ -10,7 +5,6 @@ use lumen_core::time::Ticks;
 
 use super::{Lumen, wav};
 
-/// 12.4 ms at the test device's 48 kHz.
 const FRAMES: u32 = 595;
 
 #[test]
@@ -30,8 +24,6 @@ fn the_transport_shows_compensation_only_while_there_is_some() {
     lumen.app_mut().set_test_latency(track.id, FRAMES);
     lumen.wait_for("the routing", |app| app.compensation() == FRAMES);
     lumen.frames(2);
-    // The status chip is named for screen readers with it, and its device
-    // line ends with it.
     let chip = lumen.harness.get_by_label_contains("Audio: ");
     assert!(
         chip.accesskit_node()
@@ -41,8 +33,6 @@ fn the_transport_shows_compensation_only_while_there_is_some() {
     );
     let status = chip.rect();
 
-    // Hovering it names the longest path in the info line (the bar is
-    // drawn before the line, so this reads the line as drawn).
     lumen.harness.hover_at(status.center());
     lumen.frames(3);
     let said = format!(
@@ -54,13 +44,11 @@ fn the_transport_shows_compensation_only_while_there_is_some() {
         "{said}"
     );
 
-    // The audio panel always has it, with the path.
     lumen.harness.get_by_label_contains("Audio: ").click();
     lumen.frames(3);
     assert!(lumen.shows("12.4 ms · 595 samples"));
     assert!(lumen.shows(&format!("Longest path: {}", track.name)));
 
-    // Without the device it goes again (the panel shows 0).
     lumen.app_mut().set_test_latency(track.id, 0);
     lumen.wait_for("the routing", |app| app.compensation() == 0);
     lumen.frames(2);
@@ -69,9 +57,6 @@ fn the_transport_shows_compensation_only_while_there_is_some() {
 
 #[test]
 fn a_latent_track_stays_in_time_with_the_others() {
-    // Two tracks play the same tone, the second upside down: in time,
-    // they cancel. A device on the first delays it by 595 frames; delay
-    // compensation delays the second as much, so they still cancel.
     let mut lumen = Lumen::start("compensation-in-time");
     lumen.wait_for("audio", |app| app.audio_running());
     let files = [
@@ -81,7 +66,6 @@ fn a_latent_track_stays_in_time_with_the_others() {
     lumen.drop_files(&files);
     lumen.wait_for("both tracks", |app| app.project().tracks.len() == 2);
     let ids: Vec<_> = lumen.app().project().tracks.iter().map(|t| t.id).collect();
-    // A tall Mixer tab shows every strip control.
     lumen.app_mut().set_detail_size(480.0);
     lumen.frames(3);
     let second = lumen.app().project().tracks[1].name.clone();
@@ -97,8 +81,6 @@ fn a_latent_track_stays_in_time_with_the_others() {
         .fold(0.0f32, |m, f| m.max(f[0].abs()).max(f[1].abs()));
     assert!(loudest < 1e-4, "the tracks drifted apart: {loudest}");
 
-    // Taken off while playing, the device's latency goes and the tracks
-    // still cancel once the change has passed.
     lumen.app_mut().set_test_latency(ids[0], 0);
     lumen.wait_for("the routing", |app| app.compensation() == 0);
     let heard = lumen.listen(Duration::from_millis(100), 2_000);

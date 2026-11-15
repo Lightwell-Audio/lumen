@@ -1,10 +1,3 @@
-//! Times sample-rate changes on an ASIO device (M2 slice 8, MT-APP-6): from
-//! asking for a new rate until audio runs again. Silent.
-//!
-//! ```text
-//! cargo run --release -p lumen-audio --example rate_switch -- "Focusrite USB ASIO"
-//! ```
-
 #[cfg(not(windows))]
 fn main() {
     eprintln!("rate_switch needs Windows");
@@ -46,7 +39,6 @@ fn main() {
         match audio.wait_event(Duration::from_secs(10)) {
             Some(DeviceEvent::Started(info)) => {
                 let started = asked.elapsed();
-                // Until the first callbacks actually arrive.
                 let callbacks = audio.status().callbacks();
                 while audio.status().callbacks() < callbacks + 3 {
                     std::thread::sleep(Duration::from_millis(1));

@@ -1,6 +1,3 @@
-//! Live play: the app's live input, handed to every track that listens, and
-//! what recording keeps of it.
-
 use lumen_core::midi::{Event, Kind, Msg};
 
 use crate::source::{Mode, RenderContext};
@@ -13,8 +10,6 @@ use super::super::recording::{live_position, record_window};
 use super::MidiPlayer;
 
 impl MidiPlayer {
-    /// Takes a new live input if one arrived, handing the old one back.
-    /// Real-time safe.
     pub(super) fn take_feed(&mut self) {
         if let Some(old) = self.old_feed.take()
             && let Err(rtrb::PushError::Full(old)) = self.old_feeds.push(old)
@@ -30,8 +25,6 @@ impl MidiPlayer {
         }
     }
 
-    /// Hands each track that listens the live messages for the part from
-    /// device frame `start`, `frames` long.
     pub(super) fn play_live(&mut self, cx: &RenderContext<'_>, frames: usize) {
         self.recording = cx.recording;
         let Some(live) = self.live.as_mut() else {
@@ -41,8 +34,6 @@ impl MidiPlayer {
         let pass = self.pass;
         let tracks = &mut self.current.tracks;
         let (capture, lost) = (&mut self.capture, &mut self.lost);
-        // A recording that begins takes the keys already held down, as
-        // played at its start, so a held note is not lost.
         let clock = Clock {
             timeline: cx.timeline,
             rate: cx.sample_rate,
@@ -56,8 +47,6 @@ impl MidiPlayer {
             if on && !track.state.recording {
                 let at = capture::heard(cx, start, self.wrapped_since_locate).0;
                 let (position, position_pass) = live_position(track, clock, at, pass, false);
-                // Keys already down win their pitch only where the take
-                // shows them.
                 let window = record_window(track, position_pass);
                 let wins = on && (window.0..window.1).contains(&position);
                 for down in &mut track.state.down {
@@ -76,8 +65,6 @@ impl MidiPlayer {
                         *lost = lost.saturating_add(1);
                     }
                 }
-                // And the clip's notes on those keys give way to them, the
-                // note each one plays when the map remaps it (M8 D0 review M1).
                 for i in 0..track.state.down.len() {
                     let played = track.state.down[i].played;
                     if wins {
@@ -90,10 +77,6 @@ impl MidiPlayer {
         let wrapped = self.wrapped_since_locate;
         let last = frames.saturating_sub(1) as u64;
         let last32 = last as u32;
-        // The frame the previous live message ended up on: messages taken in
-        // one block go no earlier than it, so their order is kept. A
-        // note-off is placed after its note-on (`apart_from_its_on`), and a
-        // later note-on left on the frame it came with would pass it.
         let mut floor = 0_u32;
         live.pull(start, start + frames as u64, &mut |m: LiveIn| {
             let offset = (m.frame.saturating_sub(start).min(last) as u32).max(floor);
@@ -101,10 +84,6 @@ impl MidiPlayer {
                 if m.source != AUDITION && track.record.takes(m.source, m.msg) {
                     let recording = cx.recording && track.record.is_on();
                     let (at, back) = capture::heard(cx, m.played, wrapped);
-                    // A key played while recording, where the take shows
-                    // it, wins its pitch: a clip note sounding on it ends
-                    // here (`TrackState::yields`). Outside the window the
-                    // take keeps it hidden, and the clips play on.
                     let (position, position_pass) = live_position(track, clock, at, pass, back);
                     let window = record_window(track, position_pass);
                     let wins = recording && (window.0..window.1).contains(&position);
@@ -114,13 +93,9 @@ impl MidiPlayer {
                     if let Kind::NoteOn { key, .. } = m.msg.kind()
                         && wins
                     {
-                        // What the key plays, which a drum map may have
-                        // changed: the clip's note of that pitch gives way
-                        // (M8 D0 review M1).
                         let played = track.kit.as_deref().map_or(key, |kit| kit.key(key).key);
                         track.state.give_way(played, offset);
                     }
-                    // Recording keeps what the track takes, heard or not.
                     if cx.recording {
                         let kept = capture.push(Captured {
                             track: track.id,
@@ -136,9 +111,6 @@ impl MidiPlayer {
                         }
                     }
                 }
-                // Not recording, what a track hears or is armed for is kept
-                // for Capture MIDI: its device frame, and whether the
-                // transport moved.
                 if !cx.recording
                     && m.source != AUDITION
                     && (track.record.takes(m.source, m.msg) || track.listen.takes(m.source, m.msg))
@@ -181,16 +153,11 @@ impl MidiPlayer {
                     .live
                     .take(m.source, m.msg, out, track.kit.as_deref())
                 {
-                    // A hit of a choke group ends the other sounds of the
-                    // group at the same sample (M8 D0).
                     if let Kind::NoteOn { key, .. } = msg.kind() {
                         track.state.choke(track.kit.as_deref(), key, offset);
                     }
                     let offset = apart_from_its_on(&mut track.state.events, msg, offset, last32);
                     floor = floor.max(offset);
-                    // A live note-off ends a note the track holds (`take`
-                    // sends no other), so it may use the room kept for
-                    // releases; a player's pedal-up or bend may not.
                     let event = Event { offset, msg };
                     if hold::ends_a_held_note(msg) {
                         track.state.push_release(event);
@@ -203,11 +170,6 @@ impl MidiPlayer {
     }
 }
 
-/// Where a live note-off goes. Events on one frame are ordered offs before
-/// ons (so a retriggered note ends before it starts), which would leave a
-/// note that was played and let go within one frame sounding: its off is
-/// placed one frame after its on (or the on one frame before, at the end of
-/// the part).
 fn apart_from_its_on(events: &mut [Event], msg: Msg, offset: u32, last: u32) -> u32 {
     let lumen_core::midi::Kind::NoteOff { key, .. } = msg.kind() else {
         return offset;

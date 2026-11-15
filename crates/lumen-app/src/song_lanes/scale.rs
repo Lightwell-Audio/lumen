@@ -1,8 +1,3 @@
-//! Where tempo values and time-signature changes sit in their lanes (M7
-//! slice A6): pure, so every hit test is tested here. The tempo lane's
-//! scale fits the song's own tempos, with room above and below; a time
-//! signature's chip is as wide as its text.
-
 use eframe::egui::{Pos2, Rect, pos2};
 use lumen_core::meter::MeterPoint;
 use lumen_core::time::{MAX_BPM, MIN_BPM, TempoPoint, Ticks};
@@ -10,13 +5,9 @@ use lumen_core::time::{MAX_BPM, MIN_BPM, TempoPoint, Ticks};
 use crate::theme;
 use crate::timeview::TimeView;
 
-/// The least span of tempos the lane shows, so a song at one tempo reads
-/// as a level line with room to move it.
 const LEAST_SPAN: f64 = 30.0;
-/// Room above and below the extremes, as a share of the span.
 const MARGIN: f64 = 0.25;
 
-/// The tempos the lane's height spans: `lo` at the bottom, `hi` at the top.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Scale {
     pub lo: f64,
@@ -24,7 +15,6 @@ pub(crate) struct Scale {
 }
 
 impl Scale {
-    /// The scale that holds every tempo in `points`.
     pub fn fit(points: &[TempoPoint]) -> Self {
         let (mut lo, mut hi) = (f64::MAX, f64::MIN);
         for p in points {
@@ -43,24 +33,20 @@ impl Scale {
         }
     }
 
-    /// Where `bpm` sits, 0 at the bottom and 1 at the top.
     pub fn height(self, bpm: f64) -> f32 {
         ((bpm - self.lo) / (self.hi - self.lo)) as f32
     }
 
-    /// The tempo at `height`, clamped to what a song may have.
     pub fn bpm(self, height: f32) -> f64 {
         (self.lo + f64::from(height) * (self.hi - self.lo)).clamp(MIN_BPM, MAX_BPM)
     }
 }
 
-/// A tempo in the lane's words: whole BPM, or to a tenth.
 pub(crate) fn bpm_text(bpm: f64) -> String {
     let text = format!("{bpm:.1}");
     text.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
-/// A tempo dragged to: whole BPM, or to a tenth when `fine` (Alt).
 pub(crate) fn snap_bpm(bpm: f64, fine: bool) -> f64 {
     let bpm = if fine {
         (bpm * 10.0).round() / 10.0
@@ -70,7 +56,6 @@ pub(crate) fn snap_bpm(bpm: f64, fine: bool) -> f64 {
     bpm.clamp(MIN_BPM, MAX_BPM)
 }
 
-/// Reads a typed tempo: "96", "96.5" or "96 BPM".
 pub(crate) fn parse_bpm(text: &str) -> Option<f64> {
     let text = text
         .trim()
@@ -80,11 +65,9 @@ pub(crate) fn parse_bpm(text: &str) -> Option<f64> {
     (bpm.is_finite() && (MIN_BPM..=MAX_BPM).contains(&bpm)).then_some(bpm)
 }
 
-/// A lane's rectangle on the screen and the view that maps time to x.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Plane {
     pub rect: Rect,
-    /// Where beat 0 of the view's left edge sits (the lanes' left).
     pub left: f32,
     pub view: TimeView,
 }
@@ -98,7 +81,6 @@ impl Plane {
         crate::ruler::ticks_at(self.view.beat_at(self.left, x))
     }
 
-    /// The vertical room a value has: the lane less its padding.
     fn inner(&self) -> (f32, f32) {
         (
             self.rect.top() + theme::size::AUTO_PAD,
@@ -121,7 +103,6 @@ impl Plane {
     }
 }
 
-/// The tempo point nearest `p` within reach, nearest first in x.
 pub(crate) fn tempo_hit(
     plane: &Plane,
     scale: Scale,
@@ -138,13 +119,10 @@ pub(crate) fn tempo_hit(
         .map(|(i, _)| i)
 }
 
-/// The width a time-signature chip takes: the text, with room round it. The
-/// monospace's characters are about six tenths of the size wide.
 pub(crate) fn chip_width(text: &str) -> f32 {
     text.chars().count() as f32 * theme::size::MONO_SMALL * 0.62 + 2.0 * theme::size::SONG_CHIP_PAD
 }
 
-/// The chip of change `point`: it begins at the change's bar line.
 pub(crate) fn chip(plane: &Plane, point: &MeterPoint) -> Rect {
     let width = chip_width(&point.meter.to_string());
     let x = plane.x(point.at);
@@ -154,7 +132,6 @@ pub(crate) fn chip(plane: &Plane, point: &MeterPoint) -> Rect {
     )
 }
 
-/// The time-signature change under `p`, if there is one.
 pub(crate) fn meter_hit(plane: &Plane, points: &[MeterPoint], p: Pos2) -> Option<usize> {
     points
         .iter()
@@ -178,7 +155,6 @@ mod tests {
     }
 
     fn plane() -> Plane {
-        // 10 points a beat, 600 wide, 44 tall, from x 100.
         Plane {
             rect: Rect::from_min_size(pos2(100.0, 0.0), eframe::egui::vec2(600.0, 44.0)),
             left: 100.0,

@@ -1,10 +1,3 @@
-//! Hosted effects through the mixer (M6 slice 2b, ADR-0069). A fake effect
-//! stands for the plugin's process: it halves its input, after a delay of its
-//! own latency, and answers at once or never. The mixer hands the hosts their
-//! blocks before its node loop, collects them against one deadline, and falls
-//! back to the input delayed by the reported latency while a host is
-//! bypassed, failed or late, so time never shifts.
-
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -25,49 +18,32 @@ lumen_rt::install_guarded_allocator!();
 
 const MASTER: u64 = 100;
 
-/// What the fake effect does with a block.
 #[derive(Clone)]
 enum Mode {
-    /// Half the input, delayed by the latency: answers at once.
     Halve,
-    /// Never answers in time.
     Late,
-    /// Is always still on an earlier block: refuses every one.
     Busy,
-    /// Halves, but a worker takes this long first (each block is counted in
-    /// `overlap`).
     Slow(Duration, Arc<Overlap>),
-    /// Halves and adds a level of its own (the bits of an `f32`), as an amp
-    /// with a long reverb sounds on after its input has stopped.
     Hum(Arc<AtomicU32>),
-    /// Multiplies its input by the value of parameter `id`, held from the
-    /// sample the block says it changed on, as a plugin applies automation.
     Follow(u32),
-    /// Plays the left channel of its sidechain input (the third channel it
-    /// is given) and nothing of its audio; silence when it is given none.
     Key,
 }
 
 #[derive(Default)]
 struct Overlap {
-    /// Blocks handed to slow hosts so far.
     submitted: AtomicU32,
-    /// How many had been handed over when the first host was collected (0 until then).
     before_first_collect: AtomicU32,
 }
 
 struct FakeEffect {
     mode: Mode,
     latency: u32,
-    /// The input, per channel, `latency` frames deep, for the delay.
     ring: Vec<f32>,
     at: usize,
     out: [Vec<f32>; 2],
     done: Option<Arc<AtomicBool>>,
     submits: Arc<AtomicU32>,
-    /// Times the engine asked it to forget what it holds.
     flushes: Arc<AtomicU32>,
-    /// The value of the followed parameter now.
     level: f32,
 }
 
@@ -208,7 +184,6 @@ impl Hosted for FakeEffect {
 
 const RATE: u32 = 48_000;
 
-/// Audio whose every sample differs, to catch any misplaced frame.
 fn ramp() -> Vec<f32> {
     (0..480_000)
         .map(|i| ((i % 997) as f32 - 498.0) / 1e3)
@@ -237,7 +212,6 @@ fn clip(id: u64, track: u64, audio: &Arc<ClipAudio>) -> Clip {
     }
 }
 
-/// A track into the master with these devices.
 fn track(id: u64, devices: Vec<Device>) -> NodeSpec {
     NodeSpec {
         devices,
@@ -264,7 +238,6 @@ struct Rig {
     transport: EngineHandle,
     routing: MixerHandle,
     engine: Engine<Mixer<ClipPlayer>>,
-    /// Frames rendered so far.
     at: usize,
 }
 
@@ -298,7 +271,6 @@ impl Rig {
         self.transport.send(Command::Play).unwrap();
     }
 
-    /// The left channel of the next `frames`, in blocks of `block`.
     fn run(&mut self, frames: usize, block: usize) -> Vec<f32> {
         let mut data = vec![0.0; 2 * block];
         let mut out = Vec::with_capacity(frames);
@@ -314,8 +286,6 @@ impl Rig {
     }
 }
 
-/// Checks `out`, which starts at the frame `from`, against `want(frame)` from
-/// frame `check` on.
 fn assert_matches(out: &[f32], from: usize, check: usize, what: &str, want: impl Fn(usize) -> f32) {
     for (k, &got) in out.iter().enumerate().skip(check.saturating_sub(from)) {
         let frame = from + k;
@@ -337,7 +307,6 @@ fn a_hosted_effect_processes_the_tracks_audio_sample_for_sample_at_any_block_siz
         let status = rig.attach(7, effect, 0);
         rig.play();
         let out = rig.run(20_000, block);
-        // The first 20 ms glide the host in from its fallback.
         assert_matches(&out, 0, 3_000, &format!("blocks of {block}"), |n| {
             r[n] * 0.5
         });
@@ -350,8 +319,6 @@ fn a_hosted_effect_processes_the_tracks_audio_sample_for_sample_at_any_block_siz
 fn a_hosted_effects_latency_lines_up_with_a_parallel_track() {
     let r = ramp();
     let latency = 64;
-    // Track 1 goes through the plugin, which delays by 64 frames; track 2 is
-    // plain. What is heard lines up with the timeline: 0.5·r + r.
     let routing = routing_of(vec![track(1, hosted(7, latency)), track(2, vec![])]);
     let mut rig = rig(2, RATE, &routing);
     let (effect, _) = FakeEffect::new(Mode::Halve, latency);
@@ -375,10 +342,6 @@ fn bypass_passes_the_input_at_the_reported_latency_without_a_step() {
     assert_matches(&before, 0, 3_000, "before", |n| r[n - 32] * 0.5);
     status.set_bypass(true);
     let after = rig.run(20_000, 128);
-    // The gain from the input to what is heard glides from 0.5 (the host) to
-    // 1 (the fallback) over 20 ms: a straight line, no step. (The ramp itself
-    // wraps once a period, so the gain is read where the input is not near
-    // zero.)
     let mut gains: Vec<(usize, f32)> = Vec::new();
     for (k, &heard) in after.iter().enumerate().take(3_000) {
         let input = r[20_000 + k - 32];
@@ -408,7 +371,6 @@ fn bypass_passes_the_input_at_the_reported_latency_without_a_step() {
         asked,
         "a bypassed host is not asked for blocks"
     );
-    // And back: the host is heard again.
     status.set_bypass(false);
     let again = rig.run(20_000, 128);
     assert_matches(&again, 45_000, 49_000, "enabled again", |n| r[n - 32] * 0.5);
@@ -430,8 +392,6 @@ fn a_host_that_fails_is_replaced_by_its_fallback_at_the_same_time() {
 
 #[test]
 fn a_block_a_busy_host_refused_is_one_missed_block_however_often_it_is_tried() {
-    // The first device of a node is handed its block early and again at the
-    // node: the host being busy is one missed block, not two (review H4).
     let routing = routing_of(vec![track(1, hosted(7, 0))]);
     let mut rig = rig(1, RATE, &routing);
     let (effect, submits) = FakeEffect::new(Mode::Busy, 0);
@@ -444,9 +404,6 @@ fn a_block_a_busy_host_refused_is_one_missed_block_however_often_it_is_tried() {
 
 #[test]
 fn a_hosted_effect_rings_out_after_stop_until_its_output_is_quiet() {
-    // The owner's report: an amp's delay and reverb ended a moment after the
-    // notes did. A plugin still sounding after Stop is heard until it goes
-    // quiet, then left alone.
     let routing = routing_of(vec![track(1, hosted(7, 0))]);
     let mut rig = rig(1, RATE, &routing);
     let level = Arc::new(AtomicU32::new(0.25f32.to_bits()));
@@ -476,8 +433,6 @@ fn a_hosted_effect_rings_out_after_stop_until_its_output_is_quiet() {
     );
 }
 
-/// Track 1 with a hosted effect that plays its sidechain, keyed from track 2
-/// at `tap`; track 2 plays to nowhere, so only the key reaches the master.
 fn keyed(tap: Tap, source: NodeSpec) -> Routing {
     let mut effect = track(1, hosted(7, 0));
     effect.sidechains.push(SidechainSpec { from: 2, tap });
@@ -493,7 +448,6 @@ fn source(devices: Vec<Device>, audible: bool) -> NodeSpec {
     }
 }
 
-/// Frames the effect's wet glide (20 ms) takes to be done with the fallback.
 const GLIDE: usize = 2_400;
 
 fn key_rig(routing: &Routing) -> (Rig, Vec<f32>) {
@@ -518,9 +472,6 @@ fn latent_device(frames: u32) -> Vec<Device> {
 
 #[test]
 fn a_hosted_effect_is_given_the_sidechain_on_the_samples_its_source_plays() {
-    // The effect plays its key; track 3 plays the same audio upside down
-    // straight into the master. Lined up, the two cancel exactly, whatever
-    // the source's own latency and the block size.
     for (name, devices, block) in [
         ("plain source", vec![], 128),
         ("latent source", latent_device(240), 128),
@@ -554,8 +505,6 @@ fn peak(samples: &[f32]) -> f32 {
 
 #[test]
 fn the_tap_decides_whether_a_muted_source_still_keys_the_effect() {
-    // Mute comes after the devices: Pre and Post FX still carry the sound;
-    // what the track plays does not.
     for (tap, heard) in [
         (Tap::PreFx, true),
         (Tap::PostFx, true),
@@ -611,7 +560,6 @@ fn a_locate_makes_effects_forget_what_they_hold_and_a_loop_wrap_or_a_start_does_
         "a move of the playhead reaches every effect once"
     );
 
-    // A loop wraps seamlessly: nothing is forgotten.
     rig.transport
         .send(Command::SetLoop(lumen_engine::Region::new(
             Ticks::ZERO,
@@ -622,8 +570,6 @@ fn a_locate_makes_effects_forget_what_they_hold_and_a_loop_wrap_or_a_start_does_
     rig.run(RATE as usize * 3, 128);
     assert_eq!(count(&flushes), 1, "three seconds of loop wraps");
 
-    // Stop, then start: the tail rings out after Stop (ADR-0074) and playing
-    // again is not a jump.
     rig.transport.send(Command::Stop).unwrap();
     rig.run(1_000, 128);
     rig.play();
@@ -645,7 +591,6 @@ fn a_bypassed_or_quiet_effect_does_not_keep_a_stopped_engine_running() {
     status.set_bypass(true);
     rig.run(10_000, 128);
     rig.transport.send(Command::Stop).unwrap();
-    // A quiet plugin goes on only while the clip it heard rings in it.
     rig.run(RATE as usize * 3, 128);
     let (hummed, quieted) = (hums.load(Ordering::Relaxed), quiets.load(Ordering::Relaxed));
     rig.run(RATE as usize, 128);
@@ -667,7 +612,6 @@ fn a_hosted_device_with_no_host_attached_plays_its_fallback() {
 fn a_new_latency_from_the_host_is_news_and_a_new_routing_lines_the_paths_up() {
     let r = ramp();
     let latency = 64;
-    // The routing was made when the plugin reported nothing; it reports 64.
     let first = routing_of(vec![track(1, hosted(7, 0)), track(2, vec![])]);
     let mut rig = rig(2, RATE, &first);
     let (effect, _) = FakeEffect::new(Mode::Halve, latency);
@@ -676,7 +620,6 @@ fn a_new_latency_from_the_host_is_news_and_a_new_routing_lines_the_paths_up() {
     rig.run(10_000, 128);
     assert_eq!(status.take_news(), Some(latency));
     assert_eq!(status.take_news(), None, "told once");
-    // The interface hears it and sends the routing again.
     let second = routing_of(vec![track(1, hosted(7, latency)), track(2, vec![])]);
     assert!(rig.routing.set(&second).unwrap());
     let out = rig.run(40_000, 128);
@@ -694,10 +637,6 @@ fn sixty_four_hosted_effects_have_their_blocks_in_flight_together() {
             .map(|id| track(id, hosted(1_000 + id, 0)))
             .collect(),
     );
-    // One part of 256 frames at 8 kHz, and hosts that take 50 ms: long enough
-    // that every submit (a thread start each, in this fake) comes before the
-    // first answer. Had the mixer waited for each host in turn, only one
-    // block would ever be in flight.
     let mut rig = rig(HOSTS, 8_000, &routing);
     for id in 1..=HOSTS {
         let (effect, _) = FakeEffect::new(
@@ -737,7 +676,6 @@ fn hosted_effects_never_touch_the_heap() {
             1_500 => rig.transport.send(Command::Stop).unwrap(),
             1_600 => rig.play(),
             2_000 => {
-                // A new routing swaps in with a crossfade, then a host goes.
                 let again = routing_of(vec![
                     track(1, hosted(11, 0)),
                     track(2, hosted(12, 48)),
@@ -764,8 +702,6 @@ fn hosted_effects_never_touch_the_heap() {
 
 #[test]
 fn keyed_hosted_effects_at_every_tap_and_a_refusing_host_never_touch_the_heap() {
-    // Three effects, each keyed from a latent track at another tap; a fourth
-    // host that refuses every block; a fifth that has no sidechain.
     let latent = |id| NodeSpec {
         devices: latent_device(240),
         ..NodeSpec::unity(id, Destination::None)
@@ -823,11 +759,9 @@ fn keyed_hosted_effects_at_every_tap_and_a_refusing_host_never_touch_the_heap() 
     );
 }
 
-// Keeps the shared log type in step with the instrument tests.
 #[allow(dead_code)]
 type Log = Arc<Mutex<Vec<u8>>>;
 
-/// A lane that holds `before` and steps to `after` on sample `at`.
 fn step_lane(param: u32, at: i64, before: f32, after: f32) -> ParamLane {
     ParamLane {
         param,
@@ -861,8 +795,6 @@ fn a_parameter_lane_changes_the_plugin_on_its_exact_sample_at_any_block_size() {
         let status = rig.attach(7, effect, 0);
         rig.play();
         let out = rig.run(20_000, block);
-        // Past the 20 ms glide in from the fallback: the lane's level, with
-        // the change on sample 10,001 and not the one before.
         assert_matches(&out, 0, 3_000, &format!("blocks of {block}"), |n| {
             r[n] * if n < 10_001 { 0.25 } else { 1.0 }
         });
@@ -872,8 +804,6 @@ fn a_parameter_lane_changes_the_plugin_on_its_exact_sample_at_any_block_size() {
 
 #[test]
 fn a_parameter_lane_is_read_where_the_audio_is_after_an_earlier_devices_latency() {
-    // A 64-frame effect ahead of the one with the lane: the audio the second
-    // is given trails the timeline by 64 frames, and the lane is read there.
     let r = ramp();
     let mut node = track(
         1,
@@ -899,8 +829,6 @@ fn a_parameter_lane_is_read_where_the_audio_is_after_an_earlier_devices_latency(
     rig.attach(7, second, 0);
     rig.play();
     let out = rig.run(20_000, 128);
-    // The audio reaches the second plugin 64 frames late, so the level
-    // changes with it, at 10,064 in what is heard (the first halves it).
     assert_matches(&out, 0, 3_000, "the second plugin", |n| {
         r[n - 64] * 0.5 * if n < 10_064 { 0.25 } else { 1.0 }
     });
@@ -908,9 +836,6 @@ fn a_parameter_lane_is_read_where_the_audio_is_after_an_earlier_devices_latency(
 
 #[test]
 fn parameter_lanes_on_plugins_never_touch_the_heap_through_every_transport_move() {
-    // Curved, stepped and straight lanes on two plugins of a node, the first
-    // handed its block early, played through plays, stops, locates, a loop
-    // wrap's worth of blocks and a new routing swapping in.
     let curved = ParamLane {
         param: 3,
         lane: AutoLane::new(vec![

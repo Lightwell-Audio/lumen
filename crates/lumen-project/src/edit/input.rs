@@ -1,14 +1,5 @@
-//! Choosing audio inputs for tracks (M9 slice R1, format v30).
-//!
-//! Arming an audio track that has no input gives it the first input no other
-//! track uses, so recording starts with one press (the owner's R1). Pure
-//! functions over the model; the app wraps the choice in the arm's undo step.
-
 use crate::model::{AudioInput, Id, Project, TrackKind};
 
-/// The first mono input of the device's `open` inputs that no track other
-/// than `track` takes, or the first at all if every one is taken (two tracks
-/// may record the same input). `None` when the device has no inputs open.
 pub fn first_free(project: &Project, open: u16, track: Id) -> Option<AudioInput> {
     if open == 0 {
         return None;
@@ -25,9 +16,6 @@ pub fn first_free(project: &Project, open: u16, track: Id) -> Option<AudioInput>
     Some(AudioInput::mono(channel))
 }
 
-/// Gives each armed audio track among `ids` without an input the first free
-/// one, in order, so two tracks armed together get different inputs. Returns
-/// whether anything changed.
 pub fn route_armed(project: &mut Project, ids: &[Id], open: u16) -> bool {
     let mut changed = false;
     for &id in ids {
@@ -71,7 +59,6 @@ mod tests {
             ],
         );
         assert_eq!(first_free(&project, 8, Id(3)), Some(AudioInput::mono(3)));
-        // The track's own input does not count as taken.
         assert_eq!(first_free(&project, 8, Id(1)), Some(AudioInput::mono(0)));
     }
 

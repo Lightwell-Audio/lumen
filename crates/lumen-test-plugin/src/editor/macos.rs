@@ -1,6 +1,3 @@
-//! Small native VST3 view used to exercise macOS NSView attachment,
-//! size changes, detach, and content-scale callbacks.
-
 use std::cell::{Cell, RefCell};
 use std::ffi::{c_char, c_void};
 use std::ptr::null_mut;
@@ -52,7 +49,6 @@ impl IPlugViewTrait for Editor {
         if platform.is_null() {
             return kInvalidArgument;
         }
-        // SAFETY: VST3 supplies a NUL-terminated platform type string.
         let (provided, supported) = unsafe {
             (
                 std::ffi::CStr::from_ptr(platform),
@@ -67,7 +63,6 @@ impl IPlugViewTrait for Editor {
     }
 
     unsafe fn attached(&self, parent: *mut c_void, platform: *const c_char) -> tresult {
-        // SAFETY: the platform string is supplied by the host per the VST3 ABI.
         if parent.is_null() || unsafe { self.isPlatformTypeSupported(platform) } != kResultTrue {
             return kInvalidArgument;
         }
@@ -93,7 +88,6 @@ impl IPlugViewTrait for Editor {
             NSSize::new((f64::from(width) - 32.0).max(1.0), 28.0),
         ));
         native.addSubview(&field);
-        // SAFETY: the host passed its live NSView on this AppKit thread.
         let parent = unsafe { &*(parent as *const NSView) };
         parent.addSubview(&native);
         *self.native.borrow_mut() = Some(native);
@@ -106,7 +100,6 @@ impl IPlugViewTrait for Editor {
                 right: BASE_WIDTH + 40,
                 bottom: BASE_HEIGHT + 30,
             };
-            // SAFETY: the host's frame is live and the request uses this view's COM identity.
             unsafe {
                 frame.resizeView(self.self_ptr.get() as *mut IPlugView, &mut requested);
             }
@@ -137,7 +130,6 @@ impl IPlugViewTrait for Editor {
             return kInvalidArgument;
         }
         let (width, height) = *self.size.borrow();
-        // SAFETY: the host passes a valid output pointer.
         unsafe {
             *size = ViewRect {
                 left: 0,
@@ -153,7 +145,6 @@ impl IPlugViewTrait for Editor {
         if size.is_null() {
             return kInvalidArgument;
         }
-        // SAFETY: the host passes a valid rectangle.
         let rect = unsafe { &*size };
         let size = clamp(rect.right - rect.left, rect.bottom - rect.top);
         *self.size.borrow_mut() = size;
@@ -176,7 +167,6 @@ impl IPlugViewTrait for Editor {
         kResultOk
     }
     unsafe fn setFrame(&self, frame: *mut IPlugFrame) -> tresult {
-        // SAFETY: the host gives a live frame or null.
         let frame = unsafe { ComRef::from_raw(frame) }.map(|r| r.to_com_ptr());
         *self.frame.borrow_mut() = frame;
         kResultOk
@@ -188,7 +178,6 @@ impl IPlugViewTrait for Editor {
         if size.is_null() {
             return kInvalidArgument;
         }
-        // SAFETY: the host passes a valid in/out rectangle.
         let rect = unsafe { &mut *size };
         let (width, height) = clamp(rect.right - rect.left, rect.bottom - rect.top);
         rect.right = rect.left + width;

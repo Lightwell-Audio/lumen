@@ -1,8 +1,3 @@
-//! Controls that follow their lane, and lanes the user takes over (M7 slice
-//! A4a): a fader whose lane plays shows the lane's value at the playhead; moving
-//! it takes the lane over, so the control's own value is heard; Re-enable (the
-//! chip's button, the command) gives the lane back. The scenarios listen.
-
 use eframe::egui::{Key, Modifiers, Pos2};
 use egui_kittest::kittest::{NodeT, Queryable};
 use lumen_core::automation::{Lane, Point, Shape};
@@ -13,7 +8,6 @@ use lumen_project::model::Id;
 use super::Lumen;
 use super::lane_view::{near, peak, run_command, tone};
 
-/// The test tone's peak (`wav`): 3,000 of 32,768.
 const TONE: f32 = 3_000.0 / 32_768.0;
 
 fn lane(points: &[(i64, f32, Shape)]) -> Lane {
@@ -26,7 +20,6 @@ fn lane(points: &[(i64, f32, Shape)]) -> Lane {
     .unwrap()
 }
 
-/// The words a control says for itself ("Volume tone: -20.0 dB").
 fn said(lumen: &Lumen, label: &str) -> String {
     lumen
         .harness
@@ -34,11 +27,9 @@ fn said(lumen: &Lumen, label: &str) -> String {
         .accesskit_node()
         .label()
         .unwrap_or_default()
-        // The interface writes a minus as U+2212.
         .replace('\u{2212}', "-")
 }
 
-/// Moves the playhead to `quarters` by clicking the ruler.
 fn locate(lumen: &mut Lumen, quarters: i64) {
     let ruler = lumen
         .harness
@@ -52,7 +43,6 @@ fn locate(lumen: &mut Lumen, quarters: i64) {
     lumen.frames(5);
 }
 
-/// The tone track with the header unfolded and a lane that holds -20 dB.
 fn held(name: &str) -> (Lumen, Id) {
     let (mut lumen, track) = tone(name);
     lumen
@@ -83,14 +73,12 @@ fn a_fader_shows_its_lane_at_the_playhead_stopped() {
         end.contains("0.0") && !end.contains("-"),
         "at the last point: {end}"
     );
-    // The track's own volume was never touched.
     assert_eq!(lumen.app().project().tracks[0].gain_db, 0.0);
 }
 
 #[test]
 fn moving_the_fader_under_a_lane_takes_the_lane_over_and_it_is_heard() {
     let (mut lumen, track) = held("override-heard");
-    // The lane holds its first value, -20 dB, wherever the song is.
     lumen
         .app_mut()
         .give_lane(track, Target::Volume, lane(&[(0, -20.0, Shape::Linear)]))
@@ -105,7 +93,6 @@ fn moving_the_fader_under_a_lane_takes_the_lane_over_and_it_is_heard() {
         "the lane's -20 dB: {under_lane}"
     );
 
-    // Grab the fader and drag it to the top of its travel.
     let slider = lumen.harness.get_by_label_contains("Volume tone:").rect();
     lumen.drag(
         slider.center(),
@@ -119,7 +106,6 @@ fn moving_the_fader_under_a_lane_takes_the_lane_over_and_it_is_heard() {
         "the control's own value is heard: {own} against {under_lane}"
     );
     assert!(lumen.shows("Automation lane of tone: Volume \u{00B7} Overridden"));
-    // The way back is a button on the chip.
     lumen.click("Re-enable Volume of tone");
     assert!(!lumen.app().lane_taken_over(track, Target::Volume));
     let back = peak(&mut lumen);
@@ -155,7 +141,6 @@ fn a_lane_switched_off_or_removed_is_no_longer_taken_over() {
         .app_mut()
         .switch_lane(track, Target::Volume, true)
         .unwrap();
-    // It plays again from the first frame it is on: the fader follows it.
     lumen.frames(5);
     assert!(said(&lumen, "Volume tone:").contains("-20"));
 }
@@ -175,7 +160,6 @@ fn a_mute_lane_decides_what_the_m_button_shows_and_a_click_takes_it_over() {
     assert!(!lumen.is_on("Mute tone"), "heard at the start");
     locate(&mut lumen, 6);
     assert!(lumen.is_on("Mute tone"), "the lane has muted it by now");
-    // A click says "unmute", and the control's own value is heard now.
     lumen.click("Mute tone");
     assert!(lumen.app().lane_taken_over(track, Target::Mute));
     assert!(!lumen.is_on("Mute tone"));

@@ -1,18 +1,8 @@
-//! The transport bar's controls and the app menu's rows, each with the
-//! command it runs or why it has none (M9 R7). The E2E coverage scenario
-//! (`tests/e2e/coverage.rs`) checks the app against these lists, and the
-//! docs exporter (`tests/docs_data.rs`) publishes them for the user
-//! documentation's reference (docs/USER_DOCS.md §5.1).
-
 #![allow(
     dead_code,
     reason = "each test target that includes this file uses part of it"
 )]
 
-/// What a control is in the lists: the command it runs, by name, or why it
-/// has none. `Each` is one row of a list the user fills (a template, a
-/// recent file), drawn here for the one the test makes: it runs no command
-/// and is documented with its submenu.
 pub enum Has {
     Command(&'static str),
     Without(&'static str),
@@ -20,8 +10,6 @@ pub enum Has {
 }
 pub use Has::{Command, Each, Without};
 
-/// The transport bar, by each control's accessible name. A name that ends
-/// in a colon or " …" goes on with a value ("Position 1.1.1", "Audio: On").
 pub const BAR: &[(&str, Has)] = &[
     ("Lumen", Without("opens the app menu, listed below")),
     ("Go to start", Command("Go to start")),
@@ -60,7 +48,6 @@ pub const BAR: &[(&str, Has)] = &[
     ("Detail", Command("Show / hide detail panel")),
 ];
 
-/// The app menu's rows, then the rows of its submenus.
 pub const MENU: &[(&str, Has)] = &[
     ("New", Command("New project")),
     (
@@ -84,21 +71,16 @@ pub const MENU: &[(&str, Has)] = &[
     ("Preferences…", Command("Preferences…")),
     ("Set up Lumen…", Command("Set up Lumen…")),
     ("Keyboard shortcuts…", Command("Keyboard shortcuts")),
-    // New from template, with the template the test saves.
     (
         "Beat",
         Each("a template: the palette lists each one as New from template"),
     ),
     ("Open templates folder", Command("Open templates folder")),
-    // Open recent, with the project the test saves.
     ("Song", Each("a recent file, opened by its path")),
-    // More ways to save.
     ("Save a copy…", Command("Save a copy…")),
     ("Collect and save", Command("Collect and save")),
     ("Save as template…", Command("Save as template…")),
     ("Revert to saved…", Command("Revert to saved…")),
-    // Appearance: a quick change of preferences the Appearance page of
-    // Preferences holds too.
     ("Dark", Without("a preference")),
     ("Light", Without("a preference")),
     ("Match system", Without("a preference")),

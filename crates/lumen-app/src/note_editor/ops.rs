@@ -1,7 +1,3 @@
-//! The note edits the commands, keys and menus run (M5 slice 3c). Each is
-//! one `Document` method, so each is one undo step; the selection follows
-//! what the edit returns.
-
 use lumen_core::time::Ticks;
 use lumen_project::edit::{self, notes::MIN_NOTE};
 use lumen_project::model::Id;
@@ -10,27 +6,21 @@ use super::{NoteEditor, notes_of};
 use crate::App;
 use crate::audition::Tone;
 
-/// An edit of the open clip's picked notes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum NoteOp {
     Delete,
     Duplicate,
     ToggleMute,
     SelectAll,
-    /// Cut at this clip time.
     Split(Ticks),
     Glue,
     Legato,
     Transpose(i32),
-    /// Move earlier (-1) or later (1) by a grid step, or finely.
     Nudge {
         direction: i32,
         fine: bool,
     },
-    /// Raise (positive) or lower the velocities by this much.
     Velocity(i32),
-    /// Quantize with the last settings (slice 5); with nothing picked, every
-    /// note. So are the four below.
     Quantize,
     Humanize,
     FixedLength,
@@ -38,19 +28,15 @@ pub(crate) enum NoteOp {
     Reverse,
 }
 
-/// How much Raise velocity and Lower velocity change a velocity.
 pub(crate) const VELOCITY_STEP: i32 = 8;
 
 impl App {
-    /// Runs `op` on the editor's state, which is in `self`.
     pub(crate) fn note_op(&mut self, op: NoteOp) {
         let mut editor = std::mem::take(&mut self.note_editor);
         self.apply_note_op(&mut editor, op);
         self.note_editor = editor;
     }
 
-    /// The grid step in ticks where the picked notes are: how far an arrow
-    /// nudges.
     fn nudge_step(&self, clip: Id, editor: &NoteEditor) -> Ticks {
         let Some((clip, _)) = self.editor_clip(clip) else {
             return MIN_NOTE;
@@ -64,12 +50,6 @@ impl App {
         (b - a).max(MIN_NOTE)
     }
 
-    /// Where the keyboard's Split (Ctrl+E, the palette) cuts, as clip time:
-    /// the playhead's place while the playhead is inside the clip. Only when
-    /// it is outside does the pointer's place over the roll count (and only
-    /// inside the clip); otherwise there is no split point. The context
-    /// menu's "Split here" uses the pointer's place from when it opened
-    /// (`NoteEditor::menu_at`), never this.
     pub(crate) fn split_point(&self) -> Option<Ticks> {
         let ed = &self.note_editor;
         let (clip, _) = self.editor_clip(ed.clip?)?;
@@ -107,9 +87,6 @@ impl App {
                 let next = match op {
                     NoteOp::Quantize => {
                         let settings = editor.quantize.options.settings(step);
-                        // A drum lane's sound may carry its own grid (M8 D2):
-                        // Q then uses it for that lane's hits and the
-                        // options' for the others, in one undo step.
                         let lanes = self.drum_quantize_steps(editor, clip);
                         let next = match &lanes {
                             Some(steps) => self
@@ -117,8 +94,6 @@ impl App {
                                 .quantize_notes_each(clip, &targets, &settings, steps),
                             None => self.document.quantize_notes(clip, &targets, &settings),
                         };
-                        // "Each lane's own grid" only when a picked hit's
-                        // lane had one (review L3).
                         let used_lane = lanes.as_ref().is_some_and(|steps| {
                             let notes = notes_of(&open);
                             targets.iter().any(|&i| {
@@ -158,7 +133,6 @@ impl App {
                     ),
                     _ => self.document.reverse_notes(clip, &targets),
                 };
-                // Nothing was picked: nothing is afterwards.
                 let next = if all { Vec::new() } else { next };
                 if let Some(selection) = &mut editor.selection {
                     selection.rebind(self.document.project(), next);
@@ -189,30 +163,22 @@ impl App {
         }
     }
 
-    /// A pitch sounds on the track of `clip` (the clip being edited) while
-    /// a note is picked or drawn (slice 3d): one note at a time, let go after
-    /// a moment or when the gesture ends.
     pub(crate) fn audition_note(&mut self, clip: Id, pitch: u8, velocity: u8) {
         self.audition_notes(clip, &[Tone { pitch, velocity }]);
     }
 
-    /// The notes `tones` sound on the track of `clip` as a chord: a fresh
-    /// preview, letting go of the last (a press on picked notes).
     pub(crate) fn audition_notes(&mut self, clip: Id, tones: &[Tone]) {
         if let Some(track) = self.clip_track(clip) {
             self.audition_tones(track, tones, true);
         }
     }
 
-    /// The moved notes of a gesture now sound at `tones`, in the order the
-    /// gesture gave them: only the ones whose pitch changed are struck again.
     pub(crate) fn audition_moved(&mut self, clip: Id, tones: &[Tone]) {
         if let Some(track) = self.clip_track(clip) {
             self.audition_tones(track, tones, false);
         }
     }
 
-    /// The track whose clips hold `clip`.
     fn clip_track(&self, clip: Id) -> Option<Id> {
         self.document
             .project()
@@ -222,8 +188,6 @@ impl App {
             .map(|t| t.id)
     }
 
-    /// The audition ends: the gesture ended or was cancelled, or the
-    /// editor shows another clip or none.
     pub(crate) fn end_audition(&mut self) {
         self.audition_release();
     }

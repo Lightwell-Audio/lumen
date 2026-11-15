@@ -7,8 +7,6 @@ version = "0.0.1"
 edition = "2024"
 rust-version = "1.99"
 publish = false
-# Lumen is free software under GPL-3.0-or-later (ADR-0039; text in LICENSE).
-# Crates stay unpublished.
 license = "GPL-3.0-or-later"
 
 [workspace.dependencies]
@@ -19,18 +17,12 @@ divan = "0.1"
 rtrb = "0.4"
 engine-core = { path = "prototypes/engine-core" }
 serde = { version = "1", features = ["derive", "rc"] }
-# `float_roundtrip` makes a saved `f64` read back as the same number: without
-# it a 17-digit value can come back one bit off, and a project's parameter
-# values (a synth's controls among them) would not survive a save and a
-# reopen unchanged (M8 slice B4).
 serde_json = { version = "1", features = ["float_roundtrip"] }
 windows-sys = "0.61"
 vst3 = "0.3"
-# Loads plugin modules (ISC). Already in the tree through cpal and wgpu.
 libloading = "0.8"
 libc = "0.2"
 base64 = "0.22"
-# Standard MIDI Files (M5 slice 7): Unlicense, a public-domain dedication.
 midly = { version = "0.5", default-features = false, features = ["std"] }
 wasapi = "0.25"
 cpal = "0.18"
@@ -40,20 +32,15 @@ symphonia = { version = "0.6", default-features = false, features = ["wav", "aif
 flacenc = { version = "0.5.1", default-features = false }
 rubato = "5"
 eframe = "0.36"
-# egui's test harness, for the end-to-end suite (ADR-0029). Keep it at
-# eframe's version.
 egui_kittest = "0.36"
 image = { version = "0.25", default-features = false }
 toml = "1.1"
 vello = "0.11"
 wgpu = "30"
-# The shader compiler, for build-time checks (lumen-shader-check). Keep it
-# at the version wgpu uses: upgrade the two together.
 naga = { version = "30", features = ["wgsl-in"] }
 winit = "0.30"
 pollster = "0.4"
 rfd = "0.17"
-# Moves files to the system trash (R4b, ADR-0106): MIT.
 trash = "5.2"
 raw-window-handle = "0.6"
 parley = "0.11"
@@ -69,9 +56,7 @@ lumen-media = { path = "crates/lumen-media" }
 lumen-perf = { path = "crates/lumen-perf" }
 lumen-shader-check = { path = "crates/lumen-shader-check" }
 lumen-brand = { path = "crates/lumen-brand" }
-# How tests wait for other threads (ADR-0122): dev-dependency only.
 lumen-testkit = { path = "crates/lumen-testkit" }
-# Embeds the icon resources in lumen.exe (R8, ADR-0117): MIT or Apache-2.0.
 embed-resource = "3"
 
 [workspace.lints.rust]

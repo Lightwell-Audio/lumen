@@ -1,20 +1,13 @@
-//! Shared by the integration tests: the built test plugin and host program,
-//! and the waiting every test does.
 #![allow(dead_code)]
-
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
-
 use lumen_core::midi::{Event, Msg};
 use lumen_devices::{Hosted, ParamBlock};
 use lumen_hosting::{Happened, Linked, Manager, Start};
-
 pub const FAULT: &str = lumen_test_plugin::faults::ENV;
 pub const RATE: f64 = 48_000.0;
-
-/// The test plugin's module and the host program, built once.
 pub fn built() -> &'static (PathBuf, PathBuf) {
     static BUILT: OnceLock<(PathBuf, PathBuf)> = OnceLock::new();
     BUILT.get_or_init(|| {
@@ -30,13 +23,9 @@ pub fn built() -> &'static (PathBuf, PathBuf) {
         if !cfg!(debug_assertions) {
             build.arg("--release");
         }
-        // CI builds them before its tests (`.github/scripts/ci-test.sh`), and
-        // nextest runs every test in a process of its own: with this set,
-        // no process waits on cargo's build lock to learn nothing changed.
         if std::env::var_os("LUMEN_TEST_PLUGINS_BUILT").is_none() {
             assert!(build.status().expect("run cargo").success(), "build");
         }
-        // target/<profile>/deps/<this test> -> target/<profile>
         let exe = std::env::current_exe().expect("test binary");
         let profile = exe.parent().and_then(Path::parent).expect("profile dir");
         let library = if cfg!(windows) {
@@ -59,16 +48,12 @@ pub fn built() -> &'static (PathBuf, PathBuf) {
         (library, host)
     })
 }
-
 pub fn instrument_class() -> [u8; 16] {
     lumen_test_plugin::INSTRUMENT.map(|c| c as u8)
 }
-
 pub fn effect_class() -> [u8; 16] {
     lumen_test_plugin::EFFECT.map(|c| c as u8)
 }
-
-/// The test instrument, with `fault` switched on in its host.
 pub fn instrument(fault: &str) -> Start {
     let mut start = Start::new(
         built().1.clone(),
@@ -80,8 +65,6 @@ pub fn instrument(fault: &str) -> Start {
     start.env.push((FAULT.into(), fault.into()));
     start
 }
-
-/// The test effect, with `fault` switched on in its host.
 pub fn effect(fault: &str) -> Start {
     let mut start = Start::new(
         built().1.clone(),
@@ -93,8 +76,6 @@ pub fn effect(fault: &str) -> Start {
     start.env.push((FAULT.into(), fault.into()));
     start
 }
-
-/// Polls `manager` until `pick` accepts an event, or fails after `limit`.
 pub fn wait_for<T>(
     manager: &mut Manager,
     limit: Duration,
@@ -111,8 +92,6 @@ pub fn wait_for<T>(
         std::thread::sleep(Duration::from_millis(5));
     }
 }
-
-/// The next link `device` gets.
 pub fn linked(manager: &mut Manager, device: u64) -> Box<Linked> {
     wait_for(
         manager,
@@ -124,8 +103,6 @@ pub fn linked(manager: &mut Manager, device: u64) -> Box<Linked> {
         },
     )
 }
-
-/// The first link each of `devices` gets.
 pub fn linked_all(manager: &mut Manager, devices: &[u64]) -> Vec<Linked> {
     let mut found: Vec<Option<Linked>> = devices.iter().map(|_| None).collect();
     let end = Instant::now() + Duration::from_secs(60);
@@ -153,8 +130,6 @@ pub fn linked_all(manager: &mut Manager, devices: &[u64]) -> Vec<Linked> {
     }
     found.into_iter().flatten().collect()
 }
-
-/// How the next thing to happen to `device` went wrong.
 pub fn failure(manager: &mut Manager, device: u64) -> lumen_hosting::Failure {
     wait_for(
         manager,
@@ -166,22 +141,18 @@ pub fn failure(manager: &mut Manager, device: u64) -> lumen_hosting::Failure {
         },
     )
 }
-
 pub fn note_on(offset: u32, key: u8) -> Event {
     Event {
         offset,
         msg: Msg::note_on(0, key, 127),
     }
 }
-
 pub fn note_off(offset: u32, key: u8) -> Event {
     Event {
         offset,
         msg: Msg::note_off(0, key),
     }
 }
-
-/// One block through a host: `(left, right, reply)`.
 pub fn play(
     host: &mut dyn Hosted,
     frames: usize,
@@ -190,8 +161,6 @@ pub fn play(
 ) -> (Vec<f32>, Vec<f32>, Option<lumen_devices::Reply>) {
     play_with(host, frames, input, events, &ParamBlock::none())
 }
-
-/// As [`play`], with the parameters that change in the block.
 pub fn play_with(
     host: &mut dyn Hosted,
     frames: usize,
@@ -210,13 +179,9 @@ pub fn play_with(
     );
     (left, right, Some(reply))
 }
-
-/// Whether a plugin host with this id is still running.
 pub fn exists(pid: u32) -> bool {
     #[cfg(windows)]
     {
-        // Windows hands a finished process's id to the next one that starts,
-        // so the id alone is not enough: it must still be a plugin host.
         let out = Command::new("tasklist")
             .args([
                 "/FI",
@@ -231,7 +196,6 @@ pub fn exists(pid: u32) -> bool {
     }
     #[cfg(target_os = "linux")]
     {
-        // A zombie still has an entry; it has stopped running.
         match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
             Ok(stat) => !stat.contains(") Z "),
             Err(_) => false,
@@ -246,8 +210,6 @@ pub fn exists(pid: u32) -> bool {
             .unwrap_or(false)
     }
 }
-
-/// Waits until `pid` has gone, up to `limit`.
 pub fn gone_within(pid: u32, limit: Duration) -> bool {
     let end = Instant::now() + limit;
     while Instant::now() < end {
@@ -258,9 +220,6 @@ pub fn gone_within(pid: u32, limit: Duration) -> bool {
     }
     !exists(pid)
 }
-
-/// What this process holds: working set in kilobytes and open handles (file
-/// descriptors off Windows). `None` where it cannot be read.
 pub fn resources() -> Option<(u64, u64)> {
     #[cfg(windows)]
     {
@@ -268,8 +227,6 @@ pub fn resources() -> Option<(u64, u64)> {
             GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS,
         };
         use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessHandleCount};
-        // SAFETY: plain queries about this process, into structures of the
-        // size they are told.
         unsafe {
             let process = GetCurrentProcess();
             let mut counters: PROCESS_MEMORY_COUNTERS = std::mem::zeroed();
@@ -295,8 +252,6 @@ pub fn resources() -> Option<(u64, u64)> {
         None
     }
 }
-
-/// Ends the process `pid` the way a task manager would.
 pub fn kill_from_outside(pid: u32) {
     #[cfg(windows)]
     let status = Command::new("taskkill")
@@ -306,9 +261,6 @@ pub fn kill_from_outside(pid: u32) {
     let status = Command::new("kill").args(["-9", &pid.to_string()]).output();
     status.expect("run the kill command");
 }
-
-/// What the system says about `pid`, for a message about a process that
-/// should have gone.
 pub fn describe(pid: u32) -> String {
     #[cfg(windows)]
     {

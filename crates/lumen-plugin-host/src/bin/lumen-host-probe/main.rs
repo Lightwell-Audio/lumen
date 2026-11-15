@@ -1,10 +1,3 @@
-//! Runs installed VST3 plugins through the stages a host needs from them
-//! (scan, load, buses, configure, process, link, state, parameters, editor,
-//! shutdown), each in a host process of its own, so a plugin that crashes
-//! or hangs is a result and not the end of the run. The compatibility table
-//! (`docs/PLUGIN_COMPATIBILITY.md`) is written from its output. See
-//! `docs/manual-tests/M6.md`, MT-VST-7.
-
 mod report;
 mod stages;
 
@@ -102,8 +95,6 @@ fn number<T: std::str::FromStr>(flag: &str, text: &str) -> Result<T, String> {
         .map_err(|_| format!("{flag}: `{text}` is not a number"))
 }
 
-/// The `.vst3` modules in `folder`, looking inside folders that are not
-/// modules themselves (vendor folders), a few levels down.
 fn find_modules(folder: &Path, depth: u32, found: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(folder) else {
         return;
@@ -127,7 +118,6 @@ fn is_module(path: &Path) -> bool {
         .is_some_and(|e| e.eq_ignore_ascii_case("vst3"))
 }
 
-/// A module that could not be scanned, as one result.
 fn unscanned(module: &Path, verdict: Verdict, detail: String, ms: u32) -> Found {
     let mut stages = vec![Stage {
         name: "scan",

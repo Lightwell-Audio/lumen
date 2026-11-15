@@ -1,5 +1,3 @@
-//! M9 R5: actual export workflows through names, keys and file-dialog answers.
-
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
 
@@ -199,7 +197,6 @@ fn groups_and_returns_export_from_the_window() {
     let folder = lumen.dir().join("Returns");
     export(&mut lumen, &folder);
     assert_eq!(lumen.app().audio_export_files().len(), 1);
-    // The return has no sends yet: it is correctly silent.
     assert!(
         decode(&lumen.app().audio_export_files()[0])
             .channel(0)

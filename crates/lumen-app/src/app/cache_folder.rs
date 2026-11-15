@@ -1,12 +1,3 @@
-//! The cache of converted audio and peaks in the app (M9 R7): where it is,
-//! how much it holds, its limit and Clear. The folder is settled at start; a
-//! folder chosen in Preferences is used from the next start, inside a
-//! "Lumen cache" folder of its own, and the folder left behind is offered for
-//! Clear once (never cleared unasked). Counting and clearing run on a worker,
-//! since a cache can hold thousands of files. What may be cleared is the
-//! library's rule (`lumen_media::stream::cache`): only the cache's own files,
-//! in a folder it marked.
-
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
 use std::time::Instant;
@@ -18,44 +9,31 @@ use crate::App;
 use crate::app::projects::FileDialog;
 use crate::files::describe_size;
 
-/// The folder the app keeps inside a folder the user chose ("Lumen cache").
 pub(crate) fn cache_folder_name() -> String {
     format!("{} cache", lumen_core::product::PRODUCT_NAME)
 }
 
-/// The cache folder as Preferences shows it between frames.
 #[derive(Default)]
 pub(crate) struct CacheFolder {
-    /// The folder in use this run.
     pub dir: PathBuf,
-    /// Bytes the cache holds, once counted; `None` until then.
     pub size: Option<u64>,
-    /// Bytes the folder left behind holds, once counted.
     pub previous_size: Option<u64>,
-    /// A lower limit was chosen while the worker was busy: the trim runs
-    /// when it is done.
     trim_waiting: bool,
     work: Option<Receiver<Done>>,
 }
 
 impl CacheFolder {
-    /// A count or a clear is under way.
     pub fn busy(&self) -> bool {
         self.work.is_some()
     }
 
-    /// A trim to a lower limit waits for the worker.
     pub fn trim_waiting(&self) -> bool {
         self.trim_waiting
     }
 }
 
-/// What the worker did.
 enum Done {
-    /// The sizes of the cache in use and of the folder left behind.
     Counted { size: u64, previous: Option<u64> },
-    /// A clear (or a trim to a lower limit) finished, with the bytes it
-    /// cleared: in the folder left behind when `previous`.
     Cleared {
         bytes: u64,
         previous: bool,
@@ -63,8 +41,6 @@ enum Done {
     },
 }
 
-/// The cache folder for the setting `chosen`: a "Lumen cache" folder inside
-/// it, or `standard` when nothing is chosen.
 pub(crate) fn cache_dir_for(chosen: Option<&str>, standard: PathBuf) -> PathBuf {
     match chosen {
         Some(folder) => Path::new(folder).join(cache_folder_name()),
@@ -73,13 +49,10 @@ pub(crate) fn cache_dir_for(chosen: Option<&str>, standard: PathBuf) -> PathBuf 
 }
 
 impl App {
-    /// Where converted audio is kept this run.
     pub(crate) fn cache_dir(&self) -> PathBuf {
         self.cache.dir.clone()
     }
 
-    /// The standard cache folder: beside the autosaves (the user's
-    /// `Lumen\Cache`, the owner's C A), or the system's temporary folder.
     pub(crate) fn standard_cache_dir(&self) -> PathBuf {
         self.autosave
             .as_ref()
@@ -91,7 +64,6 @@ impl App {
             )
     }
 
-    /// The cache folder the settings ask for, used from the next start.
     pub(crate) fn chosen_cache_dir(&self) -> PathBuf {
         cache_dir_for(
             self.settings.cache.folder.as_deref(),
@@ -99,14 +71,11 @@ impl App {
         )
     }
 
-    /// The folder left behind by a change of folder, while it is not the
-    /// one in use.
     pub(crate) fn previous_cache_dir(&self) -> Option<PathBuf> {
         let previous = PathBuf::from(self.settings.cache.previous.as_ref()?);
         (previous != self.cache.dir).then_some(previous)
     }
 
-    /// Counts the cache on a worker, when the Files page first shows it.
     pub(crate) fn count_cache(&mut self, ctx: &egui::Context) {
         if self.cache.busy() {
             return;
@@ -119,9 +88,6 @@ impl App {
         });
     }
 
-    /// Clears the cache in use (`previous` false) or the folder left behind,
-    /// on a worker. What plays now, and what was used in the last two
-    /// minutes (a file being loaded), is kept.
     pub(crate) fn clear_cache(&mut self, ctx: &egui::Context, previous: bool) {
         if self.cache.busy() {
             return;
@@ -141,8 +107,6 @@ impl App {
         });
     }
 
-    /// The Cache limit preference changed: the streaming cache takes it, and
-    /// a lower limit trims the folder now, on a worker.
     pub(crate) fn cache_limit_chosen(&mut self, ctx: &egui::Context, gb: u32) {
         if gb == self.settings.cache.limit_gb {
             return;
@@ -159,7 +123,6 @@ impl App {
         }
     }
 
-    /// Trims the cache to its limit on a worker, or once the worker is free.
     fn trim_cache(&mut self, ctx: &egui::Context) {
         if self.cache.busy() {
             self.cache.trim_waiting = true;
@@ -179,7 +142,6 @@ impl App {
         });
     }
 
-    /// The folder Preferences asks for when Choose… is pressed.
     pub(crate) fn pick_cache_folder(&mut self, ctx: &egui::Context) {
         let owner = self.owner;
         let start = self
@@ -204,9 +166,6 @@ impl App {
         });
     }
 
-    /// A cache folder was chosen (`None`: the standard one). It is used from
-    /// the next start; the folder in use now is offered for Clear once the
-    /// new one is in use. Nothing is copied.
     pub(crate) fn cache_folder_chosen(&mut self, folder: Option<PathBuf>) {
         let folder = folder.map(|f| f.to_string_lossy().into_owned());
         if folder == self.settings.cache.folder {
@@ -232,7 +191,6 @@ impl App {
         ));
     }
 
-    /// Keeps the folder left behind as it is, and stops offering it.
     pub(crate) fn keep_previous_cache(&mut self) {
         self.settings.cache.previous = None;
         self.cache.previous_size = None;
@@ -249,7 +207,6 @@ impl App {
         self.cache.work = Some(rx);
     }
 
-    /// Per frame while the worker runs: takes its answer.
     pub(crate) fn poll_cache(&mut self, ctx: &egui::Context) {
         let Some(done) = self.cache.work.as_ref().and_then(|rx| rx.try_recv().ok()) else {
             return;
@@ -284,11 +241,9 @@ impl App {
                     self.toast = Some((note, Instant::now()));
                 }
                 if previous {
-                    // Offered once: cleared, it is not offered again.
                     self.keep_previous_cache();
                 }
                 if self.cache.trim_waiting {
-                    // The count follows the trim.
                     self.trim_cache(ctx);
                 } else {
                     self.count_cache(ctx);

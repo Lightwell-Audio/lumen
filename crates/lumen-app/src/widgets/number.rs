@@ -1,40 +1,21 @@
-//! A number edited in place (M8 slice D1, first used by the drum map
-//! editor): a sunken field showing its value, changed with the wheel, arrow
-//! keys, a typed number (Enter applies, Esc cancels) or a double-click's
-//! reset. It is the value slider's sibling without a track, for a table of
-//! small numbers, and it has the same look and keyboard manners
-//! (DESIGN §5: typed values apply on Enter or on leaving the field).
-//!
-//! It is the design system's control, not the map editor's: a table of
-//! editable numbers elsewhere in Lumen should use it too.
-
 use eframe::egui::{self, Align, Id, Key, Rect, Sense, Ui, vec2};
 use eframe::emath::GuiRounding as _;
 
 use crate::theme;
 use crate::widgets::{raised, wheel};
 
-/// What a [`number`] shows and how it steps.
 #[derive(Clone, Copy)]
 pub struct Number<'a> {
-    /// Its name for the screen reader and its tooltip ("Input note").
     pub name: &'a str,
     pub value: f64,
     pub range: (f64, f64),
-    /// One wheel notch or arrow press.
     pub step: f64,
-    /// A double-click's value.
     pub reset: f64,
-    /// How the value reads inside the field ("36"). Numbers are shown when
-    /// this is empty.
     pub shown: Option<&'a str>,
-    /// Reads a typed value, so a field can take more than digits ("C1").
-    /// Numbers are read when this is empty.
     pub parse: Option<fn(&str) -> Option<f64>>,
 }
 
 impl<'a> Number<'a> {
-    /// A field of `value` in `range`, stepping by one, resetting to `reset`.
     pub fn new(name: &'a str, value: f64, range: (f64, f64), reset: f64) -> Self {
         Self {
             name,
@@ -65,14 +46,10 @@ impl<'a> Number<'a> {
     }
 }
 
-/// The value after this frame's editing, when it changed: the caller applies
-/// it (one undo step).
 pub fn number(ui: &mut Ui, rect: Rect, id: Id, spec: Number<'_>) -> Option<f64> {
     let typing_id = id.with("typing");
     let typing: Option<String> = ui.data(|d| d.get_temp(typing_id));
     if let Some(mut text) = typing {
-        // Read the keys before the field draws: a text field takes Enter and
-        // Escape for itself.
         let (commit, cancel) =
             ui.input(|i| (i.key_pressed(Key::Enter), i.key_pressed(Key::Escape)));
         raised::paint_sunken(ui.painter(), rect, theme::radius::for_height(rect.height()));
@@ -135,7 +112,6 @@ pub fn number(ui: &mut Ui, rect: Rect, id: Id, spec: Number<'_>) -> Option<f64> 
         changed = true;
     }
     if response.has_focus() {
-        // The arrows step it (not egui's focus), and typing opens the field.
         ui.memory_mut(|m| {
             m.set_focus_lock_filter(
                 response.id,
@@ -169,21 +145,16 @@ pub fn number(ui: &mut Ui, rect: Rect, id: Id, spec: Number<'_>) -> Option<f64> 
         if let Some(text) = typed {
             ui.data_mut(|d| d.insert_temp(typing_id, text));
         }
-        // Enter on a focused field opens it, so a row can be edited from the
-        // keyboard without the pointer.
         if ui.input(|i| i.key_pressed(Key::Enter)) {
             ui.data_mut(|d| d.insert_temp(typing_id, spec.text(spec.value)));
         }
     }
-    // The wheel, when its gesture started here (the owner's B3).
     let notches = wheel::steps(ui, id, rect);
     if notches != 0.0 {
         out += f64::from(notches) * step;
         changed = true;
     }
 
-    // Drawing: a sunken field with its value centred, Ember under the
-    // pointer, and the accent focus ring.
     let palette = theme::p();
     let hover = crate::motion::hover(
         ui.ctx(),
@@ -212,8 +183,6 @@ pub fn number(ui: &mut Ui, rect: Rect, id: Id, spec: Number<'_>) -> Option<f64> 
     changed.then(|| out.clamp(spec.range.0, spec.range.1))
 }
 
-/// A note number as a typed field takes it: "36", or a pitch name as the
-/// piano roll says it ("C1", "F#2", "c#2").
 pub fn parse_note(text: &str) -> Option<f64> {
     let text = text.trim();
     if let Ok(number) = text.parse::<f64>() {

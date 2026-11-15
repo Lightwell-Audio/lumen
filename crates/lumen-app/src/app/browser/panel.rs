@@ -1,8 +1,3 @@
-//! The browser pane as the app runs it (audit M12): drawing it in the pane,
-//! its Devices tab's controls and keys, and what the app does with what the
-//! person did there. What the pane draws and the rows it makes are
-//! `crate::browser`.
-
 use std::time::Instant;
 
 use eframe::egui::{self, Key, Modifiers, Rect, pos2, vec2};
@@ -22,20 +17,15 @@ use crate::browser::view::{Chip, Selection};
 use crate::{App, fonts, theme, widgets};
 
 impl App {
-    /// Shows the browser on its Devices tab (the empty device chain's
-    /// Browse devices).
     pub(crate) fn show_device_browser(&mut self) {
         self.show_browser_tab(Tab::Devices);
     }
 
-    /// Draws the browser pane in `ui` (the panel's whole area).
     pub(crate) fn browser_panel(&mut self, ui: &mut egui::Ui) {
         let rect = ui.max_rect();
         self.panes.anchor(ui, Pane::Browser, rect);
-        // Its arrows are the list's keys while the pane has the keyboard.
         panes::keep_arrows(ui.ctx(), Pane::Browser);
 
-        // Its title in the display face, inset like the window titles.
         let inset = vec2(theme::space::M, theme::space::M);
         let title = ui.painter().text(
             rect.left_top() + inset,
@@ -61,9 +51,6 @@ impl App {
         let ctx = ui.ctx().clone();
         ui.spacing_mut().item_spacing = vec2(theme::space::XS, theme::space::XS);
 
-        // The controls sit 12 pt in from the pane's edge, in line with the
-        // title; the list keeps its own 8 pt (its rows add their own room).
-        // The side margin also leaves the focus rings whole at the edges.
         let side = (theme::space::M - theme::space::S) as i8;
         egui::Frame::NONE
             .inner_margin(egui::Margin::symmetric(side, 0))
@@ -121,16 +108,12 @@ impl App {
         }
     }
 
-    /// Shows the browser on `tab`.
     pub(crate) fn show_browser_tab(&mut self, tab: Tab) {
         self.show_browser = true;
         self.browser.tab = tab;
     }
 
-    /// The search, type switch, chips and scan line. Returns the rows the
-    /// filters leave.
     fn browser_controls(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> Rows {
-        // The filters, each group a full step from the next.
         let searched = controls::search(
             ui,
             &mut self.browser.view.text,
@@ -139,7 +122,6 @@ impl App {
         );
         if searched.escaped {
             if self.browser.view.text.is_empty() {
-                // Nothing to clear: give the keyboard back to the pane.
                 panes::focus(ctx, Pane::Browser);
             } else {
                 self.browser.view.text.clear();
@@ -148,7 +130,6 @@ impl App {
         ui.add_space(theme::space::S);
         if let Some(kind) = controls::type_filter(ui, self.browser.view.kind) {
             self.browser.view.kind = kind;
-            // A chip of a category the other kind lacks would show nothing.
             if matches!(self.browser.view.chip, Chip::Category(_)) {
                 self.browser.view.chip = Chip::All;
             }
@@ -163,7 +144,6 @@ impl App {
         );
         if let Some(chip) = controls::chips(ui, &self.browser.view.chip, &rows.chips) {
             self.browser.view.chip = chip;
-            // A chip changes what is listed.
             rows = rows::rows(
                 self.plugins.catalog(),
                 &self.browser.view,
@@ -187,9 +167,7 @@ impl App {
         rows
     }
 
-    /// No plugin has been found: where Lumen looked, and how to look elsewhere.
     fn first_run_card(&mut self, ui: &mut egui::Ui, area: Rect) {
-        // A scan under way or a failed one says its own piece above.
         if self.plugins.busy() || self.plugins.is_off() {
             return;
         }
@@ -210,9 +188,6 @@ impl App {
         }
     }
 
-    /// The keys of the list while the pane has the keyboard: the arrows
-    /// move the selection, Left and Right fold, Enter chooses. True if the
-    /// selection moved (to be scrolled into view).
     fn browser_keys(&mut self, ctx: &egui::Context, rows: &Rows) -> bool {
         if panes::focused(ctx) != Some(Pane::Browser) || ctx.text_edit_focused() {
             return false;
@@ -237,7 +212,6 @@ impl App {
                     view.folded.insert(name.clone());
                 }
                 Some(Selection::Device(id)) => {
-                    // Up to the device's own header.
                     to = catalog
                         .find(id)
                         .map(|d| Selection::Vendor(d.vendor.to_lowercase()))
@@ -279,11 +253,9 @@ impl App {
         }
     }
 
-    /// Applies what the pointer did in the list.
     fn apply_list(&mut self, ctx: &egui::Context, out: Out) {
         if let Some(selection) = out.select {
             self.browser.view.selected = Some(selection);
-            // A click in the list is the keyboard moving there too.
             panes::focus(ctx, Pane::Browser);
         }
         if let Some(name) = out.toggle_fold {
@@ -313,12 +285,10 @@ impl App {
         }
     }
 
-    /// Looks for plugins again (the commands, and the Rescan button's twin).
     pub(crate) fn rescan_plugins(&mut self, ctx: &egui::Context, mode: Mode) {
         self.plugins.rescan(mode, &self.settings.plugins, ctx);
     }
 
-    /// Asks which folder to search besides the standard ones.
     pub(crate) fn pick_plugin_folder(&mut self, ctx: &egui::Context) {
         let owner = self.owner;
         let show = move || {
@@ -333,7 +303,6 @@ impl App {
         });
     }
 
-    /// Remembers `folder` as a place to look, and looks there.
     pub(crate) fn add_plugin_folder(&mut self, ctx: &egui::Context, folder: &std::path::Path) {
         if self.settings.plugins.add_folder(folder) {
             self.settings_changed = Some(Instant::now());
@@ -351,8 +320,6 @@ impl App {
             .rescan(Mode::Changed, &self.settings.plugins, ctx);
     }
 
-    /// Stops looking in `folder`; a scan then forgets what was found only
-    /// there.
     pub(crate) fn remove_plugin_folder(&mut self, ctx: &egui::Context, folder: &str) {
         if !self.settings.plugins.remove_folder(folder) {
             return;
@@ -366,7 +333,6 @@ impl App {
             .rescan(Mode::Changed, &self.settings.plugins, ctx);
     }
 
-    /// Stars or unstars a device.
     pub(crate) fn toggle_favorite(&mut self, id: &str) {
         let now = self.settings.plugins.toggle_favorite(id);
         self.settings_changed = Some(Instant::now());
@@ -386,8 +352,6 @@ impl App {
         ));
     }
 
-    /// Double-click or Enter on a device: puts it on the selected track (or
-    /// makes one), and remembers it as a recent.
     pub(crate) fn choose(&mut self, _ctx: &egui::Context, id: &str) {
         if self.plugins.catalog().find(id).is_none() {
             return;
@@ -397,7 +361,6 @@ impl App {
         self.add_listed_device(id);
     }
 
-    /// The info line for what the pointer is over in the list.
     fn browser_info(&self, hover: Hover) -> Info {
         let catalog = self.plugins.catalog();
         match hover {
@@ -407,11 +370,8 @@ impl App {
                     Kind::Instrument => ("Instrument", DeviceKind::Instrument),
                     Kind::Effect => ("Effect", DeviceKind::Effect),
                 };
-                // Plain verbs (the interface audit's I1): what each gesture
-                // does, as its menu says it.
                 let info = Info::new(format!("{} · {} · {kind}", d.name, d.vendor));
                 let info = if crate::chain::placeable(d) {
-                    // The menu's first row, as a verb: "add to Bass".
                     let add = self.add_device_label(adds);
                     let add = add.replacen("Add", "add", 1);
                     info.on(Held::NONE, Mouse::DoubleClick, &add).on(

@@ -1,23 +1,12 @@
-//! What the probe found, as stages with a verdict each, and how it is shown:
-//! a line of words, a JSON line for a file, a row of the compatibility table.
-
 use std::fmt::Write as _;
 
-/// How one stage ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Verdict {
-    /// Passed.
     Pass,
-    /// Passed, with something worth reading in the detail (silence, a state
-    /// that changed on restore).
     Note,
-    /// The plugin or the host refused or failed the call.
     Fail,
-    /// The host process died in this stage.
     Crashed,
-    /// The host did not answer by the deadline and was ended.
     TimedOut,
-    /// Not run, and why.
     Skipped,
 }
 
@@ -33,7 +22,6 @@ impl Verdict {
         }
     }
 
-    /// The mark the compatibility table uses.
     pub fn mark(self) -> &'static str {
         match self {
             Verdict::Pass | Verdict::Note => "✅",
@@ -42,7 +30,6 @@ impl Verdict {
         }
     }
 
-    /// Whether the plugin got through the stage.
     pub fn passed(self) -> bool {
         matches!(self, Verdict::Pass | Verdict::Note)
     }
@@ -71,7 +58,6 @@ impl Kind {
     }
 }
 
-/// Everything found about one class of one module.
 #[derive(Debug, Clone)]
 pub struct Found {
     pub module: String,
@@ -84,7 +70,6 @@ pub struct Found {
 }
 
 impl Found {
-    /// The stage names, in the order they run.
     pub const STAGES: [&'static str; 10] = [
         "scan",
         "load",
@@ -102,8 +87,6 @@ impl Found {
         self.stages.iter().find(|s| s.name == name)
     }
 
-    /// Every stage that ran passed (an editor a platform lacks is skipped,
-    /// not failed) and the plugin was shown to process audio.
     pub fn compatible(&self) -> bool {
         self.stages
             .iter()
@@ -136,7 +119,6 @@ impl Found {
         text
     }
 
-    /// One line of JSON: every field, for a file that tools read.
     pub fn json(&self) -> String {
         let mut text = String::from("{");
         for (key, value) in [
@@ -171,8 +153,6 @@ impl Found {
         text
     }
 
-    /// A row of the compatibility table under `label`: the real name stays
-    /// out of the row, as the documentation rule asks.
     pub fn row(&self, label: &str) -> String {
         let mut text = format!("| {label} | {} |", self.kind.word());
         for name in Self::STAGES {
@@ -183,7 +163,6 @@ impl Found {
     }
 }
 
-/// The header of the table [`Found::row`] fills.
 pub fn table_header() -> String {
     let mut text = String::from("| Plugin | Kind |");
     let mut rule = String::from("|---|---|");
@@ -194,7 +173,6 @@ pub fn table_header() -> String {
     format!("{text}\n{rule}")
 }
 
-/// A JSON string.
 pub fn quote(text: &str) -> String {
     let mut out = String::with_capacity(text.len() + 2);
     out.push('"');
@@ -258,7 +236,6 @@ mod tests {
         assert!(ok.compatible());
         let bad = found(&[("load", Verdict::Pass), ("process", Verdict::Crashed)]);
         assert!(!bad.compatible());
-        // A plugin that never reached processing has not been shown to work.
         let early = found(&[("load", Verdict::Pass), ("process", Verdict::Skipped)]);
         assert!(!early.compatible());
         let none = found(&[("load", Verdict::Pass)]);

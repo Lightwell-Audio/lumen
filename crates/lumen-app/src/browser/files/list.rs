@@ -1,7 +1,3 @@
-//! Drawing Samples, Projects and Places (M9 R7c): the list's items, their
-//! rows, their keys and menus, and the designed states. What the app does
-//! with what was done is `app::browser::files::list` (audit M12).
-
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -12,26 +8,19 @@ use super::walk::{Entry, Kind};
 use super::{Listing, Place, saved};
 use crate::browser::Tab;
 
-/// A row of one line, and of two (a search result, with its folder).
 pub(crate) const ROW: f32 = 28.0;
 pub(crate) const ROW_TWO: f32 = 42.0;
-/// A section's heading row (Projects' Recent).
 pub(crate) const HEADING: f32 = 24.0;
-/// Below this width the pictures give way to the names.
 pub(crate) const PICTURES_FROM: f32 = 200.0;
-/// Rows painted around the view, for the pictures asked ahead.
 pub(crate) const AHEAD: usize = 8;
 
-/// Something dragged from the file tabs onto the arrangement.
 #[derive(Debug, Clone)]
 pub(crate) struct Dragged(pub Vec<PathBuf>);
 
-/// A row of the list, or a heading.
 #[derive(Debug, Clone)]
 pub(crate) enum Item {
     Heading(&'static str),
     Row(Arc<Entry>),
-    /// A place on Places' top level: its name, whether it is there.
     Place(Arc<Entry>, bool),
 }
 
@@ -44,7 +33,6 @@ impl Item {
     }
 }
 
-/// What a list of items was made from: the same key, the same list.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ItemsKey {
     pub(crate) tab: Tab,
@@ -54,7 +42,6 @@ pub(crate) struct ItemsKey {
     pub(crate) recent: Vec<String>,
 }
 
-/// The keys the list answers; on a frame without one, it does nothing.
 pub(crate) const LIST_KEYS: [Key; 10] = [
     Key::ArrowDown,
     Key::ArrowUp,
@@ -68,7 +55,6 @@ pub(crate) const LIST_KEYS: [Key; 10] = [
     Key::F10,
 ];
 
-/// What was done in the list this frame.
 #[derive(Default)]
 pub(crate) struct Out {
     pub select: Option<PathBuf>,
@@ -81,7 +67,6 @@ pub(crate) struct Out {
     pub find_place: Option<PathBuf>,
 }
 
-/// The items `key` makes of `listing`'s rows.
 pub(crate) fn made_items(listing: &mut Listing, key: &ItemsKey) -> Vec<Item> {
     let words = &key.words;
     if key.tab != Tab::Projects {
@@ -117,7 +102,6 @@ pub(crate) fn made_items(listing: &mut Listing, key: &ItemsKey) -> Vec<Item> {
     items
 }
 
-/// Places' top level: the person's places, then Computer.
 pub(crate) fn top_places(places: &[Place], present: &HashMap<PathBuf, bool>) -> Vec<Item> {
     let mut items: Vec<Item> = places
         .iter()
@@ -138,8 +122,6 @@ pub(crate) fn top_places(places: &[Place], present: &HashMap<PathBuf, bool>) -> 
     items
 }
 
-/// Whether rows carry their folder on a second line: search results, and
-/// projects.
 pub(crate) fn two_lines(tab: Tab, words: &str) -> bool {
     tab == Tab::Projects || !words.trim().is_empty()
 }

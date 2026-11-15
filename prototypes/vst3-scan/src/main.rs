@@ -1,12 +1,3 @@
-//! P-VST3 prototype: scan real VST3 modules without ever risking the app.
-//!
-//! ```text
-//! vst3-scan scan [--jobs N] [--timeout S] [--fast] [--json FILE] [ROOT...]
-//! vst3-scan selftest        crash / hang / no-factory test modules must be isolated
-//! ```
-//! `scan` enumerates every module in a child process; with `--fast` it uses
-//! `moduleinfo.json` instead where one exists.
-
 mod discover;
 #[cfg(windows)]
 mod factory;
@@ -153,7 +144,6 @@ fn scan_module(module: &Module, timeout: Duration, fast: bool) -> Outcome {
     }
 }
 
-/// Runs `scan-one` in a child process with a deadline.
 fn run_sandboxed(binary: &Path, timeout: Duration) -> ScanResult {
     let exe = std::env::current_exe().expect("own executable path");
     let spawned = Command::new(exe)
@@ -193,7 +183,6 @@ fn run_sandboxed(binary: &Path, timeout: Duration) -> ScanResult {
     if !status.success() {
         return ScanResult::Crashed(status.code());
     }
-    // Plugins sometimes print to stdout themselves; our JSON is the last line.
     let last_line = text
         .lines()
         .rev()
@@ -320,8 +309,6 @@ fn print_table(roots: &[PathBuf], outcomes: &[Outcome]) {
     );
 }
 
-/// Copies the misbehaving test module under telling names and checks that
-/// each failure is contained and classified.
 fn selftest() -> i32 {
     let exe = std::env::current_exe().expect("own executable path");
     let dll = exe.with_file_name("vst3_test_module.dll");

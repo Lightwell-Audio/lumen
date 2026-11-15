@@ -1,16 +1,10 @@
-//! What the engine plays: a [`Source`] renders timeline audio for a range of
-//! samples. Slice 6 implements it for audio clips; tests use probes.
-
 use std::time::Instant;
 
 use crate::timeline::Timeline;
 
-/// Where a source writes: part of a channel-major block.
 pub struct Output<'a> {
     data: &'a mut [f32],
-    /// Frames per channel in the whole block.
     stride: usize,
-    /// First frame of this part within the block.
     offset: usize,
     frames: usize,
     channels: usize,
@@ -33,12 +27,6 @@ impl<'a> Output<'a> {
         }
     }
 
-    /// Creates a whole channel-major planar output block.
-    ///
-    /// Returns `None` unless `data` contains exactly `frames * channels`
-    /// samples. This is intended for hosts that implement [`Source`] outside
-    /// the engine crate; the returned view is allocation-free and safe to use
-    /// in a real-time callback.
     pub fn planar(data: &'a mut [f32], frames: usize, channels: usize) -> Option<Self> {
         (frames.checked_mul(channels) == Some(data.len()))
             .then(|| Self::new(data, frames, 0, frames, channels))
@@ -52,7 +40,6 @@ impl<'a> Output<'a> {
         self.channels
     }
 
-    /// `frames` frames of this part from its frame `from`.
     pub(crate) fn part(&mut self, from: usize, frames: usize) -> Output<'_> {
         debug_assert!(from + frames <= self.frames);
         Output::new(
@@ -64,150 +51,78 @@ impl<'a> Output<'a> {
         )
     }
 
-    /// The frames of `channel` this part covers. Already zeroed; sources add
-    /// to them.
     pub fn channel(&mut self, channel: usize) -> &mut [f32] {
         let start = channel * self.stride + self.offset;
         &mut self.data[start..start + self.frames]
     }
 }
 
-/// One block of audio input from the device, handed to the source before the
-/// block is rendered (M9 slice R1).
 #[derive(Debug, Clone, Copy)]
 pub struct Inputs<'a> {
-    /// The device's frame count at the block's first frame, as
-    /// [`RenderContext::device`] counts.
     pub device: u64,
     pub sample_rate: u32,
-    /// Input channels, as many as the stream opened.
     pub channels: usize,
-    /// Frames per channel.
     pub frames: usize,
-    /// `channels × frames` samples, channel after channel.
     pub data: &'a [f32],
 }
 
-/// Why a part is rendered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Mode {
-    /// Playback.
     #[default]
     Play,
-    /// Scrubbing while stopped: audio plays, MIDI does not (M5 slice 1).
     Scrub,
-    /// Stopped, and only what still rings is wanted: instrument tails.
-    /// Sources that play the timeline stay silent.
     Ring,
 }
 
-/// What a source needs to know about the part it renders.
 #[derive(Debug, Clone, Copy)]
 pub struct RenderContext<'a> {
     pub timeline: &'a Timeline,
     pub sample_rate: u32,
-    /// Timeline sample of the first frame. The part never crosses a loop
-    /// wrap or a locate: those split the block.
     pub start: i64,
-    /// This is the 2 ms rendered ahead of a jump, to crossfade from (the
-    /// engine fades it out). Meters and recorders should ignore it.
     pub tail: bool,
-    /// With `tail`: playback is about to stop, not jump. Instruments go on
-    /// ringing after a stop, so they add nothing to this tail.
     pub stopping: bool,
     pub mode: Mode,
-    /// The device's frame count (frames the engine has processed) at which
-    /// the first frame of this part is heard, before the device's own
-    /// output latency: the block's start, the frame within it, and the read
-    /// ahead while playing. MIDI sent to hardware is timed from it (M5
-    /// slice 1).
     pub stream: u64,
-    /// The device's frame count at the first frame of this part as the
-    /// callback counts it: the block's start and the frame within it,
-    /// without the read ahead. Live input is placed against it (M5 slice
-    /// 2). Zero where no live input is played (scrubbing, tails).
     pub device: u64,
-    /// The transport is recording: sources that keep what arrives (MIDI
-    /// input) capture it with its timeline position (M5 slice 6).
     pub recording: bool,
-    /// The active loop as `[start, end)` samples, so live input played just
-    /// before a wrap is placed at the loop's end.
     pub looping: Option<(i64, i64)>,
-    /// When a plugin host must have answered for this callback's blocks:
-    /// three quarters of the period from its start (ADR-0069). `Some` only
-    /// while a host is attached ([`Source::hosted`]), so a project without
-    /// plugins never reads the clock.
     pub deadline: Option<Instant>,
 }
 
-/// Why playback jumped, so sources can choose whether to fade in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Jump {
-    /// Playback started.
     Play,
-    /// The user moved the playhead while playing.
     Locate,
-    /// Playback wrapped from the loop end to the loop start. Loops must
-    /// stay seamless, so sources should not fade here.
     LoopWrap,
-    /// The tempo map or the sample rate changed, so the same musical
-    /// position now falls on a different sample.
     Reposition,
 }
 
-/// Timeline audio, rendered on the audio thread. Every method must be
-/// real-time safe: no allocation, locks or blocking (ADR-0010).
 pub trait Source: Send {
-    /// Adds `out.frames()` frames of audio starting at timeline sample
-    /// `cx.start` to `out`. Called while playing, and while scrubbing at
-    /// any position (M3 slice 5e).
     fn render(&mut self, cx: &RenderContext<'_>, out: &mut Output<'_>);
 
-    /// The block about to be rendered brings these inputs from the device.
-    /// Called first in every block that has some, playing or not.
     fn input(&mut self, _inputs: &Inputs<'_>) {}
 
-    /// Playback starts or jumps to `sample`, for the reason given. Sources
-    /// reposition here. The engine crossfades every jump while
-    /// [`Source::latency`] is 0; a latent source crossfades its own.
     fn locate(&mut self, _timeline: &Timeline, _sample_rate: u32, _sample: i64, _jump: Jump) {}
 
-    /// A block of `frames` passed without rendering (stopped, not
-    /// scrubbing): what measures levels lets them fall (M4 slice 5).
     fn idle(&mut self, _sample_rate: u32, _frames: usize) {}
 
-    /// Frames the source's output trails the timeline it renders: delay
-    /// compensation (M4 slice 6). The engine renders this far ahead of the
-    /// playhead, so what is heard lines up with it, and leaves crossfading
-    /// jumps to the source while it is not 0. Read at the start of every
-    /// block and when playback starts.
     fn latency(&self) -> u32 {
         0
     }
 
-    /// Playback stopped or paused: let go of what is held (MIDI notes).
-    /// What rings out is rendered while [`Source::ringing`].
     fn stopped(&mut self) {}
 
-    /// Panic: stop everything that sounds at once, tails included.
     fn panic(&mut self) {}
 
-    /// Something still sounds or waits to be sent although playback is
-    /// stopped (an instrument's release tail, a plugin effect that has not
-    /// gone quiet, a note-off): the engine then
-    /// renders the source with [`Mode::Ring`] instead of calling `idle`.
     fn ringing(&self) -> bool {
         false
     }
 
-    /// A plugin host is attached: the engine then gives every render the
-    /// callback's [`RenderContext::deadline`].
     fn hosted(&self) -> bool {
         false
     }
 }
 
-/// Silence.
 impl Source for () {
     fn render(&mut self, _: &RenderContext<'_>, _: &mut Output<'_>) {}
 }

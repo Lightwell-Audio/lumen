@@ -1,8 +1,3 @@
-//! The command-line test modes, run around each frame: save as and quit
-//! (`--save-as`), toggling play (`--autoplay-ms`), the frame trace, the
-//! screenshot (`--screenshot`) and the smoke test (`--smoke-test`). Split
-//! from the frame loop in `lib.rs` (M4 review M1).
-
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -10,12 +5,10 @@ use eframe::egui;
 
 use crate::{App, trace};
 
-/// Frames the smoke test renders before it quits.
 pub(crate) const SMOKE_FRAMES: u32 = 30;
 static FIRST_FRAME_MS: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
 
 impl App {
-    /// Before the frame is drawn.
     pub(crate) fn test_modes_before(&mut self, ctx: &egui::Context) {
         if let Some(path) = self.save_as.clone()
             && !self.lanes.is_loading()
@@ -29,13 +22,11 @@ impl App {
                     self.document.path.as_deref().unwrap_or(&path).display()
                 );
                 self.save_as = None;
-                // A deliberate close by a test mode: no unsaved-changes prompt.
                 self.quitting = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
         }
         if let Some(every) = self.autoplay {
-            // Toggle play and stop every `every`, as Space would.
             let elapsed = self.started.elapsed();
             let due = every * self.autoplay_count;
             if elapsed >= due {
@@ -61,14 +52,12 @@ impl App {
         }
     }
 
-    /// After the frame is drawn: the screenshot and the smoke test.
     pub(crate) fn test_modes_after(&mut self, ctx: &egui::Context) {
         if let Some(at) = self.quit_at {
             let left = at.saturating_duration_since(Instant::now());
             if left.is_zero() {
                 self.quit_at = None;
                 println!("instance: closing with {}", self.document.name());
-                // A deliberate close by a test mode: no unsaved-changes prompt.
                 self.quitting = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             } else {
@@ -87,14 +76,10 @@ impl App {
                     Ok(()) => println!("screenshot saved to {}", path.display()),
                     Err(e) => eprintln!("screenshot: {e}"),
                 }
-                // A deliberate close by a test mode: no unsaved-changes prompt.
                 self.quitting = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
         }
-        // A screenshot shows the settled state: it waits while a project
-        // opens or files load (at most 30 s, so a stuck load cannot hang a
-        // test run).
         let settling = self.screenshot.is_some()
             && (self.opening.is_some() || self.lanes.library.is_loading())
             && self.started.elapsed() < Duration::from_secs(30);
@@ -111,7 +96,6 @@ impl App {
                     SMOKE_FRAMES,
                     FIRST_FRAME_MS.get().copied().unwrap_or(f64::NAN)
                 );
-                // A deliberate close by a test mode: no unsaved-changes prompt.
                 self.quitting = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             } else {

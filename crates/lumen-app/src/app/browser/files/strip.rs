@@ -1,8 +1,3 @@
-//! The preview strip as the app runs it (audit M12): drawing the file the
-//! strip is about and doing what it was asked (play from here, auto
-//! preview, the level). What the strip is about and says is
-//! `crate::browser::files::strip`.
-
 use std::path::Path;
 
 use eframe::egui::{self, Rect, Sense, Ui, pos2, vec2};
@@ -18,13 +13,10 @@ use crate::browser::files::walk::{Entry, Kind};
 use crate::{App, fonts, theme, widgets};
 
 impl App {
-    /// How tall the strip is in `tab` when it is `width` wide (0: there is
-    /// none).
     pub(crate) fn strip_height(&self, ui: &Ui, tab: Tab, width: f32) -> f32 {
         height(ui, &self.browser.files, tab, width)
     }
 
-    /// Draws the strip in `rect`.
     pub(crate) fn files_strip(&mut self, ui: &mut Ui, rect: Rect, tab: Tab) {
         let Some((path, kind)) = subject(&self.browser.files, tab) else {
             return;
@@ -76,7 +68,6 @@ impl App {
         }
     }
 
-    /// The first line: play or stop, the name, what the file is.
     fn strip_title(&mut self, ui: &mut Ui, path: &Path, kind: Kind) {
         let palette = *theme::p();
         let playing = self
@@ -131,7 +122,6 @@ impl App {
         let painter = ui.painter_at(rect);
         let mut right = rect.right();
         if !info.is_empty() {
-            // The name comes first: what the file is takes at most a third.
             let mut job = egui::text::LayoutJob::simple_singleline(
                 info,
                 egui::FontId::proportional(theme::size::CAPTION),
@@ -165,8 +155,6 @@ impl App {
         );
     }
 
-    /// The picture, with the head where the preview is; a click plays
-    /// from there. A file that cannot play says why, in full.
     fn strip_well(&mut self, ui: &mut Ui, path: &Path) {
         let palette = *theme::p();
         let failed = message(&self.browser.files, path, Kind::Audio).map(|(text, _)| text);
@@ -177,7 +165,6 @@ impl App {
             .get(path)
             .and_then(|t| t.as_ref().ok())
             .cloned();
-        // A message that does not fit the well makes it taller.
         let width = ui.available_width();
         let message = failed.as_ref().map_or(0.0, |text| {
             message_height(ui, text, width - 2.0 * theme::space::S)
@@ -257,11 +244,9 @@ impl App {
         }
     }
 
-    /// Auto, the level and the pair the preview is heard on.
     fn strip_controls(&mut self, ui: &mut Ui) {
         let palette = *theme::p();
         let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), LINE), Sense::hover());
-        // Auto, at the left.
         let auto_rect = Rect::from_min_size(rect.min, vec2(AUTO.min(rect.width()), LINE));
         let mut auto_ui = ui.new_child(egui::UiBuilder::new().max_rect(auto_rect));
         let mut auto = self.settings.browser.auto_preview;
@@ -276,7 +261,6 @@ impl App {
             self.settings.browser.auto_preview = auto;
             self.settings_changed = Some(std::time::Instant::now());
         }
-        // The pair, at the right; the level before it.
         let cue = self.transport.audio.preview_channel() > 0;
         let pair = if cue { "Cue" } else { "Main" };
         let painter = ui.painter_at(rect);

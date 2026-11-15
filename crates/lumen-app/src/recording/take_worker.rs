@@ -1,44 +1,3 @@
-//! Writing recorded audio to disk (M9 slice R2, ADR-0102): the worker thread
-//! that empties the engine's capture ring into one file per recording track.
-//!
-//! The audio thread only copies input into the ring (`lumen_engine::capture`);
-//! everything slow happens here: creating the files, writing, refreshing their
-//! headers once a second so a crash loses at most that second, and keeping the
-//! small summary the arrangement draws while a take grows. [`Takes`] is the
-//! logic, a plain struct fed chunks and tested without threads; [`TakeWorker`]
-//! runs it on a thread.
-//!
-//! # Where a frame lands
-//!
-//! A chunk says which timeline sample was *heard* at its first frame. The
-//! player's own sound took the output latency to reach the ear and the played
-//! sound takes the input latency to come back, so the frame belongs
-//! [`Plan::shift`] samples earlier: its placed position is `at - shift + i`.
-//!
-//! - A file begins at the first frame whose placed position is inside the
-//!   window (the punch range, or the whole timeline from sample 0) and is then
-//!   written without a break, whatever the timeline does: a loop wrap carries
-//!   on in the same file. With Loop on, the file frame and placed position of
-//!   each wrap are kept ([`Wrap`]), so the file can be cut into passes
-//!   (`loop_passes.rs`, M9 slice R3).
-//! - With Loop on, a take whose first frame is inside the loop begins with
-//!   silence back to the loop's start, so the file lines up with the loop
-//!   like every later pass, and the first pass is a pass like the others
-//!   (one you began late, with silence where you had not begun).
-//! - A gap (a chunk the ring had to drop, seen as a jump in `device`) is
-//!   filled with silence so the rest stays in time.
-//! - The first frame past the punch-out ends that track's take.
-//! - A write that fails ends that track's take with a message, keeping what
-//!   was written.
-//!
-//! Each file has a sidecar (`<file>.take`) from its first frame until a save
-//! or an autosave that holds the take has been written (`take_notes.rs`): a
-//! file found with its sidecar is a take a crash may have cost, finished or
-//! not. The sidecar is replaced whole, through a temporary file, never
-//! rewritten in place (M9 review H3, H5). The worker also chooses each file's
-//! name and does recovery's disk work, so the interface never waits on the
-//! disk for a take (H1).
-
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -51,87 +10,47 @@ use lumen_engine::{CaptureChunk, CaptureReader};
 use lumen_media::take::TakeWriter;
 use serde::{Deserialize, Serialize};
 
-/// How often the worker looks at the ring.
 const POLL: Duration = Duration::from_millis(5);
-/// How often a file's header is brought up to date.
 const REFRESH: Duration = Duration::from_secs(1);
-/// How far back the timeline must jump, in samples, to be a loop wrap rather
-/// than rounding.
 const WRAP_SLACK: i64 = 64;
-/// The extension of a take's sidecar, after `.wav`.
 const SIDECAR: &str = "take";
-/// The sidecar's shape version (sweep M9). A sidecar written before the field
-/// existed has this shape, so a file without one reads as version 1
-/// ([`legacy_version`]). A sidecar with a higher version was written by a
-/// newer build: it is kept where it is, never read or deleted, and recovery
-/// says so.
 pub(crate) const VERSION: u32 = 1;
 
-/// One track's file.
 #[derive(Debug, Clone)]
 pub(crate) struct Job {
-    /// The track, by its id in the project.
     pub track: u64,
-    /// The file's preferred path: the worker takes the first free
-    /// `<name> <n>.wav` from it (`free_file`).
     pub path: PathBuf,
-    /// One for a mono input, two for a pair.
     pub channels: u16,
-    /// What the arrangement draws while the take grows.
     pub live: Arc<Mutex<Live>>,
-    /// The autosave session that recorded it, so recovery gives the take back
-    /// to that session's project and no other.
     pub session: String,
 }
 
-/// What to record.
 #[derive(Debug, Clone)]
 pub(crate) struct Plan {
-    /// Which recording this is: the answer carries it back (H6).
     pub id: u64,
     pub jobs: Vec<Job>,
     pub rate: u32,
-    /// Samples a take moves earlier: input plus output latency plus the
-    /// manual offset (negative moves it later).
     pub shift: i64,
-    /// Placed samples `[in, out)` that are kept (the punch range), or all.
     pub window: Option<(i64, i64)>,
-    /// With Loop on, the loop's start and end as timeline samples: a jump
-    /// back in the timeline is a wrap, a new pass, and a take that begins
-    /// inside the loop is lined up with it.
     pub looped: Option<(i64, i64)>,
 }
 
-/// Where a loop pass begins in a take's file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Wrap {
-    /// The file frame of the pass's first frame.
     pub frame: u64,
-    /// The placed timeline sample of that frame.
     pub at: i64,
 }
 
-/// The summary of a take as it grows.
 #[derive(Debug, Default)]
 pub(crate) struct Live {
-    /// The placed sample of the file's first frame; `None` before it begins.
     pub start: Option<i64>,
-    /// Frames of the pass under way: all of them without Loop.
     pub frames: u64,
-    /// Frames written in all, across the loop's passes.
     pub written: u64,
-    /// With Loop on, the pass before the one under way (its frames and
-    /// waveform), drawn behind it until the new pass has replaced it. Only
-    /// when it lasted the whole loop.
     pub previous: Option<(u64, lumen_media::GrowingPeaks)>,
-    /// The waveform of what has been written, in the finished waveform's
-    /// own buckets (`lumen_media::GrowingPeaks`).
     pub peaks: lumen_media::GrowingPeaks,
 }
 
 impl Live {
-    /// Starts the summary again at placed sample `start`: a new loop pass.
-    /// `whole`: the pass that ended lasted the whole loop.
     fn restart(&mut self, start: i64, whole: bool) {
         let ended = std::mem::take(&mut self.peaks);
         *self = Live {
@@ -152,36 +71,24 @@ impl Live {
     }
 }
 
-/// What a track's take came to.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TrackResult {
     pub track: u64,
     pub path: PathBuf,
     pub rate: u32,
     pub channels: u16,
-    /// The placed sample of the file's first frame (`None`: nothing was kept).
     pub start: Option<i64>,
-    /// Frames in the file.
     pub frames: u64,
-    /// The file's size in bytes, read on the worker.
     pub size_bytes: u64,
-    /// Frames the ring dropped, filled with silence.
     pub dropped: u64,
-    /// Why the take ended early, if it did.
     pub error: Option<String>,
-    /// Where each later loop pass begins in the file.
     pub wraps: Vec<Wrap>,
-    /// Frames of silence the file begins with, lining it up with the loop.
     pub silence: u64,
-    /// The loop it was recorded in, with Loop on (`Plan::looped`).
     pub looped: Option<(i64, i64)>,
 }
 
-/// The file beside a take that says it is unfinished.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Sidecar {
-    /// The shape this sidecar is written in. Files written before it was
-    /// added have exactly this shape, so they read as version 1.
     #[serde(default = "legacy_version")]
     pub version: u32,
     #[serde(default)]
@@ -190,13 +97,10 @@ pub(crate) struct Sidecar {
     pub start: i64,
     pub rate: u32,
     pub channels: u16,
-    /// The loop wraps so far, as of the last refresh.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub wraps: Vec<Wrap>,
-    /// Frames of silence the file begins with.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub silence: u64,
-    /// The loop it is recorded in, with Loop on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub looped: Option<(i64, i64)>,
 }
@@ -205,32 +109,21 @@ fn is_zero(n: &u64) -> bool {
     *n == 0
 }
 
-/// The version of a sidecar written before the field existed: its shape is
-/// version 1's, so there is nothing to migrate.
 fn legacy_version() -> u32 {
     VERSION
 }
 
-/// What a sidecar file says, as far as this build reads it.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum SidecarRead {
-    /// This build's shape, or the legacy one, which is the same shape.
     Known(Sidecar),
-    /// A newer build wrote it: neither read nor deleted, and recovery says
-    /// so. It is still counted for the session it names.
     Newer {
         version: u32,
         session: Option<String>,
     },
-    /// Not a sidecar, or too damaged to say whose it is.
     Unreadable,
 }
 
-/// Reads `file` as a sidecar. The version is checked first, without this
-/// build's shape, so a file a newer build wrote is reported as such rather
-/// than as damaged: its fields may mean something else now.
 pub(crate) fn read_sidecar(file: &Path) -> SidecarRead {
-    /// The few fields that say what a sidecar is, whatever its version.
     #[derive(Deserialize)]
     struct Header {
         #[serde(default)]
@@ -261,9 +154,6 @@ pub(crate) fn read_sidecar(file: &Path) -> SidecarRead {
     }
 }
 
-/// The first `<base> <n>.wav` beside `preferred` that no file, sidecar or
-/// name in `taken` uses, where `<base>` is `preferred`'s name without a
-/// trailing number. `preferred` itself when it is free.
 pub(crate) fn free_file(preferred: &Path, taken: &[PathBuf]) -> PathBuf {
     let free = |p: &Path| !p.exists() && !sidecar_path(p).exists() && !taken.iter().any(|t| t == p);
     if free(preferred) {
@@ -290,25 +180,18 @@ pub(crate) fn sidecar_path(file: &Path) -> PathBuf {
     PathBuf::from(name)
 }
 
-/// A take a session left unfinished: its file and what its sidecar says.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Unfinished {
     pub file: PathBuf,
     pub sidecar: Sidecar,
 }
 
-/// What a session's sidecars in one folder say.
 #[derive(Debug, Default, PartialEq)]
 pub(crate) struct SessionTakes {
-    /// The takes to recover, by file name.
     pub takes: Vec<Unfinished>,
-    /// Sidecars a newer build wrote for this session: kept, never read.
     pub newer: usize,
 }
 
-/// The unfinished takes in `dir` that `session` was recording, by file name,
-/// and the sidecars a newer build wrote for it. A sidecar that cannot be read
-/// is left alone; so is one a newer build wrote, which may mean anything.
 pub(crate) fn unfinished(dir: &Path, session: &str) -> SessionTakes {
     let suffix = format!(".wav.{SIDECAR}");
     let mut found = SessionTakes::default();
@@ -338,48 +221,36 @@ pub(crate) fn unfinished(dir: &Path, session: &str) -> SessionTakes {
 
 #[derive(Debug, PartialEq, Eq)]
 enum State {
-    /// No frame inside the window yet.
     Waiting,
     Writing,
-    /// Past the punch-out, or failed: nothing more is written.
     Done,
 }
 
 struct Lane {
     job: Job,
-    /// The file, chosen on the worker (`free_file`).
     path: PathBuf,
     state: State,
     writer: Option<TakeWriter>,
-    /// The device frame the next chunk should begin on.
     next: Option<u64>,
-    /// The placed sample of the file's first frame.
     start: Option<i64>,
-    /// Frames of silence the file begins with.
     silence: u64,
-    /// The loop, for the sidecar (`Plan::looped`).
     looped: Option<(i64, i64)>,
     dropped: u64,
     error: Option<String>,
     refreshed: Instant,
     rate: u32,
-    /// Frames written to the file, silence for gaps included.
     written: u64,
-    /// The placed sample the next frame should have if the timeline ran on.
     expected: Option<i64>,
     wraps: Vec<Wrap>,
-    /// The sidecar holds `wraps` as they are now.
     sidecar_current: bool,
 }
 
-/// The takes of one recording.
 pub(crate) struct Takes {
     plan: Plan,
     lanes: Vec<Lane>,
 }
 
 impl Takes {
-    /// Runs on the worker: choosing the files looks at the disk.
     pub(crate) fn new(plan: Plan) -> Self {
         let mut taken: Vec<PathBuf> = Vec::new();
         let lanes = plan
@@ -412,8 +283,6 @@ impl Takes {
         Self { plan, lanes }
     }
 
-    /// Takes in a chunk: its samples are the left channel, then the right for
-    /// a pair.
     pub(crate) fn feed(&mut self, chunk: CaptureChunk, data: &[f32]) {
         let Some(index) = self.lanes.iter().position(|l| l.job.track == chunk.track) else {
             return;
@@ -430,7 +299,6 @@ impl Takes {
             lane.fail("The input changed while recording".to_owned());
             return;
         }
-        // A gap the ring made: silence keeps the rest in time.
         if let Some(next) = lane.next
             && chunk.device > next
             && lane.state == State::Writing
@@ -443,7 +311,6 @@ impl Takes {
                 return;
             }
             lane.written += gap;
-            // The timeline ran on while the chunks were lost.
             lane.expected = lane.expected.map(|e| e + gap as i64);
             if let Ok(mut live) = lane.job.live.lock() {
                 live.add(&[&vec![0.0; gap as usize]]);
@@ -452,8 +319,6 @@ impl Takes {
         lane.next = Some(chunk.device + frames as u64);
 
         let placed = chunk.at - shift;
-        // A jump back in the timeline while Loop is on is a wrap: a new pass
-        // begins at this chunk's first frame.
         if self.plan.looped.is_some()
             && lane.state == State::Writing
             && lane.expected.is_some_and(|e| placed + WRAP_SLACK < e)
@@ -463,10 +328,6 @@ impl Takes {
                 at: placed,
             });
             lane.sidecar_current = false;
-            // What is drawn while recording is the pass under way, from the
-            // loop's start, as it will be placed.
-            // The pass that ended was whole if it began at the loop's start:
-            // the file's sound did, or an earlier wrap did.
             let whole = lane.wraps.len() > 1
                 || lane.start.is_some_and(|s| {
                     (s + lane.silence as i64 - placed).unsigned_abs() <= u64::from(rate / 50)
@@ -476,7 +337,6 @@ impl Takes {
             }
         }
         let (lo, hi) = window.unwrap_or((0, i64::MAX));
-        // Frames before the window are skipped only until the take begins.
         let from = if lane.state == State::Waiting {
             (lo - placed).clamp(0, frames as i64) as usize
         } else {
@@ -491,8 +351,6 @@ impl Takes {
         }
         if lane.state == State::Waiting {
             let at = placed + from as i64;
-            // Begun inside the loop: silence back to its start, placed as the
-            // wraps will place it, and never before the window.
             let silence = self.plan.looped.map_or(0, |(start, _)| {
                 let pad = at - (start - shift).max(lo);
                 if pad > i64::from(rate / 50) {
@@ -525,12 +383,10 @@ impl Takes {
             }
         }
         if to < frames {
-            // The first frame past the punch-out ends the take.
             lane.finish_early();
         }
     }
 
-    /// Brings the headers up to date once a second.
     pub(crate) fn tick(&mut self) {
         for lane in &mut self.lanes {
             if lane.refreshed.elapsed() >= REFRESH {
@@ -543,7 +399,6 @@ impl Takes {
         }
     }
 
-    /// Ends every file. Tracks that kept nothing leave no file.
     pub(crate) fn finish(self) -> Vec<TrackResult> {
         let rate = self.plan.rate;
         self.lanes
@@ -570,8 +425,6 @@ impl Takes {
 }
 
 impl Lane {
-    /// Creates the file and its sidecar for a take whose first played frame
-    /// is at `start`, after `silence` frames of silence.
     fn open(&mut self, rate: u32, start: i64, silence: u64) -> Result<(), ()> {
         let made = (|| -> Result<TakeWriter, String> {
             if let Some(dir) = self.path.parent() {
@@ -606,7 +459,6 @@ impl Lane {
         }
     }
 
-    /// The sidecar as the take stands.
     fn sidecar(&self) -> Option<Sidecar> {
         Some(Sidecar {
             version: VERSION,
@@ -631,8 +483,6 @@ impl Lane {
         Ok(())
     }
 
-    /// Brings the sidecar up to date if a wrap has been noted since it was
-    /// written. A failure is not the take's: the file is what matters.
     fn write_sidecar(&mut self) {
         if !self.sidecar_current && self.writer.is_some() {
             let _ = self.write_sidecar_now();
@@ -648,8 +498,6 @@ impl Lane {
         self.state = State::Done;
     }
 
-    /// Finishes the file; returns the frames it holds. The sidecar stays
-    /// until a save holds the take (`take_notes.rs`).
     fn close(&mut self) -> u64 {
         let Some(writer) = self.writer.take() else {
             return 0;
@@ -664,9 +512,6 @@ impl Lane {
     }
 }
 
-/// Writes `bytes` to `path` whole: to a temporary file beside it, flushed,
-/// then renamed over it, so a crash leaves the old content or the new, never
-/// half of either (H5).
 pub(crate) fn write_whole(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
     let mut temporary = path.as_os_str().to_owned();
@@ -684,29 +529,19 @@ pub(crate) fn write_whole(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     written
 }
 
-/// The takes of one recording, finished, with the recording's number.
 #[derive(Debug)]
 pub(crate) struct Finished {
     pub id: u64,
     pub results: Vec<TrackResult>,
 }
 
-/// What recovery found of a session's takes, read on a worker (H1).
 #[derive(Debug, Default)]
 pub(crate) struct Found {
-    /// Takes with audio, repaired, as results ready to place.
     pub takes: Vec<TrackResult>,
-    /// Takes that could not be read; they stay where they are.
     pub unreadable: usize,
-    /// Unfinished takes a newer build wrote: they stay where they are, for
-    /// that build to recover (sweep M9).
     pub newer: usize,
 }
 
-/// Recovery's disk work for the takes `session` left in `dir`: lists them,
-/// repairs each file, and removes takes that hold nothing. Sidecars of
-/// takes with audio stay until a save holds them. A take a newer build wrote
-/// is counted and left alone.
 pub(crate) fn recover(dir: &Path, session: &str) -> Found {
     let mut found = Found::default();
     let leftover = unfinished(dir, session);
@@ -742,15 +577,11 @@ enum Message {
     Finish,
 }
 
-/// What the app can see of the worker.
 #[derive(Debug, Default)]
 pub(crate) struct Gauge {
-    /// Frames the ring dropped since the take began, all takes: input the
-    /// worker was too slow to take.
     pub dropped: AtomicU64,
 }
 
-/// The worker thread. Dropping it stops the thread.
 pub(crate) struct TakeWorker {
     tx: mpsc::Sender<Message>,
     done: mpsc::Receiver<Finished>,
@@ -758,7 +589,6 @@ pub(crate) struct TakeWorker {
 }
 
 impl TakeWorker {
-    /// Starts the thread, which owns the ring's reading end.
     pub(crate) fn spawn(reader: CaptureReader) -> Self {
         let (tx, rx) = mpsc::channel();
         let (done_tx, done) = mpsc::channel();
@@ -767,29 +597,22 @@ impl TakeWorker {
         let spawned = thread::Builder::new()
             .name("take-writer".to_owned())
             .spawn(move || run(reader, &rx, &done_tx, &seen));
-        // A thread that cannot start leaves the channel closed: begin() and
-        // finish() then do nothing and nothing is recorded.
         drop(spawned);
         Self { tx, done, gauge }
     }
 
-    /// Starts writing. Anything the ring held from before is thrown away.
     pub(crate) fn begin(&self, plan: Plan) {
         let _ = self.tx.send(Message::Begin(plan));
     }
 
-    /// Ends the takes once the ring is empty; [`Self::poll`] returns them.
     pub(crate) fn finish(&self) {
         let _ = self.tx.send(Message::Finish);
     }
 
-    /// A recording's finished takes, once each, after [`Self::finish`]: a
-    /// late one too, which says which recording it was.
     pub(crate) fn poll(&self) -> Option<Finished> {
         self.done.try_recv().ok()
     }
 
-    /// Frames of input the ring has dropped since the take began.
     pub(crate) fn dropped(&self) -> u64 {
         self.gauge.dropped.load(Ordering::Relaxed)
     }
@@ -809,7 +632,6 @@ fn run(
         match &message {
             Err(RecvTimeoutError::Disconnected) => break,
             Ok(Message::Begin(_)) => {
-                // What is in the ring now is not this take's.
                 while reader.next(&mut samples).is_some() {}
                 baseline = reader.dropped_frames();
             }
@@ -876,7 +698,6 @@ mod tests {
             )
             .unwrap();
         }
-        // A sidecar whose file is gone, and one that is not ours.
         fs::write(
             sidecar_path(&dir.join("gone.wav")),
             serde_json::to_vec(&side("s1", 9)).unwrap(),
@@ -895,15 +716,12 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A frozen fixture in the crate's `tests/fixtures`.
     fn fixture(name: &str) -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures")
             .join(name)
     }
 
-    /// What the frozen fixtures say, so both shapes are checked against the
-    /// same take.
     fn frozen_take() -> Sidecar {
         Sidecar {
             version: VERSION,
@@ -964,8 +782,6 @@ mod tests {
         let dir = folder("newer-version");
         let file = dir.join("Vox 1.wav");
         fs::write(&file, b"x").unwrap();
-        // Readable as version 1's shape; its version says otherwise, so this
-        // build must not read it, adopt it or delete it.
         let side = r#"{"version":2,"session":"s","track":1,"start":0,"rate":48000,"channels":1}"#;
         fs::write(sidecar_path(&file), side).unwrap();
         let found = unfinished(&dir, "s");
@@ -1022,7 +838,6 @@ mod tests {
         }
     }
 
-    /// A chunk of `frames` mono frames whose sample is its device frame.
     fn mono(track: u64, device: u64, at: i64, frames: u32) -> (CaptureChunk, Vec<f32>) {
         let chunk = CaptureChunk {
             track,
@@ -1067,7 +882,6 @@ mod tests {
         );
         assert_eq!(results[0].size_bytes, fs::metadata(&j.path).unwrap().len());
         assert_eq!(results.len(), 1);
-        // Heard at 500, shifted 100 earlier: placed at 400.
         assert_eq!(results[0].start, Some(400));
         assert_eq!(results[0].frames, 256);
         assert_eq!(results[0].error, None);
@@ -1085,7 +899,6 @@ mod tests {
         let dir = folder("front");
         let j = job(&dir, 1, 1);
         let mut takes = Takes::new(plan(vec![j.clone()], 100, None));
-        // Heard from 0, shifted 100: the first 100 frames would land before 0.
         let (chunk, data) = mono(1, 0, 0, 256);
         takes.feed(chunk, &data);
         let r = takes.finish().remove(0);
@@ -1110,7 +923,6 @@ mod tests {
         let dir = folder("punch");
         let j = job(&dir, 1, 1);
         let mut takes = Takes::new(plan(vec![j.clone()], 0, Some((150, 400))));
-        // Chunks of 100 frames from 0 to 600, placed where they are heard.
         for k in 0..6_u64 {
             let (chunk, data) = mono(1, k * 100, (k * 100) as i64, 100);
             takes.feed(chunk, &data);
@@ -1140,20 +952,17 @@ mod tests {
         let dir = folder("loop");
         let j = job(&dir, 1, 1);
         let mut takes = Takes::new(plan(vec![j.clone()], 10, None));
-        // Heard 0..200, then the loop wraps back to 0 for 100 more frames.
         let (a, da) = mono(1, 0, 0, 200);
         let (b, db) = mono(1, 200, 0, 100);
         takes.feed(a, &da);
         takes.feed(b, &db);
         let r = takes.finish().remove(0);
-        // The first 10 frames land before 0 and are cut; nothing else is.
         assert_eq!((r.start, r.frames), (Some(0), 290));
         let audio = read(&j.path);
         assert_eq!((audio[189], audio[190], audio[289]), (199.0, 200.0, 299.0));
         fs::remove_dir_all(dir).unwrap();
     }
 
-    /// With Loop on, the loop starting at timeline sample 1_000.
     fn looping(jobs: Vec<Job>, shift: i64) -> Plan {
         Plan {
             looped: Some((1_000, 1_200)),
@@ -1166,12 +975,10 @@ mod tests {
         let dir = folder("lineup");
         let j = job(&dir, 1, 1);
         let mut takes = Takes::new(looping(vec![j.clone()], 10));
-        // Begun 2_000 into a loop from 1_000, then one wrap.
         for (k, at) in [3_000, 1_000, 1_100].into_iter().enumerate() {
             let (chunk, data) = mono(1, k as u64 * 100, at, 100);
             takes.feed(chunk, &data);
         }
-        // Drawn from where it was played, not from the silence.
         assert_eq!(j.live.lock().unwrap().previous.as_ref().map(|p| p.0), None);
         takes.lanes[0].write_sidecar_now().unwrap();
         let side: Sidecar =
@@ -1182,8 +989,6 @@ mod tests {
             "recovery lines it up too"
         );
         let r = takes.finish().remove(0);
-        // The file begins where the loop's start is placed, with 2_000 frames
-        // of silence: its frames line up with the loop as a later pass's do.
         assert_eq!((r.start, r.silence, r.frames), (Some(990), 2_000, 2_300));
         assert_eq!(
             r.wraps,
@@ -1215,8 +1020,6 @@ mod tests {
         let dir = folder("wraps");
         let j = job(&dir, 1, 1);
         let mut takes = Takes::new(looping(vec![j.clone()], 10));
-        // A loop from 1_000 to 1_200, recorded from its start: two passes
-        // and a half, in blocks of 100.
         for (k, at) in [1_000, 1_100, 1_000, 1_100, 1_000].into_iter().enumerate() {
             let (chunk, data) = mono(1, k as u64 * 100, at, 100);
             takes.feed(chunk, &data);
@@ -1280,7 +1083,6 @@ mod tests {
         let dir = folder("livepartial");
         let j = job(&dir, 1, 1);
         let mut takes = Takes::new(looping(vec![j.clone()], 10));
-        // Begins 5_000 samples into the loop.
         for (k, at) in [6_000, 1_000, 1_100].into_iter().enumerate() {
             let (chunk, data) = mono(1, k as u64 * 100, at, 100);
             takes.feed(chunk, &data);
@@ -1309,7 +1111,6 @@ mod tests {
         let j = job(&dir, 1, 1);
         let mut takes = Takes::new(looping(vec![j.clone()], 0));
         let (a, da) = mono(1, 0, 1_000, 100);
-        // 100..200 never arrived: the timeline ran on to 1_200.
         let (b, db) = mono(1, 200, 1_200, 100);
         let (c, dc) = mono(1, 300, 1_000, 100);
         takes.feed(a, &da);
@@ -1335,7 +1136,6 @@ mod tests {
         let j = job(&dir, 1, 1);
         let mut takes = Takes::new(plan(vec![j.clone()], 0, None));
         let (a, da) = mono(1, 0, 0, 100);
-        // 100..300 never arrived.
         let (b, db) = mono(1, 300, 300, 100);
         takes.feed(a, &da);
         takes.feed(b, &db);
@@ -1364,7 +1164,6 @@ mod tests {
             channels: 2,
         };
         takes.feed(pair, &[1.0, 2.0, 3.0, 4.0, -1.0, -2.0, -3.0, -4.0]);
-        // A track that is not recording is ignored.
         let (chunk, data) = mono(9, 0, 0, 8);
         takes.feed(chunk, &data);
         let results = takes.finish();
@@ -1407,7 +1206,6 @@ mod tests {
         let (reader, mut sink) = lumen_engine::capture();
         let worker = TakeWorker::spawn(reader);
         let j = job(&dir, 1, 1);
-        // Left from before the take: thrown away.
         sink.push(1, 0, 0, &[9.0; 10], None);
         std::thread::sleep(Duration::from_millis(30));
         worker.begin(plan(vec![j.clone()], 0, None));
@@ -1444,7 +1242,6 @@ mod tests {
             free_file(&dir.join("Vox 1.wav"), &now),
             dir.join("Vox 4.wav")
         );
-        // Two lanes of one recording, both wanting the same name.
         let a = Job {
             path: dir.join("Vox 1.wav"),
             ..job(&dir, 1, 1)
@@ -1470,8 +1267,6 @@ mod tests {
             br#"{"session":"s","track":1,"start":0,"rate":48000,"channels":1}"#,
         )
         .unwrap();
-        // A crash in the middle of the next update leaves its temporary file
-        // half written: the take is still found from the sidecar before it.
         let mut temporary = side.as_os_str().to_owned();
         temporary.push(".tmp");
         fs::write(PathBuf::from(temporary), br#"{"session":"s","tr"#).unwrap();
@@ -1488,10 +1283,7 @@ mod tests {
         let mut takes = Takes::new(plan(vec![j.clone()], 0, None));
         let (chunk, data) = mono(1, 1_000, 0, 480);
         takes.feed(chunk, &data);
-        // Finished, and then a crash before any save held it: the sidecar is
-        // still there (H3).
         takes.finish();
-        // And a take that holds nothing, with its sidecar.
         let empty = dir.join("empty.wav");
         lumen_media::take::TakeWriter::create(&empty, 48_000, 1)
             .unwrap()

@@ -1,6 +1,3 @@
-//! New, open and quit: what is asked for, the swap into another project,
-//! and the decisions that wait on unsaved changes.
-
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -12,27 +9,20 @@ use super::dialogs::{FileDialog, made};
 use crate::App;
 use crate::{arrangement, document, empty_project_at, files, lanes, trace};
 
-/// What happens after unsaved changes are saved or discarded.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Next {
     New,
-    /// Open this project, or ask which.
     Open(Option<PathBuf>),
-    /// Start a new, unsaved project from the template in this file.
     Template(PathBuf),
     Quit,
 }
 
 impl App {
-    /// Starts reading `file` on a worker, noting the project's change mark:
-    /// an edit made while it is read is not covered by the choice that
-    /// asked for it (checked when the file arrives).
     pub(crate) fn begin_opening(&mut self, file: PathBuf) {
         self.opening_mark = self.document.change_mark();
         self.opening = Some(files::open(file));
     }
 
-    /// New, Open or Quit: first offer to save unsaved changes.
     pub(crate) fn request(&mut self, ctx: &egui::Context, next: Next) {
         if self.holds(&next, false) || self.copy_blocks(&next) {
             return;
@@ -44,9 +34,6 @@ impl App {
         }
     }
 
-    /// A copy or collect under way belongs to the open project: another
-    /// project cannot replace it until that is done or stopped. Closing is
-    /// not held up. Says so when it blocks.
     fn copy_blocks(&mut self, next: &Next) -> bool {
         let blocks = self.collecting.is_some() && *next != Next::Quit;
         if blocks {
@@ -107,15 +94,9 @@ impl App {
         }
     }
 
-    /// Swaps in another project: its media load afresh, playback stops, the
-    /// playhead goes to the start, and the transport follows its tempo.
     pub(crate) fn replace_document(&mut self, document: document::Document) {
-        // The song that played belongs to the project being closed: it never
-        // carries on over the next one (M7 review H1).
         self.transport.stop();
         self.document = document;
-        // The Undo steps preference acts from the next project opened or
-        // made, on a history that holds no steps yet.
         self.document
             .set_undo_limit(self.settings.editing.undo_steps);
         self.lanes = lanes::Lanes::default();

@@ -1,21 +1,3 @@
-//! Renders the user documentation's screenshots, clips and walkthroughs
-//! from the real app (docs/USER_DOCS.md §6). Not a test of behaviour: it is
-//! ignored, needs a GPU (software Vulkan is enough) and `ffmpeg`, and runs
-//! one scene at a time because the theme is process-wide:
-//!
-//! ```text
-//! DOCS_MEDIA=site/docs/static/media cargo test -p lumen-app --test docs_media -- --ignored --test-threads=1
-//! ```
-//!
-//! Without `DOCS_MEDIA` the scenes only check that they still reach their
-//! states, in one theme, writing nothing (§8.3; CI's docs job).
-//!
-//! Each scene is a test named as in `tests/shared/scenes.rs`, and checks
-//! that it wrote exactly what that table says: a page can only show what a
-//! scene makes (`tests/docs_coverage.rs`). A scene drives the app the way
-//! its page tells the reader to, so a page whose steps stop working fails
-//! here.
-
 #[path = "../shared/scenes.rs"]
 mod scenes;
 
@@ -34,8 +16,6 @@ use lumen_project::testing::TempDir;
 use recorder::{Take, pace, still};
 use song::song;
 
-/// Guides › Editing › Split a clip: the lead clip, and the before and after
-/// screenshots with the two halves marked.
 #[test]
 #[ignore = "renders the docs' media; needs a GPU, and ffmpeg with DOCS_MEDIA"]
 fn split_a_clip() {
@@ -47,7 +27,6 @@ fn split_a_clip() {
         let crop = arrangement(&h);
         let cut = pos2(drums.left() + drums.width() * 0.5, drums.bottom() - 8.0);
 
-        // Before: the clip, the pointer resting where the cut will go.
         let rest = pos2(crop.right() - 60.0, crop.bottom() - 24.0);
         let mut take = Take::clip(&mut h, device, "split-lead", theme, crop, 0.62, rest);
         take.hold(&mut h, pace::RESULT / 2);
@@ -77,7 +56,6 @@ fn split_a_clip() {
     check("split_a_clip", started);
 }
 
-/// The Split tool's gesture: a click cuts the clip there, on the grid.
 #[test]
 #[ignore = "renders the docs' media; needs a GPU, and ffmpeg with DOCS_MEDIA"]
 fn split_tool() {
@@ -92,7 +70,6 @@ fn split_tool() {
         take.hold(&mut h, pace::SETTLE);
         take.keys(&mut h, &caps("view.tool_split"), |h| h.key_press(Key::C));
         take.settle(&mut h);
-        // Aim: the cut line follows the pointer, snapped to the grid.
         let aim = pos2(bass.left() + bass.width() * 0.27, bass.center().y);
         take.move_to(&mut h, aim);
         take.move_to(&mut h, aim + eframe::egui::vec2(16.0, 0.0));
@@ -112,8 +89,6 @@ fn split_tool() {
     check("split_tool", started);
 }
 
-/// A walkthrough with sound: the song plays, and Ctrl+E on bar 3 cuts the
-/// selected clip without stopping it.
 #[test]
 #[ignore = "renders the docs' media; needs a GPU, and ffmpeg with DOCS_MEDIA"]
 fn split_while_playing() {
@@ -122,8 +97,6 @@ fn split_while_playing() {
     let (mut h, device) = song(&dir, "dark");
     let drums = clip(&h, 0, 0);
     let crop = arrangement(&h);
-    // Near the clip's start, where the click also puts the playhead, and
-    // clear of its trim handle.
     let start = pos2(drums.left() + drums.width() * 0.05, drums.bottom() - 8.0);
     let rest = pos2(crop.right() - 60.0, crop.bottom() - 24.0);
     let mut take = Take::walk(&mut h, device, "split-playing", crop, rest);
@@ -139,11 +112,9 @@ fn split_while_playing() {
     take.keys(&mut h, &caps("transport.play_stop"), |h| {
         h.key_press(Key::Space)
     });
-    // Time to read the caption before the next one.
     take.result(&mut h);
     assert!(h.state().is_playing(), "Space plays the song");
     take.caption("On bar 3, press Ctrl+E. The clip is cut and the song plays on.");
-    // The keys go down a beat before bar 3 shows, so they land on it.
     let lead = pace::KEYS_LEAD as f64 / pace::FPS as f64 * 2.0;
     hold_until(&mut take, &mut h, 8.0 - lead);
     take.keys(&mut h, &caps("midi.split_notes"), |h| {
@@ -165,10 +136,6 @@ fn split_while_playing() {
     check("split_while_playing", started);
 }
 
-/// Guides › Clips › Look inside an audio clip: the lead clip opens a trimmed
-/// clip in the Clip tab, shows its whole file and zooms back to the clip;
-/// the shots show the whole file with the part the clip plays marked, and
-/// the wave zoomed in to its samples.
 #[test]
 #[ignore = "renders the docs' media; needs a GPU, and ffmpeg with DOCS_MEDIA"]
 fn audio_clip_editor() {
@@ -179,10 +146,8 @@ fn audio_clip_editor() {
     for &theme in recorder::themes() {
         let dir = TempDir::new(&format!("docs-audio-editor-{theme}"));
         let (mut h, device) = song(&dir, theme);
-        // Tall enough for the tracks above the detail panel.
         h.set_size(eframe::egui::vec2(960.0, 640.0));
         h.run_steps(10);
-        // The Drums clip plays bars 2 and 3 of its four-bar file.
         let id = h.state().project().tracks[0].clips[0].id;
         h.state_mut().trim_clip_start_to(id, Ticks::quarters(4));
         h.state_mut()
@@ -232,14 +197,12 @@ fn audio_clip_editor() {
         take.result(&mut h);
         take.finish();
 
-        // The whole file, with the part the clip plays and the rest marked.
         h.get_by_label("Whole file").click();
         h.run_steps(6);
         let shown = h.state().audio_editor_shown().expect("drawn");
         let x = |q: f64| shown.view.x(shown.body.left(), q);
         let band =
             |from: f64, to: f64| Rect::from_x_y_ranges(x(from)..=x(to), shown.body.y_range());
-        // The editor alone: its header, ruler and wave.
         let editor = Rect::from_min_max(
             pos2(shown.body.left() - 1.0, shown.body.top() - 70.0),
             pos2(crop.right(), shown.body.bottom() + 1.0),
@@ -257,8 +220,6 @@ fn audio_clip_editor() {
             ],
         );
 
-        // Zoomed in on a kick's start until the wave is drawn through its
-        // samples, then one step further.
         let on_wave = pos2(x(8.0) + 1.0, shown.body.center().y);
         h.hover_at(on_wave);
         for _ in 0..40 {
@@ -277,10 +238,6 @@ fn audio_clip_editor() {
     check("audio_clip_editor", started);
 }
 
-/// Guides › Clips › Trim and fade inside an audio clip: the lead clip fades
-/// the opened clip in, trims its end and lowers its gain in the editor; a
-/// gesture clip for each handle and for slip; and a shot with the handles
-/// marked.
 #[test]
 #[ignore = "renders the docs' media; needs a GPU, and ffmpeg with DOCS_MEDIA"]
 fn audio_editor_handles() {
@@ -306,7 +263,6 @@ fn audio_editor_handles() {
             h.run_steps(3);
         }
     }
-    /// One drag from `from` to `to` as its own clip; gives the device back.
     #[expect(clippy::too_many_arguments, reason = "one take's whole setting")]
     fn gesture(
         h: &mut H,
@@ -338,7 +294,6 @@ fn audio_editor_handles() {
         let (mut h, device) = song(&dir, theme);
         h.set_size(vec2(960.0, 640.0));
         h.run_steps(10);
-        // The Drums clip plays bars 2 and 3 of its four-bar file, opened.
         let id = h.state().project().tracks[0].clips[0].id;
         h.state_mut().trim_clip_start_to(id, Ticks::quarters(4));
         h.state_mut()
@@ -355,7 +310,6 @@ fn audio_editor_handles() {
         let rest = pos2(editor.right() - 40.0, editor.top() + 20.0);
         let mid = s.body.center().y;
 
-        // The lead: a fade in, the end trimmed by a beat, the gain down.
         let mut take = Take::clip(
             &mut h,
             device,
@@ -401,7 +355,6 @@ fn audio_editor_handles() {
         let device = take.finish();
         undo(&mut h, 3);
 
-        // The handles, marked.
         let hs = handles(&h);
         let s = shown(&h);
         let gain_line =
@@ -422,7 +375,6 @@ fn audio_editor_handles() {
             ],
         );
 
-        // One gesture a clip, each undone before the next.
         let end = pos2(handles(&h).end - 2.0, mid);
         let to = pos2(x(&h, 10.0), mid);
         let device = gesture(
@@ -473,7 +425,6 @@ fn audio_editor_handles() {
         );
         undo(&mut h, 1);
 
-        // Slip: the whole file shows, and its grey end is dragged.
         h.get_by_label("Whole file").click();
         h.run_steps(6);
         let grey = pos2(x(&h, 14.0), mid);
@@ -493,20 +444,12 @@ fn audio_editor_handles() {
     check("audio_editor_handles", started);
 }
 
-/// The window width at which the audio editor's strip shows every group,
-/// Processing with its words and the Warp chip included.
 const STRIP_WIDTH: f32 = 1180.0;
 
-/// Opens the Drums clip (bars 2 and 3 of its four-bar file) in the editor on
-/// a 960 x 640 window. Returns the editor's crop and where the pointer rests
-/// between gestures.
 fn open_drums(h: &mut Harness<'static, App>) -> (Rect, eframe::egui::Pos2) {
     open_drums_in(h, 960.0)
 }
 
-/// [`open_drums`] in a window `width` points wide. The strip folds its groups
-/// into the ⋯ menu as the width shrinks, so a scene that shows every button
-/// asks for the room (the Warp chip of S5a took 960 to fold Processing).
 fn open_drums_in(h: &mut Harness<'static, App>, width: f32) -> (Rect, eframe::egui::Pos2) {
     use lumen_core::time::Ticks;
     h.set_size(eframe::egui::vec2(width, 640.0));
@@ -528,7 +471,6 @@ fn open_drums_in(h: &mut Harness<'static, App>, width: f32) -> (Rect, eframe::eg
     (editor, rest)
 }
 
-/// The point at beat `q` and `f` of the wave's height, in the open editor.
 fn on_wave(h: &Harness<'static, App>, q: f64, f: f32) -> eframe::egui::Pos2 {
     let s = h.state().audio_editor_shown().expect("drawn");
     pos2(
@@ -537,15 +479,11 @@ fn on_wave(h: &Harness<'static, App>, q: f64, f: f32) -> eframe::egui::Pos2 {
     )
 }
 
-/// One undo step.
 fn undo_one(h: &mut Harness<'static, App>) {
     h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
     h.run_steps(3);
 }
 
-/// Guides > Clips > Pick part of a clip in its editor: the lead picks a
-/// range on the wave and splits it; a gesture clip each for the range and the
-/// cursor; and a shot with the range marked.
 #[test]
 #[ignore = "renders the docs' media; needs a GPU, and ffmpeg with DOCS_MEDIA"]
 fn audio_editor_range() {
@@ -555,7 +493,6 @@ fn audio_editor_range() {
         let (mut h, device) = song(&dir, theme);
         let (editor, rest) = open_drums(&mut h);
 
-        // The lead: a range from beat 6 to 9, split at both edges.
         let mut take = Take::clip(
             &mut h,
             device,
@@ -586,7 +523,6 @@ fn audio_editor_range() {
         h.key_press(Key::Escape);
         h.run_steps(3);
 
-        // The range alone: dragged on the wave, no edit made.
         let before = h.state().project().clone();
         let mut take = Take::clip(
             &mut h,
@@ -609,7 +545,6 @@ fn audio_editor_range() {
         take.result(&mut h);
         let device = take.finish();
 
-        // The shot, with the range still picked.
         let s = h.state().audio_editor_shown().expect("drawn");
         let range = Rect::from_x_y_ranges(from.x..=to.x, s.body.y_range());
         h.hover_at(rest);
@@ -624,7 +559,6 @@ fn audio_editor_range() {
         h.key_press(Key::Escape);
         h.run_steps(3);
 
-        // The cursor: one click on the wave.
         let mut take = Take::clip(
             &mut h,
             device,
@@ -647,10 +581,6 @@ fn audio_editor_range() {
     check("audio_editor_range", started);
 }
 
-/// Guides > Clips > Set a clip's gain, fades and processing: the lead
-/// reverses the clip and inverts its polarity from the strip; a gesture clip
-/// each for the gain slider and the File chip; and a shot with the strip's
-/// parts marked.
 #[test]
 #[ignore = "renders the docs' media; needs a GPU, and ffmpeg with DOCS_MEDIA"]
 fn audio_clip_properties() {
@@ -662,9 +592,6 @@ fn audio_clip_properties() {
         let dir = TempDir::new(&format!("docs-audio-properties-{theme}"));
         let (mut h, device) = song(&dir, theme);
         let (editor, _) = open_drums_in(&mut h, STRIP_WIDTH);
-        // The strip sits above the ruler: take the header's room as well, from
-        // its top edge down (130 points started inside the tab row and cut its
-        // labels in half).
         let s = h.state().audio_editor_shown().expect("drawn");
         let editor = Rect::from_min_max(
             pos2(editor.left(), s.body.top() - 114.0),
@@ -673,7 +600,6 @@ fn audio_clip_properties() {
         let rest = pos2(editor.right() - 40.0, editor.top() + 20.0);
         let id = h.state().project().tracks[0].clips[0].id;
 
-        // The lead: Reverse, then Polarity.
         let mut take = Take::clip(
             &mut h,
             device,
@@ -698,7 +624,6 @@ fn audio_clip_properties() {
         undo_one(&mut h);
         undo_one(&mut h);
 
-        // The gain slider, dragged down.
         let mut take = Take::clip(&mut h, device, "audio-clip-gain", theme, editor, 0.5, rest);
         take.hold(&mut h, pace::RESULT / 2);
         let slider = h.get_by_label_contains("Clip gain: ").rect().center();
@@ -714,7 +639,6 @@ fn audio_clip_properties() {
         let device = take.finish();
         undo_one(&mut h);
 
-        // The File chip, opened.
         let mut take = Take::clip(&mut h, device, "audio-clip-file", theme, editor, 0.5, rest);
         take.hold(&mut h, pace::RESULT / 2);
         let chip = h.get_by_label_contains("File: ").rect().center();
@@ -732,7 +656,6 @@ fn audio_clip_properties() {
         h.run_steps(3);
         assert!(h.state().project().tracks[0].clips[0].id == id);
 
-        // The shot, the strip's parts marked.
         let rect = |h: &Harness<'static, App>, label: &str| h.get_by_label_contains(label).rect();
         let gain = rect(&h, "Clip gain: ");
         let fades = rect(&h, "Fade in: ").union(rect(&h, "Fade out: "));
@@ -756,9 +679,6 @@ fn audio_clip_properties() {
     check("audio_clip_properties", started);
 }
 
-/// Guides > Clips > Draw a clip's envelope: the lead lights Gain and adds
-/// points; a gesture clip each for a point, a drawn stroke and the loop
-/// brace; and a shot with the pills, the envelope and the brace marked.
 #[test]
 #[ignore = "renders the docs' media; needs a GPU, and ffmpeg with DOCS_MEDIA"]
 fn audio_editor_envelopes() {
@@ -770,7 +690,6 @@ fn audio_editor_envelopes() {
         let (mut h, device) = song(&dir, theme);
         let (editor, rest) = open_drums(&mut h);
 
-        // The lead: Gain is lit, then three points make a dip.
         let mut take = Take::clip(
             &mut h,
             device,
@@ -798,7 +717,6 @@ fn audio_editor_envelopes() {
             undo_one(&mut h);
         }
 
-        // One point.
         let mut take = Take::clip(
             &mut h,
             device,
@@ -818,7 +736,6 @@ fn audio_editor_envelopes() {
         let device = take.finish();
         undo_one(&mut h);
 
-        // A stroke with Draw: B, then drag across.
         h.hover_at(on_wave(&h, 5.0, 0.3));
         h.run_steps(2);
         h.key_press(Key::B);
@@ -855,7 +772,6 @@ fn audio_editor_envelopes() {
         h.key_press(Key::B);
         h.run_steps(3);
 
-        // The loop brace: one click on its band loops the clip.
         let on_band = |h: &Harness<'static, App>, q: f64| {
             let s = h.state().audio_editor_shown().expect("drawn");
             pos2(s.view.x(s.body.left(), q), s.band.center().y)
@@ -879,7 +795,6 @@ fn audio_editor_envelopes() {
         take.result(&mut h);
         let _device = take.finish();
 
-        // The shot: the pills, an envelope drawn, the brace showing.
         for (q, f) in [(5.0, 0.3), (8.0, 0.7), (11.0, 0.3)] {
             let p = on_wave(&h, q, f);
             h.hover_at(p);
@@ -917,9 +832,6 @@ fn audio_editor_envelopes() {
     check("audio_editor_envelopes", started);
 }
 
-/// Guides > Clips > Hear a clip while you edit it: the lead turns Loop clip
-/// on and the playhead goes round the clip; a gesture clip of a drag on the
-/// editor's ruler; and a shot with the toggle and the ruler marked.
 #[test]
 #[ignore = "renders the docs' media; needs a GPU, and ffmpeg with DOCS_MEDIA"]
 fn audio_editor_hearing() {
@@ -935,7 +847,6 @@ fn audio_editor_hearing() {
             pos2(s.view.x(s.body.left(), q), s.band.top() - 6.0)
         };
 
-        // The lead: Loop clip on, and the playhead goes round the clip.
         let mut take = Take::clip(
             &mut h,
             device,
@@ -951,7 +862,6 @@ fn audio_editor_hearing() {
         take.click(&mut h);
         take.settle(&mut h);
         assert!(h.state().clip_loop_played().is_some(), "Loop clip is on");
-        // Play: the playhead goes round the clip, past its end and back.
         take.keys(&mut h, "Space", |h| h.key_press(Key::Space));
         hold_until(&mut take, &mut h, 11.0);
         let before = h.state().playhead();
@@ -971,7 +881,6 @@ fn audio_editor_hearing() {
         h.run_steps(3);
         assert!(h.state().clip_loop_played().is_none(), "and off again");
 
-        // A drag along the ruler listens as it goes.
         let mut take = Take::clip(
             &mut h,
             device,
@@ -993,7 +902,6 @@ fn audio_editor_hearing() {
         take.result(&mut h);
         let _device = take.finish();
 
-        // The shot: Loop clip lit, the ruler under the playhead.
         h.get_by_label("Loop clip").click();
         h.run_steps(3);
         let s = h.state().audio_editor_shown().expect("drawn");
@@ -1015,9 +923,6 @@ fn audio_editor_hearing() {
     check("audio_editor_hearing", started);
 }
 
-/// Films frames until the playhead reaches `quarters`, within ten seconds
-/// of video: a song that stopped or stalled fails the scene instead of
-/// filming forever.
 fn hold_until(take: &mut Take, h: &mut Harness<'static, App>, quarters: f64) {
     for _ in 0..10 * pace::FPS {
         if h.state().playhead().as_quarters() >= quarters {
@@ -1031,8 +936,6 @@ fn hold_until(take: &mut Take, h: &mut Harness<'static, App>, quarters: f64) {
     );
 }
 
-/// A command's first default shortcut on Windows, as keycaps show it:
-/// "Ctrl+E". Read from the keymap, never written by hand.
 fn caps(id: &str) -> String {
     docs::commands()
         .into_iter()
@@ -1041,15 +944,11 @@ fn caps(id: &str) -> String {
         .unwrap_or_else(|| panic!("{id} has a shortcut"))
 }
 
-/// Clip `index` of track `track`, on screen.
 fn clip(h: &Harness<'static, App>, track: usize, index: usize) -> Rect {
     let id = h.state().project().tracks[track].clips[index].id;
     h.state().clip_rect(&h.ctx, id).expect("in view")
 }
 
-/// The arrangement around the song's clips: the ruler, the track headers
-/// and the lanes, without the transport bar (whose live CPU reading means
-/// nothing in a picture).
 fn arrangement(h: &Harness<'static, App>) -> Rect {
     let first = clip(h, 0, 0);
     let last = clip(h, h.state().project().tracks.len() - 1, 0);
@@ -1060,9 +959,6 @@ fn arrangement(h: &Harness<'static, App>) -> Rect {
     )
 }
 
-/// Checks that scene `test` wrote exactly what `scenes.rs` lists, and
-/// marked the controls it lists (both also when the scene only checks), and
-/// says how long it took and how big its files are (§6.4).
 fn check(test: &str, started: Instant) {
     eprintln!(
         "PHASES {test} ({:.1}s): {}",

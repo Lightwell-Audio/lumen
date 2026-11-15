@@ -1,9 +1,5 @@
-//! A card's picture, badge and power button.
-
 use super::*;
 
-/// The plugin's own picture in the band, cropped to fill it and fading into
-/// the header; greyed while the device is bypassed.
 pub(super) fn paint_snapshot(
     ui: &mut Ui,
     rect: Rect,
@@ -12,10 +8,7 @@ pub(super) fn paint_snapshot(
     muted: bool,
 ) {
     let palette = theme::p();
-    // Above the header, so the name stays on its own colour; the picture
-    // fades into the header's colour at its foot.
     let area = Rect::from_min_size(rect.min, vec2(rect.width(), look.band));
-    // Cover: the largest centred part of the picture with the band's shape.
     let size = texture.size_vec2();
     let (want, have) = (area.width() / area.height(), size.x / size.y);
     let uv = if have > want {
@@ -68,7 +61,6 @@ pub(super) fn paint_picture(
     } else {
         (
             palette.raised.lerp_to_gamma(base, 0.7),
-            // Light ink on a dark picture, dark ink on a pale one.
             if theme::is_light() {
                 base.lerp_to_gamma(Color32::BLACK, 0.45)
             } else {
@@ -83,7 +75,6 @@ pub(super) fn paint_picture(
     match look.face {
         Face::Failed { .. } => glyph(&clipped, area, Icon::Warning, palette.warning),
         Face::Missing { .. } => {
-            // A hatch: the picture is not there.
             let step = 8.0;
             let mut x = area.left() - area.height();
             while x < area.right() {
@@ -100,11 +91,6 @@ pub(super) fn paint_picture(
         }
         _ => {
             match crate::builtin::identity(look.identity) {
-                // A built-in has a personality: its signature hue as a deep
-                // tinted screen, unchanged in both themes, with a still
-                // drawing of its idea (DESIGN.md §7k). It has no monogram: the
-                // card's name row already carries its name (M8 slice B0,
-                // review L8).
                 Some(personality) => paint_idea(&clipped, area, personality, muted),
                 None => {
                     clipped.text(
@@ -114,7 +100,6 @@ pub(super) fn paint_picture(
                         fonts::display((look.band * 0.62).clamp(18.0, 64.0)),
                         ink,
                     );
-                    // The kind again, large and quiet, at the picture's right.
                     paint_kind(&clipped, area, look, ink);
                 }
             }
@@ -122,7 +107,6 @@ pub(super) fn paint_picture(
     }
 }
 
-/// The kind, large and quiet, at the picture's right.
 fn paint_kind(painter: &egui::Painter, area: Rect, look: &Look<'_>, ink: Color32) {
     let kind = if look.instrument {
         Icon::Keys
@@ -144,8 +128,6 @@ fn paint_kind(painter: &egui::Painter, area: Rect, look: &Look<'_>, ink: Color32
     ));
 }
 
-/// A built-in device's picture: its signature hue as a deep tinted screen, the
-/// same in both themes, and a still drawing of its one idea (DESIGN.md §7k).
 fn paint_idea(
     painter: &egui::Painter,
     area: Rect,
@@ -164,8 +146,6 @@ fn paint_idea(
         top,
         theme::personality::SCREEN,
     );
-    // A hairline of the signature colour round the screen, as the specimen's
-    // card does: the band is the device's even where the drawing is thin.
     painter.rect_stroke(
         area,
         f32::from(theme::radius::SMALL),
@@ -184,8 +164,6 @@ fn paint_idea(
     }
 }
 
-/// Prism's idea: a beam of light enters from the left, the prism bends it, and
-/// the beams leave at the width it carries (DESIGN.md §7k).
 fn paint_prism(painter: &egui::Painter, area: Rect, muted: bool) {
     let height = area.height();
     if height < 24.0 {
@@ -193,13 +171,10 @@ fn paint_prism(painter: &egui::Painter, area: Rect, muted: bool) {
     }
     let centre = area.center().y;
     let inset = (area.width() * 0.07).clamp(8.0, 22.0);
-    // The prism sits left of centre; its size follows the band so the picture
-    // reads at every height.
     let half = (height * 0.20).clamp(7.0, 26.0);
     let apex = pos2(area.left() + area.width() * 0.34, centre);
     let foot = pos2(apex.x - half * 0.9, centre + half * 1.25);
     let toe = pos2(apex.x + half * 1.25, centre + half * 1.25);
-    // The beam in, and the light where it lands.
     painter.line_segment(
         [
             pos2(area.left() + inset, centre),
@@ -210,7 +185,6 @@ fn paint_prism(painter: &egui::Painter, area: Rect, muted: bool) {
             Color32::WHITE.gamma_multiply(if muted { 0.25 } else { 0.85 }),
         ),
     );
-    // The beams out: five, fanning from the prism's right face to the edge.
     let from = pos2(apex.x + half * 0.55, centre + half * 0.15);
     let far = area.right() - inset;
     let spread = (height * 0.42).clamp(9.0, 44.0);
@@ -226,7 +200,6 @@ fn paint_prism(painter: &egui::Painter, area: Rect, muted: bool) {
             Stroke::new(theme::stroke::FOCUS, colour),
         );
     }
-    // The prism itself, over the beams.
     painter.add(egui::Shape::convex_polygon(
         vec![apex, foot, toe],
         Color32::WHITE.gamma_multiply(if muted { 0.05 } else { 0.12 }),
@@ -237,21 +210,16 @@ fn paint_prism(painter: &egui::Painter, area: Rect, muted: bool) {
     ));
 }
 
-/// An icon centred in the picture.
 pub(super) fn glyph(painter: &egui::Painter, area: Rect, icon: Icon, colour: Color32) {
     let side = (area.height() * 0.4).clamp(16.0, 40.0);
     let rect = Rect::from_center_size(area.center(), vec2(side, side));
     painter.extend(icons::shapes(icon, rect, colour));
 }
 
-/// Whether the header carries the plugin window's button: a plugin that is
-/// running (the built-in synth has no window; a card that is not running has
-/// nothing to open).
 pub(super) fn has_window_button(look: &Look<'_>) -> bool {
     look.reports_latency && matches!(look.face, Face::Ready)
 }
 
-/// The kind badge: a keyboard for an instrument, sliders for an effect.
 pub(super) fn paint_badge(painter: &egui::Painter, rect: Rect, look: &Look<'_>) {
     let palette = theme::p();
     raised::paint_sunken(painter, rect, theme::radius::for_height(rect.height()));
@@ -270,8 +238,6 @@ pub(super) fn paint_badge(painter: &egui::Painter, rect: Rect, look: &Look<'_>) 
     ));
 }
 
-/// The power button: lit while the device is on. Its name says what a click
-/// does.
 pub(super) fn power_button(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>) -> Response {
     let response = ui.interact(rect, id.with("power"), Sense::click());
     let on = !look.bypass;

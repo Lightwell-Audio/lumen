@@ -1,12 +1,3 @@
-//! Detection for the opened clip's file (M9.5 S5a, D5): the transients and the
-//! tempo `lumen_media::detect` finds, worked out once on a worker and kept in
-//! the cache beside the peaks, so opening the file again finds them there.
-//! Only the sensitivity changes afterwards, and it changes what is offered,
-//! not what was found.
-//!
-//! This is the editor's state and the worker; the Warp chip that shows it is
-//! `app::audio_editor::warp`.
-
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -17,13 +8,8 @@ use lumen_media::detect::Analysis;
 use lumen_media::stream::cache::Cache;
 use lumen_project::model::{Clip, ClipContent};
 
-/// The sensitivity a file starts at: transients of 15 dB and more
-/// (`lumen_media::detect::threshold`).
 pub(crate) const DEFAULT_SENSITIVITY: u8 = 50;
 
-/// The key detection is filed under for the file `clip` plays: its media, or
-/// the media's reversed twin for a reversed clip (the editor shows and plays
-/// the twin, so the transients and tempo are those of the twin).
 pub(crate) fn file_key(clip: &Clip) -> Option<u64> {
     let ClipContent::Audio { media, .. } = &clip.content else {
         return None;
@@ -35,27 +21,20 @@ pub(crate) fn file_key(clip: &Clip) -> Option<u64> {
     })
 }
 
-/// Where detection stands for the file it was last asked about.
 pub(crate) enum State {
-    /// Nothing asked yet, or the file cannot be shown.
     Idle,
-    /// A worker is reading the file.
     Working(Job),
     Ready(Arc<Analysis>),
-    /// The file could not be read; the words say why.
     Failed(String),
 }
 
-/// A worker reading a file.
 pub(crate) struct Job {
     done: Receiver<Result<Option<Analysis>, String>>,
     cancel: Arc<AtomicBool>,
-    /// 0 to 1, as `f32` bits.
     progress: Arc<AtomicU32>,
 }
 
 impl Job {
-    /// How far the worker has got, 0 to 1.
     pub(crate) fn fraction(&self) -> f32 {
         f32::from_bits(self.progress.load(Ordering::Relaxed))
     }
@@ -67,25 +46,14 @@ impl Drop for Job {
     }
 }
 
-/// What the editor knows of the transients and tempo of its file.
 pub(crate) struct Detection {
-    /// The file key ([`file_key`]) the state is for, and the file it was read
-    /// from (a relinked file is another file).
     pub media: Option<u64>,
     path: Option<PathBuf>,
     pub state: State,
-    /// 0 to 100: which transients are offered (the Sensitivity control).
     pub sensitivity: u8,
-    /// The Warp popover is open: set while it draws and taken by the wave's
-    /// painter, so a clip that is not warped shows its transients on the
-    /// wave only while the Sensitivity control is in reach.
     pub previewing: bool,
 }
 
-/// Where the transients are drawn for a clip: in its warp strip when it is
-/// warped; on the wave, as the same small triangles, for a clip that is not,
-/// only while the Warp popover is open (its Sensitivity control previews
-/// them); nowhere else.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Shown {
     Strip,
@@ -116,16 +84,12 @@ impl Default for Detection {
 }
 
 impl Detection {
-    /// What was found for the file `clip` plays (the media, or its reversed
-    /// twin's), when it is this detection's file: the key, the findings, and
-    /// the sensitivity they are read at.
     pub(crate) fn found(&self, clip: &Clip) -> Option<(u64, Arc<Analysis>, u8)> {
         let key = file_key(clip)?;
         self.analysis(key)
             .map(|found| (key, Arc::clone(found), self.sensitivity))
     }
 
-    /// What was found for `media`, once it is.
     pub(crate) fn analysis(&self, media: u64) -> Option<&Arc<Analysis>> {
         match &self.state {
             State::Ready(found) if self.media == Some(media) => Some(found),
@@ -133,7 +97,6 @@ impl Detection {
         }
     }
 
-    /// Whether the worker is reading `media`'s file.
     pub(crate) fn working(&self, media: u64) -> Option<&Job> {
         match &self.state {
             State::Working(job) if self.media == Some(media) => Some(job),
@@ -141,18 +104,12 @@ impl Detection {
         }
     }
 
-    /// Whether `media` read from `path` has not been asked about (or was
-    /// asked about at another file).
     pub(crate) fn wants(&self, media: u64, path: &std::path::Path) -> bool {
         self.media != Some(media)
             || self.path.as_deref() != Some(path)
             || matches!(self.state, State::Idle)
     }
 
-    /// Starts reading `path` (a file at the device `rate`) for the file `key`
-    /// (its reversed twin when [`crate::media::media_of`] says it names one),
-    /// dropping whatever was under way for another file. The cache folder is
-    /// where converted audio and the findings are kept.
     pub(crate) fn start(
         &mut self,
         key: u64,
@@ -185,15 +142,12 @@ impl Detection {
         };
     }
 
-    /// Takes the worker's answer when it has come. True when the state
-    /// changed.
     pub(crate) fn poll(&mut self) -> bool {
         let State::Working(job) = &self.state else {
             return false;
         };
         let next = match job.done.try_recv() {
             Ok(Ok(Some(found))) => State::Ready(Arc::new(found)),
-            // Cancelled: nobody is waiting for it.
             Ok(Ok(None)) => State::Idle,
             Ok(Err(why)) => State::Failed(why),
             Err(TryRecvError::Empty) => return false,
@@ -205,7 +159,6 @@ impl Detection {
         true
     }
 
-    /// Forgets the findings (another project was opened).
     pub(crate) fn clear(&mut self) {
         self.media = None;
         self.path = None;
@@ -213,9 +166,6 @@ impl Detection {
     }
 }
 
-/// The transients `analysis` offers at `sensitivity` between `seconds.0` and
-/// `seconds.1` of the file, found by bisection so a long file costs what the
-/// view holds.
 pub(crate) fn in_view(
     analysis: &Analysis,
     sensitivity: u8,
@@ -230,8 +180,6 @@ pub(crate) fn in_view(
         .filter(move |t| t.strength >= least)
 }
 
-/// [`work`] for a file that is read without a progress report or a reversed
-/// twin (the import's listening, `app::follow_detect`).
 pub(crate) fn listen(
     path: &std::path::Path,
     rate: u32,
@@ -247,8 +195,6 @@ pub(crate) fn listen(
     )
 }
 
-/// The worker's job: the file as a stream file at `rate` (reversed when the
-/// clip plays its twin), then its analysis.
 fn work(
     path: &std::path::Path,
     (rate, reversed): (u32, bool),

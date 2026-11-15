@@ -1,6 +1,3 @@
-//! The first-run window's Sound step (ADR-0115): the device rows, the
-//! ASIO offer, what to do when no sound comes, and the sound check.
-
 use super::*;
 
 impl App {
@@ -17,7 +14,6 @@ impl App {
             .audio
             .device(ui, &self.transport.audio, &Marks::default(), &mut actions);
         for action in actions {
-            // The device section asks only for device changes and Dismiss.
             let _ = self.transport.audio_action(action);
         }
         self.sound_recovery(ui);
@@ -25,8 +21,6 @@ impl App {
         self.sound_check_row(ui);
     }
 
-    /// When an ASIO driver is installed and another driver model is in use:
-    /// "<driver> is installed. It records with less delay", and Use ASIO.
     pub(super) fn asio_offer(&mut self, ui: &mut Ui) {
         let audio = &self.transport.audio;
         if audio.on_test_device() {
@@ -93,8 +87,6 @@ impl App {
         }
     }
 
-    /// What to do when there is no sound: turn audio on, look again for a
-    /// device, try the device again or go back to Windows audio.
     pub(super) fn sound_recovery(&mut self, ui: &mut Ui) {
         let audio = &self.transport.audio;
         if !matches!(audio.status, Status::Off(_)) || !audio.can_change() {
@@ -140,8 +132,6 @@ impl App {
         }
     }
 
-    /// Play test sound, the L and R lights that follow the chime, and the
-    /// latency once the device runs.
     pub(super) fn sound_check_row(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
         let ready = self.availability(&ctx, Command::SoundCheck);
@@ -192,12 +182,8 @@ impl App {
         }
     }
 
-    // ── Plugins ─────────────────────────────────────────────────────────
 }
 
-/// A sound check light: the side's letter in a round light, lit (the
-/// design system's on state, and a ring that grows with the level) while
-/// that side sounds. Named "<side>, sounding" while lit.
 fn speaker_light(ui: &mut Ui, letter: &str, side: &str, lit: bool, level: f32) {
     let size = theme::size::SPEAKER_LIGHT;
     let (rect, response) = ui.allocate_exact_size(vec2(size, size), egui::Sense::hover());

@@ -1,7 +1,3 @@
-//! M7b E2: crossfades made by the left clip's fade handle or the command,
-//! the right clip starting where the crossfade ends, history, and
-//! save/reopen.
-
 use eframe::egui::{Event, Key, Modifiers, Pos2, vec2};
 use egui_kittest::kittest::Queryable;
 use lumen_core::time::Ticks;
@@ -36,8 +32,6 @@ fn command(lumen: &mut Lumen, query: &str) {
     lumen.key(Modifiers::NONE, Key::Enter);
 }
 
-/// A four-beat file split at beat 2: the left and right halves side by side,
-/// the right one selected.
 fn split_parts(name: &str) -> (Lumen, Id, Id) {
     let mut lumen = Lumen::start(name);
     let file = wav(&lumen.dir().join("crossfade.wav"), 4.0);
@@ -74,7 +68,6 @@ fn split_parts(name: &str) -> (Lumen, Id, Id) {
     (lumen, left, right)
 }
 
-/// Where the clip ends: the next one must start there.
 fn end_of(lumen: &Lumen, id: Id) -> Ticks {
     let c = clip(lumen, id);
     c.start + c.length
@@ -88,12 +81,9 @@ fn the_automatic_setting_the_command_and_the_menu_roundtrip() {
         "new projects enable automatic crossfades"
     );
 
-    // The saved editing switch lives with arrangement actions, not files.
     lumen.click("Lumen");
     assert!(!lumen.shows("Automatic crossfades"));
     lumen.key(Modifiers::NONE, Key::Escape);
-    // The clip menu no longer carries the project's switch (the interface
-    // audit's M5): it is in Project settings and the palette.
     let r = rect(&lumen, right);
     lumen.right_click(r.left_top() + vec2(12.0, 6.0));
     assert!(lumen.shows(&keys("Properties\u{2026} Alt+Enter")));
@@ -112,7 +102,6 @@ fn the_automatic_setting_the_command_and_the_menu_roundtrip() {
     command(&mut lumen, "Toggle automatic crossfades");
     assert!(lumen.app().project().auto_crossfade);
 
-    // Ctrl+Shift+X and the palette both reach the selected audio command.
     assert_eq!(lumen.app().selected_clips(), [right]);
     lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::X);
     let made = clip(&lumen, right);
@@ -138,7 +127,6 @@ fn the_automatic_setting_the_command_and_the_menu_roundtrip() {
     lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::X);
     assert!(clip(&lumen, right).crossfade);
 
-    // The left clip's handle shows it and sets its length, as one step.
     let at = lumen.app().clip_handles(&lumen.harness.ctx, left).unwrap();
     assert!(at.crossfade, "the crossing is on the left clip's handle");
     lumen.harness.hover_at(at.fade_out);
@@ -158,7 +146,6 @@ fn the_automatic_setting_the_command_and_the_menu_roundtrip() {
     lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z);
     assert_eq!(clip(&lumen, right).fade_in.length, changed);
 
-    // Double-clicking the handle removes the crossfade.
     let at = lumen.app().clip_handles(&lumen.harness.ctx, left).unwrap();
     lumen.double_click(at.fade_out);
     assert!(!clip(&lumen, right).crossfade);
@@ -166,7 +153,6 @@ fn the_automatic_setting_the_command_and_the_menu_roundtrip() {
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert_eq!(clip(&lumen, right).fade_in.length, changed);
 
-    // The setting and the crossfade survive a real save.
     let path = lumen_app::testing::project_file(lumen.dir(), "Crossfade");
     lumen.app_mut().save_to(path.clone());
     lumen.wait_for("the project to save", |app| {
@@ -180,9 +166,6 @@ fn the_automatic_setting_the_command_and_the_menu_roundtrip() {
     assert_eq!(end_of(&reopened, left), clip(&reopened, right).start);
 }
 
-/// The owner's flow (MT-EDIT-3): split, take the left clip's fade handle and
-/// pull it over the right clip. The left clip is extended over it and fades
-/// into it; the right clip starts where the crossfade ends.
 #[test]
 fn pulling_the_left_clips_handle_over_the_right_clip_makes_a_crossfade() {
     let (mut lumen, left, right) = split_parts("crossfade-left-handle");
@@ -212,17 +195,13 @@ fn pulling_the_left_clips_handle_over_the_right_clip_makes_a_crossfade() {
     );
     assert_eq!(b2.start - Ticks::quarters(2), b2.fade_in.length);
     assert_eq!(b2.start + b2.length, b.start + b.length, "its end stays");
-    // The picture is the model: the crossing is on the left clip's end.
     let shown = lumen.app().clip_handles(&lumen.harness.ctx, left).unwrap();
     assert!(shown.crossfade);
-    // The whole drag is one undo step.
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert_eq!(*lumen.app().project(), before);
     lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z);
     assert!(clip(&lumen, right).crossfade);
 
-    // Its handle then sets the length with the clips staying put: pulling it
-    // back over the left clip makes the crossfade longer.
     let length = clip(&lumen, right).fade_in.length;
     let start = clip(&lumen, right).start;
     let at = lumen.app().clip_handles(&lumen.harness.ctx, left).unwrap();
@@ -242,8 +221,6 @@ fn the_right_clip_moves_from_where_the_crossfade_ended() {
     assert!(crossing_end > Ticks::quarters(2));
     assert_eq!(end_of(&lumen, left), crossing_end);
 
-    // Dragging the clip by its body moves it from that start, and it is an
-    // ordinary clip again.
     let zoom = lumen.app().view().zoom as f32;
     let r = rect(&lumen, right);
     let from = Pos2::new(r.center().x, r.top() + 6.0);
@@ -271,15 +248,12 @@ fn the_right_clips_fade_handle_lengthens_the_crossfade() {
     let longer = clip(&lumen, right);
     assert!(longer.crossfade, "still a crossfade, not a fade-in");
     assert!(longer.fade_in.length > made.fade_in.length);
-    // It grows to the right: it begins where it did, and the clips meet
-    // where it now ends.
     assert_eq!(
         longer.start - longer.fade_in.length,
         made.start - made.fade_in.length
     );
     assert!(longer.start > made.start);
     assert_eq!(end_of(&lumen, left), longer.start);
-    // One undo step.
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert_eq!(clip(&lumen, right).start, made.start);
     assert_eq!(clip(&lumen, right).fade_in.length, made.fade_in.length);
@@ -294,7 +268,6 @@ fn extending_the_left_clip_keeps_the_crossfade_as_long_as_it_was() {
     let made = clip(&lumen, right);
     assert!(made.crossfade);
 
-    // Drag the left clip's end edge further over the right clip.
     let r = rect(&lumen, left);
     let edge = Pos2::new(r.right() - 1.0, r.center().y + 8.0);
     lumen.drag(edge, edge + reach, Modifiers::ALT);
@@ -311,7 +284,6 @@ fn dragging_the_handle_back_in_one_gesture_leaves_the_clips_as_they_were() {
     let (a, b) = (clip(&lumen, left), clip(&lumen, right));
     let at = lumen.app().clip_handles(&lumen.harness.ctx, left).unwrap();
     let reach = vec2(rect(&lumen, right).width() * 0.2, 0.0);
-    // Out over the right clip and back to the split without letting go.
     let from = at.fade_out;
     lumen.harness.hover_at(from);
     lumen.harness.drag_at(from);
@@ -344,7 +316,6 @@ fn project_menu_keeps_lower_controls_reachable_in_a_small_window() {
     lumen.frames(20);
     lumen.click("Lumen");
     assert!(!lumen.shows("Automatic crossfades"));
-    // The menu writes its shortcut as this system does (Cmd on macOS).
     let first = lumen
         .harness
         .get_by_label_contains(&keys("New Ctrl+"))

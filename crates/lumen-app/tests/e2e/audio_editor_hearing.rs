@@ -1,11 +1,3 @@
-//! Hearing and window in the audio editor (M9.5 S2c, LC A, D22, D25): Loop
-//! clip repeats one pass of the clip, or the range picked on it, without
-//! touching the project's loop or the undo history; it lets go when another
-//! clip opens or recording starts; the editor's ruler clicks, scrubs and
-//! pauses Follow at the first move, and takes Left and Right from the
-//! keyboard; the editor pops out into its own window and docks back. The
-//! bench at the end times the editor on a one-hour file.
-
 use eframe::egui::{Key, Modifiers, Pos2};
 use lumen_core::time::{PPQ, Ticks};
 
@@ -16,7 +8,6 @@ fn q(beats: f64) -> Ticks {
     Ticks((beats * PPQ as f64).round() as i64)
 }
 
-/// The ruler, at beat `q`: just above the loop brace's band.
 fn on_ruler(lumen: &Lumen, beats: f64) -> Pos2 {
     Pos2::new(x_of(lumen, beats), shown(lumen).band.top() - 5.0)
 }
@@ -28,7 +19,6 @@ fn loop_clip(lumen: &mut Lumen) {
 
 #[test]
 fn loop_clip_repeats_one_pass_and_leaves_the_projects_loop_and_the_history_alone() {
-    // The clip plays beats 1 to 3.
     let (mut lumen, _id) = opened("editor-loop-clip");
     let project_loop = lumen.app().engine_loop();
     let undo = lumen.app().undo_label().map(str::to_owned);
@@ -64,7 +54,6 @@ fn loop_clip_repeats_the_picked_range_when_there_is_one() {
     );
     loop_clip(&mut lumen);
     assert_eq!(lumen.app().clip_loop_played(), Some((q(1.5), q(2.5))));
-    // Letting go of the range goes back to the whole pass.
     lumen.key(Modifiers::NONE, Key::Escape);
     lumen.frames(3);
     assert_eq!(lumen.app().clip_loop_played(), Some((q(1.0), q(3.0))));
@@ -76,7 +65,6 @@ fn loop_clip_lets_go_when_another_clip_opens() {
     loop_clip(&mut lumen);
     assert!(lumen.app().clip_loop_played().is_some());
 
-    // A second file lands as another clip; opening it ends the override.
     let file = wav(&lumen.dir().join("snare.wav"), 1.0);
     lumen.drop_files(&[file]);
     lumen.frames(40);
@@ -100,7 +88,6 @@ fn loop_clip_lets_go_when_another_clip_opens() {
 
 #[test]
 fn a_clip_that_loops_repeats_one_turn_of_its_loop() {
-    // The clip plays beats 1 to 3; its loop is shortened by half a beat.
     let (mut lumen, id) = opened("editor-loop-turn");
     let y = shown(&lumen).band.center().y;
     lumen.click_at(Pos2::new(x_of(&lumen, 2.0), y), Modifiers::NONE);
@@ -199,8 +186,6 @@ fn loop_clip_lets_go_when_recording_starts_and_does_not_come_back() {
     lumen.click(&format!("Arm {name}"));
     lumen.key(Modifiers::NONE, Key::F9);
     lumen.wait_for("recording", |app| app.recording());
-    // The engine was told the project's loop no later than the take began
-    // (the clip's loop must not wrap the recording).
     assert_eq!(
         lumen.app().engine_loop_sent(),
         lumen.app().engine_loop(),
@@ -218,19 +203,11 @@ fn loop_clip_lets_go_when_recording_starts_and_does_not_come_back() {
     );
 }
 
-/// The bench of M9.5 S2c: the editor's frame time on a one-hour file at
-/// every zoom, from the whole hour to the deepest view. It prints a table
-/// (`cargo test -p lumen-app --test e2e editor_frame_time -- --ignored
-/// --nocapture`) and fails only when a frame takes over a second, which no
-/// machine should. ADR-0127 records the numbers.
 #[test]
 #[ignore = "a bench: prints frame times"]
 fn editor_frame_time_on_a_one_hour_file_at_every_zoom() {
     use std::time::Instant;
     let mut lumen = Lumen::start("editor-bench");
-    // One hour of mono at the project's rate: the length is what the editor
-    // sizes itself by, and a file of another rate would be converted in
-    // memory.
     let file = hour_of_mono(&lumen.dir().join("hour.wav"));
     lumen.drop_files(&[file]);
     lumen.wait_for("the clip", |app| !app.project().tracks[0].clips.is_empty());
@@ -266,7 +243,6 @@ fn editor_frame_time_on_a_one_hour_file_at_every_zoom() {
     assert!(worst < 1000.0, "a frame took {worst} ms");
 }
 
-/// A one-hour mono 16-bit file at 48 kHz, written in chunks.
 fn hour_of_mono(path: &std::path::Path) -> std::path::PathBuf {
     use std::io::Write;
     let frames: u64 = 3_600 * 48_000;
@@ -305,7 +281,6 @@ fn hiding_the_detail_panel_lets_go_of_loop_clip_and_of_a_scrub_in_progress() {
     loop_clip(&mut lumen);
     assert!(lumen.app().clip_loop_played().is_some());
 
-    // A scrub begins; the panel is hidden under the held pointer.
     let (a, b) = (on_ruler(&lumen, 1.0), on_ruler(&lumen, 1.6));
     lumen.harness.hover_at(a);
     lumen.harness.drag_at(a);
@@ -323,7 +298,6 @@ fn hiding_the_detail_panel_lets_go_of_loop_clip_and_of_a_scrub_in_progress() {
     lumen.harness.drop_at(b);
     lumen.frames(3);
 
-    // Showing the panel again does not bring the loop back.
     midi_play::palette(&mut lumen, "hide detail panel");
     lumen.frames(6);
     assert_eq!(lumen.app().clip_loop_played(), None);
@@ -339,7 +313,6 @@ fn the_engine_plays_the_pass_on_repeat_and_the_projects_loop_is_still_off() {
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.wait_for("playback", |app| app.is_playing());
 
-    // The playhead goes round inside beats 1 to 3 and never past.
     let high = Cell::new(Ticks::ZERO);
     let wrapped = Cell::new(false);
     lumen.wait_for("the playhead to wrap", |app| {

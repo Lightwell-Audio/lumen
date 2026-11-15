@@ -1,7 +1,3 @@
-//! The warp marker edits the interface asks for (M9.5 S5b): add, remove,
-//! clear and fix a hit, one undo step each, the commands, and the words the
-//! span chip says. The arithmetic is `lumen_project::edit::warp_markers`.
-
 use lumen_core::warp;
 use lumen_media::detect::Analysis;
 use lumen_project::edit::warp::{Refused, within};
@@ -12,13 +8,10 @@ use super::OUTSIDE_FILE;
 use crate::App;
 use crate::audio_editor::AudioEditor;
 
-/// The percentage a span plays at, as it reads: "112%".
 fn percent(ratio: f64) -> String {
     format!("{:.0}%", ratio * 100.0)
 }
 
-/// What the span chip says for marker `index` of `clip`: "Before 112% · after
-/// 94%", with only the side a marker has.
 pub(crate) fn span_words(clip: &Clip, index: usize) -> Option<String> {
     let w = clip.warp.as_ref()?;
     let (before, after) = warp::ratios_beside(&w.markers, w.original_bpm, index);
@@ -31,8 +24,6 @@ pub(crate) fn span_words(clip: &Clip, index: usize) -> Option<String> {
 }
 
 impl App {
-    /// Adds a marker (a ghost's second, or the cursor's): one undo step.
-    /// The new marker is picked and takes the keyboard.
     pub(crate) fn add_warp_marker(&mut self, id: Id, change: MarkerEdit, ed: &mut AudioEditor) {
         let base = self.document.project().clone();
         match self.document.edit_warp_marker(&base, id, change, None) {
@@ -50,7 +41,6 @@ impl App {
         }
     }
 
-    /// Deletes marker `index`. The keyboard goes to the one before it.
     pub(crate) fn remove_warp_marker(&mut self, id: Id, index: usize, ed: &mut AudioEditor) {
         let base = self.document.project().clone();
         match self
@@ -65,7 +55,6 @@ impl App {
         }
     }
 
-    /// Removes every warp marker but one: the clip plays at the file's tempo.
     pub(crate) fn clear_warp_markers(&mut self, id: Id, ed: &mut AudioEditor) {
         let base = self.document.project().clone();
         if self
@@ -77,8 +66,6 @@ impl App {
         }
     }
 
-    /// The Add warp marker command: a marker at the edit cursor of the opened
-    /// clip, the playhead when there is none.
     pub(crate) fn add_warp_marker_command(&mut self) {
         let Some(id) = self.detail_audio_clip() else {
             return;
@@ -92,12 +79,10 @@ impl App {
         let mut ed = std::mem::take(&mut self.audio_editor);
         let at = ed.cursor.unwrap_or_else(|| self.transport.playhead());
         self.select_opened_clip(id);
-        // A cursor in a later repeat of a loop is the same place in the first.
         self.add_warp_marker(id, MarkerEdit::Add(within(&clip, at)), &mut ed);
         self.audio_editor = ed;
     }
 
-    /// The Remove all warp markers command, for the opened clip.
     pub(crate) fn clear_warp_markers_command(&mut self) {
         let Some(id) = self.detail_audio_clip() else {
             return;
@@ -111,8 +96,6 @@ impl App {
         self.audio_editor = ed;
     }
 
-    /// Why a marker command cannot run, if it cannot: the opened clip is
-    /// warped.
     pub(crate) fn markers_unavailable(&self) -> Result<(), &'static str> {
         let Some(id) = self.detail_audio_clip() else {
             return Err("Open a warped audio clip in the editor first");
@@ -123,10 +106,6 @@ impl App {
         }
     }
 
-    /// "Fix this hit": pins the hits either side of `source` and adds a marker
-    /// on it, one undo step, so only this hit moves when its marker is dragged
-    /// (M9.5 review M2, the owner's C). The hit's marker takes the keyboard, as
-    /// a new marker does, so the nudge keys move it on.
     pub(crate) fn fix_warp_hit(
         &mut self,
         id: Id,
@@ -152,8 +131,6 @@ impl App {
         }
     }
 
-    /// The Fix this hit command: the focused warp marker's own hit, or the
-    /// transient nearest the edit cursor in the opened clip.
     pub(crate) fn fix_warp_hit_command(&mut self) {
         let Ok(plan) = self.fix_hit_plan() else {
             return;
@@ -164,13 +141,10 @@ impl App {
         self.audio_editor = ed;
     }
 
-    /// Why Fix this hit cannot run, if it cannot.
     pub(crate) fn fix_warp_hit_unavailable(&self) -> Result<(), &'static str> {
         self.fix_hit_plan().map(|_| ())
     }
 
-    /// Where Fix this hit would act: the opened clip, the hit's second of the
-    /// file, and the transients either side of it. `Err` says why it cannot.
     pub(crate) fn fix_hit_plan(&self) -> Result<HitFix, &'static str> {
         let Some(id) = self.detail_audio_clip() else {
             return Err("Open a warped audio clip in the editor first");
@@ -218,17 +192,12 @@ impl App {
     }
 }
 
-/// What Fix this hit would do: the clip it acts on, the hit's second of the
-/// file, and the transients either side of it.
 pub(crate) struct HitFix {
     pub clip: Id,
     pub source: f64,
     pub sides: (Option<f64>, Option<f64>),
 }
 
-/// The transients either side of the hit at `source` seconds of the file, at
-/// `sensitivity`: the nearest below and the nearest above (either is absent
-/// at the file's first or last hit).
 fn sides(analysis: &Analysis, sensitivity: u8, source: f64) -> (Option<f64>, Option<f64>) {
     let least = lumen_media::detect::threshold(sensitivity);
     let (mut before, mut after) = (None, None);
@@ -246,10 +215,6 @@ fn sides(analysis: &Analysis, sensitivity: u8, source: f64) -> (Option<f64>, Opt
     (before, after)
 }
 
-/// What "Fix this hit" would pass for `clip`'s hit at `source`: the transients
-/// either side of it, when the edit would add a marker. `None` when the clip
-/// is locked or not warped, no findings are in, or every marker it would add
-/// stands already: the menu lists no row for it, and the command cannot run.
 pub(super) fn fix_target(
     clip: &Clip,
     source: f64,
@@ -306,7 +271,6 @@ mod tests {
 
     #[test]
     fn the_chip_says_the_speed_of_each_side_as_a_percentage() {
-        // Half a second in a beat is the file's own speed at 120 BPM.
         let clip = warped(&[(0.0, 0), (0.5, 1), (1.5, 2)]);
         assert_eq!(
             span_words(&clip, 1).as_deref(),
@@ -336,8 +300,6 @@ mod tests {
         );
         assert_eq!(sides(&found, 100, 0.2), (None, Some(0.5)), "the first hit");
         assert_eq!(sides(&found, 100, 9.0), (Some(2.5), None), "the last hit");
-        // A hit under the sensitivity is not offered, as it is not on the
-        // strip either.
         let weak = Analysis {
             seconds: 5.0,
             transients: vec![at(1.0, 0.3), at(2.0, 0.9), at(3.0, 0.3)],

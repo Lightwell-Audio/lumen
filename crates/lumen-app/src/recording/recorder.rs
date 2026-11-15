@@ -1,33 +1,3 @@
-//! Recording MIDI, the pure half (M5 slice 6c): turns the live messages a
-//! recording track takes (`lumen_engine::Captured`) into the notes and events
-//! of a take (`lumen_project::edit::record::Take`), in absolute project ticks.
-//!
-//! The app pushes what the engine queues each frame, takes each track's take
-//! about once a second and places it with `Document::record_take`. Notes that
-//! are still held are not in a take until [`Capture::close_all`] ends them at
-//! the stop.
-//!
-//! # What is kept
-//!
-//! - Notes are paired by channel and key, as the player's notes are. The input
-//!   a message came from is not part of the key, so two inputs holding one key
-//!   on one channel at once pair as one note.
-//! - A clip has no channels: playback sends every message on channel 0
-//!   (`midi_play.rs`), so a take drops the channel of each message.
-//! - Controllers, pitch bend and channel pressure become the clip events that
-//!   playback sends for them, exactly.
-//! - A program change becomes a program with no bank. A bank select that came
-//!   before it is already a controller event (CC 0 and CC 32), so the bank
-//!   still plays back as it was played.
-//! - Polyphonic key pressure and system messages have no place in a clip and
-//!   are dropped.
-//! - With Loop on, every pass through the loop layers into one take. A note
-//!   held across the loop's end is cut there and goes on at the loop's start,
-//!   as many times as it is held across it (the engine numbers the passes,
-//!   `Captured::pass`).
-//! - The take's range is only a visible window. Notes and events outside it
-//!   keep their original times and lengths in the underlying clip.
-
 use std::collections::BTreeMap;
 
 use lumen_core::midi::Kind;
@@ -36,39 +6,27 @@ use lumen_engine::{Captured, WRAP, record_position};
 use lumen_project::edit::record::{PassTake, Take, TakeEvent, TakeNote};
 use lumen_project::model::EventKind;
 
-/// Most passes a held note is spread over, so a key held for a very long
-/// time cannot make a very long list.
 const MOST_PASSES_HELD: i32 = 1_024;
 
-/// A note that is sounding: when it began and how hard it was struck.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Held {
     start: Ticks,
     velocity: u8,
-    /// The loop pass it began in.
     pass: u32,
 }
 
-/// A note, or a piece of one, with the loop pass it was played in.
 #[derive(Debug, Clone, Copy)]
 struct Piece {
     pass: u32,
     note: TakeNote,
-    /// Left out of the layered take: a note held across more than one wrap
-    /// is one full-loop note there, but one for each pass in a pass's own.
     extra: bool,
 }
 
-/// One track's part of a capture.
 #[derive(Debug, Default)]
 struct Lane {
-    /// Notes that have ended, in the order they ended.
     notes: Vec<Piece>,
-    /// Events, in the order they arrived, with their pass.
     events: Vec<(u32, TakeEvent)>,
-    /// Notes still sounding, by (channel, key).
     held: BTreeMap<(u8, u8), Held>,
-    /// The newest loop pass this track has seen.
     pass: u32,
 }
 
@@ -78,16 +36,12 @@ impl Lane {
         self.notes.is_empty() && self.events.is_empty() && self.held.is_empty()
     }
 
-    /// Notes that `pass` is newer than the newest seen.
     fn see(&mut self, pass: u32) {
         if pass.wrapping_sub(self.pass) as i32 > 0 {
             self.pass = pass;
         }
     }
 
-    /// Ends a note at `end`, in loop pass `pass`. A note is at least one tick
-    /// long. A note that began in an earlier pass runs to the loop's end,
-    /// fills the loop for each pass between, and goes on from its start.
     fn finish(
         &mut self,
         pitch: u8,
@@ -141,20 +95,12 @@ impl Lane {
     }
 }
 
-/// What the recording has captured so far, per track.
 #[derive(Debug, Default)]
 pub struct Capture {
     lanes: BTreeMap<u64, Lane>,
-    /// The loop region, when the take layers its passes.
     looped: Option<(Ticks, Ticks)>,
-    /// The actual Record boundary, independent of the visible loop/punch
-    /// window. Only its first pass is floored here after latency correction.
     start: Option<Ticks>,
     first_pass: Option<u32>,
-    /// What each track keeps of an incoming note, by the track's drum map
-    /// (M8 D0): the map's input note for the key that came in, so a take on
-    /// a mapped track holds input notes even when the player's pads send the
-    /// notes the kit plays. A track with no map has no line.
     store: BTreeMap<u64, [u8; 128]>,
 }
 
@@ -163,8 +109,6 @@ impl Capture {
         Self::default()
     }
 
-    /// Sets what `track` keeps of a played key, from its drum map (M8 D0):
-    /// nothing to do for `None`, whose notes are stored as they came.
     pub fn set_store_map(&mut self, track: u64, map: Option<&lumen_project::model::DrumMap>) {
         match map {
             Some(map) => {
@@ -177,8 +121,6 @@ impl Capture {
         }
     }
 
-    /// A capture of a take that loops over `looped` (start and end ticks),
-    /// if it does.
     #[cfg(test)]
     pub fn looping(looped: Option<(Ticks, Ticks)>) -> Self {
         Self {
@@ -187,10 +129,6 @@ impl Capture {
         }
     }
 
-    /// A recording that begins at `start`. Compensation may place an
-    /// already-held key or the first live event just before that boundary;
-    /// it belongs at the start, without clamping later loop passes or the
-    /// independently positioned punch window.
     pub fn recording(looped: Option<(Ticks, Ticks)>, start: Ticks) -> Self {
         Self {
             looped,
@@ -199,18 +137,7 @@ impl Capture {
         }
     }
 
-    /// Keeps `c`. `latency` samples (the output latency) are taken off its
-    /// time first, never below 0; `ticks` turns a timeline sample into project
-    /// ticks.
-    ///
-    /// A note-on for a key that is already held closes the held note at this
-    /// moment and opens a new one. A note-off with nothing open for its channel
-    /// and key is ignored. A note-on with velocity 0 is a note-off, as
-    /// `Msg::kind` reads it.
     pub fn push(&mut self, c: &Captured, latency: i64, ticks: &dyn Fn(i64) -> Ticks) {
-        // A wrap can arrive before the first played message, for a silent
-        // first pass. Keep its number so late messages from it use the same
-        // floor; pass counters may wrap around u32::MAX.
         let first_pass = *self
             .first_pass
             .get_or_insert(c.pass.wrapping_sub(u32::from(c.source == WRAP)));
@@ -225,12 +152,6 @@ impl Capture {
         let heard = ticks(c.at.max(0));
         let compensated = ticks((c.at - latency).max(0));
         let mut pass = c.pass;
-        // After a loop wrap, the latency can take a message heard just
-        // inside the loop's start back before it: it was played at the end
-        // of the pass before, as the engine places one played just before a
-        // wrap (`lumen_engine::Captured::at`). Before any wrap, a message
-        // heard before the loop start is genuine pre-loop capture, and one
-        // heard past the loop's end (Loop switched off) is left alone.
         let (at, mapped_pass) = record_position(
             heard,
             compensated,
@@ -242,7 +163,6 @@ impl Capture {
         pass = mapped_pass;
         let channel = c.msg.channel();
         let looped = self.looped;
-        // The key the take keeps: the map's input note when the track has one.
         let stored = |key: u8| {
             self.store
                 .get(&c.track)
@@ -285,18 +205,10 @@ impl Capture {
         }
     }
 
-    /// The take so far for `track` over `range` (start and end ticks): the
-    /// notes that have ended and every event, as [`Capture::push`] kept them.
-    /// Notes still held are not in it. Notes are sorted by start, then pitch.
-    /// The range is carried, not applied: placing the take uses it as a
-    /// visible window over the full performance. A track with nothing yet
-    /// gives an empty take with that range.
     pub fn take(&self, track: u64, range: (Ticks, Ticks)) -> Take {
         self.snapshot(track, range, None)
     }
 
-    /// The take as [`Capture::take`] has it, with the notes still held in it
-    /// as if they ended at `now`: what the arrangement draws as it grows.
     pub fn so_far(&self, track: u64, range: (Ticks, Ticks), now: Ticks) -> Take {
         self.snapshot(track, range, Some(now))
     }
@@ -317,8 +229,6 @@ impl Capture {
                 pieces.extend(open.notes);
             }
         }
-        // The passes of a loop, when there were at least two: each one's
-        // own notes and events, numbered from the first the recording saw.
         let passes = match (self.looped, self.first_pass) {
             (Some(_), Some(first)) if newest.wrapping_sub(first) as i32 > 0 => {
                 let count = newest.wrapping_sub(first) as usize + 1;
@@ -353,8 +263,6 @@ impl Capture {
         }
     }
 
-    /// Ends every held note at `end` (the stop), in the pass each track has
-    /// reached, so [`Capture::take`] has them.
     pub fn close_all(&mut self, end: Ticks) {
         let looped = self.looped;
         for lane in self.lanes.values_mut() {
@@ -366,8 +274,6 @@ impl Capture {
     }
 
     #[cfg(test)]
-    /// The tracks that have anything (finished notes, held notes or events),
-    /// sorted.
     pub fn tracks(&self) -> Vec<u64> {
         self.lanes
             .iter()
@@ -382,7 +288,6 @@ impl Capture {
     }
 
     #[cfg(test)]
-    /// The notes held now, across all tracks.
     pub fn held(&self) -> usize {
         self.lanes.values().map(|lane| lane.held.len()).sum()
     }
@@ -424,7 +329,6 @@ mod tests {
         }
     }
 
-    /// One sample is ten ticks.
     fn ticks(s: i64) -> Ticks {
         Ticks(s * 10)
     }
@@ -446,9 +350,6 @@ mod tests {
     fn a_mapped_track_keeps_the_input_note_of_the_note_a_sound_plays() {
         use lumen_project::model::{DrumIcon, DrumMap, Id, Sound};
 
-        // The kit's kick answers to 36 and plays 40: a player's pads send the
-        // notes the kit plays, and the take keeps the map's input notes
-        // (M8 D0, review L3).
         let map = DrumMap::new(
             Id(1),
             "Kit",
@@ -458,18 +359,15 @@ mod tests {
         c.set_store_map(1, Some(&map));
         c.push(&cap(1, 100, Msg::note_on(0, 40, 90)), 0, &ticks);
         c.push(&cap(1, 200, Msg::note_off(0, 40)), 0, &ticks);
-        // A note no sound plays is kept as it came.
         c.push(&cap(1, 300, Msg::note_on(0, 60, 80)), 0, &ticks);
         c.push(&cap(1, 400, Msg::note_off(0, 60)), 0, &ticks);
         assert_eq!(
             c.take(1, range()).notes,
             vec![note(1000, 1000, 36, 90), note(3000, 1000, 60, 80)]
         );
-        // Another track, with no map: it keeps what came in.
         c.push(&cap(2, 500, Msg::note_on(0, 40, 70)), 0, &ticks);
         c.push(&cap(2, 600, Msg::note_off(0, 40)), 0, &ticks);
         assert_eq!(c.take(2, range()).notes, vec![note(5000, 1000, 40, 70)]);
-        // Taking the map off a track stores its notes as they come again.
         c.set_store_map(1, None);
         c.push(&cap(1, 700, Msg::note_on(0, 40, 60)), 0, &ticks);
         c.push(&cap(1, 800, Msg::note_off(0, 40)), 0, &ticks);
@@ -703,7 +601,6 @@ mod tests {
         c.push(&cap(1, 1000, Msg::note_on(0, 60, 100)), 300, &ticks);
         c.push(&cap(1, 1500, Msg::note_off(0, 60)), 300, &ticks);
         assert_eq!(c.take(1, range()).notes, vec![note(7000, 5000, 60, 100)]);
-        // Earlier than the latency: the time is 0, not negative.
         c.push(&cap(1, 100, Msg::controller(0, 7, 1)), 300, &ticks);
         assert_eq!(c.take(1, range()).events[0].at, Ticks(0));
     }
@@ -742,7 +639,6 @@ mod tests {
         assert!(!c.is_empty());
     }
 
-    /// The loop is ticks 0 to 1,000 (samples 0 to 100).
     fn looped() -> Capture {
         Capture::looping(Some((Ticks(0), Ticks(1_000))))
     }
@@ -829,7 +725,6 @@ mod tests {
     fn a_note_held_at_the_stop_in_a_later_pass_ends_at_the_stop() {
         let mut c = looped();
         c.push(&in_pass(0, cap(1, 90, Msg::note_on(0, 62, 80))), 0, &ticks);
-        // The marker is the only thing that tells the track the pass.
         c.push(&wrap(1, 1), 0, &ticks);
         c.close_all(ticks(40));
         assert_eq!(
@@ -841,7 +736,6 @@ mod tests {
     #[test]
     fn a_note_played_before_a_wrap_and_let_go_before_it_stays_in_its_pass() {
         let mut c = looped();
-        // The first pass's note-off comes after the marker in the queue.
         c.push(&in_pass(0, cap(1, 90, Msg::note_on(0, 60, 90))), 0, &ticks);
         c.push(&wrap(1, 1), 0, &ticks);
         c.push(&in_pass(0, cap(1, 99, Msg::note_off(0, 60))), 0, &ticks);
@@ -891,10 +785,8 @@ mod tests {
     #[test]
     fn a_note_that_began_before_the_range_keeps_its_full_timing() {
         let mut c = Capture::new();
-        // Held when recording began at tick 500 (the latency put it at 400).
         c.push(&cap(1, 40, Msg::note_on(0, 60, 90)), 0, &ticks);
         c.push(&cap(1, 70, Msg::note_off(0, 60)), 0, &ticks);
-        // And one that ended before the range: kept as hidden content.
         c.push(&cap(1, 10, Msg::note_on(0, 62, 90)), 0, &ticks);
         c.push(&cap(1, 20, Msg::note_off(0, 62)), 0, &ticks);
         let t = c.take(1, (Ticks(500), Ticks(900)));
@@ -912,8 +804,6 @@ mod tests {
         let preview = c.so_far(1, (Ticks(1_000), Ticks(2_000)), Ticks(1_250));
         assert_eq!(preview.notes, vec![note(1_000, 250, 60, 90)]);
         c.push(&cap(1, 1_500, Msg::note_off(0, 60)), 200, &Ticks);
-        // The punch window starts later than Record. This independent
-        // boundary must still leave the pre-punch note hidden and whole.
         let take = c.take(1, (Ticks(1_200), Ticks(2_000)));
         assert_eq!(take.notes, vec![note(1_000, 300, 60, 90)]);
         assert_eq!(take.events[0].at, Ticks(1_000));
@@ -923,12 +813,8 @@ mod tests {
     fn compensated_positions_respect_both_punch_edges() {
         let punch = (Ticks(1_000), Ticks(1_500));
         let looped = Some((Ticks(800), Ticks(1_600)));
-        // A note heard just after punch-in lands before it after 20 samples
-        // of output latency, so it stays hidden.
         let (before_in, _) = record_position(Ticks(1_010), Ticks(990), 0, 0, Ticks(600), looped);
         assert!(before_in < punch.0);
-        // A note heard just after punch-out lands just before it and remains
-        // eligible, matching the position Capture stores.
         let (before_out, _) = record_position(Ticks(1_510), Ticks(1_490), 0, 0, Ticks(600), looped);
         assert!((punch.0..punch.1).contains(&before_out));
     }
@@ -963,9 +849,6 @@ mod tests {
         );
     }
 
-    /// A note played just after a wrap that the latency takes back before
-    /// the loop start belongs to the end of the pass before, and its part
-    /// after the wrap still plays at the loop start.
     #[test]
     fn latency_across_a_wrap_moves_a_note_to_the_end_of_the_pass_before() {
         let mut c = Capture::recording(Some((Ticks(800), Ticks(1_600))), Ticks(800));
@@ -989,9 +872,6 @@ mod tests {
         assert_eq!(take.events[0].at, Ticks(1_560));
     }
 
-    /// Before any wrap, what is heard before the loop start is genuine
-    /// pre-loop capture, and a tail past the loop end (Loop switched off) is
-    /// kept where it was played.
     #[test]
     fn pre_loop_capture_and_tails_past_the_loop_keep_their_times() {
         let mut c = Capture::recording(Some((Ticks(800), Ticks(1_600))), Ticks(500));
@@ -1003,7 +883,6 @@ mod tests {
             c.take(1, (Ticks(800), Ticks(1_600))).notes,
             vec![note(750, 100, 60, 90), note(1_650, 100, 62, 90)]
         );
-        // A later pass's tail past the loop end is left where it was too.
         let mut c = Capture::recording(Some((Ticks(800), Ticks(1_600))), Ticks(800));
         c.push(&wrap(1, 1), 100, &Ticks);
         c.push(
@@ -1028,7 +907,6 @@ mod tests {
             let next = first.wrapping_add(1);
             let mut c = Capture::recording(Some((Ticks(800), Ticks(1_600))), Ticks(1_200));
             c.push(&wrap(1, next), 100, &Ticks);
-            // A delayed message from the otherwise silent first pass.
             c.push(
                 &in_pass(first, cap(1, 1_200, Msg::note_on(0, 60, 90))),
                 100,

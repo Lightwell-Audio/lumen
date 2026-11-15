@@ -1,18 +1,3 @@
-//! The computer keyboard as a MIDI keyboard (M5 slice 2, the owner's K A):
-//! a mode, held by the app and saved nowhere, in which a layout of
-//! letter keys plays notes. A to K are the white keys from the octave's C,
-//! W E T Y U the black keys between them, O and L two more past K; Z and X
-//! move the octave, C and V the velocity.
-//!
-//! [`ComputerKeyboard`] is the pure part: keys in, MIDI messages out, and
-//! the rules that keep notes from hanging (each physical key remembers the
-//! note it started, so a note sounding while the octave moves still ends on
-//! its own key-up). [`App::computer_keyboard_keys`] feeds it the frame's
-//! key events, taking the letters it uses before the commands see them;
-//! [`App::plugin_window_keys`] feeds it the same letters pressed in a
-//! plugin's own window, which its host takes while the mode is on (the
-//! owner's choice, M6 slice 4: every other key stays the plugin's).
-
 use std::collections::BTreeMap;
 
 use eframe::egui::{self, Key};
@@ -20,19 +5,12 @@ use lumen_core::midi::{Kind, Msg};
 
 use crate::App;
 
-/// The velocities C and V step through.
 pub(crate) const VELOCITIES: [u8; 8] = [1, 20, 40, 60, 80, 100, 120, 127];
-/// The velocity index the mode starts on (100).
 const START_VELOCITY: usize = 5;
-/// The octave A plays in at the start: C3, MIDI note 60.
 const START_OCTAVE: i8 = 3;
-/// The lowest and highest octave (C-2 and C8).
 const LOWEST_OCTAVE: i8 = -2;
 const HIGHEST_OCTAVE: i8 = 8;
 
-/// The semitones above the octave's C that `key` plays, if it is a note
-/// key. A S D F G H J K are the white keys; W E T Y U the black ones; O and
-/// L the next octave's C sharp and D.
 pub(crate) fn semitone(key: Key) -> Option<u8> {
     Some(match key {
         Key::A => 0,
@@ -54,40 +32,29 @@ pub(crate) fn semitone(key: Key) -> Option<u8> {
     })
 }
 
-/// Whether the mode takes `key` when it goes down.
 pub(crate) fn is_taken(key: Key) -> bool {
     semitone(key).is_some() || matches!(key, Key::Z | Key::X | Key::C | Key::V)
 }
 
-/// The key a plugin's host reports by its virtual-key code: a letter's code
-/// is its capital.
 fn key_for_code(code: u8) -> Option<Key> {
     code.is_ascii_uppercase()
         .then(|| Key::from_name(&char::from(code).to_string()))
         .flatten()
 }
 
-/// The virtual-key codes of every key the mode takes, for plugins' hosts to
-/// take from their windows.
 pub(crate) fn taken_codes() -> Vec<u8> {
     (b'A'..=b'Z')
         .filter(|&code| key_for_code(code).is_some_and(is_taken))
         .collect()
 }
 
-/// The mode's state.
 #[derive(Debug, Clone)]
 pub(crate) struct ComputerKeyboard {
     on: bool,
     octave: i8,
     velocity: usize,
-    /// The note each physical key started, to end it on that key's release
-    /// whatever the octave is by then.
     held: BTreeMap<Key, u8>,
-    /// Note-offs that could not be sent yet (the queue was full); tried
-    /// again every frame.
     owed: Vec<Msg>,
-    /// What was sent, for tests (`testing`): the newest last.
     sent: Vec<Msg>,
 }
 
@@ -109,7 +76,6 @@ impl ComputerKeyboard {
         self.on
     }
 
-    /// The note `key` plays in the current octave; none past MIDI's top.
     pub(crate) fn note_for(&self, key: Key) -> Option<u8> {
         let note = (i32::from(self.octave) + 2) * 12 + i32::from(semitone(key)?);
         u8::try_from(note).ok().filter(|n| *n <= 127)
@@ -124,15 +90,12 @@ impl ComputerKeyboard {
         self.octave
     }
 
-    /// The notes sounding from the keyboard now, lowest first.
     pub(crate) fn held_notes(&self) -> Vec<u8> {
         let mut notes: Vec<u8> = self.held.values().copied().collect();
         notes.sort_unstable();
         notes
     }
 
-    /// The readout in the bar: the octave range under A to K, then the
-    /// velocity ("C3–C4 · vel 100").
     pub(crate) fn readout(&self) -> String {
         format!(
             "C{}\u{2013}C{} \u{00B7} vel {}",
@@ -142,9 +105,6 @@ impl ComputerKeyboard {
         )
     }
 
-    /// A key goes down. The message to send, if it plays a note; octave and
-    /// velocity keys change the readout. A repeat, or a key already down,
-    /// does nothing.
     pub(crate) fn key_down(&mut self, key: Key, repeat: bool) -> Option<Msg> {
         if !self.on || repeat {
             return None;
@@ -166,14 +126,11 @@ impl ComputerKeyboard {
         None
     }
 
-    /// A key goes up: the note-off for the note it started, if any (even
-    /// after the mode is off or the octave moved).
     pub(crate) fn key_up(&mut self, key: Key) -> Option<Msg> {
         let note = self.held.remove(&key)?;
         Some(self.log(Msg::note_off(0, note)))
     }
 
-    /// Lets go of everything held: the note-offs to send.
     pub(crate) fn release_all(&mut self) -> Vec<Msg> {
         let notes: Vec<u8> = std::mem::take(&mut self.held).into_values().collect();
         notes
@@ -182,7 +139,6 @@ impl ComputerKeyboard {
             .collect()
     }
 
-    /// Turns the mode on or off; the note-offs to send when it ends.
     pub(crate) fn set_on(&mut self, on: bool) -> Vec<Msg> {
         self.on = on;
         if on { Vec::new() } else { self.release_all() }
@@ -196,21 +152,17 @@ impl ComputerKeyboard {
         msg
     }
 
-    /// What was sent since the last call (for tests).
     pub(crate) fn take_sent(&mut self) -> Vec<Msg> {
         std::mem::take(&mut self.sent)
     }
 }
 
 impl App {
-    /// Turns the computer keyboard on or off, letting go of what it holds.
     pub(crate) fn set_computer_keyboard(&mut self, on: bool) {
         let offs = self.keyboard.set_on(on);
         self.send_keyboard(offs);
     }
 
-    /// Sends `msgs` from the keyboard; a note-off the queue refused is kept
-    /// to try again.
     fn send_keyboard(&mut self, msgs: Vec<Msg>) {
         for msg in msgs {
             if !self.play_key(msg) && matches!(msg.kind(), Kind::NoteOff { .. }) {
@@ -219,10 +171,6 @@ impl App {
         }
     }
 
-    /// Keys pressed in plugins' own windows: while the mode is on, every
-    /// plugin's host takes the mode's keys from its window, and they play as
-    /// they would in Lumen's (the owner's choice, M6 slice 4). Off, the hosts
-    /// give them back. A key let go of always ends its note.
     pub(crate) fn plugin_window_keys(&mut self) {
         let wanted = if self.keyboard.is_on() {
             taken_codes()
@@ -244,18 +192,11 @@ impl App {
         self.send_keyboard(out);
     }
 
-    /// Panic lets go of the keyboard's notes first.
     pub(crate) fn release_computer_keyboard(&mut self) {
         let offs = self.keyboard.release_all();
         self.send_keyboard(offs);
     }
 
-    /// The frame's keys while the mode is on, before commands see them:
-    /// note, octave and velocity letters play and are taken; Esc leaves the
-    /// mode. Text fields, open windows and a rebinding take keys first, and
-    /// chords with Ctrl, Cmd, Alt or Shift are never taken. Releases are
-    /// always handled, so a note ends on its key-up wherever the keyboard
-    /// went, and the window losing focus lets go of everything.
     pub(crate) fn computer_keyboard_keys(&mut self, ctx: &egui::Context) {
         let owed = std::mem::take(&mut self.keyboard.owed);
         self.send_keyboard(owed);
@@ -299,8 +240,6 @@ impl App {
                         true
                     }
                 }
-                // The release of a taken letter that was not held (an
-                // octave key, a note past the top) goes with its press.
                 egui::Event::Key {
                     key,
                     pressed: false,

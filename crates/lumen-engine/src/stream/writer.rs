@@ -1,28 +1,18 @@
-//! The one writer of a page pool, on the disk thread (or an offline render's
-//! own thread). Not real-time code: it may allocate and is never called from
-//! the audio thread.
-
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Weak};
 
 use super::{NONE, PAGE, PagePool, STRIDE, StreamAudio, Table};
 
-/// What a pool page holds.
 struct Held {
     table: Weak<Table>,
     page: usize,
-    /// The writer's clock when the page was last wanted.
     used: u64,
 }
 
-/// Fills, publishes and frees the pages of one pool. There must be only one
-/// per pool: the grace period counts one reading thread.
 pub struct PoolWriter {
     pool: Arc<PagePool>,
     free: Vec<u32>,
     held: Vec<Option<Held>>,
-    /// Pages taken out of their tables, and the epoch when they were: free
-    /// once no block that began before is still running.
     retiring: Vec<(u32, u64)>,
     clock: u64,
 }
@@ -42,29 +32,22 @@ impl PoolWriter {
         &self.pool
     }
 
-    /// Pages free to fill now.
     pub fn free(&self) -> usize {
         self.free.len()
     }
 
-    /// Pages taken out of their tables and not yet free.
     pub fn retiring(&self) -> usize {
         self.retiring.len()
     }
 
-    /// Pages holding audio.
     pub fn used(&self) -> usize {
         self.held.iter().filter(|h| h.is_some()).count()
     }
 
-    /// Starts a new round of planning: pages wanted from now on count as
-    /// more recent than all before.
     pub fn tick(&mut self) {
         self.clock += 1;
     }
 
-    /// Marks `audio`'s `page` as wanted, if it is in memory; returns whether
-    /// it is.
     pub fn want(&mut self, audio: &StreamAudio, page: usize) -> bool {
         let Some(entry) = audio.entry(page) else {
             return false;
@@ -75,10 +58,6 @@ impl PoolWriter {
         true
     }
 
-    /// Puts `left` and `right` (one channel each, at most [`PAGE`] frames;
-    /// `right` is ignored for a mono file) into a free page and publishes it
-    /// as `audio`'s `page`. Returns false when no page is free; a page
-    /// already in memory is left as it is.
     pub fn load(&mut self, audio: &StreamAudio, page: usize, left: &[f32], right: &[f32]) -> bool {
         assert!(
             Arc::ptr_eq(audio.pool(), &self.pool),
@@ -105,15 +84,10 @@ impl PoolWriter {
             page,
             used: self.clock,
         });
-        // Publishes the samples stored above (sequentially consistent, which
-        // includes release).
         audio.0.entries[page].store(entry, Ordering::SeqCst);
         true
     }
 
-    /// Takes up to `count` pages out of their tables, least recently wanted
-    /// first, skipping those wanted in the current round. They become free
-    /// after the grace period ([`PoolWriter::reclaim`]). Returns how many.
     pub fn evict(&mut self, count: usize) -> usize {
         let mut candidates: Vec<(u64, u32)> = self
             .held
@@ -133,7 +107,6 @@ impl PoolWriter {
         evicted
     }
 
-    /// Takes every page of `audio` out of its table.
     pub fn drop_stream(&mut self, audio: &StreamAudio) {
         for page in 0..audio.pages() {
             if let Some(entry) = audio.entry(page) {
@@ -150,23 +123,16 @@ impl PoolWriter {
             table.entries[held.page].store(NONE, Ordering::SeqCst);
             self.retiring.push((entry, self.pool.epoch()));
         } else {
-            // No clip holds the file any more, so no block can read it.
             self.free.push(entry);
         }
     }
 
-    /// Frees retired pages whose grace period has passed, and pages of files
-    /// no clip holds. Returns the pages free.
     pub fn reclaim(&mut self) -> usize {
         self.retire();
         self.sweep();
         self.free.len()
     }
 
-    /// As [`PoolWriter::reclaim`], but looks for pages of files no clip
-    /// holds only when no page is free otherwise: that look visits every
-    /// page of the pool, and the disk thread makes room before each page it
-    /// reads. Returns the pages free.
     pub fn make_room(&mut self) -> usize {
         self.retire();
         if self.free.is_empty() {
@@ -175,14 +141,10 @@ impl PoolWriter {
         self.free.len()
     }
 
-    /// Frees retired pages whose grace period has passed.
     fn retire(&mut self) {
         let now = self.pool.epoch();
         let free = &mut self.free;
         self.retiring.retain(|&(entry, epoch)| {
-            // Even: no block was running when the page was taken out, and any
-            // later block reads the table after it. Odd: wait for that block
-            // to end.
             let passed = epoch.is_multiple_of(2) || now != epoch;
             if passed {
                 free.push(entry);
@@ -191,7 +153,6 @@ impl PoolWriter {
         });
     }
 
-    /// Frees the pages of files no clip holds.
     fn sweep(&mut self) {
         for (entry, held) in self.held.iter_mut().enumerate() {
             if held.as_ref().is_some_and(|h| h.table.strong_count() == 0) {

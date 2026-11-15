@@ -1,16 +1,9 @@
-//! Conversion between Lumen's channel-major `f32` blocks and the interleaved
-//! buffers that WASAPI and cpal use. Real-time safe: no allocation.
-
-/// Interleaved sample formats a device buffer can hold (little-endian).
-#[cfg_attr(not(windows), allow(dead_code))] // used by the WASAPI backend
+#[cfg_attr(not(windows), allow(dead_code))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SampleFormat {
     F32,
     I16,
-    /// 24-bit samples packed in 3 bytes.
     I24,
-    /// 32-bit integers; also 24 valid bits in a 32-bit container, which
-    /// WASAPI stores left-justified.
     I32,
 }
 
@@ -25,12 +18,7 @@ impl SampleFormat {
     }
 }
 
-/// Writes `frames` frames from channel-major `source` (`channels × frames`
-/// samples) into the interleaved byte buffer `out`, which holds
-/// `out_channels` channels per frame. `map[i]` is the device channel that
-/// source channel `i` goes to; device channels nobody writes are silent.
-/// Integer formats are clipped, never wrapped.
-#[cfg_attr(not(windows), allow(dead_code))] // used by the WASAPI backend
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn interleave_bytes(
     source: &[f32],
     frames: usize,
@@ -66,8 +54,7 @@ pub fn interleave_bytes(
     }
 }
 
-/// [`interleave_bytes`] for interleaved `f32` buffers (cpal).
-#[cfg_attr(windows, allow(dead_code))] // used by the cpal backend
+#[cfg_attr(windows, allow(dead_code))]
 pub fn interleave_f32(
     source: &[f32],
     frames: usize,
@@ -106,7 +93,6 @@ mod tests {
 
     #[test]
     fn channels_land_in_their_device_slots_and_others_are_silent() {
-        // Two source channels into device channels 3 and 0 of four.
         let source = [0.5, -0.5, 0.25, -0.25];
         let mut out = [9.0_f32; 8];
         interleave_f32(&source, 2, &[3, 0], 4, &mut out);

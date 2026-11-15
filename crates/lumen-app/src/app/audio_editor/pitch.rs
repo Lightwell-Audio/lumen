@@ -1,23 +1,3 @@
-//! The Pitch chip of the audio editor's strip (M9.5 S6, ADR-0137). It sits
-//! beside the Warp chip and opens a popover: the clip's transpose in semitones
-//! and cents, the pitch envelope the clip holds, and a switch that shows that
-//! envelope over the wave (the header's Pitch pill is the same switch). Every
-//! control edits the opened clip, as Gain does, and is one undo step; the chip
-//! is a Tab stop with an accessible name, opened by a click, Enter or Space and
-//! closed by Esc.
-//!
-//! Pitch is heard only while the clip is warped in a mode that transposes
-//! (`WarpMode::transposes`): Melodic and Full mix shift the pitch and keep the
-//! speed, Rhythmic plays each hit like a sampler, and Repitch has the pitch
-//! the tempo gives it. The popover says which of these the clip is in, first,
-//! above the control it dims, with the one way out when the mode is the
-//! reason (F3).
-//!
-//! The chip is laid out for the widest label the clip's state can show, not
-//! for the words of the moment: dragging Transpose changes those words, and a
-//! chip that followed them would move its neighbours and the popover hanging
-//! under it (F1, M9.5 S7).
-
 use eframe::egui::{Rect, RichText, Sense, Ui, vec2};
 use lumen_project::envelope::Kind;
 use lumen_project::model::{Clip, WarpMode};
@@ -29,21 +9,13 @@ use crate::commands::Command;
 use crate::widgets::{self, Menu, SliderKind, raised};
 use crate::{App, theme};
 
-/// The widest words the chip's transpose can take: two digits and cents of
-/// fours either side of the point, after the widest sign: fours are the
-/// widest digits of the interface's font. A clip's transpose is held at
-/// ±48 st (`MAX_TRANSPOSE_CENTS`), so no label the chip shows is wider than
-/// this one.
 const WIDEST_TRANSPOSE: &str = "\u{2212}44.44 st";
 
-/// The transpose in words ("+2 st"), or `None` when there is none.
 fn transposed(clip: &Clip) -> Option<String> {
     let cents = clip.warp.as_ref()?.transpose_cents;
     (cents != 0).then(|| SliderKind::Semitones.text(cents as f32 / 100.0))
 }
 
-/// What the Pitch chip says: "Pitch", "Pitch +2 st", "Pitch env" (an envelope
-/// and no transpose) or "Pitch +2 st env".
 pub(super) fn chip_text(clip: &Clip) -> String {
     let mut text = "Pitch".to_owned();
     if let Some(shift) = transposed(clip) {
@@ -56,7 +28,6 @@ pub(super) fn chip_text(clip: &Clip) -> String {
     text
 }
 
-/// The chip's accessible name: what it is and what is set.
 fn chip_name(clip: &Clip) -> String {
     let mut parts = Vec::new();
     if let Some(shift) = transposed(clip) {
@@ -72,8 +43,6 @@ fn chip_name(clip: &Clip) -> String {
     }
 }
 
-/// What the chip's tooltip says it is for: the transpose, and the envelope
-/// when the clip has one (F2).
 fn tip_text(clip: &Clip) -> &'static str {
     if clip.envelopes.pitch.is_some() {
         "Transpose and pitch envelope"
@@ -82,10 +51,6 @@ fn tip_text(clip: &Clip) -> &'static str {
     }
 }
 
-/// What the chip is laid out for: how [`chip_text`] reads with the widest
-/// transpose the clip can take, and " env" when it has a pitch envelope.
-/// Measuring this rather than the words of the moment keeps the chip's width
-/// still while Transpose is dragged (F1).
 pub(super) fn sizing_text(clip: &Clip) -> String {
     let mut text = format!("Pitch {WIDEST_TRANSPOSE}");
     if clip.envelopes.pitch.is_some() {
@@ -94,22 +59,12 @@ pub(super) fn sizing_text(clip: &Clip) -> String {
     text
 }
 
-/// How wide the Pitch chip is for `clip`'s state: the widest label it can
-/// show, rounded up to a whole point and given one more, so a chip given
-/// exactly this width never cuts its label for a fraction of a pixel. The
-/// same width is used with the popover open or shut, and the strip's folding
-/// uses it too, so neither the chip nor its neighbours nor the popover under
-/// it move while Transpose is dragged (F1).
 pub(super) fn chip_width(ui: &Ui, clip: &Clip) -> f32 {
     let s = theme::space::S;
     let font = eframe::egui::FontId::proportional(theme::size::BODY);
     s + text_width(ui, &sizing_text(clip), font).ceil() + 1.0 + s + CHEVRON + s
 }
 
-/// The clip's pitch envelope as its lowest and highest point, in semitones:
-/// "−3 to +17.76 st", or one value when it is flat ("+17.76 st"). `None`
-/// when the clip has no pitch envelope. The row says what an envelope holds
-/// even while the clip cannot be heard through it (F2).
 pub(super) fn envelope_range_text(clip: &Clip) -> Option<String> {
     let mut low = f32::INFINITY;
     let mut high = f32::NEG_INFINITY;
@@ -125,12 +80,10 @@ pub(super) fn envelope_range_text(clip: &Clip) -> Option<String> {
         return Some(high_text);
     }
     let low_text = SliderKind::Semitones.text(low);
-    // One unit for the pair: "−3 to +17.76 st".
     let low = low_text.strip_suffix(" st").unwrap_or(&low_text);
     Some(format!("{low} to {high_text}"))
 }
 
-/// Why the clip's pitch cannot be heard, in words, or `None` when it can.
 pub(super) fn why_silent(clip: &Clip) -> Option<&'static str> {
     match clip.warp.as_ref().map(|w| w.mode) {
         None => Some("Warp the clip first: its pitch changes in Melodic, Full mix or Rhythmic."),
@@ -143,8 +96,6 @@ pub(super) fn why_silent(clip: &Clip) -> Option<&'static str> {
 }
 
 impl App {
-    /// The Pitch chip in `rect`: a Tab stop that opens the popover. True when
-    /// it has the keyboard.
     pub(super) fn pitch_chip(
         &mut self,
         ui: &mut Ui,
@@ -168,7 +119,6 @@ impl App {
         response.has_focus()
     }
 
-    /// What the Pitch chip opens.
     pub(super) fn pitch_popover(&mut self, ui: &mut Ui, clip: &Clip, ed: &mut AudioEditor) {
         let palette = *theme::p();
         let fixed = self.strip_fixed(clip.id);
@@ -178,8 +128,6 @@ impl App {
         let silent = why_silent(clip);
         let base = ui.id().with(("pitch popover", clip.id.0));
 
-        // Why the pitch cannot be heard comes first, above the control it
-        // dims, with the way out when the mode is the reason (F3).
         if let Some(why) = silent {
             widgets::hint(ui, why);
             if mode == Some(WarpMode::Repitch) {
@@ -221,8 +169,6 @@ impl App {
             });
         });
 
-        // A pitch envelope is kept on the clip whether or not it is heard:
-        // the row says what it holds and takes it away in one step (F2).
         if let Some(range) = envelope_range_text(clip) {
             card_row(ui, "Envelope", |ui| {
                 ui.label(RichText::new(range).color(palette.text_secondary));
@@ -317,8 +263,6 @@ mod tests {
         .unwrap()
     }
 
-    /// A context with the interface's fonts, and one frame drawn so they are
-    /// ready to measure with.
     fn context() -> Context {
         let ctx = Context::default();
         crate::fonts::install(&ctx);
@@ -353,9 +297,6 @@ mod tests {
         assert_eq!(chip_text(&c), "Pitch env");
     }
 
-    /// F1: the chip is laid out for the widest label, so a drag of Transpose
-    /// neither resizes it nor moves it - and so does not move the popover
-    /// hanging under it.
     #[test]
     fn the_chip_keeps_one_width_whatever_the_transpose_is() {
         let ctx = context();
@@ -373,7 +314,6 @@ mod tests {
                 widths.windows(2).all(|pair| pair[0] == pair[1]),
                 "one width through the drag: {widths:?}"
             );
-            // With an envelope too the suffix is in the width from the start.
             c.envelopes.pitch = Some(lane(&[2.0]));
             let with = chip_width(ui, &c);
             assert!(with > widths[0], "the envelope's words are measured too");
@@ -385,8 +325,6 @@ mod tests {
         out.textures_delta.clear();
     }
 
-    /// No label the chip can show is wider than the one it is laid out for,
-    /// so the chip never shortens it with "…".
     #[test]
     fn every_transpose_label_fits_the_width_the_chip_is_given() {
         let ctx = context();
@@ -398,8 +336,6 @@ mod tests {
             let font = eframe::egui::FontId::proportional(theme::size::BODY);
             let width = chip_width(ui, &c);
             let widest = text_width(ui, &sizing_text(&c), font.clone());
-            // The room the chip gives its label: its width less the pads and
-            // the chevron (`strip_chips::popover_chip`).
             let room = width - 3.0 * theme::space::S - CHEVRON;
             let mut worst = 0.0_f32;
             for cents in (-4_800..=4_800).step_by(1) {
@@ -413,7 +349,6 @@ mod tests {
                 worst <= widest,
                 "the widest label the formatter makes is {worst}, laid out for {widest}"
             );
-            // And with the envelope's words after it.
             c.envelopes.pitch = Some(lane(&[2.0]));
             let width = chip_width(ui, &c);
             let widest = text_width(ui, &sizing_text(&c), font.clone());

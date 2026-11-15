@@ -1,5 +1,3 @@
-//! Tracks: adding, muting, renaming, moving, deleting, undo and redo.
-
 use eframe::egui::{Event, Key, Modifiers};
 
 use egui_kittest::kittest::Queryable;
@@ -13,7 +11,6 @@ fn tracks_are_added_from_the_menu_and_the_keyboard() {
     assert!(lumen.shows("Empty track area: double-click to add an audio track"));
 
     lumen.click("Add track");
-    // Menu items are named with their shortcut, as a screen reader says them.
     lumen.click(&keys("Add audio track Ctrl+T"));
     lumen.key(Modifiers::COMMAND, Key::T);
     lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::T);
@@ -26,7 +23,6 @@ fn tracks_are_added_from_the_menu_and_the_keyboard() {
         .collect();
     use lumen_project::model::TrackKind::{Audio, Midi};
     assert_eq!(kinds, [Audio, Audio, Midi]);
-    // Each has a header with its controls.
     for name in lumen.track_names() {
         assert!(lumen.shows(&format!("Mute {name}")), "{name}");
         assert!(lumen.shows(&format!("Arm {name}")), "{name}");
@@ -48,7 +44,6 @@ fn mute_solo_and_arm_toggle_and_undo_as_one_step_each() {
     lumen.click(&format!("Arm {name}"));
     assert!(lumen.app().project().tracks[0].armed);
 
-    // Undo steps back through arm, solo and mute; redo brings mute back.
     for _ in 0..3 {
         lumen.key(Modifiers::COMMAND, Key::Z);
     }
@@ -69,14 +64,12 @@ fn the_keyboard_alone_selects_and_moves_tracks() {
     let ids: Vec<_> = lumen.app().project().tracks.iter().map(|t| t.id).collect();
     assert_eq!(lumen.app().selected_tracks(), [ids[2]], "the newest");
 
-    // Up selects the one above; Shift+Up extends the selection.
     lumen.key(Modifiers::NONE, Key::ArrowUp);
     assert_eq!(lumen.app().selected_tracks(), [ids[1]]);
     lumen.key(Modifiers::SHIFT, Key::ArrowUp);
     let selected = &lumen.app().selected_tracks();
     assert!(selected.len() == 2 && selected.contains(&ids[0]) && selected.contains(&ids[1]));
 
-    // Alt+Down moves both below the third.
     lumen.key(Modifiers::ALT, Key::ArrowDown);
     assert_eq!(
         lumen.track_names(),
@@ -91,20 +84,17 @@ fn tracks_are_renamed_moved_and_deleted() {
     lumen.key(Modifiers::COMMAND, Key::T);
     let before = lumen.track_names();
 
-    // F2 renames the selected track (the one just added): type, Enter.
     lumen.key(Modifiers::NONE, Key::F2);
     lumen.key(Modifiers::COMMAND, Key::A);
     lumen.harness.event(Event::Text("Drums".into()));
     lumen.key(Modifiers::NONE, Key::Enter);
     assert_eq!(lumen.track_names(), [before[0].as_str(), "Drums"]);
 
-    // Alt+Up moves it above the first; undo puts it back.
     lumen.key(Modifiers::ALT, Key::ArrowUp);
     assert_eq!(lumen.track_names(), ["Drums", before[0].as_str()]);
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert_eq!(lumen.track_names(), [before[0].as_str(), "Drums"]);
 
-    // Delete removes the selection; undo restores it.
     lumen.click("Drums: double-click to rename");
     lumen.key(Modifiers::NONE, Key::Delete);
     assert_eq!(lumen.track_names(), [before[0].as_str()]);
@@ -112,9 +102,6 @@ fn tracks_are_renamed_moved_and_deleted() {
     assert_eq!(lumen.track_names(), [before[0].as_str(), "Drums"]);
 }
 
-/// Owner, after MT-MIX-3 run 1: deleting a track from its right-click menu
-/// crashed Lumen (the headers went on drawing rows of tracks just
-/// deleted). Every kind of track, from its menu and by key, then undo.
 #[test]
 fn deleting_any_kind_of_track_from_its_menu_or_by_key_never_crashes() {
     let mut lumen = Lumen::start("delete-kinds");
@@ -125,13 +112,10 @@ fn deleting_any_kind_of_track_from_its_menu_or_by_key_never_crashes() {
         lumen.click(kind);
     }
     lumen.key(Modifiers::COMMAND, Key::T);
-    // A group holding the last track, so it has something inside.
     lumen.key(Modifiers::COMMAND, Key::G);
     let all = lumen.track_names();
     assert_eq!(all.len(), 6, "{all:?}");
 
-    // From the menu, the last header first and then from the top, so the
-    // rows after the deleted one are still to be drawn that frame.
     for name in [
         all[5].clone(),
         all[0].clone(),
@@ -146,7 +130,6 @@ fn deleting_any_kind_of_track_from_its_menu_or_by_key_never_crashes() {
         lumen.click("Delete Delete");
         assert!(!lumen.track_names().contains(&name), "{name} deleted");
     }
-    // By key, every track left.
     while let Some(name) = lumen.track_names().first().cloned() {
         lumen
             .harness
@@ -159,7 +142,6 @@ fn deleting_any_kind_of_track_from_its_menu_or_by_key_never_crashes() {
             "{name} deleted by key"
         );
     }
-    // Undo brings everything back.
     while lumen
         .app()
         .undo_label()
@@ -199,13 +181,11 @@ fn arming_a_track_disarms_the_others_unless_ctrl_is_held() {
     );
     assert!(!lumen.is_on(&arm(&names[0])));
 
-    // One undo step gives the first track back.
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert_eq!(armed_names(&lumen), [names[0].clone()]);
     lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z);
     assert_eq!(armed_names(&lumen), [names[1].clone()]);
 
-    // Ctrl adds another without letting go of the first.
     lumen
         .harness
         .get_by_label(&arm(&names[2]))
@@ -217,7 +197,6 @@ fn arming_a_track_disarms_the_others_unless_ctrl_is_held() {
         "Ctrl keeps the armed tracks"
     );
 
-    // An armed track's button disarms it, and only it.
     lumen.click(&arm(&names[1]));
     assert_eq!(armed_names(&lumen), [names[2].clone()]);
 }

@@ -1,15 +1,3 @@
-//! Recording audio (M9 slice R2, ADR-0102): the audio half of Record.
-//!
-//! Record (F9) records the armed MIDI tracks as before and, at the same time,
-//! the armed audio tracks that have an input. For those the engine keeps what
-//! arrives (`lumen_engine::capture`), the take worker writes one file per
-//! track (`take_worker.rs`), and when recording ends the files become clips
-//! over the span they were played in, as one undo step.
-//!
-//! The files live in a `Recordings` folder beside the autosaves, so a crash
-//! leaves them where recovery finds them, and Save copies them into the
-//! project (`Samples/Recorded`).
-
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
@@ -27,63 +15,45 @@ use crate::recording::loop_passes;
 use crate::recording::take_notes::{TakeNotes, delete_later};
 use crate::recording::take_worker::{Finished, Found, Job, Live, Plan, TrackResult, sidecar_path};
 
-/// How long the worker has to hand the files over after recording ends
-/// before the take is given up on.
 const FINISH_WAIT: Duration = Duration::from_secs(20);
 
-/// An armed audio track that records, and what its take looks like so far.
 #[derive(Debug, Clone)]
 pub(crate) struct Lane {
     pub track: Id,
     pub live: Arc<Mutex<Live>>,
 }
 
-/// The files of a recording that has ended, waited for.
 struct Finishing {
-    /// Which recording (`Plan::id`).
     id: u64,
     document: u64,
-    /// The recording was cut off (another project opened): the files are not
-    /// wanted.
     discard: bool,
     since: Instant,
-    /// The takes as they were drawn, kept drawn until the clips are placed.
     lanes: Vec<Lane>,
-    /// What they recorded over, kept silent until the clips are placed, so
-    /// the old audio is not heard there in between.
     replaced: Vec<crate::midi::play::Replacing>,
 }
 
-/// A recording given up on after [`FINISH_WAIT`]: its answer may still come
-/// (M9 review H6).
 struct Late {
     id: u64,
     document: u64,
     discard: bool,
 }
 
-/// Recovery's disk work, on a thread (H1).
 struct Recovering {
     document: u64,
     dir: PathBuf,
     found: Receiver<(Found, Vec<PathBuf>)>,
 }
 
-/// What the app keeps for audio recording.
 #[derive(Default)]
 pub(crate) struct AudioRecord {
     finishing: Option<Finishing>,
-    /// The loss of input has been told for the recording under way.
     warned: bool,
-    /// The number of the last recording begun.
     recording: u64,
     late: Vec<Late>,
     recovering: Option<Recovering>,
-    /// Sidecars of placed takes, kept until a save holds them (H3).
     pub(crate) notes: TakeNotes,
 }
 
-/// A track's name as part of a file name.
 fn file_stem(name: &str) -> String {
     let clean: String = name
         .chars()
@@ -103,7 +73,6 @@ fn file_stem(name: &str) -> String {
     }
 }
 
-/// Removes takes' files and their sidecars, on a thread of their own.
 fn remove(paths: impl IntoIterator<Item = PathBuf>) {
     delete_later(
         paths
@@ -114,8 +83,6 @@ fn remove(paths: impl IntoIterator<Item = PathBuf>) {
 }
 
 impl App {
-    /// Where recorded audio is written until a save copies it into the
-    /// project: beside the autosaves, or the system's temporary folder.
     pub(crate) fn recordings_dir(&self) -> PathBuf {
         self.autosave
             .as_ref()
@@ -127,10 +94,6 @@ impl App {
             )
     }
 
-    /// The armed audio tracks that can record, with the worker told what to
-    /// write. Tracks that cannot are named in a notice. `punch` is the range
-    /// that is kept, if there is one; `looped` is the loop when Loop is on, so
-    /// jumps back are passes and a take begun inside it lines up with it.
     pub(crate) fn begin_audio_takes(
         &mut self,
         punch: Option<(Ticks, Ticks)>,
@@ -167,7 +130,6 @@ impl App {
                 });
                 continue;
             };
-            // The worker takes the next free number from this (H1).
             jobs.push(Job {
                 track: track.id.0,
                 path: dir.join(format!("{} 1.wav", file_stem(&track.name))),
@@ -213,12 +175,6 @@ impl App {
         lanes
     }
 
-    /// After a recovered autosave opens: the takes that session left are
-    /// repaired on a thread and put on their tracks, as one step, when they
-    /// arrive (`poll_audio_takes`). A take the recovered project already
-    /// holds (an autosave was written after it was placed) is not placed
-    /// again; a take whose track the project no longer has stays in the
-    /// recordings folder.
     pub(crate) fn recover_takes(&mut self, session: &str) {
         let dir = self.recordings_dir();
         let used: Vec<PathBuf> = self.document.media_files.values().cloned().collect();
@@ -246,15 +202,12 @@ impl App {
         }
     }
 
-    /// A normal close: deletes every take's sidecar, waiting for the disk,
-    /// as Lumen is exiting.
     pub(crate) fn close_take_notes(&mut self) {
         for sidecar in self.record.audio.notes.close() {
             let _ = std::fs::remove_file(sidecar);
         }
     }
 
-    /// Recovery's takes have been read: places them and says so.
     fn takes_recovered(&mut self, found: Found, already: Vec<PathBuf>, dir: &std::path::Path) {
         let session = self.document.session();
         self.record.audio.notes.hold(session, already);
@@ -300,8 +253,6 @@ impl App {
         }
     }
 
-    /// While recording: says so, once, if the disk cannot keep up and input
-    /// is being lost, so the player can stop rather than find out at the end.
     pub(crate) fn watch_audio_takes(&mut self, lanes: &[Lane]) {
         if lanes.is_empty() || self.record.audio.warned || self.transport.audio.takes.dropped() == 0
         {
@@ -314,8 +265,6 @@ impl App {
         );
     }
 
-    /// What the arrangement draws of the takes under way: each as far as
-    /// the worker has written it.
     pub(crate) fn audio_take_looks(&self, lanes: &[Lane]) -> Vec<AudioTakeLook> {
         let Some(rate) = self.transport.audio.info.as_ref().map(|i| i.sample_rate) else {
             return Vec::new();
@@ -326,9 +275,6 @@ impl App {
             .filter_map(|lane| {
                 let (start, frames) = {
                     let live = lane.live.lock().ok()?;
-                    // With Loop on, the clip is the loop long from the first
-                    // wrap: the pass before shows where this one has not
-                    // reached.
                     let loop_frames = live.previous.as_ref().map_or(0, |(f, _)| *f);
                     (live.start?, live.frames.max(loop_frames))
                 };
@@ -342,9 +288,6 @@ impl App {
             .collect()
     }
 
-    /// Recording has ended: the worker closes the files and
-    /// [`Self::poll_audio_takes`] puts them in. With `discard` they are
-    /// thrown away instead.
     pub(crate) fn end_audio_takes(
         &mut self,
         lanes: Vec<Lane>,
@@ -365,7 +308,6 @@ impl App {
         });
     }
 
-    /// What the takes being finished recorded over (see [`Finishing`]).
     pub(crate) fn finishing_replaced(&self) -> Vec<crate::midi::play::Replacing> {
         self.record
             .audio
@@ -374,14 +316,10 @@ impl App {
             .map_or_else(Vec::new, |f| f.replaced.clone())
     }
 
-    /// Recording has stopped and its takes are not placed yet, or a
-    /// recovery's takes are being read.
     pub(crate) fn audio_takes_finishing(&self) -> bool {
         self.record.audio.finishing.is_some() || self.record.audio.recovering.is_some()
     }
 
-    /// The takes to draw while their files are closed: what the arrangement
-    /// showed while recording, until the clips are placed.
     pub(crate) fn finishing_lanes(&self) -> Vec<Lane> {
         self.record
             .audio
@@ -390,11 +328,6 @@ impl App {
             .map_or_else(Vec::new, |f| f.lanes.clone())
     }
 
-    /// Every frame: when the worker has handed over the files of a recording
-    /// that ended, puts them on their tracks. Once recording has stopped the
-    /// transport is idle, so this asks for the frames it needs itself: to
-    /// keep looking while the worker closes the files, and one more after the
-    /// clips are placed, which starts loading their audio and waveforms.
     pub(crate) fn poll_audio_takes(&mut self, ctx: &eframe::egui::Context) {
         self.poll_recovered_takes(ctx);
         while let Some(finished) = self.transport.audio.takes.poll() {
@@ -409,7 +342,6 @@ impl App {
             let Some(given_up) = self.record.audio.finishing.take() else {
                 return;
             };
-            // Its answer may still come; it is placed then (H6).
             self.record.audio.late.push(Late {
                 id: given_up.id,
                 document: given_up.document,
@@ -422,10 +354,6 @@ impl App {
         }
     }
 
-    /// A recording's files have been handed over: placed, if the recording
-    /// and its document are still the ones waited for; a late one is placed
-    /// when nothing else is recording, and its files are otherwise kept for
-    /// recovery.
     fn takes_finished(&mut self, finished: Finished) {
         let Finished { id, results } = finished;
         let (document, discard) = match self.record.audio.finishing.as_ref() {
@@ -438,8 +366,6 @@ impl App {
                     let late = self.record.audio.late.remove(at);
                     (late.document, late.discard)
                 }
-                // Not a recording this app waits for: its files stay, with
-                // their sidecars, for recovery.
                 None => return,
             },
         };
@@ -448,12 +374,9 @@ impl App {
             return;
         }
         if document != self.document.session() {
-            // Its project was closed: the files stay in the recordings folder.
             return;
         }
         if self.recording() {
-            // A late take while another records: the files stay, with their
-            // sidecars, and recovery would find them.
             self.file_notice = Some(format!(
                 "A recording that took long to finish could not be placed while recording. Its audio stays in {}.",
                 self.recordings_dir().display()
@@ -507,9 +430,6 @@ impl App {
                 remove([result.path.clone()]);
                 continue;
             };
-            // One rule makes the clip, with Loop on or off (`loop_passes`), in
-            // the loop the recording carries. A take left by a build that did
-            // not keep it is cut in the project's loop.
             let looped = result.looped.or_else(|| {
                 let region = self.document.project().transport;
                 let timeline = &self.transport.timeline;
@@ -553,8 +473,6 @@ impl App {
                 .path
                 .file_stem()
                 .map_or_else(|| name.clone(), |s| s.to_string_lossy().into_owned());
-            // What was recorded before the loop began is a clip of its own,
-            // from the start of the file, where it was played.
             if let Some((at, lead_frames)) = lead {
                 let lead_from = timeline.ticks_at(at, rate);
                 let lead_to = timeline.ticks_at(at + lead_frames as i64, rate);
@@ -604,8 +522,6 @@ impl App {
     }
 }
 
-/// What recovery says about unfinished takes a newer version of the app
-/// wrote: they were not opened, and they stay for that version (sweep M9).
 fn newer_takes(count: usize, dir: &Path) -> String {
     format!(
         "{count} unfinished recording{} {} written by a newer version of {PRODUCT_NAME}, so this version left {} in {} instead. Open {} with that version to recover {}.",

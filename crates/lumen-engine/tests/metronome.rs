@@ -1,5 +1,3 @@
-//! The metronome, the test tone and panic (M2 slice 7).
-
 use lumen_core::meter::{Meter, MeterMap, MeterPoint};
 use lumen_core::time::{TempoMap, Ticks};
 use lumen_engine::{
@@ -10,7 +8,6 @@ use lumen_rt::{count_rt_violations, guard_is_active};
 lumen_rt::install_guarded_allocator!();
 
 const RATE: u32 = 48_000;
-/// One beat at 120 BPM.
 const BEAT: usize = 24_000;
 
 fn metronome(timeline: Timeline, volume: f32, sound: ClickSound) -> (EngineHandle, Engine<()>) {
@@ -26,15 +23,12 @@ fn metronome(timeline: Timeline, volume: f32, sound: ClickSound) -> (EngineHandl
     (handle, engine)
 }
 
-/// Renders `frames` (left channel) in blocks of `block`.
 fn run(engine: &mut Engine<()>, frames: usize, block: usize) -> Vec<f32> {
     let mut data = vec![0.0; 2 * block];
     let mut out = Vec::with_capacity(frames);
     let mut done = 0;
     while done < frames {
         let n = block.min(frames - done);
-        // The render is the audio thread's work: nothing here may reach the
-        // heap (the allocation guard, `realtime.rs`).
         let ((), heap) = count_rt_violations(|| engine.process(RATE, &mut data[..2 * n], 2, n));
         assert_eq!(heap, 0, "heap operation in process() at sample {done}");
         out.extend_from_slice(&data[..n]);
@@ -47,9 +41,6 @@ fn peak(samples: &[f32]) -> f32 {
     samples.iter().fold(0.0, |m, s| m.max(s.abs()))
 }
 
-/// Where each click begins: the first sound after at least `gap` silent
-/// frames. (The beep starts at sin(0) = 0, so it is heard from the frame
-/// after the beat.)
 fn onsets(out: &[f32], gap: usize) -> Vec<usize> {
     let mut quiet = gap;
     let mut found = Vec::new();
@@ -98,7 +89,6 @@ fn the_downbeat_is_accented_and_volume_scales() {
 
 #[test]
 fn accents_follow_the_time_signature() {
-    // 7/8 at 120 BPM: a click every eighth (12,000 samples), accented every 7.
     let seven_eight = Meter {
         numerator: 7,
         denominator: 8,
@@ -116,7 +106,6 @@ fn accents_follow_the_time_signature() {
     assert_eq!(loud, vec![0, 7, 14]);
 }
 
-/// Two bars of 4 quarters, then 3/4: the bars begin at beats 0, 4, 8, 11, 14.
 fn four_then_three() -> Timeline {
     let at = |quarters, numerator, denominator| MeterPoint {
         at: Ticks::quarters(quarters),
@@ -131,7 +120,6 @@ fn four_then_three() -> Timeline {
     )
 }
 
-/// The beats whose click is accented, of the first `beats` beats of `out`.
 fn accented(out: &[f32], beats: usize) -> Vec<usize> {
     (0..beats)
         .filter(|&b| peak(&out[b * BEAT..b * BEAT + 2_400]) > 0.4)
@@ -151,7 +139,6 @@ fn accents_follow_a_change_of_time_signature_along_the_song() {
 #[test]
 fn a_loop_across_a_change_of_time_signature_keeps_every_bar_accented() {
     let (mut handle, mut engine) = metronome(four_then_three(), 0.5, ClickSound::Wood);
-    // Loop the second 4/4 bar and the first 3/4 bar: quarters 4 to 11.
     handle
         .send(Command::SetLoop(Region::new(
             Ticks::quarters(4),
@@ -161,15 +148,12 @@ fn a_loop_across_a_change_of_time_signature_keeps_every_bar_accented() {
         .unwrap();
     handle.send(Command::Play).unwrap();
     let out = run(&mut engine, 18 * BEAT, 300);
-    // Beats 0 to 3 are the first bar; then the loop: 4 and 8 begin its two
-    // bars; the wrap at 11 begins the first again, and 15 the second.
     assert_eq!(accented(&out, 18), vec![0, 4, 8, 11, 15]);
 }
 
 #[test]
 fn clicks_stay_on_the_beat_across_a_loop_wrap() {
     let (mut handle, mut engine) = metronome(Timeline::default(), 0.5, ClickSound::Beep);
-    // Loop the first bar and a half: the wrap lands mid-bar, between beats.
     handle
         .send(Command::SetLoop(Region::new(
             Ticks::ZERO,
@@ -179,7 +163,6 @@ fn clicks_stay_on_the_beat_across_a_loop_wrap() {
         .unwrap();
     handle.send(Command::Play).unwrap();
     let out = run(&mut engine, 12 * BEAT, 300);
-    // Beats 0–5, then the wrap at 6 beats starts beat 0 again, and so on.
     let expected: Vec<usize> = (0..12).map(|b| b * BEAT + 1).collect();
     assert_eq!(onsets(&out, 1_000), expected);
 }
@@ -215,7 +198,6 @@ fn the_test_tone_is_1_khz_at_minus_20_dbfs_even_when_stopped() {
         .count();
     let hz = rising as f64 / (settled.len() as f64 / f64::from(RATE));
     assert!((hz - 1_000.0).abs() < 2.0, "{hz} Hz");
-    // It ramps in over 5 ms rather than starting with a click.
     assert!(peak(&out[..24]) < 0.02);
 
     handle.send(Command::TestTone(false)).unwrap();
@@ -238,7 +220,6 @@ fn panic_silences_everything_at_once() {
 
 #[test]
 fn the_metronome_plays_on_the_cue_pair_when_asked_and_the_main_one_otherwise() {
-    // M4 slice 4 (the owner's D6): Main or Cue; never through the master.
     let (mut handle, mut player) = engine(Timeline::default(), (), RATE);
     handle
         .send(Command::SetMetronome(MetronomeSettings {
@@ -255,7 +236,6 @@ fn the_metronome_plays_on_the_cue_pair_when_asked_and_the_main_one_otherwise() {
     let channel = |c: usize| peak(&data[c * frames..(c + 1) * frames]);
     assert!(channel(2) > 0.1 && channel(3) > 0.1, "on the cue pair");
     assert_eq!((channel(0), channel(1)), (0.0, 0.0), "not on the main pair");
-    // A device with only the main pair: it falls back there.
     let (mut handle, mut player) = engine(Timeline::default(), (), RATE);
     handle
         .send(Command::SetMetronome(MetronomeSettings {

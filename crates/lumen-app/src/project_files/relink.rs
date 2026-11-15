@@ -1,12 +1,3 @@
-//! Relinking missing media (M9 slice R4b, ADR-0106): checking a file against
-//! what the project knows of the one it replaces, and searching a folder for
-//! the files a project lost.
-//!
-//! A file is trusted when its name and size are the project's; otherwise its
-//! header must agree on channels and sample rate, and a different length is
-//! never taken without the user's say. Everything here reads the disk and
-//! belongs on a worker.
-
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
@@ -16,20 +7,13 @@ use lumen_project::model::{Id, Media};
 use crate::files::Control;
 use crate::media::is_audio_file;
 
-/// Entries a folder search looks at before it stops and says so.
 const MAX_ENTRIES: usize = 200_000;
 
-/// What a candidate file is, measured against the media it would replace.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Verdict {
-    /// The size the project recorded.
     Exact,
-    /// The same channels, rate and length.
     SameAudio,
-    /// The same channels and rate, another length (`None` when the format
-    /// does not say). Taken only when the user confirms.
     DifferentLength(Option<u64>),
-    /// Cannot stand in for it; the reason, ready to show.
     Refused(String),
 }
 
@@ -44,7 +28,6 @@ impl Verdict {
     }
 }
 
-/// How `file` measures against `media`. Reads the file's size and header.
 pub fn verdict(media: &Media, file: &Path) -> Verdict {
     let size = match std::fs::metadata(file) {
         Ok(meta) if meta.is_file() => meta.len(),
@@ -80,7 +63,6 @@ pub fn verdict(media: &Media, file: &Path) -> Verdict {
     }
 }
 
-/// A file a search found for a missing item.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Found {
     pub id: Id,
@@ -88,26 +70,18 @@ pub struct Found {
     pub verdict: Verdict,
 }
 
-/// What a folder search came to. Nothing is applied by the search itself.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Report {
-    /// Safe to apply: the right size, or the same audio.
     pub found: Vec<Found>,
-    /// Found with another length: left for the user to relink one by one.
     pub different: Vec<Found>,
-    /// More than one file fits equally well, so none is chosen.
     pub ambiguous: Vec<(Id, Vec<PathBuf>)>,
-    /// No file of the name, or none that can stand in for it.
     pub not_found: Vec<Id>,
-    /// The search stopped at [`MAX_ENTRIES`].
     pub truncated: bool,
 }
 
-/// The search was stopped.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Stopped;
 
-/// Starts a search of `folder` for `wanted` in the background.
 pub fn start(
     folder: PathBuf,
     wanted: Vec<Media>,
@@ -120,8 +94,6 @@ pub fn start(
     Ok(rx)
 }
 
-/// Looks through `folder` and its subfolders (not following links) for a file
-/// with the name of each of `wanted`, and measures each against its media.
 pub fn search(folder: &Path, wanted: &[Media], control: &Control) -> Result<Report, Stopped> {
     let names: HashMap<String, Vec<usize>> = {
         let mut names: HashMap<String, Vec<usize>> = HashMap::new();
@@ -190,7 +162,6 @@ pub fn search(folder: &Path, wanted: &[Media], control: &Control) -> Result<Repo
             continue;
         };
         measured.retain(|(_, _, rank)| *rank == best);
-        // Copies of one file in several folders are all the right file.
         if measured.len() > 1 && best != 0 {
             report
                 .ambiguous
@@ -213,8 +184,6 @@ pub fn search(folder: &Path, wanted: &[Media], control: &Control) -> Result<Repo
     Ok(report)
 }
 
-/// The lower-cased last part of a path (`/` or `\` separated), for matching
-/// the name of a file wherever it moved.
 fn file_name(path: &str) -> Option<String> {
     path.rsplit(['/', '\\'])
         .next()
@@ -324,7 +293,6 @@ mod tests {
     #[test]
     fn two_equal_matches_are_left_alone_unless_they_are_the_same_size() {
         let dir = TempDir::new("relink-ambiguous");
-        // Two takes with one name and the project's header, neither its size.
         write(&dir.path().join("a/snare.wav"), 48_000, 1, 500);
         write(&dir.path().join("b/snare.wav"), 48_000, 1, 500);
         let wanted = vec![media(1, "snare.wav", 48_000, 1, 500, 1)];
@@ -333,7 +301,6 @@ mod tests {
         assert_eq!(report.ambiguous.len(), 1);
         assert_eq!(report.ambiguous[0].1.len(), 2);
 
-        // Two copies of the exact file are the same file: the first is taken.
         let size = std::fs::metadata(dir.path().join("a/snare.wav"))
             .unwrap()
             .len();

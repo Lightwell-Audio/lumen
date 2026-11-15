@@ -1,6 +1,3 @@
-//! A plugin that misbehaves, in a host process of its own: what Lumen sees,
-//! and that nothing else is affected.
-
 mod support;
 
 use std::time::{Duration, Instant};
@@ -66,11 +63,6 @@ fn a_hang_is_a_timeout_and_the_host_can_be_killed() {
 
 #[test]
 fn a_late_answer_is_dropped_not_taken_for_the_next_block() {
-    // Every block takes 400 ms; the first is given 30 ms. The margin is wide
-    // because a deadline cannot cut off an answer that is already waiting
-    // when a busy machine lets the test thread run again: that thread would
-    // have to be kept off the CPU for most of the 400 ms to see the first
-    // block answered in time.
     let mut host = instrument("process_slow=400000");
     let first = host.process(
         32,
@@ -80,9 +72,6 @@ fn a_late_answer_is_dropped_not_taken_for_the_next_block() {
         Duration::from_millis(30),
     );
     assert_eq!(first.unwrap_err(), HostError::Timeout);
-    // The second block is a different length, so its answer cannot be
-    // mistaken for the first's. It waits long enough for both answers; the
-    // first arrives first, is recognised as stale, and is not returned.
     let second = host
         .process(16, vec![], vec![], vec![], Duration::from_secs(5))
         .expect("second block");
@@ -115,7 +104,6 @@ fn a_bus_the_plugin_reports_wrongly_is_refused_at_configuration() {
     host.load(plugin(), None, SLOW).unwrap();
     let err = host.configure(48_000.0, 512, 0, 2, SLOW).unwrap_err();
     assert!(matches!(err, HostError::Failed { .. }), "{err:?}");
-    // And no block is processed in the failed configuration.
     assert!(play(&mut host, SLOW).is_err());
 }
 
@@ -149,7 +137,6 @@ fn state_that_fails_or_hangs_is_contained() {
 fn state_the_plugin_will_not_read_back_is_found_before_it_is_saved_over_good_state() {
     let mut host = instrument("state_garbage");
     let state = host.state(SLOW).expect("it writes something");
-    // A save that trusted this would store state the plugin rejects.
     assert!(host.set_state(state, SLOW).is_err());
 }
 
@@ -233,9 +220,6 @@ fn a_missing_module_is_a_load_failure_that_leaves_the_host_usable() {
 
 #[test]
 fn a_plugin_that_prints_cannot_corrupt_the_protocol() {
-    // The factory writes a line to the standard output while the module
-    // loads, and every process call writes another. The host's protocol
-    // uses the real standard output; the plugin's goes to the error stream.
     let mut host = instrument("prints");
     for _ in 0..3 {
         let block = host

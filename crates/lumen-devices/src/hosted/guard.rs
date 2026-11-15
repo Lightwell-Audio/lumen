@@ -1,30 +1,17 @@
-//! The guard around one host: a block handed over, a block collected against
-//! a deadline, and what the engine and the interface may read about it.
-
 use super::*;
 
-/// A host and the rules for using it.
 pub struct Guard {
     host: Box<dyn Hosted>,
-    /// A block was submitted and not yet collected.
     sent: bool,
-    /// The frames of the block in flight.
     frames: usize,
-    /// Frames of audio late in a row.
     missed: u64,
-    /// Frames since the host's output was last above [`QUIET_LEVEL`]; it
-    /// starts quiet.
     quiet: u64,
-    /// A block was asked for since the last [`Guard::age`].
     asked: bool,
-    /// The last block collected was the host's (see [`Guard::output`]).
     ready: bool,
     status: Arc<Status>,
 }
 
 impl Guard {
-    /// A host whose plugin last reported `latency` frames. Allocates (the
-    /// [`Status`]): call it on the interface side.
     pub fn new(host: Box<dyn Hosted>, latency: u32) -> Self {
         Self {
             host,
@@ -38,10 +25,6 @@ impl Guard {
         }
     }
 
-    /// Whether the host's output may still be heard at `rate`: it was above
-    /// [`QUIET_LEVEL`] within the last [`QUIET_SECONDS`], or within its
-    /// reported tail when that is longer (at most ten seconds). A failed host
-    /// is not.
     pub fn sounding(&self, rate: u32) -> bool {
         let rate = u64::from(rate);
         let tail = u64::from(self.tail()).min(rate * u64::from(TAIL_MOST_SECONDS));
@@ -49,35 +32,26 @@ impl Guard {
         !self.failed() && self.quiet < window
     }
 
-    /// Something was said that may make the plugin sound (a note, a pedal):
-    /// it counts as sounding from now, before its output says so.
     pub fn wake(&mut self) {
         self.quiet = 0;
     }
 
-    /// The plugin was told to stop every sound: it counts as quiet at once.
     pub fn hush(&mut self) {
         self.quiet = u64::MAX;
     }
 
-    /// The plugin is asked to forget what it holds before its next block: a
-    /// reverb's tail must not carry to a new place in the song. It keeps
-    /// being asked for blocks and is heard quiet as soon as its output is.
     pub fn flush(&mut self) {
         if !self.failed() {
             self.host.flush();
         }
     }
 
-    /// `frames` went by: a host that was not asked for a block since the
-    /// last call has been quiet for them (its node did not run).
     pub fn age(&mut self, frames: usize) {
         if !std::mem::take(&mut self.asked) {
             self.quiet = self.quiet.saturating_add(frames as u64);
         }
     }
 
-    /// Follows how loud the block's output was.
     fn heard(&mut self, left: &[f32], right: &[f32]) {
         let loud = |side: &[f32]| side.iter().any(|s| s.abs() > QUIET_LEVEL);
         if loud(left) || loud(right) {
@@ -91,7 +65,6 @@ impl Guard {
         self.quiet = self.quiet.saturating_add(frames as u64);
     }
 
-    /// What the interface may read about the host.
     pub fn status(&self) -> Arc<Status> {
         self.status.clone()
     }
@@ -100,7 +73,6 @@ impl Guard {
         self.status.failed()
     }
 
-    /// The interface bypassed the device.
     pub fn bypassed(&self) -> bool {
         self.status.bypassed()
     }
@@ -125,14 +97,10 @@ impl Guard {
         self.status.take_restart()
     }
 
-    /// Lets go of the last block's outputs: [`Guard::output`] answers nothing
-    /// until the next block is finished.
     pub fn forget_block(&mut self) {
         self.ready = false;
     }
 
-    /// Hands the host a block. Returns whether it took it; when it did not,
-    /// [`Guard::finish`] answers [`Outcome::Silent`] at once.
     pub fn begin(
         &mut self,
         frames: usize,
@@ -143,9 +111,6 @@ impl Guard {
         self.start(frames, input, events, params, true)
     }
 
-    /// As [`Guard::begin`], for a block the host already refused once in
-    /// this callback (it was tried early, and is tried again before it is
-    /// given up on): a second refusal is the same missed block, not another.
     pub fn begin_again(
         &mut self,
         frames: usize,
@@ -197,16 +162,10 @@ impl Guard {
         }
     }
 
-    /// Bus pair `pair` (0 is the main bus, then the auxiliary outputs that
-    /// are on) of the block [`Guard::finish`] last answered, into `left` and
-    /// `right`: false when that block was not the host's or there is no such
-    /// pair. Finite samples only. Never blocks.
     pub fn output(&mut self, pair: usize, left: &mut [f32], right: &mut [f32]) -> bool {
         if !(self.ready && self.host.output(pair, left, right)) {
             return false;
         }
-        // An instrument that plays only on its other outputs is still
-        // sounding: they count as much as the main one.
         let loud = |side: &[f32]| side.iter().any(|s| s.abs() > QUIET_LEVEL);
         if loud(left) || loud(right) {
             self.quiet = 0;
@@ -214,7 +173,6 @@ impl Guard {
         true
     }
 
-    /// Takes the block's answer, waiting until `deadline` at most.
     pub fn finish(&mut self, deadline: Instant, left: &mut [f32], right: &mut [f32]) -> Outcome {
         self.ready = false;
         if !std::mem::take(&mut self.sent) {

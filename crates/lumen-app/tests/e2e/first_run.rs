@@ -1,9 +1,3 @@
-//! The first-run window (M9 R7b, ADR-0115): it opens on a first start (here
-//! with `--first-run`, as the harness never opens it otherwise), walks
-//! Sound, Plugins and Ready, plays the sound check left, right, then both,
-//! and closing it in any way marks setup done. Esc goes to an open menu
-//! before it skips setup.
-
 use eframe::egui::{Key, Modifiers, vec2};
 use egui_kittest::kittest::Queryable;
 use lumen_project::testing::TempDir;
@@ -29,12 +23,10 @@ fn the_window_walks_sound_plugins_and_ready_and_start_marks_setup_done() {
     lumen.click("Next");
     lumen.run_until("the Plugins step", |l| l.shows("Bring your plugins"));
     assert_eq!(lumen.app().welcome_step(), Some("Plugins"));
-    // Plugins are off in the harness: the step says so.
     assert!(lumen.shows("This run started with plugins off. Start again normally to load them."));
     lumen.click("Next");
     lumen.run_until("the Ready step", |l| l.shows("Almost set"));
     assert!(lumen.shows("Start making music"));
-    // Back, then forward with a click on the pill.
     lumen.click("Back");
     lumen.run_until("Plugins again", |l| {
         l.app().welcome_step() == Some("Plugins")
@@ -55,7 +47,6 @@ fn the_sound_check_plays_left_then_right_then_both() {
             l.app().sound_check_side() == side
         });
     }
-    // Stop ends a sound check at once.
     lumen.click("Play test sound");
     lumen.run_until("the chime", |l| !l.app().sound_check_side().is_empty());
     lumen.key(Modifiers::NONE, Key::Space);
@@ -145,8 +136,6 @@ fn the_palette_opens_the_window_again() {
     lumen.run_until("the window", |l| l.app().welcome_step() == Some("Sound"));
 }
 
-/// Starts on the settings in `file`, with the first-run window following
-/// them as on a real start.
 fn real_start(dir: TempDir, file: &std::path::Path) -> Lumen {
     Lumen::start_with(dir, |l| l.with_settings_file(file).with_first_start_rule())
 }
@@ -160,7 +149,6 @@ fn quitting_unfinished_brings_the_window_back_and_skipping_is_kept() {
         l.app().welcome_step() == Some("Sound")
     });
     lumen.click("Next");
-    // Quit without finishing: the next start opens it again, on Sound.
     let dir = lumen.crash();
     let mut again = real_start(dir, &file);
     again.run_until("the window again", |l| {
@@ -201,8 +189,6 @@ fn audio_off_during_the_sound_check_turns_the_lights_off() {
     assert!(lumen.shows("Audio on"), "the step offers to turn it on");
 }
 
-/// The chime as heard: a note on the left alone, then one on the right
-/// alone, then both, never louder than −18 dBFS.
 #[test]
 fn the_sound_check_is_heard_left_then_right_then_both() {
     let mut lumen = first_run("heard");
@@ -237,8 +223,6 @@ fn the_sound_check_is_heard_left_then_right_then_both() {
     assert!(peak <= 0.13, "peak {peak} is above -18 dBFS");
 }
 
-/// Preferences' Audio page and the Sound step show the same device rows at
-/// once: each menu opens on its own.
 #[test]
 fn the_device_menus_in_preferences_and_setup_are_separate() {
     let mut lumen = first_run("two-menus");
@@ -262,7 +246,6 @@ fn the_device_menus_in_preferences_and_setup_are_separate() {
 
 #[test]
 fn a_narrow_welcome_window_wraps_its_hint_instead_of_cutting_its_end() {
-    // A notice wraps; only a name or a path may end in an ellipsis.
     let mut lumen = first_run("welcome-wrap");
     let hint = |l: &Lumen| {
         l.harness

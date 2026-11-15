@@ -1,8 +1,3 @@
-//! Streaming test: real callbacks from a real driver, measured.
-//!
-//! ASIO callbacks carry no user pointer, so the active stream lives in a
-//! process-wide slot. That is inherent to ASIO: one driver per process.
-
 use std::ffi::c_void;
 use std::ptr;
 use std::sync::atomic::{AtomicPtr, AtomicU32, AtomicU64, Ordering};
@@ -16,16 +11,11 @@ use crate::registry;
 
 #[derive(Debug)]
 pub struct StreamOptions {
-    /// Registry key name (case-insensitive) or index from `list`.
     pub driver: String,
     pub seconds: f64,
-    /// Play a -24 dBFS 440 Hz tone on the first two outputs. Off by default.
     pub tone: bool,
-    /// Run the P-ENGINE workload with this many tracks inside the callback.
     pub engine_tracks: u32,
-    /// Override the driver's preferred buffer size.
     pub buffer_size: Option<i32>,
-    /// Channels opened per direction.
     pub channels: usize,
 }
 
@@ -50,7 +40,6 @@ struct Channel {
     sample_type: AsioSampleType,
 }
 
-/// Owned by the callback while streaming; by the main thread otherwise.
 struct State {
     driver: *mut ffi::IAsio,
     frames: usize,
@@ -81,11 +70,9 @@ unsafe extern "C" fn buffer_switch(index: i32, _direct_process: AsioBool) {
     if state.is_null() {
         return;
     }
-    // SAFETY: the main thread does not touch `State` while it is active.
     let state = unsafe { &mut *state };
     let mut position = ffi::AsioSamples::default();
     let mut stamp = ffi::AsioTimeStamp::default();
-    // SAFETY: `state.driver` is the live driver that is calling us.
     let ok = unsafe {
         ((*(*state.driver).vtbl).get_sample_position)(state.driver, &mut position, &mut stamp)
     } == ffi::ASE_OK;
@@ -105,13 +92,11 @@ unsafe extern "C" fn buffer_switch_time_info(
     let position = if params.is_null() {
         None
     } else {
-        // SAFETY: the driver passes a valid AsioTime for the duration of the call.
         let info = unsafe { (*params).time_info };
         let flags = info.flags;
         let sample_position = info.sample_position;
         (flags & ffi::K_SAMPLE_POSITION_VALID != 0).then(|| sample_position.get())
     };
-    // SAFETY: as in `buffer_switch`.
     process(unsafe { &mut *state }, index, position);
     params
 }
@@ -137,7 +122,6 @@ unsafe extern "C" fn asio_message(
                 | ffi::K_ASIO_OVERLOAD
         )),
         ffi::K_ASIO_ENGINE_VERSION => 2,
-        // Handled on the main thread: stop, dispose, recreate, start.
         ffi::K_ASIO_RESET_REQUEST => {
             RESET_REQUESTS.fetch_add(1, Ordering::Release);
             1
@@ -155,13 +139,11 @@ unsafe extern "C" fn asio_message(
             OVERLOADS.fetch_add(1, Ordering::Relaxed);
             0
         }
-        // Buffer-size changes without a reset are declined; drivers then send a reset.
         ffi::K_ASIO_BUFFER_SIZE_CHANGE | ffi::K_ASIO_SUPPORTS_TIME_CODE => 0,
         _ => 0,
     }
 }
 
-/// The audio callback body. Real-time code: checked by the allocation guard.
 fn process(state: &mut State, index: i32, position: Option<u64>) {
     lumen_rt::rt_section(|| {
         let entered = Instant::now();
@@ -186,7 +168,6 @@ fn process(state: &mut State, index: i32, position: Option<u64>) {
         let half = (index & 1) as usize;
         let frames = state.frames;
         for channel in &state.inputs {
-            // SAFETY: driver buffers hold `frames` samples of `sample_type`.
             let peak = unsafe { channel_peak(channel.buffers[half], channel.sample_type, frames) };
             state.input_peak = state.input_peak.max(peak);
         }
@@ -204,19 +185,16 @@ fn process(state: &mut State, index: i32, position: Option<u64>) {
         }
         for (i, channel) in state.outputs.iter().enumerate() {
             let source = (state.tone_step.is_some() && i < 2).then_some(&state.tone_buffer[..]);
-            // SAFETY: as above, for output buffers.
             unsafe { write_channel(channel.buffers[half], channel.sample_type, frames, source) };
         }
 
         if state.use_output_ready {
-            // SAFETY: live driver; outputReady is allowed from the callback.
             unsafe { ((*(*state.driver).vtbl).output_ready)(state.driver) };
         }
         push_bounded(&mut state.durations_ns, entered.elapsed().as_nanos() as u32);
     });
 }
 
-/// Appends only within preallocated capacity, so it never allocates.
 fn push_bounded(values: &mut Vec<u32>, value: u32) {
     if values.len() < values.capacity() {
         values.push(value);
@@ -234,10 +212,6 @@ fn bytes_per_sample(sample_type: AsioSampleType) -> Option<usize> {
     }
 }
 
-/// Writes `source` converted to `sample_type`, or silence if `None`.
-///
-/// # Safety
-/// `buffer` must hold `frames` samples of `sample_type`.
 unsafe fn write_channel(
     buffer: *mut c_void,
     sample_type: AsioSampleType,
@@ -248,14 +222,12 @@ unsafe fn write_channel(
         return;
     };
     let Some(source) = source else {
-        // SAFETY: all-zero bits are silence in every PCM and float format.
         unsafe { ptr::write_bytes(buffer.cast::<u8>(), 0, frames * width) };
         return;
     };
     let scale = |bits: u32| f64::from((1_u32 << (bits - 1)) - 1);
     for (i, &x) in source.iter().take(frames).enumerate() {
         let x = f64::from(x.clamp(-1.0, 1.0));
-        // SAFETY: `i < frames`, so every write stays inside the buffer.
         unsafe {
             match sample_type {
                 ffi::ST_FLOAT32_LSB => buffer.cast::<f32>().add(i).write_unaligned(x as f32),
@@ -288,21 +260,15 @@ unsafe fn write_channel(
                     let v = ((x * scale(24)) as i32).to_le_bytes();
                     ptr::copy_nonoverlapping(v.as_ptr(), buffer.cast::<u8>().add(i * 3), 3);
                 }
-                // Big-endian formats: silence (not used by Windows drivers in practice).
                 _ => ptr::write_bytes(buffer.cast::<u8>().add(i * width), 0, width),
             }
         }
     }
 }
 
-/// Peak absolute level of an input buffer, 0..=1.
-///
-/// # Safety
-/// `buffer` must hold `frames` samples of `sample_type`.
 unsafe fn channel_peak(buffer: *const c_void, sample_type: AsioSampleType, frames: usize) -> f32 {
     let mut peak = 0.0_f64;
     for i in 0..frames {
-        // SAFETY: `i < frames`, so every read stays inside the buffer.
         let x = unsafe {
             match sample_type {
                 ffi::ST_FLOAT32_LSB => f64::from(buffer.cast::<f32>().add(i).read_unaligned()),
@@ -329,7 +295,6 @@ unsafe fn channel_peak(buffer: *const c_void, sample_type: AsioSampleType, frame
     peak as f32
 }
 
-/// Allocates buffers and builds callback state. Main thread, not streaming.
 fn open(driver: &Driver, options: &StreamOptions) -> Result<*mut State, String> {
     let asio = |e| format!("{} ({e})", ffi::error_name(e));
     let (inputs, outputs) = driver.channels().map_err(asio)?;
@@ -371,7 +336,6 @@ fn open(driver: &Driver, options: &StreamOptions) -> Result<*mut State, String> 
     let frames = frames as usize;
     for output in &output_channels {
         for half in output.buffers {
-            // SAFETY: freshly created driver buffers of `frames` samples.
             unsafe { write_channel(half, output.sample_type, frames, None) };
         }
     }
@@ -413,18 +377,14 @@ fn open(driver: &Driver, options: &StreamOptions) -> Result<*mut State, String> 
     Ok(Box::into_raw(Box::new(state)))
 }
 
-/// Stops the driver, detaches the state and frees driver buffers.
 fn close(driver: &Driver, state: *mut State) -> Box<State> {
     let _ = driver.stop();
-    // SAFETY: `state` came from Box::into_raw in `open`.
     let frames_per_second = unsafe { (*state).sample_rate / (*state).frames as f64 };
-    // Let any in-flight callback finish before the state is touched again.
     std::thread::sleep(
         Duration::from_secs_f64(3.0 / frames_per_second) + Duration::from_millis(20),
     );
     ACTIVE.store(ptr::null_mut(), Ordering::Release);
     let _ = driver.dispose_buffers();
-    // SAFETY: no callback can reach `state` any more; ownership returns here.
     unsafe { Box::from_raw(state) }
 }
 

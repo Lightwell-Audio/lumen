@@ -1,9 +1,6 @@
-//! Start-up: `App::new` builds the app from a `Launch`.
-
 use crate::*;
 
 impl App {
-    /// Starts Lumen as `launch` says: from the command line, or a test.
     pub fn new(cc: &eframe::CreationContext<'_>, mut launch: Launch) -> Self {
         let Launch {
             started,
@@ -21,7 +18,6 @@ impl App {
             }
             project
         } else {
-            // The rate chosen for the audio device last time, when there is one.
             empty_project_at(saved.audio.as_ref().and_then(|a| a.sample_rate))
         });
         document.set_undo_limit(saved.editing.undo_steps);
@@ -47,9 +43,6 @@ impl App {
             });
         }
         let mut lanes = lanes::Lanes::default();
-        // `--stress`: every file of the generated project plays the same
-        // generated audio (one copy in memory, one set of peaks), made again
-        // if the device opens at another rate.
         if launch.stress {
             let rate = transport.state().sample_rate;
             let files: Vec<(u64, &str)> = document
@@ -86,8 +79,6 @@ impl App {
                 std::sync::Arc::new(move || ctx.request_repaint()),
             )
         };
-        // The first-run window (M9 R7b): on a first start, never in a run
-        // that drives itself (tests, screenshots, benchmarks), unless asked.
         let welcome = {
             let automated = (launch.smoke_test
                 || launch.stress
@@ -115,7 +106,6 @@ impl App {
                 crate::preset_files::Places::default()
             }
         });
-        // Real folders are shown in the file manager; tests only note them.
         let templates =
             app::templates::Templates::new(matches!(launch.plugins, plugins::Source::System));
         let hosting = match launch.plugins.host_program() {
@@ -290,8 +280,6 @@ impl App {
             callback_bench: launch.callback_bench,
             callback_report: None,
         };
-        // `--scale` and `--appearance` are one-off overrides (tests,
-        // screenshots); they are not saved unless changed in the menu.
         if let Some(scale) = launch.scale {
             app.settings.appearance.ui_scale = scale;
             app.appearance_override = true;
@@ -304,7 +292,6 @@ impl App {
             crate::note_editor::quantize::Options::from_saved(&app.settings.quantize);
         fonts::install(&cc.egui_ctx);
         app.apply_appearance(&cc.egui_ctx);
-        // Requests from later starts wake the window from now on.
         if let Some(instance) = &app.instance {
             instance.attach(&cc.egui_ctx);
         }
@@ -314,16 +301,10 @@ impl App {
             autosave = autosave.with_delay(delay);
         }
         app.autosave = Some(autosave);
-        // Settled for the run: a folder chosen later is used from the next
-        // start.
         app.cache.dir = app.chosen_cache_dir();
         app.restore_place_folder();
-        // Projects open from File Explorer by default (M9 R8, ADR-0117):
-        // registered once the association has been read on a worker, so
-        // start-up never waits on the registry (sweep M4b).
         app.association_status
             .start_registers(app.association.is_system());
-        // `lumen <file>.lumen` (and opening a project from Explorer).
         if let Some(path) = launch.open {
             app.begin_opening(path);
         }

@@ -1,13 +1,3 @@
-//! P-UI prototype: can egui/eframe (wgpu) render Lumen's dense views at
-//! quality-bar scale fast enough, idle at near-zero CPU, start fast and
-//! expose accessible controls? (ADR-0002)
-//!
-//! ```text
-//! ui-stress                     interactive (wheel scrolls, Shift+wheel pans, Ctrl+wheel zooms)
-//! ui-stress --bench             scripted pan/zoom scenarios, vsync off, then idle CPU; prints results
-//! ui-stress --close-after S     interactive, closes itself after S seconds (accessibility probe)
-//! ```
-
 mod data;
 mod gpu;
 mod lumen_host;
@@ -30,9 +20,7 @@ const IDLE_SECONDS: u64 = 10;
 struct Scenario {
     name: &'static str,
     scale: f32,
-    /// Draw notes with the custom wgpu pipeline instead of egui shapes.
     gpu_notes: bool,
-    /// Draw both canvases (and a vector overlay) with `lumen-render`.
     lumen: bool,
     drive: fn(&mut App, f32),
 }
@@ -197,8 +185,6 @@ fn drive_piano_pan(app: &mut App, t: f32) {
 struct Samples {
     interval_ms: Vec<f32>,
     build_ms: Vec<f32>,
-    /// eframe's measure: `App::ui` plus tessellation and rendering of the
-    /// frame, excluding vsync waiting. The true per-frame CPU cost.
     cpu_ms: Vec<f32>,
     arrangement: DrawStats,
     piano: DrawStats,
@@ -324,7 +310,7 @@ impl App {
         for index in first..last {
             let y = area.top() + index as f32 * view.row_h - view.top_px;
             if view.row_h < 18.0 {
-                continue; // too small for controls; the colour strip still shows
+                continue;
             }
             let track = &mut self.tracks[index];
             ui.painter().rect_filled(
@@ -351,7 +337,6 @@ impl App {
                     ),
                     egui::Button::new(&kind[..1]).selected(*state),
                 );
-                // Screen readers hear "Mute Track 12", not "M".
                 let selected = *state;
                 response.widget_info(|| {
                     WidgetInfo::selected(
@@ -372,7 +357,6 @@ impl App {
         if !response.hovered() {
             return;
         }
-        // Ctrl+wheel arrives as egui's zoom factor, not as scroll.
         let (delta, zoom, modifiers, pointer) = ui.input(|i| {
             (
                 i.smooth_scroll_delta,
@@ -412,7 +396,6 @@ impl App {
         else {
             return;
         };
-        // `previous_cpu_ms` belongs to the previous frame of the same scenario.
         if *frame > WARMUP_FRAMES
             && let (Some(interval), Some(cpu)) = (interval_ms, previous_cpu_ms)
         {
@@ -568,12 +551,10 @@ impl eframe::App for App {
                         started.elapsed(),
                     );
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                    // Frames can still arrive before the window closes; report once.
                     self.mode = Mode::Interactive {
                         close_at: Some(Instant::now()),
                     };
                 } else {
-                    // No repaint request: an idle UI must not burn CPU. Wake once at the end.
                     ctx.request_repaint_after(
                         Duration::from_secs(IDLE_SECONDS) - started.elapsed(),
                     );
@@ -688,7 +669,6 @@ fn main() -> eframe::Result {
             .with_inner_size([3_400.0, 1_300.0]),
         ..Default::default()
     };
-    // Ask egui's device for the pipeline cache feature, keeping its defaults.
     if let eframe::egui_wgpu::WgpuSetup::CreateNew(setup) = &mut options.wgpu_options.wgpu_setup {
         let base = setup.device_descriptor.clone();
         setup.device_descriptor = std::sync::Arc::new(move |adapter| {
@@ -699,7 +679,6 @@ fn main() -> eframe::Result {
         });
     }
     if matches!(mode, Mode::Bench { .. }) {
-        // Uncapped presentation, so frame intervals show cost rather than refresh rate.
         options.wgpu_options.surface.present_mode = eframe::wgpu::PresentMode::AutoNoVsync;
     }
     eframe::run_native(

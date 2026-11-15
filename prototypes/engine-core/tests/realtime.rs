@@ -1,6 +1,3 @@
-//! P-ENGINE pass criteria: no heap traffic on the audio side, bit-identical
-//! output for any block size, inaudible swaps of an unchanged graph.
-
 use engine_core::{Command, Graph, engine, test_source, test_tracks};
 use lumen_rt::{count_rt_violations, guard_is_active};
 
@@ -16,7 +13,6 @@ fn session(tracks: u32) -> Graph {
     )
 }
 
-/// Renders `frames` samples in blocks of `block` and returns interleaved output.
 fn render(graph: Graph, frames: usize, block: usize) -> Vec<f32> {
     let (_handle, mut engine) = engine(graph);
     let mut out = Vec::with_capacity(frames * 2);
@@ -41,7 +37,6 @@ fn process_never_touches_the_heap() {
     let (mut left, mut right) = (vec![0.0; 128], vec![0.0; 128]);
 
     for block in 0..2_000 {
-        // UI-side work happens outside the real-time section, as in the app.
         if block % 100 == 50 {
             handle.replace_graph(session(64)).expect("graph queue full");
         }
@@ -138,7 +133,7 @@ fn live_gain_command_reaches_the_track() {
             gain: 0.0,
         })
         .unwrap();
-    engine.process(&mut left, &mut right); // smoother settles within this block
+    engine.process(&mut left, &mut right);
     engine.process(&mut left, &mut right);
     let quiet: f32 = left.iter().map(|s| s * s).sum();
     assert!(

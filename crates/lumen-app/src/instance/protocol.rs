@@ -1,39 +1,24 @@
-//! What later starts and the instance say to each other: one line each
-//! way, at most 64 KiB, starting with the protocol's name and version.
-
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::time::Instant;
 
-/// The protocol's name and version: a line that does not start with it is
-/// refused.
 const MAGIC: &str = "LUMEN-INSTANCE 1";
-/// The longest line either side reads.
 pub(crate) const MAX: usize = 64 * 1024;
 
-/// What a later start asks.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Request {
-    /// Open this project (an absolute path).
     Open(PathBuf),
-    /// Only come to the front.
     Show,
 }
 
-/// What the instance answers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Reply {
-    /// The window took the request.
     Accepted,
-    /// It refused it, saying why.
     Rejected(String),
-    /// The window did not take it in time.
     NotAnswering,
 }
 
 impl Request {
-    /// The line for this request; `None` for a path that cannot be sent
-    /// (not valid UTF-8, or holding a line break).
     pub(crate) fn encode(&self) -> Option<Vec<u8>> {
         let line = match self {
             Request::Show => format!("{MAGIC} show\n"),
@@ -86,8 +71,6 @@ impl Reply {
     }
 }
 
-/// Reads one line (through its `\n`), at most [`MAX`] bytes, before
-/// `deadline`. The reader's own timeouts end a stalled read.
 pub(crate) fn read_line(reader: &mut impl Read, deadline: Instant) -> io::Result<Vec<u8>> {
     let mut line = Vec::new();
     let mut chunk = [0u8; 4096];
@@ -107,9 +90,6 @@ pub(crate) fn read_line(reader: &mut impl Read, deadline: Instant) -> io::Result
     Ok(line)
 }
 
-/// Serves one connection: reads a request, hands it to `deliver`, writes
-/// the reply. A request that cannot be read is answered with a refusal
-/// when it can be.
 pub(crate) fn serve(
     conn: &mut (impl Read + Write),
     deliver: &dyn Fn(Request) -> Reply,
@@ -129,7 +109,6 @@ pub(crate) fn serve(
     conn.flush()
 }
 
-/// Sends `request` on `conn` and reads the reply before `deadline`.
 pub(crate) fn ask(
     conn: &mut (impl Read + Write),
     request: &Request,
@@ -183,7 +162,6 @@ mod tests {
         assert!(Reply::decode(b"LUMEN-INSTANCE 1 maybe\n").is_err());
     }
 
-    /// A connection: what the other side wrote, and what this side writes.
     struct Pipe {
         input: std::io::Cursor<Vec<u8>>,
         output: Vec<u8>,

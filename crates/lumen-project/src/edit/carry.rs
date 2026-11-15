@@ -1,24 +1,9 @@
-//! Automation that follows clips (M7 slice A7, the owner's E3): when a clip is
-//! moved, copied or deleted and the song does not lock envelopes, the points
-//! of the track's lanes under the clip go with it, are copied with it, or go
-//! away with it. Pure edits over the model; the app wraps each in the same
-//! undo step as the clip edit.
-//!
-//! A clip's footprint is `[start, start + length)`. Moved points land in the
-//! destination footprint, which they first clear (as a clip put down cuts away
-//! what it covers). A lane the points leave empty is taken away. Across tracks
-//! only the values every track has go (volume, pan, trim, mute) and the sends
-//! the destination makes; a plugin's parameters go only with a clip that stays
-//! on its track.
-
 use lumen_core::automation::{Lane, Point};
 use lumen_core::time::Ticks;
 
 use crate::automation::{AutomationLane, MAX_LANES, Target};
 use crate::model::{Id, Project, Track};
 
-/// One clip's journey: from `span` on `from`, to the same length `by` later on
-/// `to`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Carry {
     pub from: Id,
@@ -27,13 +12,10 @@ pub struct Carry {
     pub by: Ticks,
 }
 
-/// Whether the lane for `target` can go from track `from` to track `to`.
 fn goes(target: Target, from: &Track, to: &Track) -> bool {
     from.id == to.id || goes_between(target, to)
 }
 
-/// Whether the lane for `target` of some other track can land on `to`: the
-/// values every track has, and the sends `to` makes.
 pub(crate) fn goes_between(target: Target, to: &Track) -> bool {
     match target {
         Target::Volume | Target::Pan | Target::Trim | Target::Mute => true,
@@ -45,7 +27,6 @@ pub(crate) fn goes_between(target: Target, to: &Track) -> bool {
     }
 }
 
-/// `lane` without the points in `[a, b)`, and those points.
 pub fn lift(lane: &Lane, a: Ticks, b: Ticks) -> (Lane, Vec<Point>) {
     let (inside, outside): (Vec<Point>, Vec<Point>) = lane
         .points()
@@ -55,8 +36,6 @@ pub fn lift(lane: &Lane, a: Ticks, b: Ticks) -> (Lane, Vec<Point>) {
     (Lane::new(outside).unwrap_or_default(), inside)
 }
 
-/// `lane` with the points in `[a, b)` cleared and `points` put in. `None` when
-/// the result is not a lane (points out of order, or too many).
 pub fn lay(lane: &Lane, (a, b): (Ticks, Ticks), points: &[Point]) -> Option<Lane> {
     let mut all: Vec<Point> = lane
         .points()
@@ -77,8 +56,6 @@ fn track_mut(project: &mut Project, id: Id) -> Option<&mut Track> {
         .map(std::sync::Arc::make_mut)
 }
 
-/// What a carry takes: for each lane of `from` that can go, its points in the
-/// span.
 type Taken = Vec<(Target, Vec<Point>)>;
 
 fn gather(project: &Project, c: &Carry) -> Taken {
@@ -99,9 +76,6 @@ fn gather(project: &Project, c: &Carry) -> Taken {
         .collect()
 }
 
-/// Moves (`keep` false) or copies (`keep` true) the points under each carry's
-/// span to where the clip goes. Every carry reads the lanes as they were, so
-/// moving clips past one another loses nothing.
 pub fn carry(project: &mut Project, carries: &[Carry], keep: bool) {
     let taken: Vec<(Carry, Taken)> = carries.iter().map(|c| (*c, gather(project, c))).collect();
     if !keep {
@@ -148,7 +122,6 @@ pub fn carry(project: &mut Project, carries: &[Carry], keep: bool) {
     }
 }
 
-/// Takes away the points under the spans of deleted clips.
 pub fn remove(project: &mut Project, spans: &[(Id, Ticks, Ticks)]) {
     for &(id, a, b) in spans {
         let Some(track) = track_mut(project, id) else {
@@ -217,7 +190,6 @@ mod tests {
         assert_eq!(rest.len(), 2);
         let back = lay(&rest, (q(2), q(5)), &taken).unwrap();
         assert_eq!(back, l);
-        // Laying clears what is in the way.
         let over = lay(&l, (q(2), q(5)), &[Point::new(q(4), 9.0)]).unwrap();
         assert_eq!(over.len(), 3);
         assert_eq!(over.points()[1].value, 9.0);
@@ -226,7 +198,6 @@ mod tests {
     #[test]
     fn a_moved_clip_takes_the_points_under_it_and_leaves_the_rest() {
         let mut p = two_tracks();
-        // The clip spans quarters 4 to 8 and moves 10 later on its own track.
         carry(
             &mut p,
             &[Carry {
@@ -241,7 +212,6 @@ mod tests {
             points_of(&p, Id(1), Target::Volume),
             vec![(0, -6.0), (9, 0.0), (15, -12.0)]
         );
-        // The plugin parameter went with it too.
         let device = Target::Device {
             device: Id(50),
             param: 3,
@@ -267,7 +237,6 @@ mod tests {
             points_of(&p, Id(1), Target::Volume),
             vec![(0, -6.0), (9, 0.0)]
         );
-        // The plugin's parameter stays where its plugin is.
         let device = Target::Device {
             device: Id(50),
             param: 3,
@@ -289,7 +258,6 @@ mod tests {
             }],
             true,
         );
-        // The copy lands on 8 to 12 and replaces the point at 9.
         assert_eq!(
             points_of(&p, Id(1), Target::Volume),
             vec![(0, -6.0), (5, -12.0), (9, -12.0)]
@@ -323,7 +291,6 @@ mod tests {
             ])
             .unwrap(),
         )];
-        // Two clips, quarters 0 to 4 and 4 to 8, swap places.
         carry(
             &mut p,
             &[

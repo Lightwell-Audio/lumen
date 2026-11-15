@@ -1,7 +1,3 @@
-//! Undo and redo (M3 slice 3b): the shortcuts, the History window, the
-//! short note after each step, and keeping the transport in step with the
-//! document.
-
 use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Align2, RichText, pos2, vec2};
@@ -10,9 +6,7 @@ use crate::widgets::Dialog;
 use crate::{App, motion, theme, trace, widgets};
 
 impl App {
-    /// Undo (or redo) one step, with a brief note of what changed.
     pub(crate) fn undo(&mut self, redo: bool) {
-        // What it changes glides back and is washed in the accent (M4.5).
         self.arrangement.note_undo();
         let done = if redo {
             self.document.redo().map(|l| format!("Redo: {l}"))
@@ -25,15 +19,8 @@ impl App {
         }
     }
 
-    /// Keeps the app in step with the document: gestures end when the
-    /// pointer is released (or the wheel rests on a control), and the
-    /// transport follows tempo and meter changes from edits, undo and redo.
     pub(crate) fn sync_document(&mut self, ctx: &egui::Context) {
-        // A recording commits its growing take as one step, so the gesture
-        // stays open while it runs (it is sealed the frame it ends); so does a
-        // lane pass written in parts, and a tap tempo run.
         let tapping = self.tap_run_open(ctx);
-        // A drag in a pop-out editor's window is held by that window's pointer.
         let popped_down = std::mem::take(&mut self.popped_pointer_down);
         if !self.is_recording()
             && !self.lane_commits.writing()
@@ -57,8 +44,6 @@ impl App {
         }
     }
 
-    /// The undo history: every step, the current one highlighted; click a
-    /// step to go back (or forward) to it.
     pub(crate) fn history_window(&mut self, ctx: &egui::Context) {
         if !self.show_history {
             return;
@@ -107,11 +92,6 @@ impl App {
         }
     }
 
-    /// A short note after undo, redo, save or open, fading out after a
-    /// moment. One line in the arrangement's top-right corner, under the
-    /// ruler, clear of where clips usually are. A note is always read in
-    /// full: past the maximum width it wraps onto more lines, never an
-    /// ellipsis. `at` is that corner.
     pub(crate) fn toast(&mut self, ctx: &egui::Context, at: egui::Pos2) {
         let Some((text, since)) = &self.toast else {
             return;
@@ -135,7 +115,6 @@ impl App {
             .x;
         egui::Area::new(egui::Id::new("toast area"))
             .pivot(egui::Align2::RIGHT_TOP)
-            // Drops in from just above, and lifts away as it fades.
             .fixed_pos(at - vec2(0.0, (1.0 - fade) * 6.0))
             .interactable(false)
             .show(ctx, |ui| {
@@ -144,7 +123,6 @@ impl App {
                     .inner_margin(egui::Margin::symmetric(10, 5))
                     .show(ui, |ui| {
                         ui.set_width(natural.min(MAX_WIDTH));
-                        // Never cut short: a long note wraps onto more lines.
                         ui.add(egui::Label::new(RichText::new(text).font(font)).wrap());
                     });
             });

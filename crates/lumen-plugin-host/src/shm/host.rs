@@ -1,5 +1,3 @@
-//! The host process's end of the audio path.
-
 use std::io;
 use std::sync::Arc;
 #[cfg(not(target_os = "macos"))]
@@ -10,13 +8,10 @@ use super::region::{Answer, Layout, Region};
 use super::sys::{Names, Signal};
 use super::{Waiting, Wake};
 
-/// How long a wait on the signal lasts before the loop looks at the quit flag
-/// again. Only a bound on how long a quit goes unnoticed.
 #[cfg(not(target_os = "macos"))]
 const LOOK: Duration = Duration::from_millis(100);
 
 pub enum Next {
-    /// A block was published with this sequence number.
     Block(u64),
     Quit,
 }
@@ -29,7 +24,6 @@ pub struct HostLink {
     seen: u64,
 }
 
-/// Ends a [`HostLink`]'s loop from another thread.
 #[derive(Clone)]
 pub struct Stopper {
     region: Arc<Region>,
@@ -44,7 +38,6 @@ impl Stopper {
 }
 
 impl HostLink {
-    /// Opens what Lumen made.
     pub fn open(base: &str, layout: Layout, wake: Wake) -> io::Result<(Self, Stopper)> {
         let names = Names::new(base);
         let region = Arc::new(Region::open(&names.region, layout)?);
@@ -74,7 +67,6 @@ impl HostLink {
         self.region.set_ready();
     }
 
-    /// Waits for the next block, as the link's [`Wake`] says.
     pub fn wait_for_block(&mut self) -> Next {
         let entered = Instant::now();
         loop {
@@ -105,8 +97,6 @@ impl HostLink {
     fn wait_for_request(&self) {
         #[cfg(target_os = "macos")]
         {
-            // Requests and Stopper both post after publishing their state.
-            // Parent death is independently covered by the process watcher.
             if self.go.wait_for_post().is_err() {
                 crate::process::log("the worker's semaphore wait failed");
                 crate::process::end_now(1);
@@ -116,7 +106,6 @@ impl HostLink {
         self.go.wait(LOOK);
     }
 
-    /// Publishes the answer and wakes Lumen if it is waiting on a signal.
     pub fn finish(&self, answer: &Answer, frames: u32, output: &[Vec<f32>]) {
         self.region.finish(answer, frames, output);
         if self.wake.lumen.needs_signal() {

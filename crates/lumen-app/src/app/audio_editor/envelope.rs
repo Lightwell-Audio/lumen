@@ -1,15 +1,3 @@
-//! A clip's envelope in the audio editor (M9.5 S2b, D20 and the owner's DR
-//! A): the Gain and Pan pills show one envelope over the wave, and the
-//! arrangement's lane gestures edit it. Pointer adds, picks and moves points
-//! (Shift picks several or a box); Draw is the pencil, thinned as it goes.
-//! The trim grips and fade handles stay live, and Ctrl reaches the wave's
-//! own gestures. The editor keeps its own gesture, picks and hover
-//! (`AudioEditor::hands`), so the arrangement's lanes keep theirs.
-//!
-//! A point is drawn where it is heard (`auto_view::EnvelopeClock`): at its
-//! seconds from the clock the engine reads it on, measured from the origin
-//! the editor lays the file from.
-
 use std::sync::Arc;
 
 use eframe::egui::{
@@ -35,15 +23,12 @@ use crate::theme;
 use crate::timeview::TimeView;
 
 impl App {
-    /// The envelope the pills show for `clip`: its track and target.
     pub(super) fn envelope_target(&self, ed: &AudioEditor, clip: Id) -> Option<(Id, Target)> {
         let kind = ed.pill?;
         let (_, track) = self.clip_track_index(clip)?;
         Some((track, Target::envelope(clip, kind)))
     }
 
-    /// The envelope's frame over the wave in `body`: its values fill the
-    /// wave's height, and its points are drawn where they are heard.
     pub(crate) fn envelope_frame(&self, clip: &Clip, body: Rect, time: TimeView) -> Frame {
         let tempo = self.transport.timeline.tempo.clone();
         let (clock, origin_seconds) = match clip_loop::turn(&tempo, clip) {
@@ -61,10 +46,6 @@ impl App {
         frame
     }
 
-    /// The envelope's pointer work, before the wave's: returns whether it
-    /// took a press, a click or a drag. A press on a trim grip or fade
-    /// handle, or with Ctrl, is left to the wave. Over the envelope it says
-    /// what it does (`envelope_hover`), and the wave says nothing.
     pub(super) fn envelope_pointer(
         &mut self,
         response: &Response,
@@ -191,7 +172,6 @@ impl App {
         false
     }
 
-    /// A drag past the wave's side scrolls the view (D29), as a trim does.
     fn envelope_edge_scroll(
         &mut self,
         ctx: &egui::Context,
@@ -210,8 +190,6 @@ impl App {
         }
     }
 
-    /// The envelope over the wave: a wash over the part it applies to, the
-    /// rest line, its curve and its points.
     pub(super) fn paint_envelope(
         &self,
         painter: &Painter,
@@ -226,7 +204,6 @@ impl App {
         let body = frame.row;
         let palette = theme::p();
         let ink = palette.accent;
-        // The part the envelope applies to: one turn of a loop, or the clip.
         let (a, b) = if clip.loop_length.is_some_and(|p| p > Ticks::ZERO) {
             file.loop_window
         } else {
@@ -280,10 +257,6 @@ impl App {
         }
     }
 
-    /// The envelope's keyboard stop (D28): Ctrl with Left or Right picks the
-    /// point before or after, the arrows move the picked one, Delete takes it
-    /// away, and Enter adds a point at the cursor, or the playhead, holding
-    /// the envelope's value there. Each press is one undo step.
     pub(super) fn envelope_keys(
         &mut self,
         clip: &Clip,
@@ -302,7 +275,6 @@ impl App {
             }))
         };
         for &(key, mods) in keys {
-            // Read again each press: the one before may have changed them.
             let lane = self.lane_points_of(track, target);
             let count = lane.as_ref().map_or(0, |l| l.len());
             let picked = ed
@@ -369,8 +341,6 @@ impl App {
         }
     }
 
-    /// Moves point `index` of `lane` by a grid step in the editor's time
-    /// (`time`, earlier is negative) and a step of its height (`value`).
     fn nudge_envelope_point(
         &mut self,
         frame: &Frame,
@@ -419,25 +389,20 @@ impl App {
         }
     }
 
-    /// Lights a pill, or puts it out: one envelope at a time.
     pub(crate) fn audio_editor_pill(&mut self, kind: Kind) {
         self.audio_editor.toggle_pill(kind);
     }
 
-    /// B in the editor: Pointer and Draw. Draw with no pill lit lights Gain,
-    /// so the pencil always works (DR A).
     pub(crate) fn audio_editor_toggle_draw(&mut self) {
         self.audio_editor.toggle_draw();
     }
 }
 
 impl App {
-    /// The editor's envelope has picked points.
     pub(crate) fn audio_envelope_picked(&self) -> bool {
         self.audio_editor.pill.is_some() && self.audio_editor.hands.picks.is_some()
     }
 
-    /// Takes the editor's picked envelope points away (Delete).
     pub(crate) fn audio_envelope_delete(&mut self) {
         let Some(picks) = self.audio_editor.hands.picks.take() else {
             return;

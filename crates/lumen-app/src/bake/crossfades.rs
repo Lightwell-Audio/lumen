@@ -1,65 +1,29 @@
-//! Crossfades between audio clips that touch (M7b E2, ADR-0094). A crossfade
-//! is two overlapping stretches of sound: the outgoing clip fades out while
-//! the incoming one fades in. What is drawn, what is edited and what is heard
-//! all come from the same place, [`played`].
-//!
-//! **A crossfade made by hand** belongs to the incoming clip: `crossfade` is
-//! set and `fade_in.length` is how long it lasts. The clips meet at the end
-//! of the crossfade (the incoming clip *starts* there, as the owner asked),
-//! and the crossfade runs over the last stretch of the outgoing clip, against
-//! the audio the incoming clip keeps hidden before its start. Dragging the
-//! outgoing clip's fade-out handle over the next clip makes one: the outgoing
-//! clip is extended by that much and the incoming one trimmed by it
-//! (`Document::crossfade_across`).
-//!
-//! **An automatic crossfade** (a project setting) blends 5 ms across a join of
-//! unrelated audio, so it never clicks. It has no hidden head to use, so it
-//! runs the other way: over the outgoing clip's hidden tail past the join.
-//! It is played but not drawn.
-//!
-//! Joins where the two clips continue the same audio (a split) are *seamless*:
-//! a crossfade there is shown, but blending identical sound would only make
-//! it louder, so the sound is left alone.
-//!
-//! This runs off the audio thread; the engine bounds the lengths again
-//! against the audio it holds, which may have been resampled.
-
 use std::collections::HashMap;
 
 use lumen_core::fade::Fade;
 use lumen_core::time::{TempoMap, Ticks};
 use lumen_project::model::{Clip, ClipContent, Id, Media, Project};
 
-/// Where a crossfade lies against the incoming clip's start.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Zone {
-    /// Before it, over the end of the outgoing clip (a crossfade by hand).
     Before,
-    /// After it, over the outgoing clip's hidden tail (an automatic one).
     After,
 }
 
-/// A crossfade into an incoming clip.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Crossing {
-    /// The outgoing clip.
     pub left: Id,
-    /// How long it lasts, and its curve.
     pub fade: Fade,
     pub zone: Zone,
-    /// The two clips continue the same audio: shown, never played.
     pub seamless: bool,
 }
 
-/// A clip as it is heard, and which of its fades are halves of a crossfade
-/// (the in and the out).
 #[derive(Debug, Clone)]
 pub(crate) struct Played {
     pub clip: Clip,
     pub blend: [bool; 2],
 }
 
-/// The file an audio clip plays, its offset into it and its rate.
 fn audio(clip: &Clip) -> Option<Id> {
     match clip.content {
         ClipContent::Audio { media, .. } => Some(media),
@@ -67,7 +31,6 @@ fn audio(clip: &Clip) -> Option<Id> {
     }
 }
 
-/// The clip that ends where `clip` starts on `track`, if any.
 fn before<'a>(clips: &'a [std::sync::Arc<Clip>], clip: &Clip) -> Option<&'a Clip> {
     clips
         .iter()
@@ -75,8 +38,6 @@ fn before<'a>(clips: &'a [std::sync::Arc<Clip>], clip: &Clip) -> Option<&'a Clip
         .find(|c| c.id != clip.id && c.start + c.length == clip.start && c.length > Ticks::ZERO)
 }
 
-/// The crossfade into `clip`, if it makes one with the clip before it on
-/// `track`.
 pub(crate) fn crossing(project: &Project, track: Id, clip: &Clip) -> Option<Crossing> {
     if !clip.crossfade && !project.auto_crossfade {
         return None;
@@ -98,9 +59,6 @@ fn sources<'a>(project: &'a Project, a: &Clip, b: &Clip) -> HashMap<Id, &'a Medi
         .collect()
 }
 
-/// The crossfade that starts at the end of `left`, as `left`'s fade-out
-/// handle shows it: the incoming clip and its crossfade, when one is made by
-/// hand.
 pub(crate) fn outgoing(project: &Project, track: Id, left: &Clip) -> Option<(Id, Crossing)> {
     let track = project.tracks.iter().find(|t| t.id == track)?;
     let end = left.start + left.length;
@@ -112,9 +70,6 @@ pub(crate) fn outgoing(project: &Project, track: Id, left: &Clip) -> Option<(Id,
     (crossing.left == left.id && crossing.zone == Zone::Before).then_some((next.id, crossing))
 }
 
-/// The longest crossfade into `clip` its two clips have audio for: not more
-/// than the outgoing clip's length nor the audio `clip` keeps before its
-/// start. Zero when it has no clip to cross from.
 pub(crate) fn room(project: &Project, track: Id, clip: &Clip) -> Ticks {
     let Some(track) = project.tracks.iter().find(|t| t.id == track) else {
         return Ticks::ZERO;
@@ -131,24 +86,17 @@ pub(crate) fn room(project: &Project, track: Id, clip: &Clip) -> Ticks {
     left.length.min(hidden(&tempo, source, clip))
 }
 
-/// How much of `clip`'s audio lies before its start.
 fn hidden(tempo: &TempoMap, source: &Media, clip: &Clip) -> Ticks {
     let ClipContent::Audio { offset, .. } = clip.content else {
         return Ticks::ZERO;
     };
     if let Some(warp) = &clip.warp {
-        // The map says where the file's first second plays: before the start
-        // by that much, or at or after it, with nothing hidden.
         return Ticks::ZERO - warp.first_tick().min(Ticks::ZERO);
     }
     let origin = offset as f64 / f64::from(source.sample_rate.max(1)) + clip.audio_phase_seconds;
     clip.start - tempo.ticks_at_seconds((tempo.seconds_at(clip.start) - origin).max(0.0))
 }
 
-/// A temporary clip for handles and hit testing, with what a crossfade
-/// replaces taken out and put where it is shown: the incoming clip has no
-/// fade-in of its own, and the outgoing clip's fade-out is the crossfade
-/// (`crossfade` marks it). Never persisted.
 pub(crate) fn preview(project: &Project, track: Id, clip: &Clip) -> Clip {
     let mut shown = clip.clone();
     shown.crossfade = false;
@@ -162,10 +110,6 @@ pub(crate) fn preview(project: &Project, track: Id, clip: &Clip) -> Clip {
     shown
 }
 
-/// The audio clip that starts where `left` ends on the same track: the one a
-/// crossfade dragged from `left`'s fade-out handle is made with. Both clips
-/// must be unlocked audio, and the next one must not loop (its hidden start
-/// is what the crossfade uses).
 pub(crate) fn incoming(project: &Project, left: Id) -> Option<Id> {
     let track = project
         .tracks
@@ -190,11 +134,6 @@ pub(crate) fn incoming(project: &Project, left: Id) -> Option<Id> {
         .map(|c| c.id)
 }
 
-/// Every clip the crossfades change, as it is heard (by clip id): the
-/// outgoing clip with its fade-out, and the incoming one with its fade-in
-/// (and, for a crossfade by hand, its hidden start brought in). Seamless
-/// joins change nothing. The arrangement draws these clips' waves and the
-/// engine plays them; the project's clips stay where they are shown.
 pub(crate) fn played(project: &Project) -> HashMap<Id, Played> {
     let mut out: HashMap<Id, Played> = HashMap::new();
     let Ok(tempo) = TempoMap::new(project.tempo.clone()) else {
@@ -243,8 +182,6 @@ pub(crate) fn played(project: &Project) -> HashMap<Id, Played> {
                 c.start = c.start - d;
                 c.length = c.length + d;
                 if let Some(warp) = c.warp.as_mut() {
-                    // The map follows the earlier start; the file position
-                    // there is read off it.
                     warp.shift(d);
                     lumen_project::edit::warp::anchor(project, c);
                 } else {
@@ -265,7 +202,6 @@ fn resolve(
     clip: &Clip,
 ) -> Option<Crossing> {
     let explicit = clip.crossfade;
-    // An explicit handle dragged to zero overrides the automatic default.
     if explicit && clip.fade_in.length <= Ticks::ZERO {
         return None;
     }
@@ -287,8 +223,6 @@ fn resolve(
         left_offset as f64 / f64::from(source.sample_rate.max(1)) + left.audio_phase_seconds;
     let right_origin =
         offset as f64 / f64::from(incoming.sample_rate.max(1)) + clip.audio_phase_seconds;
-    // Two warped clips carry on when the second's map is the first's seen
-    // from its own start; one warped and one not never do.
     let same_flow = match (&left.warp, &clip.warp) {
         (None, None) => (left_origin + duration - right_origin).abs() < 1e-7,
         (Some(a), Some(b)) => a.continues(b, clip.start - left.start),
@@ -300,8 +234,6 @@ fn resolve(
         && left.reversed == clip.reversed
         && same_flow;
     if explicit {
-        // The crossfade runs over the audio the incoming clip keeps before
-        // its start, so it needs some, and a clip that does not loop.
         if clip.loop_length.is_some() {
             return None;
         }
@@ -321,8 +253,6 @@ fn resolve(
             seamless: contiguous,
         });
     }
-    // Automatic: only where the two are not the same sound, nothing of the
-    // user's own fades is overridden, and the outgoing clip has a tail.
     if !auto
         || contiguous
         || clip.fade_in.length > Ticks::ZERO
@@ -336,8 +266,6 @@ fn resolve(
     let begins = tempo.seconds_at(clip.start);
     let wanted = tempo.ticks_at_seconds(begins + 0.005) - clip.start;
     let tail = match &left.warp {
-        // Song time the map takes to run out of file past the clip's end:
-        // fast spans use the file up faster than the tempo says.
         Some(warp) => {
             let tail = warp.last_tick(file_seconds) - left.length;
             if tail <= Ticks::ZERO {
@@ -370,11 +298,6 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
-    /// Two audio clips on one track, `left` from beat 0 to 2 and `right`
-    /// from beat 2 to 4, of an eight-beat file at 120 BPM (48,000 frames a
-    /// beat pair). `right` starts a beat into the file, so it keeps a beat
-    /// of audio before its start. Not a split: the left clip's sound at its
-    /// end is the file's start again.
     fn pair() -> Project {
         let mut project = lumen_project::testing::small_project(1);
         project.auto_crossfade = false;
@@ -418,8 +341,6 @@ mod tests {
         let mut right = left.clone();
         right.id = Id(100_000);
         right.start = Ticks::quarters(2);
-        // A beat (0.5 s) into the file, which is not where the left clip's
-        // sound ends (1 s in the file): a join of unrelated sound.
         right.content = ClipContent::Audio {
             media,
             offset: 12_000,
@@ -451,8 +372,6 @@ mod tests {
         assert_eq!(found.fade.length, Ticks(Ticks::quarters(1).0 / 4));
         assert!(!found.seamless);
 
-        // Heard: both clips overlap for the crossfade, which ends where the
-        // right clip starts.
         let played = played(&p);
         let (out, inc) = (&played[&p.tracks[0].clips[0].id], &played[&right.id]);
         assert_eq!(out.clip.start + out.clip.length, right.start);
@@ -461,7 +380,6 @@ mod tests {
         assert_eq!(inc.clip.length, right.length + found.fade.length);
         assert_eq!(inc.clip.fade_in.length, found.fade.length);
         assert_eq!((out.blend, inc.blend), ([false, true], [true, false]));
-        // The incoming clip's sound is unmoved: its hidden start is brought in.
         let tempo = TempoMap::new(p.tempo.clone()).unwrap();
         let shift = tempo.seconds_at(right.start) - tempo.seconds_at(inc.clip.start);
         assert!((inc.clip.audio_phase_seconds - (right.audio_phase_seconds - shift)).abs() < 1e-9);
@@ -472,11 +390,9 @@ mod tests {
         let mut p = pair();
         let id = p.tracks[0].id;
         by_hand(&mut p, Ticks::quarters(4));
-        // The right clip keeps 12,000 frames (a quarter second, half a beat).
         let right = p.tracks[0].clips[1].clone();
         let found = crossing(&p, id, &right).unwrap();
         assert_eq!(found.fade.length, Ticks(Ticks::quarters(1).0 / 2));
-        // With none hidden there is nothing to blend, and nothing is made.
         let right = right_mut(&mut p);
         right.content = ClipContent::Audio {
             media: audio(right).unwrap(),
@@ -486,9 +402,7 @@ mod tests {
         let right = p.tracks[0].clips[1].clone();
         assert!(crossing(&p, id, &right).is_none());
         assert!(played(&p).is_empty());
-        // The stale request is not shown either.
         assert_eq!(preview(&p, id, &right).fade_in.length, Ticks::ZERO);
-        // Zero turns it off.
         let mut p = pair();
         by_hand(&mut p, Ticks::ZERO);
         let right = p.tracks[0].clips[1].clone();
@@ -513,7 +427,6 @@ mod tests {
     fn a_crossfade_across_a_split_is_shown_but_changes_nothing_heard() {
         let mut p = pair();
         let id = p.tracks[0].id;
-        // The right half continues the left's sound (a plain split).
         let right = right_mut(&mut p);
         right.content = ClipContent::Audio {
             media: audio(right).unwrap(),
@@ -561,9 +474,6 @@ mod tests {
         let mut p = pair();
         p.auto_crossfade = true;
         let id = p.tracks[0].id;
-        // The left clip (two beats, one second at 120 BPM) ends 4 ms of file
-        // from the file's end, which its map then spends at four times the
-        // speed: 1 ms of song, 2,822 ticks, and not the 4 ms the tempo says.
         let two = Ticks::quarters(2);
         let mut warp = Warp::new(120.0, 6.996);
         warp.markers = vec![
@@ -580,7 +490,6 @@ mod tests {
             "{:?}",
             found.fade.length
         );
-        // A map that has used the file up leaves nothing to blend over.
         let mut spent = Warp::new(120.0, 7.0);
         spent.markers = vec![lumen_core::warp::Marker::new(7.0, Ticks::ZERO)];
         spent
@@ -613,7 +522,6 @@ mod tests {
             "the right clip stays"
         );
         assert_eq!(played[&right.id].clip.fade_in.length, found.fade.length);
-        // Its own fades, no tail, a split, and the setting all win.
         right_mut(&mut p).fade_in.length = Ticks(10);
         let right = p.tracks[0].clips[1].clone();
         assert!(crossing(&p, id, &right).is_none());
@@ -630,8 +538,6 @@ mod tests {
         assert!(crossing(&p, id, &right).is_none(), "no audio past the end");
     }
 
-    /// Warps `left` and `right` of [`pair`] at the file's own tempo, so the
-    /// maps say what the plain clips did.
     fn warped_pair(p: &mut Project) {
         for index in [0, 1] {
             let clip = (*p.tracks[0].clips[index]).clone();
@@ -646,12 +552,10 @@ mod tests {
         warped_pair(&mut p);
         by_hand(&mut p, Ticks::quarters(4));
         let id = p.tracks[0].id;
-        // Half a beat of the file lies before the right clip's start.
         let right = p.tracks[0].clips[1].clone();
         let found = crossing(&p, id, &right).unwrap();
         assert_eq!(found.fade.length, Ticks(Ticks::quarters(1).0 / 2));
         assert!(!found.seamless, "unrelated sound");
-        // The incoming clip is brought in earlier: its map moves with it.
         let heard = &played(&p)[&right.id].clip;
         let (was, now) = (right.warp.as_ref().unwrap(), heard.warp.as_ref().unwrap());
         assert!((now.source_at(Ticks::ZERO) - (was.source_at(Ticks::ZERO) - 0.25)).abs() < 1e-9);
@@ -662,7 +566,6 @@ mod tests {
     fn a_split_of_a_warped_clip_is_seamless_and_a_warped_next_to_a_plain_one_is_not() {
         let mut p = pair();
         let id = p.tracks[0].id;
-        // One warped clip, split in two at beat 2: the maps carry on.
         let left = (*p.tracks[0].clips[0]).clone();
         let mut whole = left.clone();
         whole.length = Ticks::quarters(4);
@@ -685,7 +588,6 @@ mod tests {
         right.fade_in.length = Ticks(Ticks::quarters(1).0 / 4);
         let right = p.tracks[0].clips[1].clone();
         assert!(crossing(&p, id, &right).unwrap().seamless);
-        // A plain clip beside a warped one is a join of different sound.
         Arc::make_mut(&mut Arc::make_mut(&mut p.tracks[0]).clips[1]).warp = None;
         let right = p.tracks[0].clips[1].clone();
         assert!(!crossing(&p, id, &right).is_some_and(|c| c.seamless));

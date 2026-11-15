@@ -1,12 +1,9 @@
-//! Revert to saved (M9 slice R4, ADR-0105).
-
 use eframe::egui::{Event, Key, Modifiers};
 use lumen_app::testing::project_file;
 
 use super::Lumen;
 use super::copies::{command, with_outside_audio};
 
-/// A saved project of one track with a second track added since: unsaved.
 fn saved_then_changed(name: &str) -> (Lumen, std::path::PathBuf) {
     let (mut lumen, _kick) = with_outside_audio(name);
     let path = project_file(lumen.dir(), "Song");
@@ -46,17 +43,14 @@ fn reverting_reads_the_saved_project_back_and_keeps_what_it_dropped() {
         "{:?}",
         lumen.app().note()
     );
-    // The unsaved version is in the project's Backups/Reverted folder.
     let kept = lumen.app().reverted_changes().unwrap().to_path_buf();
     assert!(kept.is_file(), "{}", kept.display());
-    // (Compared as resolved paths: the temp folder has a short Windows name.)
     let folder = path.parent().unwrap().join("Backups").join("Reverted");
     assert_eq!(
         std::fs::canonicalize(kept.parent().unwrap()).unwrap(),
         std::fs::canonicalize(folder).unwrap(),
     );
 
-    // The message offers it: opening it brings the dropped track back.
     lumen.click("Open them");
     lumen.wait_for("the kept version", |app| {
         !app.is_busy() && app.project().tracks.len() == 2
@@ -92,7 +86,6 @@ fn escape_closes_the_prompt_without_reverting() {
 
 #[test]
 fn a_project_with_nothing_to_revert_says_so_and_asks_nothing() {
-    // Never saved: there is no file to read back.
     let (mut lumen, _kick) = with_outside_audio("revert-unsaved");
     lumen.key(Modifiers::COMMAND, Key::K);
     lumen.harness.event(Event::Text("Revert to saved".into()));
@@ -106,7 +99,6 @@ fn a_project_with_nothing_to_revert_says_so_and_asks_nothing() {
     );
     lumen.key(Modifiers::NONE, Key::Escape);
 
-    // Saved and unchanged: nothing to drop.
     let path = project_file(lumen.dir(), "Song");
     lumen.app_mut().save_to(path);
     lumen.wait_for("the save", |app| !app.is_busy() && !app.is_dirty());
