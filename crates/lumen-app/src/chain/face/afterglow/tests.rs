@@ -136,6 +136,7 @@ fn scene<'a>(
         values: values(slots),
         power: 1.0,
         level,
+        awake: 1.0,
         still,
         handle_lit: [0.0; super::super::MAX_HANDLES],
         settle: 1.0,
