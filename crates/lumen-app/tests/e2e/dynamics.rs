@@ -578,3 +578,85 @@ fn the_handles_and_the_pill_are_reachable_by_their_own_names() {
     lumen.frames(1);
     lumen2.frames(1);
 }
+
+fn typed_on(lumen: &mut Lumen, dial: &str, text: &str) {
+    lumen.harness.get_by_label_contains(dial).click();
+    lumen.frames(3);
+    lumen.key(Modifiers::NONE, Key::Enter);
+    lumen.frames(3);
+    lumen
+        .harness
+        .get_by_label(&format!(
+            "{}: type a value",
+            dial.trim_end_matches(", parameter")
+        ))
+        .type_text(text);
+    lumen.key(Modifiers::NONE, Key::Enter);
+    lumen.frames(10);
+}
+
+#[test]
+fn a_ceiling_typed_on_the_horizon_dial_is_read_at_once_and_is_one_undo_step() {
+    let (mut lumen, device) = whole("horizon-typed", "Add Horizon", limiter::NAME);
+    let before = param(&lumen, device, limiter::CEILING).expect("set");
+    typed_on(&mut lumen, "Ceiling, parameter", "-3");
+    let after = param(&lumen, device, limiter::CEILING).expect("moved");
+    assert!((after - 0.875).abs() < 1e-3, "{after}");
+    assert_eq!(lumen.app().undo_label(), Some("Change Ceiling"));
+    lumen.frames(5);
+    assert!(lumen.shows("Ceiling line (Ceiling): \u{2212}3.0 dB"));
+    undone_once(&mut lumen, "Add Horizon");
+    assert!((param(&lumen, device, limiter::CEILING).expect("set") - before).abs() < 1e-6);
+}
+
+#[test]
+fn a_horizon_dial_drags_in_one_undo_step_and_a_double_click_brings_it_home() {
+    let (mut lumen, device) = whole("horizon-dial", "Add Horizon", limiter::NAME);
+    let home = param(&lumen, device, limiter::RELEASE).expect("set");
+    let look = param(&lumen, device, limiter::LOOK).expect("set");
+    let knob = at(&lumen, "Release, parameter");
+    lumen.drag(knob, knob + vec2(0.0, -30.0), Modifiers::NONE);
+    lumen.frames(10);
+    let moved = param(&lumen, device, limiter::RELEASE).expect("set");
+    assert!(
+        moved > home + 0.05,
+        "a drag up opens it: {home} then {moved}"
+    );
+    assert_eq!(param(&lumen, device, limiter::LOOK), Some(look));
+    undone_once(&mut lumen, "Add Horizon");
+    assert!((param(&lumen, device, limiter::RELEASE).expect("set") - home).abs() < 1e-6);
+
+    typed_on(&mut lumen, "Release, parameter", "300");
+    let typed = param(&lumen, device, limiter::RELEASE).expect("set");
+    assert!(typed > home + 0.05, "{typed}");
+    let knob = at(&lumen, "Release, parameter");
+    lumen.double_click(knob);
+    lumen.frames(10);
+    let back = param(&lumen, device, limiter::RELEASE).expect("set");
+    assert!((back - home).abs() < 1e-6, "home again: {home} then {back}");
+}
+
+#[test]
+fn the_horizon_face_names_every_control_and_the_ceiling_line_follows_the_dial() {
+    let (mut lumen, device) = whole("horizon-names", "Add Horizon", limiter::NAME);
+    for name in [
+        "Ceiling, parameter",
+        "Release, parameter",
+        "Look, parameter",
+        "True",
+        "Ceiling line",
+    ] {
+        assert!(
+            lumen.harness.query_by_label_contains(name).is_some(),
+            "{name} has a name"
+        );
+    }
+    let before = at(&lumen, "Ceiling line");
+    typed_on(&mut lumen, "Ceiling, parameter", "-24");
+    let after = at(&lumen, "Ceiling line");
+    assert!(
+        after.y > before.y + 20.0,
+        "the line sank: {before:?} then {after:?}"
+    );
+    assert!(param(&lumen, device, limiter::CEILING).expect("set") < 0.05);
+}

@@ -39,7 +39,6 @@ pub const PEAK_HOLD: f32 = 0.70;
 pub const PEAK_FALL: f32 = 1.1;
 #[allow(dead_code)]
 pub const FLASH_RISE: f32 = 0.010;
-#[allow(dead_code)]
 pub const FLASH_TAU: f32 = 0.12;
 
 pub const SILENCE_DB: f32 = -66.0;
@@ -49,8 +48,11 @@ pub const WAKE_TAU: f32 = 0.05;
 pub const DT_MAX: f32 = 1.0 / 20.0;
 
 pub const GLOW_REST: f32 = 0.10;
+#[allow(dead_code)]
 pub const GLOW_LIVE: f32 = 0.30;
+#[allow(dead_code)]
 pub const GLOW_ENERGY: f32 = 0.50;
+#[allow(dead_code)]
 pub const GLOW_HIT: f32 = 1.0;
 
 #[derive(Debug, Clone, Copy, PartialEq)]

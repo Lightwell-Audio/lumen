@@ -74,3 +74,42 @@ fn a_face_at_rest_asks_for_no_frame_and_a_face_with_signal_asks_for_the_face_fra
         );
     }
 }
+
+#[test]
+fn horizon_wakes_for_a_level_asks_for_the_face_frame_and_sleeps_again() {
+    let (mut lumen, track) = with_horizon("face-wake");
+    lumen.run_until("the meters at rest", |l| silent(l, track));
+    let device = lumen.app().project().tracks[0].devices[0].id;
+    lumen.frames(60);
+    assert_eq!(
+        asked_in_one_frame(&mut lumen),
+        None,
+        "asleep before the level"
+    );
+
+    lumen.app_mut().pretend_track_level(Some(-6.0));
+    lumen.app_mut().pretend_reduction(device, 3.0, -3.0);
+    lumen.frames(10);
+    for frame in 0..5 {
+        assert_eq!(
+            asked_in_one_frame(&mut lumen),
+            Some(face_frame()),
+            "a face with a level asks for the face frame, frame {frame}"
+        );
+    }
+
+    lumen.app_mut().pretend_track_level(None);
+    let ctx = lumen.harness.ctx.clone();
+    lumen.run_until("the face to go to sleep", |_| {
+        let asked = face_repaint_ask(&ctx);
+        forget_face_repaint_asks(&ctx);
+        asked.is_none()
+    });
+    for frame in 0..5 {
+        assert_eq!(
+            asked_in_one_frame(&mut lumen),
+            None,
+            "asleep again, frame {frame}"
+        );
+    }
+}

@@ -134,6 +134,7 @@ fn a_scene_drains_colour_while_dim() {
         },
         power,
         level: 0.0,
+        awake: 1.0,
         still: false,
         handle_lit: [0.0; MAX_HANDLES],
         settle: 1.0,

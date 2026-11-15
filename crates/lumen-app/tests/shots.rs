@@ -2687,6 +2687,9 @@ fn dynamics_card() {
         (lumen_devices::dynamics::compressor::NAME, "gravity"),
         (lumen_devices::dynamics::limiter::NAME, "horizon"),
     ] {
+        if !short.contains(&std::env::var("SHOT_DEVICE").unwrap_or_default()) {
+            continue;
+        }
         for (appearance, scale, size, tag, detail) in cases.iter().copied() {
             if !format!("{appearance}-{scale}-{tag}").contains(&only) {
                 continue;
@@ -2745,8 +2748,20 @@ fn dynamics_card() {
 
             save(&mut h, &format!("{short}-rest-{at}"));
 
-            h.state_mut().pretend_reduction(Id(10), 4.1, -8.0);
-            h.run_steps(120);
+            if short == "horizon" {
+                h.state_mut().pretend_track_level(Some(-6.0));
+                for i in 0..320_u32 {
+                    let beat = (i % 18) as f32;
+                    let top = [-3.0_f32, 2.0, -9.0, 1.0][(i / 18) as usize % 4];
+                    let input = (top - beat * 5.0).max(-40.0);
+                    let taken = (input + 0.3).max(0.0);
+                    h.state_mut().pretend_reduction(Id(10), taken, input);
+                    h.run_steps(2);
+                }
+            } else {
+                h.state_mut().pretend_reduction(Id(10), 4.1, -8.0);
+                h.run_steps(120);
+            }
             save(&mut h, &format!("{short}-{at}"));
             if tag != "whole" {
                 continue;

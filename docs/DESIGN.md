@@ -1815,19 +1815,28 @@ Attack, Release, Makeup** (Makeup reads "auto"); knee, mix, detection, key filte
 parameters. **Short:** the picture in the smaller screen with the hero at 11 pt, the chip above the dials.
 **Compact:** a band of the well; the chip says only whose key it is ("Kick · post").
 
-**Horizon** (Limiter, M8 slice B2; 300 x 330, screen 176 pt, hue sunset orange `HORIZON`): a sunset over a
-waveform. A sky (`HORIZON_SKY`, four stops), a ground, a sun and a **ceiling line** at the device's ceiling
-(36 % down the screen at the specimen's −0.3 dB, over a range of 36 dB), labelled "ceiling −0.3 dB". Under the
-line is the **land**: the waveform of what the device heard, newest at the right (137 columns, one every 33 ms),
-in the hue with a lit outline and a dark fill that follows the card's rounded corners. The **sun** glows where
-peaks press the ceiling (scaled by how hard, up to 6 dB, and smoothed), and a white dot marks each pressed local
-maximum on the line, the newest flashing. At rest, or when nothing has been heard, the land is the specimen's
-decorative silhouette and the three specimen dots; with Reduce motion it stays so. **Playable:** one handle,
-the **ceiling line** (a grab of 8 pt either side across the screen): dragging it up or down sets Ceiling, one
-undo step, a chip ("ceiling −0.3 dB"), a Tab stop ("Ceiling line (Ceiling): −0.3 dB"). Dials: **Ceiling**
-(shown as a bare number, "−0.3"), **Release** and **Look** (the lookahead, a device timing that cannot be
-automated: its menu says so and offers no Automate or Learn), and a **True** pill (true-peak detection) at the
-right. **Short** and **compact:** the same picture in a smaller screen and in a band.
+**Horizon** (Limiter; 300 x 330, screen 176 pt, hue sunset orange; round 4, **Skyline**, F1): the level
+history as a soft area under a glowing **ceiling line**. The scale runs from +4 dB at the top of the screen to
+−36 dB at the foot (a ceiling of −0.3 dB sits 10.75 % down), with a quiet grid at −6, −12 and −24 (labelled on
+the whole card). Above the ceiling is a dark wall; just under it a dusk wash of the hue (resting 0.10, 0.30 more
+when the limiter acts, 0.10 more while awake) fades over 78 pt. The **history** is 137 columns, one every 33 ms,
+each holding the loudest input and output of its 33 ms, scrolling by a fraction of a column so it never steps
+(the data is the device's: a held input peak, a held output peak and the reduction, read lock-free). The output is
+the area and a 1.5 pt peach outline; the **pressed gap** between the input above and the output below is a pale
+band, which is the limiter at work. The ceiling line is 1.5 pt; its glow widens and whitens with a flash that
+rises with the reduction (full at 5 dB) and falls with `FLASH_TAU`. A plate at the top right carries the
+reduction as the hero ("−4.1", "−0.0" when clear) with "dB limiting" or "dB · clear" beneath; the hero's
+strength follows the reduction. **At rest** (the track's level under `SILENCE_DB`, after the sleep hold) there is
+no history: a dashed line near the foot, "waiting for signal" and a dash in the plate. **Reduce motion:** the same
+picture, no history and no flash; while the device hears something, the live level is a still bar at the right
+edge (the output, with the pressed part above it). The screen's own wash is painted by the face, as in the
+specimen, because the card's screen background is darker than the specimen's (ADR-0157). **Playable:** one
+handle, the **ceiling line** (a grab of 8 pt either side, inset 14 pt from the edges so the card's corners stay
+free): dragging sets Ceiling, one undo step, a chip ("ceiling −0.3 dB"), a Tab stop ("Ceiling line (Ceiling):
+−0.3 dB"). Dials: **Ceiling** (a bare number, "−0.3"), **Release** and **Look** (the lookahead, a device timing
+that cannot be automated: its menu says so and offers no Automate or Learn), and a **True** pill (true-peak
+detection, 44 x 20) at the right. **Short:** the picture in a smaller screen, the plate smaller. **Compact:** a
+band of the picture with no words and no plate.
 
 Both devices, and every other set piece, offer **Automate** and **Learn a controller** on a dial's right-click
 menu only where the parameter allows them: a parameter that is a device's timing (Horizon's Look) says "Not

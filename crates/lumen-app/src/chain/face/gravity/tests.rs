@@ -156,6 +156,7 @@ fn scene<'a>(
         values: values(slots),
         power: 1.0,
         level: 0.0,
+        awake: 1.0,
         still: reading.is_none(),
         handle_lit: [0.0; super::super::MAX_HANDLES],
         settle: 1.0,
@@ -178,6 +179,7 @@ fn the_pull_follows_the_meter_falls_back_and_is_nothing_when_reduced() {
     let reading = |db| MeterReading {
         reduction_db: db,
         input_db: -8.0,
+        output_db: -8.0 - db,
     };
     assert_eq!(meter::pulled(&scene(&painter, &slots, None)), 0.0);
     let pulled = meter::pulled(&scene(&painter, &slots, Some(reading(4.1))));
