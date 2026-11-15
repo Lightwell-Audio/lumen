@@ -506,6 +506,7 @@ mod tests {
                 "Parallax",
                 "Plate Reverb",
                 "Prism",
+                "Shutter",
                 "Warm Synth"
             ]
         );
@@ -557,6 +558,7 @@ mod tests {
             BUILTINS.iter().map(|b| b.id).collect::<Vec<_>>(),
             [
                 "builtin:synth",
+                "builtin:sampler",
                 "builtin:compressor",
                 "builtin:limiter",
                 "builtin:eq",
@@ -634,6 +636,7 @@ mod tests {
                 "Parallax",
                 "Plate Reverb",
                 "Prism",
+                "Shutter",
                 "Warm Synth"
             ]
         );
@@ -720,7 +723,7 @@ mod tests {
             kind: Some(Kind::Instrument),
             ..Query::default()
         }));
-        assert_eq!(instruments, ["Flare", "Warm Synth"]);
+        assert_eq!(instruments, ["Flare", "Shutter", "Warm Synth"]);
         let favorites: HashSet<String> = [format!("vst3:{}", class_id(&[2; 16]))].into();
         let only = names(catalog.search(&Query {
             only: Some(&favorites),
@@ -742,7 +745,7 @@ mod tests {
         assert_eq!(
             sample().vendors(),
             [
-                ("Lumen".to_string(), 7),
+                ("Lumen".to_string(), 8),
                 ("Vendor A".to_string(), 2),
                 ("Vendor B".to_string(), 1)
             ]
