@@ -52,20 +52,28 @@ impl App {
             if widgets::tip(response, tip, keys.as_ref(), None).clicked() {
                 ed.popped = !ed.popped;
             }
-            let mut shown = !ed.lane.hidden;
-            let response = icon_toggle(ui, "Lane", shown, glyphs::lane);
-            if widgets::tip(
-                response,
-                "Show the velocity and controller lane under the notes",
-                self.keymap.keys(Command::ToggleLane).as_ref(),
-                None,
-            )
-            .clicked()
-            {
-                shown = !shown;
+
+            if drum != Some(crate::drum_editor::View::Steps) {
+                let mut shown = !ed.lane.hidden;
+                let response = icon_toggle(ui, "Lane", shown, glyphs::lane);
+                if widgets::tip(
+                    response,
+                    "Show the velocity and controller lane under the notes",
+                    self.keymap.keys(Command::ToggleLane).as_ref(),
+                    None,
+                )
+                .clicked()
+                {
+                    shown = !shown;
+                }
+                ed.lane.hidden = !shown;
             }
-            ed.lane.hidden = !shown;
-            if mapped && drum != Some(crate::drum_editor::View::Lanes) {
+            if mapped
+                && !matches!(
+                    drum,
+                    Some(crate::drum_editor::View::Lanes | crate::drum_editor::View::Steps)
+                )
+            {
                 let mut hiding = ed.hide_unmapped;
                 let response = icon_toggle(ui, "Hide unmapped keys", hiding, glyphs::keys);
                 if widgets::tip(
@@ -86,11 +94,13 @@ impl App {
         if let Some(view) = drum
             && let Some(picked) = strip.views(view)
             && let Some(track) = self.track_of_clip(clip.id)
+            && picked != view
         {
             ed.drum.set_view(track, picked);
             ed.framed_for = None;
             ed.gesture = None;
             ed.drum.reorder = None;
+            ed.drum.steps.gesture = None;
         }
         let tips = [
             "Select, move and resize notes",
@@ -99,11 +109,14 @@ impl App {
         if let Some(tool) = strip.tools(self, ed.tool, tips) {
             ed.tool = tool;
         }
-        self.header_grid_chip(
-            &mut strip.row,
-            ed.time,
-            crate::app::clip_header::GridChip::Full,
-        );
+
+        if drum != Some(crate::drum_editor::View::Steps) {
+            self.header_grid_chip(
+                &mut strip.row,
+                ed.time,
+                crate::app::clip_header::GridChip::Full,
+            );
+        }
         if editable {
             self.quantize_button(&mut strip.row, ed, clip);
         }

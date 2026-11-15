@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use lumen_core::time::Ticks;
-use lumen_project::edit::{self, note_tools as tools, notes as ops, quantize};
+use lumen_project::edit::{self, note_tools as tools, notes as ops, quantize, steps};
 use lumen_project::model::{Clip, ClipContent, Id, Note, Project};
 
 use super::{Document, plural};
@@ -74,6 +74,29 @@ impl Document {
     ) -> Vec<usize> {
         self.edit_notes("Draw note", base, merge, clip, &[], |notes, length| {
             ops::add(notes, note, length)
+        })
+    }
+
+    pub fn edit_steps(
+        &mut self,
+        clip: Id,
+        step: Ticks,
+        changes: &[steps::Change],
+        merge: Option<&str>,
+    ) -> Vec<usize> {
+        if changes.is_empty() {
+            return Vec::new();
+        }
+        let label = match changes {
+            [steps::Change::Toggle(..)] => "Toggle step",
+            [steps::Change::Set(..)] => "Set step velocity",
+            _ if changes.iter().all(|c| matches!(c, steps::Change::Set(..))) => {
+                "Set step velocities"
+            }
+            _ => "Edit steps",
+        };
+        self.edit_notes(label, None, merge, clip, &[], |notes, length| {
+            steps::apply(notes, step, length, changes)
         })
     }
 
@@ -469,6 +492,7 @@ mod tests {
         assert_eq!((notes[0].start(), notes[1].start()), (q(0), q(2)));
         assert_eq!((notes[0].pitch(), notes[1].pitch()), (125, 127));
         doc.seal();
+
         let base = doc.project().clone();
         let sel = doc.move_notes(&base, clip, &[0, 1], q(100), 0, None);
         let (notes, _) = content(&doc);
@@ -569,6 +593,7 @@ mod tests {
                 .is_empty(),
             "no note drawn"
         );
+
         let both = [0_usize, 1];
         let grid = quantize::Settings {
             step: q(4),
@@ -589,6 +614,7 @@ mod tests {
         assert_eq!(doc.reverse_notes(clip, &both), both);
         assert_eq!(doc.state(), state);
         assert_eq!(*doc.project(), before);
+
         doc.set_clips_locked(&[clip], false);
         doc.delete_notes(clip, &sel);
         assert_eq!(content(&doc).0.len(), 1);
@@ -689,12 +715,15 @@ mod tests {
             Arc::make_mut(&mut t.clips[0]).loop_length = Some(q(4));
         });
         let base = doc.project().clone();
+
         let sel = doc.move_notes(&base, clip, &[0, 1], q(100), 0, None);
         let (notes, _) = content(&doc);
         assert_eq!(notes[sel[1]].end(), q(4));
         doc.undo();
+
         let none = doc.add_note(None, clip, n(5, 1, 60), None);
         assert!(none.is_empty());
+
         doc.legato_notes(clip, &[1]);
         assert_eq!(content(&doc).0[1].end(), q(4));
     }
@@ -706,16 +735,20 @@ mod tests {
         selection.rebind(doc.project(), vec![0, 1]);
         assert!(selection.refresh(doc.project()));
         let after = doc.duplicate_notes(clip, selection.indices());
+
         selection.rebind(doc.project(), after.clone());
         assert!(selection.refresh(doc.project()));
         assert_eq!(selection.indices(), after.as_slice());
+
         doc.undo();
         assert!(!selection.refresh(doc.project()));
         assert!(selection.is_empty());
+
         selection.rebind(doc.project(), vec![2]);
         doc.rename_clip(clip, "Verse");
         assert!(selection.refresh(doc.project()));
         assert_eq!(selection.indices(), [2]);
+
         doc.delete_clips(&[clip]);
         assert!(!selection.refresh(doc.project()));
         assert!(selection.is_empty());

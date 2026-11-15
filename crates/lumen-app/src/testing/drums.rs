@@ -10,6 +10,7 @@ impl App {
         let clip = self.editor_open_clip()?;
         match self.open_drum_view(clip)? {
             crate::drum_editor::View::Lanes => Some("lanes"),
+            crate::drum_editor::View::Steps => Some("steps"),
             crate::drum_editor::View::Keys => Some("keys"),
         }
     }
@@ -117,6 +118,7 @@ impl App {
     pub fn drum_view_of_track(&self, track: Id) -> &'static str {
         match self.note_editor.drum.view(track) {
             crate::drum_editor::View::Lanes => "lanes",
+            crate::drum_editor::View::Steps => "steps",
             crate::drum_editor::View::Keys => "keys",
         }
     }
@@ -127,6 +129,14 @@ impl App {
 
     pub fn show_the_keys_view(&mut self) {
         self.set_drum_view(crate::drum_editor::View::Keys);
+    }
+
+    pub fn show_the_lanes_view(&mut self) {
+        self.set_drum_view(crate::drum_editor::View::Lanes);
+    }
+
+    pub fn show_the_steps_view(&mut self) {
+        self.set_drum_view(crate::drum_editor::View::Steps);
     }
 
     pub fn set_lane_quantize(

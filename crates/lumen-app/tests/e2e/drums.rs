@@ -13,6 +13,7 @@ use super::Lumen;
 use super::midi_play::palette;
 
 const RATE: f64 = 48_000.0;
+
 const LISTEN: usize = 192_000;
 
 fn q(beats: i64) -> Ticks {
@@ -337,9 +338,11 @@ fn drum_map_menu(lumen: &mut Lumen, row: &str) {
 fn a_row_is_edited_from_the_keyboard_alone() {
     let (mut lumen, map) = editor("drums-keyboard");
     lumen.frames(5);
+
     let focused = lumen.harness.ctx.memory(|m| m.focused());
     assert!(focused.is_some(), "a field has the keyboard when it opens");
     replace_text(&mut lumen, "Bass drum");
+
     lumen.key(Modifiers::NONE, Key::Enter);
     lumen.frames(3);
     assert_eq!(
@@ -366,6 +369,7 @@ fn a_row_is_edited_from_the_keyboard_alone() {
         Some("Change the drum sound's note"),
         "one undo step"
     );
+
     lumen.key(Modifiers::COMMAND, Key::Z);
     lumen.frames(3);
     assert!(map_of(&lumen, map).sound(35).is_some());
@@ -376,6 +380,7 @@ fn a_row_is_edited_from_the_keyboard_alone() {
 fn the_icon_grid_opens_and_chooses_from_the_keyboard() {
     let (mut lumen, map) = editor("drums-icons");
     lumen.frames(5);
+
     lumen.harness.get_by_label("Bass Drum 1 icon: Kick").focus();
     lumen.frames(2);
     lumen.key(Modifiers::NONE, Key::Space);
@@ -402,6 +407,7 @@ fn the_icon_grid_opens_and_chooses_from_the_keyboard() {
 fn an_exported_map_imports_back_into_the_project() {
     let (mut lumen, map) = editor("drums-export-import");
     lumen.frames(5);
+
     replace_text(&mut lumen, "Kit on the desk");
     lumen.key(Modifiers::NONE, Key::Enter);
     lumen.frames(3);
@@ -480,6 +486,7 @@ fn a_damaged_file_is_refused_and_its_message_is_read_in_full() {
 fn hide_unmapped_keys_folds_the_roll_to_the_maps_sounds() {
     let (mut lumen, _map) = editor("drums-fold");
     lumen.frames(5);
+
     lumen.key(Modifiers::NONE, Key::Escape);
     lumen.frames(3);
     let clip = lumen.app().project().tracks[0].clips[0].id;
@@ -491,6 +498,10 @@ fn hide_unmapped_keys_folds_the_roll_to_the_maps_sounds() {
         .clip_rect(&ctx, clip)
         .expect("the clip is in view");
     lumen.double_click(rect.center());
+    lumen.frames(6);
+
+    assert_eq!(lumen.app().drum_view_shown(), Some("steps"));
+    lumen.click("Lanes view");
     lumen.frames(6);
     assert_eq!(lumen.app().drum_view_shown(), Some("lanes"));
     assert_eq!(
@@ -505,6 +516,7 @@ fn hide_unmapped_keys_folds_the_roll_to_the_maps_sounds() {
         Some(128),
         "the keyboard in the piano roll"
     );
+
     lumen.click("Hide unmapped keys");
     lumen.frames(4);
     assert!(lumen.app().hiding_unmapped_keys());
@@ -513,6 +525,7 @@ fn hide_unmapped_keys_folds_the_roll_to_the_maps_sounds() {
         Some(47),
         "the General MIDI kit's rows"
     );
+
     lumen.click("Hide unmapped keys");
     lumen.frames(4);
     assert!(!lumen.app().hiding_unmapped_keys());
