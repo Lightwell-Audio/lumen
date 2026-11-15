@@ -55,6 +55,13 @@ pub struct Slot {
     /// It was not asked for a block because its power was off: when it is
     /// asked again it forgets what it held (M8 slice B2, review L1).
     was_off: bool,
+    /// The block it last made, per side: what a plan fading out beside the one
+    /// that plays on plays instead of asking it twice, which would move a
+    /// delay line or a detector on twice for one frame of the song (OR-4).
+    echo: Box<[f32]>,
+    /// Frames of `echo` that this block's render wrote, and whether it did.
+    echo_len: usize,
+    echo_fresh: bool,
 }
 
 impl Slot {
@@ -65,7 +72,32 @@ impl Slot {
             quiet: u64::MAX,
             asked: false,
             was_off: false,
+            echo: vec![0.0; 2 * CHUNK].into_boxed_slice(),
+            echo_len: 0,
+            echo_fresh: false,
         })
+    }
+
+    /// Keeps the block the device just made, for a plan fading out beside this
+    /// one.
+    fn keep(&mut self, left: &[f32], right: &[f32]) {
+        let frames = left.len().min(right.len()).min(CHUNK);
+        self.echo[..frames].copy_from_slice(&left[..frames]);
+        self.echo[CHUNK..CHUNK + frames].copy_from_slice(&right[..frames]);
+        self.echo_len = frames;
+        self.echo_fresh = true;
+    }
+
+    /// Plays it, `wet` of the way against the dry signal (the plan fading out
+    /// carried its own wet).
+    fn replay(&self, (left, right): (&mut [f32], &mut [f32]), dry: (&[f32], &[f32]), wet: f32) {
+        let frames = left.len().min(self.echo_len);
+        for k in 0..frames {
+            left[k] = dry.0[k] + (self.echo[k] - dry.0[k]) * wet;
+            right[k] = dry.1[k] + (self.echo[CHUNK + k] - dry.1[k]) * wet;
+        }
+        left[frames..].copy_from_slice(&dry.0[frames..]);
+        right[frames..].copy_from_slice(&dry.1[frames..]);
     }
 
     /// Follows how loud the block's output was.
@@ -105,6 +137,15 @@ impl BuiltinPool {
             .flatten()
             .find(|(slot, _)| *slot == id)
             .map(|(_, slot)| slot.as_mut())
+    }
+
+    /// Whether the pool holds `id`.
+    #[allow(dead_code)]
+    pub fn holds(&self, id: u64) -> bool {
+        if self.used == 0 {
+            return false;
+        }
+        self.slots.iter().flatten().any(|(slot, _)| *slot == id)
     }
 
     /// Attaches `slot` as `id`: the one it replaces comes back, or the new one
@@ -224,17 +265,36 @@ pub(super) fn run(
         right.copy_from_slice(dry_right);
         return;
     };
-    if !advance {
-        // A tail rendered ahead of a jump: the device must not hear it, so the
-        // fallback plays and its state is left where the song left it.
-        left.copy_from_slice(dry_left);
-        right.copy_from_slice(dry_right);
+    // A plan fading out beside the one that plays on shares every device it
+    // still names: asking one twice for a block would move it on twice for one
+    // frame of the song (a delay line half as long, a detector twice as fast),
+    // so it plays what the plan that plays on just made of it. A device only
+    // the fading plan has is asked as usual — nothing else is using it — so a
+    // device taken out of a chain fades out as itself and not as the dry signal
+    // under it (OR-4). The two plans play the same frames in the same order,
+    // so the echo is the block this one would have made.
+    let shared = hosting
+        .fading
+        .is_some_and(|next| next.has_builtin(dev.builtin));
+    if shared {
+        if slot.echo_fresh && slot.echo_len >= n {
+            let wet = dev.wet.value();
+            slot.replay((left, right), (dry_left, dry_right), wet);
+        } else {
+            // The device is not being asked at all (its power is off): the
+            // dry signal is what it plays.
+            left.copy_from_slice(dry_left);
+            right.copy_from_slice(dry_right);
+        }
         slot.asked = true;
         return;
     }
+    slot.echo_fresh = false;
     // Power off, and nothing of its output left to fade: the effect is not
     // asked for a block at all (a bypassed plugin is not either), so a
-    // bypassed device costs nothing and its quiet counts towards a Stop.
+    // bypassed device costs nothing and its quiet counts towards a Stop. It is
+    // off on a tail rendered ahead of a jump too: the dry signal is what the
+    // node was playing.
     if dev.bypass && dev.wet.settled() && dev.wet.value() == 0.0 {
         dev.values_last.fill(f32::NAN);
         slot.was_off = true;
@@ -244,8 +304,10 @@ pub(super) fn run(
     }
     // Asked again after its power was off: it starts from nothing, as a locate
     // makes it, so nothing it held while it was bypassed (a delay line, a
-    // tail) is heard now (M8 slice B2, review L1).
-    if slot.was_off {
+    // tail) is heard now (M8 slice B2, review L1). Not on a tail: that block is
+    // the song's own continuation and the device's state is left where the song
+    // left it.
+    if advance && slot.was_off {
         slot.effect.reset();
         slot.was_off = false;
         slot.quiet = u64::MAX;
@@ -273,6 +335,7 @@ pub(super) fn run(
         );
         slot.asked = true;
         slot.heard(left, right);
+        slot.keep(left, right);
         return;
     }
     let (wet_left, wet_right) = scratch.wet.split_at_mut(CHUNK);
@@ -297,13 +360,14 @@ pub(super) fn run(
     );
     slot.asked = true;
     slot.heard(wet_left, wet_right);
+    slot.keep(wet_left, wet_right);
     dev.wet.set(if dev.bypass { 0.0 } else { 1.0 });
     if dev.wet.settled() {
         left.copy_from_slice(wet_left);
         right.copy_from_slice(wet_right);
     } else {
         let gain = &mut scratch.gain[..n];
-        dev.wet.fill(gain, rate, true);
+        dev.wet.fill(gain, rate, advance);
         for k in 0..n {
             left[k] = dry_left[k] + (wet_left[k] - dry_left[k]) * gain[k];
             right[k] = dry_right[k] + (wet_right[k] - dry_right[k]) * gain[k];

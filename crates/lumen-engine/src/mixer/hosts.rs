@@ -26,7 +26,7 @@ use lumen_devices::{Guard, Outcome, ParamBlock};
 
 use super::builtins::BuiltinPool;
 use super::delay::Lines;
-use super::plan::{CHUNK, Dev};
+use super::plan::{CHUNK, Dev, Plan};
 
 /// How many hosts one mixer holds.
 pub const MAX_HOSTS: usize = 256;
@@ -135,20 +135,28 @@ impl HostPool {
 }
 
 /// What one render of a plan may ask of the hosts and the built-ins: the pools
-/// and the callback's deadline. A plan fading out is given none, so it plays
-/// its fallbacks and a host is never asked twice for one block.
+/// and the callback's deadline. A plan fading out is given no plugin pool, so a
+/// host is never asked twice for one block; it keeps Lumen's own effects (a
+/// built-in is not asked twice either — it plays what the plan that plays on
+/// just made of it), and `fading` names that plan so a device it is about to
+/// stop hearing is not asked at all.
 pub(super) struct Hosting<'a> {
     pub pool: Option<&'a mut HostPool>,
     /// Lumen's own effects (M8 slice B0), run where the plan reaches them.
     pub builtins: Option<&'a mut BuiltinPool>,
+    /// The plan playing on, when this one is fading out beside it (OR-4).
+    pub fading: Option<&'a Plan>,
     pub deadline: Option<Instant>,
 }
 
 impl Hosting<'static> {
+    /// Nothing may be asked: the fallback of every device plays.
+    #[allow(dead_code)]
     pub fn none() -> Self {
         Self {
             pool: None,
             builtins: None,
+            fading: None,
             deadline: None,
         }
     }

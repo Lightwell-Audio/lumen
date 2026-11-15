@@ -261,6 +261,13 @@ impl Plan {
         }
     }
 
+    /// Whether the plan runs the built-in effect `id`: what a plan fading out
+    /// beside this one asks before it decides whether to ask the device for a
+    /// block or to play what this one made of it (OR-4).
+    pub(in crate::mixer) fn has_builtin(&self, id: u64) -> bool {
+        self.devices.iter().any(|dev| dev.builtin == id)
+    }
+
     /// `frames` passed with nothing played: every node's RMS falls as in
     /// silence. Real-time safe: a load and a store per side and node.
     pub(super) fn idle_meters(&self, rate: u32, frames: usize) {

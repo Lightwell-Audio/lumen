@@ -726,6 +726,7 @@ impl<T: TrackSource> Source for Mixer<T> {
                     let mut hosting = Hosting {
                         pool: Some(&mut self.hosts),
                         builtins: Some(&mut self.builtins),
+                        fading: None,
                         deadline: part_cx.deadline,
                     };
                     let pass = Pass {
@@ -752,11 +753,10 @@ impl<T: TrackSource> Source for Mixer<T> {
                     // Only the plan fading in is metered.
                     let ramp_in = Ramp::Fade(&fade_in[..n]);
                     let tap = Some(&mut self.loudness);
-                    // The plan fading out plays its fallbacks: a host is
-                    // asked once for a block.
                     let mut hosting = Hosting {
                         pool: Some(&mut self.hosts),
                         builtins: Some(&mut self.builtins),
+                        fading: None,
                         deadline: part_cx.deadline,
                     };
                     let pass = Pass {
@@ -771,8 +771,18 @@ impl<T: TrackSource> Source for Mixer<T> {
                         ramp: Ramp::Fade(&fade_out[..n]),
                         ..pass
                     };
-                    swap.old
-                        .process(&mut part, pass, None, &mut Hosting::none());
+                    // The fading plan keeps Lumen's own effects: a built-in it
+                    // still names plays what the plan that plays on just made
+                    // of it, and one only it names is asked, so a device fades
+                    // out as itself rather than as the dry signal under it
+                    // (OR-4). Plugins are not asked again (`pool: None`).
+                    let mut fading = Hosting {
+                        pool: None,
+                        builtins: Some(&mut self.builtins),
+                        fading: Some(&self.plan),
+                        deadline: part_cx.deadline,
+                    };
+                    swap.old.process(&mut part, pass, None, &mut fading);
                     if advance {
                         swap.done += n;
                     }

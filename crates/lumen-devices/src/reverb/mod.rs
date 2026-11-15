@@ -585,13 +585,9 @@ impl Effect for Reverb {
         let mut out = [0.0f32; 8];
         // The parameters that do not need a curve's own frame: read at the
         // knots, as the corners are, so the same readings fall at any block
-        // size.
-        let (mut pre_ms, mut early_x, mut width_x, mut mix_x) = (
-            curve_value(PREDELAY, curves.predelay[0]),
-            curves.early[0].clamp(0.0, 1.0),
-            curve_value(WIDTH, curves.width[0]) / 100.0,
-            curve_value(MIX, curves.mix[0]) / 100.0,
-        );
+        // size. The mix, the width and the early/late split move every frame
+        // (see the mix below).
+        let mut pre_ms = curve_value(PREDELAY, curves.predelay[0]);
 
         for frame in 0..frames {
             // Each line slides towards where Size puts it, a frame at a time,
@@ -625,9 +621,6 @@ impl Effect for Reverb {
                     line.gain = decay_gain(line.length / rate as f32, decay);
                     line.damp = damp_now;
                 }
-                early_x = curves.early[frame].clamp(0.0, 1.0);
-                width_x = curve_value(WIDTH, curves.width[frame]) / 100.0;
-                mix_x = curve_value(MIX, curves.mix[frame]) / 100.0;
             }
             // The pre-delay: a line read behind the write point, its distance
             // sliding when the setting moves.
@@ -701,19 +694,22 @@ impl Effect for Reverb {
                 self.pre_write = 0;
             }
 
-            let early_mix = early_x;
+            let early_mix = curves.early[frame].clamp(0.0, 1.0);
             let late_mix = 1.0 - early_mix;
             let late_left = 0.5 * (out[0] - out[1] + out[2] - out[3]);
             let late_right = 0.5 * (out[4] - out[5] + out[6] - out[7]);
             let mut wet_left = early_pair[0] * early_mix + late_left * late_mix;
             let mut wet_right = early_pair[1] * early_mix + late_right * late_mix;
             // Width on the room's sides: 0 is mono, 200 % doubles them.
-            let width = width_x;
+            let width = curve_value(WIDTH, curves.width[frame]) / 100.0;
             let mid = 0.5 * (wet_left + wet_right);
             let side = 0.5 * (wet_left - wet_right) * width;
             wet_left = mid + side;
             wet_right = mid - side;
-            let mix = mix_x;
+            // The mix moves every frame, not at the knots: a knob that turns in
+            // one block would otherwise cross in a staircase of 32-frame steps,
+            // which a person hears as a zip (OR-4, `fix/builtin-pops`).
+            let mix = curve_value(MIX, curves.mix[frame]) / 100.0;
             let dry = 1.0 - mix;
             left[frame] = flush(left[frame] * dry + wet_left * mix);
             right[frame] = flush(right[frame] * dry + wet_right * mix);

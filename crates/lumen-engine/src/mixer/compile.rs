@@ -156,7 +156,7 @@ pub(super) fn compile_metered(
 
         let first_device = devices.len() as u32;
         for (index, device) in spec.devices.iter().enumerate() {
-            device.hash(&mut hasher);
+            shape(device, &mut hasher);
             let (listen, host, builtin, bypass, values) = match *device {
                 super::spec::Device::Delay { listen, .. } => {
                     (listen, NO_HOST, NO_BUILTIN, false, &[][..])
@@ -488,6 +488,33 @@ impl Arrival {
 /// A gain the audio thread can use: NaN and infinities become silence.
 pub(super) fn finite(gain: f32) -> f32 {
     if gain.is_finite() { gain } else { 0.0 }
+}
+
+/// Hashes what makes a device part of the routing's **shape**: which device it
+/// is and how far it delays, but not its power switch. A power switch is a
+/// level, and the mixer fades it in place through the device's own glide
+/// (`BuiltinPool`); hashing it here would make every press of it crossfade the
+/// whole plan, which is a pop in proportion to what the device does (OR-4).
+fn shape(device: &super::spec::Device, hasher: &mut impl Hasher) {
+    match *device {
+        super::spec::Device::Delay { frames, listen } => {
+            0u8.hash(hasher);
+            frames.hash(hasher);
+            listen.hash(hasher);
+        }
+        super::spec::Device::Hosted { host, latency } => {
+            1u8.hash(hasher);
+            host.hash(hasher);
+            latency.hash(hasher);
+        }
+        super::spec::Device::Builtin {
+            device, latency, ..
+        } => {
+            2u8.hash(hasher);
+            device.hash(hasher);
+            latency.hash(hasher);
+        }
+    }
 }
 
 #[cfg(test)]
