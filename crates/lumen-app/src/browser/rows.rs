@@ -357,9 +357,10 @@ mod tests {
         assert_eq!(
             names(&c, &r),
             [
-                "=Lumen 7",
-                "[Instruments 1]",
+                "=Lumen 8",
+                "[Instruments 2]",
                 "Flare",
+                "Shutter",
                 "[Dynamics 2]",
                 "Gravity",
                 "Horizon",
@@ -393,7 +394,7 @@ mod tests {
         let r = rows(&c, &v, &HashSet::new(), &[]);
         assert!(names(&c, &r).contains(&"[Alpha 3 folded]".to_string()));
         assert!(!names(&c, &r).contains(&"Deep Bass".to_string()));
-        assert_eq!(r.matching, 12, "folded devices still match");
+        assert_eq!(r.matching, 13, "folded devices still match");
 
         v.text = "bass".into();
         let r = rows(&c, &v, &HashSet::new(), &[]);
@@ -410,7 +411,7 @@ mod tests {
         let list = names(&c, &r);
         assert!(list.contains(&"[Dynamics 2 folded]".to_string()));
         assert!(!list.contains(&"Gravity".to_string()));
-        assert!(list.contains(&"[Instruments 1]".to_string()));
+        assert!(list.contains(&"[Instruments 2]".to_string()));
 
         v.text = "gravity".into();
         let r = rows(&c, &v, &HashSet::new(), &[]);
@@ -426,9 +427,10 @@ mod tests {
         assert_eq!(
             names(&c, &r),
             [
-                "=Lumen 7",
-                "[Instruments 1]",
+                "=Lumen 8",
+                "[Instruments 2]",
                 "Flare",
+                "Shutter",
                 "[Dynamics 2]",
                 "Gravity",
                 "Horizon",
@@ -506,9 +508,10 @@ mod tests {
         assert_eq!(
             names(&c, &r),
             [
-                "=Lumen 1",
-                "[Instruments 1]",
+                "=Lumen 2",
+                "[Instruments 2]",
                 "Flare",
+                "Shutter",
                 "=Plugins 2",
                 "[Alpha 1]",
                 "Deep Bass",
@@ -644,7 +647,7 @@ mod tests {
         v.text = "zzzz".into();
         let r = rows(&c, &v, &HashSet::new(), &[]);
         assert!(r.list.is_empty());
-        assert_eq!((r.matching, r.total), (0, 12));
+        assert_eq!((r.matching, r.total), (0, 13));
     }
 
     #[test]

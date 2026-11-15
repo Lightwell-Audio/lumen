@@ -939,7 +939,7 @@ mod tests {
     #[test]
     fn the_catalog_and_the_personalities_name_the_same_devices() {
         let devices = lumen_plugin_catalog::catalog::builtin_devices();
-        assert_eq!(devices.len(), 7);
+        assert_eq!(devices.len(), 8);
         for device in &devices {
             let name = device
                 .id
