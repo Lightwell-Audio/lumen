@@ -15022,7 +15022,7 @@ Steps. Cost: a frame draws one page; its cells are gathered once per clip,
 step and page (bench `drum_lanes_bench`, release build, 100,000 hits: lanes p95
 0.98 ms, step grid 0.43 ms, roll 0.91 ms). The audio thread is not touched.
 
-## ADR-XXXX — The built-in pops (OR-4)
+## ADR-0154 — The built-in pops (OR-4)
 
 **Status.** Proposed (M8, owner review round 1, OR-4; the parent assigns the
 number). Brief: M8.md §10 OR-4. Contracts: ADR-0145 (the built-in effect path),
