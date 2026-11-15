@@ -1,7 +1,3 @@
-//! A plugin parameter driven by a lane, through the engine's link to a real
-//! host process (M7 slice A3, ADR-0084): the points of a block land on their
-//! sample in the plugin, and what does not fit the region is counted.
-
 mod support;
 
 use lumen_core::midi::{Event, Msg};
@@ -10,14 +6,12 @@ use lumen_hosting::Manager;
 use support::*;
 
 const FRAMES: usize = 64;
-/// The parameter both test plugins give their level to.
 const LEVEL: u32 = lumen_test_plugin::params::LEVEL;
 
 fn manager() -> Manager {
     Manager::new(|| {})
 }
 
-/// A block of `FRAMES` in which parameter `id` takes each `(offset, value)`.
 fn changes(id: u32, points: &[(u32, f64)]) -> ParamBlock {
     let mut block = ParamBlock::new();
     block.start(FRAMES);
@@ -35,7 +29,6 @@ fn note() -> Event {
     }
 }
 
-/// One block of the test effect fed a constant, with `params`.
 fn through_effect(params: &ParamBlock) -> Vec<f32> {
     let mut manager = manager();
     manager.want(1, effect("")).unwrap();
@@ -46,7 +39,6 @@ fn through_effect(params: &ParamBlock) -> Vec<f32> {
     left
 }
 
-/// The first block of the test instrument holding a note, with `params`.
 fn through_instrument(params: &ParamBlock) -> Vec<f32> {
     let mut manager = manager();
     manager.want(2, instrument("")).unwrap();
@@ -96,7 +88,6 @@ fn a_block_with_no_parameters_leaves_the_plugin_as_it_was() {
     let steady = vec![0.5_f32; FRAMES];
     let set = changes(LEVEL, &[(0, 0.2)]);
     let (a, _, _) = play_with(&mut linked.link, FRAMES, &[&steady, &steady], &[], &set);
-    // The plugin keeps the last value it was given.
     let (b, _, _) = play(&mut linked.link, FRAMES, &[&steady, &steady], &[]);
     assert_eq!(a, b);
 }

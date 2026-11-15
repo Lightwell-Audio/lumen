@@ -1,12 +1,9 @@
-//! Position and window mapping shared by live MIDI playback and capture.
-
 use lumen_core::time::Ticks;
 
 use super::MidiTrack;
 use super::capture;
 use super::hold::Clock;
 
-/// The take's window in the pass that owns the compensated event position.
 pub(super) fn record_window(track: &MidiTrack, pass: u32) -> (Ticks, Ticks) {
     let Some(timing) = track.record_timing else {
         return track.record_window;
@@ -21,9 +18,6 @@ pub(super) fn record_window(track: &MidiTrack, pass: u32) -> (Ticks, Ticks) {
     }
 }
 
-/// The position used to decide whether a live key masks playback. It mirrors
-/// the app capture mapping, including the first pass floor and a compensated
-/// event that belongs at the end of the previous loop pass.
 pub(super) fn live_position(
     track: &MidiTrack,
     clock: Clock<'_>,
@@ -73,9 +67,6 @@ mod tests {
         );
         track.state.record_pass = 3;
 
-        // The held-key branch calls `live_position` at recording onset.
-        // Read-ahead puts its heard position before Record start; the same
-        // latency and floor as Capture bring it onto the visible boundary.
         let heard_sample = 23_900;
         let raw = Ticks(clock.tick(heard_sample));
         let (position, pass) = live_position(&track, clock, heard_sample, 3, false);

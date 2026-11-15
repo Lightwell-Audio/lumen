@@ -1,9 +1,3 @@
-//! The project's media pool (M9 slice R4b, ADR-0106): one row for each
-//! audio file the project holds, with where it lives, whether it is on this
-//! machine and how many clips play it. The rows are made from the project and
-//! the document's file map alone, so building them touches no disk; whether a
-//! file is still there is [`absent`], which a worker runs.
-
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -12,18 +6,12 @@ use lumen_project::model::{Id, Media, Project};
 
 use crate::files::{IMPORTED, RECORDED, RENDERED};
 
-/// Where a media file lives, for the pool's "Where" column.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Home {
-    /// Copied into the project's `Samples/Imported`.
     Imported,
-    /// Recorded in Lumen (`Samples/Recorded`, or still in the work folder).
     Recorded,
-    /// Rendered by Lumen: a join, bounce or freeze.
     Rendered,
-    /// Elsewhere inside the project folder.
     Project,
-    /// Outside the project folder: moving the project will not take it along.
     Outside,
 }
 
@@ -39,19 +27,13 @@ impl Home {
     }
 }
 
-/// One media file of the project.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Row {
     pub id: Id,
-    /// The file's name without its folder or extension.
     pub name: String,
-    /// The path the project stores for it (relative to the project folder
-    /// when inside it), for saying where a missing file was.
     pub path: String,
     pub home: Home,
-    /// Not found on this machine.
     pub missing: bool,
-    /// How many clips (and frozen tracks) play it; 0 is unused.
     pub uses: usize,
     pub frames: u64,
     pub channels: u16,
@@ -65,15 +47,12 @@ impl Row {
     }
 }
 
-/// Lumen's own work folders, whose files a save copies into the project.
 #[derive(Debug, Clone, Default)]
 pub struct Folders {
     pub renders: Option<PathBuf>,
     pub recordings: Option<PathBuf>,
 }
 
-/// The pool of `project`: its files by name, then by id. `files` is where each
-/// one is on this machine; an id with no entry is missing.
 pub fn rows(project: &Project, files: &HashMap<Id, PathBuf>, folders: &Folders) -> Vec<Row> {
     let counts = media::counts(project);
     let mut rows: Vec<Row> = project
@@ -101,8 +80,6 @@ pub fn rows(project: &Project, files: &HashMap<Id, PathBuf>, folders: &Folders) 
     rows
 }
 
-/// The ids in `files` whose file is no longer on disk. Reads the disk: run it
-/// on a worker.
 pub fn absent(files: &HashMap<Id, PathBuf>) -> Vec<Id> {
     let mut ids: Vec<Id> = files
         .iter()
@@ -121,7 +98,6 @@ fn name_of(media: &Media) -> String {
 }
 
 fn home_of(media: &Media, file: Option<&PathBuf>, folders: &Folders) -> Home {
-    // A file still in a work folder is Lumen's own and a save will copy it in.
     if let Some(file) = file {
         if folders
             .recordings
@@ -221,7 +197,6 @@ mod tests {
         p
     }
 
-    /// A path that is absolute on every platform (`C:/…` is relative on Unix).
     fn outside() -> String {
         let path = std::env::temp_dir().join("Music").join("pad.wav");
         path.to_string_lossy().replace('\\', "/")

@@ -1,8 +1,3 @@
-//! Editing the loop brace on the locator strip (M3 slice 5c): drag inside it to move it, drag an edge to resize it, drag in
-//! empty space to set a new loop, click it to turn looping on or off, and
-//! right-click for punch in and out. Every change snaps to the grid (Alt
-//! places freely) and is one undo step per drag.
-
 use eframe::egui::{self, CursorIcon, Rect, Sense, Stroke, pos2};
 use lumen_core::time::Ticks;
 
@@ -12,12 +7,8 @@ use super::rulers::Layout;
 use crate::commands::Command;
 use crate::{App, ruler, theme, transport, widgets};
 
-/// Within this many points of an edge, a drag resizes (at most a third of
-/// the brace, so a short loop can still be moved). Widened from 5 after
-/// MT-APP-13 run 1: the edges were hard to catch.
 const EDGE: f32 = 8.0;
 
-/// What a loop drag holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Grab {
     Move,
@@ -26,8 +17,6 @@ pub(crate) enum Grab {
     New,
 }
 
-/// A loop drag in progress: what was grabbed, where (unsnapped), and the
-/// loop as it was.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct LoopDrag {
     pub grab: Grab,
@@ -37,8 +26,6 @@ pub(crate) struct LoopDrag {
     pub enabled: bool,
 }
 
-/// The loop after dragging to `to` (unsnapped), with `snap` applied; `None`
-/// when it would be empty or start before zero.
 pub(crate) fn dragged(
     drag: &LoopDrag,
     to: Ticks,
@@ -60,8 +47,6 @@ pub(crate) fn dragged(
 }
 
 impl App {
-    /// The loop brace's interaction, on the strip's bottom band. Returns
-    /// what a drag holds or would hold, for [`draw_brace_hint`].
     pub(crate) fn loop_brace(
         &mut self,
         ui: &mut egui::Ui,
@@ -117,9 +102,6 @@ impl App {
             });
             hint = Some(grab);
         }
-        // What was grabbed is decided where the button went down: egui
-        // reports a drag only after the pointer has moved a few points,
-        // which could carry it off an edge (MT-APP-13 run 1).
         if response.drag_started()
             && let Some(p) = ui
                 .input(|i| i.pointer.press_origin())
@@ -181,9 +163,6 @@ impl App {
     }
 }
 
-/// What a drag on the brace will do (MT-APP-13 run 1, the owner's choice
-/// A1): a bracket grows at the edge that will resize, or the brace lights
-/// when it will move, and a chip names the action.
 pub(crate) fn draw_brace_hint(
     painter: &egui::Painter,
     at: &Layout,
@@ -200,8 +179,6 @@ pub(crate) fn draw_brace_hint(
         painter.line_segment([pos2(edge, top), pos2(edge, bottom)], stroke);
         painter.line_segment([pos2(edge, top), pos2(edge + inward, top)], stroke);
     };
-    // The brace shows what a drag takes (the owner's A1); the words are in
-    // the info line (M4 slice 0).
     match grab {
         Grab::Start | Grab::End => {
             let start = grab == Grab::Start;
@@ -233,7 +210,6 @@ pub(crate) fn draw_brace_hint(
     }
 }
 
-/// Punch in and out: record-coloured posts at the loop's edges.
 pub(crate) fn draw_punch(
     painter: &egui::Painter,
     at: &Layout,
@@ -271,18 +247,15 @@ mod tests {
         }
     }
 
-    /// Snaps to whole bars.
     fn bars(t: Ticks) -> Ticks {
         Ticks((t.0 as f64 / BAR.0 as f64).round() as i64 * BAR.0)
     }
 
     #[test]
     fn moving_keeps_the_length_and_snaps_the_start() {
-        // Grabbed at bar 2, dropped a bar and a bit later.
         let d = drag(Grab::Move, Ticks(BAR.0 * 2));
         let moved = dragged(&d, Ticks(BAR.0 * 3 + 100), bars);
         assert_eq!(moved, Some((Ticks(BAR.0 * 2), Ticks(BAR.0 * 4))));
-        // Not before the start.
         assert_eq!(
             dragged(&d, Ticks(-BAR.0 * 9), bars),
             Some((Ticks::ZERO, Ticks(BAR.0 * 2)))
@@ -317,7 +290,6 @@ mod tests {
             None,
             "too short"
         );
-        // Unsnapped (Alt): exactly where the pointer is.
         assert_eq!(
             dragged(&new, Ticks(BAR.0 * 9 + 7), |t| t),
             Some((Ticks(BAR.0 * 8), Ticks(BAR.0 * 9 + 7)))

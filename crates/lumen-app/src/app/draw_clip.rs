@@ -1,8 +1,3 @@
-//! The Draw tool's press-and-drag on an empty MIDI lane (M7b slice E0): a
-//! click makes a one-bar clip, a drag sets its length on the grid. Nothing
-//! changes in the project until the pointer is released; Esc ends the
-//! gesture first.
-
 use eframe::egui::{self, Align2, FontId, Painter, Pos2, Rect, Stroke, pos2};
 use lumen_core::meter::MeterMap;
 use lumen_core::time::Ticks;
@@ -15,8 +10,6 @@ use crate::document::NewClip;
 use crate::theme;
 
 impl App {
-    /// The gesture a press at `origin` starts with the Draw tool: only on
-    /// an empty spot of a MIDI track's lane.
     pub(super) fn begin_draw(
         &self,
         ctx: &egui::Context,
@@ -42,8 +35,6 @@ impl App {
         })
     }
 
-    /// Follows the pointer to `p` and shows the clip that release would
-    /// make: its outline on the lane, its length, and the snap guide.
     pub(super) fn aim_draw(
         &mut self,
         ctx: &egui::Context,
@@ -98,8 +89,6 @@ impl App {
         }
     }
 
-    /// Release: a drag of some length makes a clip of that length; a press
-    /// released where it began is a click, a bar.
     pub(super) fn finish_draw(&mut self, track: Id, from: Ticks, to: Ticks) {
         let place = if from == to {
             NewClip::Bar(from)
@@ -110,8 +99,6 @@ impl App {
     }
 }
 
-/// How long a clip from `start` to `end` is, as a person counts it: whole
-/// bars when both ends are bar lines ("1 bar", "4 bars"), else beats.
 fn length_label(map: &MeterMap, start: Ticks, end: Ticks) -> String {
     let (a, b) = (map.bbt_at(start).bar, map.bbt_at(end).bar);
     if map.bar_start(a) == start && map.bar_start(b) == end && b > a {

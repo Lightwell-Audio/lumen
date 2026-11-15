@@ -1,13 +1,3 @@
-//! What the arrangement remembers about the lanes it shows (M7 slices A1
-//! and A2): which lane each track shows, the points picked on it, the tool
-//! in hand, and the gesture under way. None of it is saved with the project.
-//!
-//! A gesture is one value, so a press can only be doing one thing: moving
-//! points, dragging out a box, drawing freehand, drawing a shape or bending a
-//! segment. Each keeps what it needs to rebuild the lane from the press
-//! (`base`), so a drag is always the lane as it was plus the drag, never a
-//! drag of a drag.
-
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
@@ -19,21 +9,17 @@ use lumen_project::automation::Target;
 use lumen_project::edit::automation::{Copied, Wave};
 use lumen_project::model::{Id, Project};
 
-/// A point of a lane, named by where it is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Picked {
     pub track: Id,
     pub target: Target,
-    /// Its place in the lane's points.
     pub index: usize,
 }
 
-/// The points picked on one lane.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Picks {
     pub track: Id,
     pub target: Target,
-    /// Their places in the lane's points.
     pub indices: BTreeSet<usize>,
 }
 
@@ -54,12 +40,10 @@ impl Picks {
         self.on(here.track, here.target) && self.indices.contains(&here.index)
     }
 
-    /// The places in ascending order, as the pure edits take them.
     pub fn list(&self) -> Vec<usize> {
         self.indices.iter().copied().collect()
     }
 
-    /// The one point picked, if exactly one is.
     pub fn single(&self) -> Option<Picked> {
         let mut it = self.indices.iter();
         match (it.next(), it.next()) {
@@ -73,15 +57,11 @@ impl Picks {
     }
 }
 
-/// What the pointer does on a lane.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum Tool {
-    /// Pick, move and add points.
     #[default]
     Pointer,
-    /// Draw freehand.
     Pencil,
-    /// Draw a ramp, sine, triangle, saw or square across a span.
     Shape(Wave),
 }
 
@@ -95,56 +75,43 @@ pub(crate) fn wave_name(wave: Wave) -> &'static str {
     }
 }
 
-/// Picked points being moved: the lane at the press, which points, and
-/// where the pointer and the anchor point were.
 #[derive(Debug, Clone)]
 pub(crate) struct Moving {
     pub base: Lane,
     pub picks: Vec<usize>,
-    /// The point the pointer took hold of.
     pub anchor: usize,
-    /// The anchor's time and height (0 to 1) at the press.
     pub anchor_at: Ticks,
     pub anchor_height: f32,
-    /// The pointer's time and height at the press.
     pub press_at: Ticks,
     pub press_height: f32,
 }
 
-/// A box being dragged out on the lane.
 #[derive(Debug, Clone)]
 pub(crate) struct Boxing {
     pub from: Pos2,
     pub to: Pos2,
 }
 
-/// A freehand stroke: the lane at the press and the places the pointer went.
 #[derive(Debug, Clone)]
 pub(crate) struct Drawing {
     pub base: Lane,
-    /// In time order; going back in time takes the stroke back.
     pub raw: Vec<(Ticks, f32)>,
 }
 
-/// A shape being drawn from a press.
 #[derive(Debug, Clone)]
 pub(crate) struct Waving {
     pub base: Lane,
     pub kind: Wave,
     pub from: Ticks,
-    /// Heights (0 to 1) of the press and the pointer now.
     pub start: f32,
     pub end: f32,
     pub to: Ticks,
-    /// One cycle: the grid step at the press.
     pub period: Ticks,
 }
 
-/// A segment's curve handle being dragged.
 #[derive(Debug, Clone)]
 pub(crate) struct Bending {
     pub base: Lane,
-    /// The segment leaves this point.
     pub index: usize,
     pub handle: Handle,
     pub press: Pos2,
@@ -159,7 +126,6 @@ pub(crate) enum Gesture {
     Bend(Bending),
 }
 
-/// A gesture and the lane it is on.
 #[derive(Debug, Clone)]
 pub(crate) struct Active {
     pub track: Id,
@@ -167,27 +133,19 @@ pub(crate) struct Active {
     pub how: Gesture,
 }
 
-/// Points copied from a lane, and the range of values they were in: they
-/// paste into a lane of the same kind of parameter only.
 #[derive(Debug, Clone)]
 pub(crate) struct LaneClip {
     pub copied: Copied,
     pub range: (f32, f32),
 }
 
-/// The chooser for a plugin's parameters (M7 slice A3): whose they are, the
-/// search over them and the group chosen.
 #[derive(Debug, Clone)]
 pub(crate) struct ParamChooser {
     pub track: Id,
     pub device: Id,
     pub search: String,
-    /// One group of the plugin's, or all of them.
     pub group: Option<i32>,
-    /// The search field takes the keyboard when the chooser opens or changes
-    /// plugin.
     pub focus: bool,
-    /// The row Enter chooses.
     pub cursor: usize,
 }
 
@@ -204,35 +162,23 @@ impl ParamChooser {
     }
 }
 
-/// What a control's menu asks of the app about controller mappings (M7 slice
-/// A5): the controls are drawn where the app's state is not at hand, so they
-/// ask and the app answers after the frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MapRequest {
-    /// Wait for a controller to move, to map it to this control.
     Learn(Id, Target),
-    /// Stop waiting.
     StopLearning,
-    /// Take away the controller that moves this control.
     Clear(Id, Target),
-    /// Open the Mappings window.
     Window,
 }
 
-/// What a lane's gestures change as they go: the gesture, the points picked,
-/// the tool. The arrangement lends its own to them (`AutoView::lend`), and
-/// the audio editor keeps its own (M9.5 D20), so neither disturbs the other.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Hands {
     pub active: Option<Active>,
     pub picks: Option<Picks>,
     pub tool: Tool,
-    /// A press was made in the lane: its keys are live.
     pub focus: bool,
 }
 
 impl Hands {
-    /// Shift on a point adds it to the picks, or takes it from them.
     pub fn toggle_pick(&mut self, here: Picked) {
         match &mut self.picks {
             Some(picks) if picks.on(here.track, here.target) => {
@@ -248,60 +194,30 @@ impl Hands {
     }
 }
 
-/// What the arrangement knows of the lanes it shows.
 #[derive(Debug, Default)]
 pub(crate) struct AutoView {
-    /// The control waiting for a controller to move (set by the app every
-    /// frame), which draws with an accent ring.
     pub learning: Option<(Id, Target)>,
-    /// What the controls' menus asked for this frame.
     pub requests: Vec<MapRequest>,
-    /// The plugin parameter chooser, when open.
     pub chooser: Option<ParamChooser>,
-    /// What the plugins call the parameters lanes drive, by device and the
-    /// plugin's parameter id: "Filter · Cutoff". Filled each frame for the
-    /// lanes of the tracks shown.
     pub names: BTreeMap<(Id, u32), String>,
-    /// The plugins' own text for the value of a lane's point that rests
-    /// under the pointer, is picked or is being moved, with the value it
-    /// answers ("1.2 kHz" for 0.4). Filled each frame by the app.
     pub texts: BTreeMap<(Id, u32), (f64, String)>,
-    /// The last value a plugin was asked to put in words, and when.
     pub text_asked: Option<((Id, u32), f64, std::time::Instant)>,
-    /// `Hosting::texts_forgotten` when `text_asked` was last cleared for it.
     pub texts_seen: u64,
-    /// The lane each track shows, by track.
     pub shown: BTreeMap<Id, Target>,
-    /// The points picked, on one lane.
     pub picks: Option<Picks>,
-    /// The gesture under way.
     pub active: Option<Active>,
-    /// The point under the pointer.
     pub hover: Option<Picked>,
-    /// The tool in hand.
     pub tool: Tool,
-    /// The shape tool last used, which the Shape button returns to.
     pub wave: Wave,
-    /// The last lane press was in a lane: Ctrl+A, copy, paste and duplicate
-    /// mean its points until a press somewhere else.
     pub focus: bool,
-    /// The live value drawn beside the gesture this frame, for the tests.
     pub tip: Option<String>,
-    /// What copy last took from a lane.
     pub clip: Option<LaneClip>,
-    /// The playhead, which the controls whose lanes play follow (D5): set by
-    /// the app every frame.
     pub at: lumen_core::time::Ticks,
-    /// What each track does with the controls that move while it plays (M7
-    /// slice A4b). Session state: a track not here is in Read, and a project
-    /// always opens in Read.
     pub modes: BTreeMap<Id, crate::recording::auto_record::Mode>,
-    /// The lanes being written now, for the look of the controls and the chip.
     pub recording: std::collections::BTreeSet<(Id, Target)>,
 }
 
 impl AutoView {
-    /// The arrangement's gesture state, lent to a lane gesture.
     pub fn lend(&mut self) -> Hands {
         Hands {
             active: self.active.take(),
@@ -311,7 +227,6 @@ impl AutoView {
         }
     }
 
-    /// Takes back what [`Self::lend`] lent.
     pub fn restore(&mut self, hands: Hands) {
         self.active = hands.active;
         self.picks = hands.picks;
@@ -319,12 +234,10 @@ impl AutoView {
         self.focus = hands.focus;
     }
 
-    /// What `track` does with the controls that move while it plays.
     pub fn mode_of(&self, track: Id) -> crate::recording::auto_record::Mode {
         self.modes.get(&track).copied().unwrap_or_default()
     }
 
-    /// Sets what `track` does with the controls that move while it plays.
     pub fn set_mode(&mut self, track: Id, mode: crate::recording::auto_record::Mode) {
         if mode == crate::recording::auto_record::Mode::Read {
             self.modes.remove(&track);
@@ -333,8 +246,6 @@ impl AutoView {
         }
     }
 
-    /// What `target` is called: the plugin's word for a parameter when it has
-    /// said it, else the lane's own name.
     pub fn name_of(&self, project: &Project, target: Target) -> String {
         if let Target::Device { device, param } = target
             && let Some(name) = self.names.get(&(device, param))
@@ -344,10 +255,6 @@ impl AutoView {
         super::auto_scale::name(project, target)
     }
 
-    /// How `value` of `target` reads: the plugin's own text for a plugin's
-    /// parameter once it has answered (the answer for the nearest value
-    /// kept stands until the point's own comes, as on a device card's
-    /// knob), else the lane's own words.
     pub fn value_text(&self, target: Target, value: f32) -> String {
         if let Target::Device { device, param } = target
             && let Some((_, text)) = self.texts.get(&(device, param))
@@ -357,8 +264,6 @@ impl AutoView {
         super::auto_scale::text(target, value)
     }
 
-    /// The point of a plugin's lane whose value is read out now: the one
-    /// being moved, else the one under the pointer, else the one picked.
     pub fn resting(&self) -> Option<Picked> {
         let moving = self.active.as_ref().and_then(|a| match &a.how {
             Gesture::Move(m) => Some(Picked {
@@ -374,21 +279,16 @@ impl AutoView {
             .filter(|p| matches!(p.target, Target::Device { .. }))
     }
 
-    /// Whether `track`'s clips step back for the lane it shows. A clip's own
-    /// envelope is drawn over its clip, which stays as it is.
     pub fn dims(&self, track: Id) -> bool {
         self.shown.get(&track).is_some_and(|t| t.clip().is_none())
     }
 
-    /// Shows `track`'s `target` lane.
     pub fn show(&mut self, track: Id, target: Target) {
         if self.shown.insert(track, target) != Some(target) {
             self.picks = None;
         }
     }
 
-    /// Shows the lanes of `tracks`, or hides them when every one already
-    /// shows one. A track opens on the first lane it has, else volume.
     pub fn toggle(&mut self, project: &Project, tracks: &[Id]) {
         let all = !tracks.is_empty() && tracks.iter().all(|t| self.shown.contains_key(t));
         for &id in tracks {
@@ -410,8 +310,6 @@ impl AutoView {
         }
     }
 
-    /// Forgets lanes of tracks that are gone, targets a track no longer
-    /// has, and points that are not there any more.
     pub fn prune(&mut self, project: &Project) {
         self.shown.retain(|id, target| {
             project
@@ -457,7 +355,6 @@ impl AutoView {
         }
     }
 
-    /// The place of the point being moved on this lane, if one is.
     pub fn moving(&self, track: Id, target: Target) -> Option<usize> {
         match &self.active {
             Some(Active {
@@ -469,8 +366,6 @@ impl AutoView {
         }
     }
 
-    /// Takes `tool` in hand; a shape tool is also the one the Shape button
-    /// returns to.
     pub fn use_tool(&mut self, tool: Tool) {
         if let Tool::Shape(wave) = tool {
             self.wave = wave;
@@ -478,7 +373,6 @@ impl AutoView {
         self.tool = tool;
     }
 
-    /// Whether the points of `track`'s `target` lane are picked.
     pub fn picked_on(&self, track: Id, target: Target) -> Option<&Picks> {
         self.picks.as_ref().filter(|p| p.on(track, target))
     }
@@ -527,7 +421,6 @@ mod tests {
         assert_eq!(view.shown.get(&Id(7)), Some(&Target::Pan));
         view.toggle(&project, &[Id(7)]);
         assert!(view.shown.is_empty());
-        // A track that is gone is not shown.
         view.toggle(&project, &[Id(99)]);
         assert!(view.shown.is_empty());
     }

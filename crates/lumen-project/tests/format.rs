@@ -1,6 +1,3 @@
-//! P-FORMAT pass criteria: round trips, golden fixtures, refusal of newer
-//! files, robustness against damaged input, crash-safe saving.
-
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
@@ -24,8 +21,6 @@ use lumen_project::{
 };
 use serde_json::Value;
 
-/// The model the v1 golden file must always load as. Never change either:
-/// when the format moves on, this test proves old projects still open.
 fn golden_v1_expected() -> Project {
     let track = |id, name: &str, kind, color| Track::new(Id(id), name, kind, Color(color));
     let mut kick = track(2, "Kick", TrackKind::Audio, 0xC0504D);
@@ -73,7 +68,6 @@ fn golden_v1_expected() -> Project {
             class_id: "56535455484E36747972656C6C6E3600".into(),
             name: "TyrellN6".into(),
             vendor: "u-he".into(),
-            // Files before v17 hold no kind, which means an effect.
             kind: DeviceKind::Effect,
         },
         true,
@@ -107,7 +101,6 @@ fn golden_v1_expected() -> Project {
         },
     })];
     Project {
-        // The v7 migration moves the master out of the tracks.
         master: Arc::new(track(4, "Master", TrackKind::Master, 0x808080)),
         pan_law: PanLaw::ConstantPower,
         name: "Golden v1".into(),
@@ -143,8 +136,6 @@ fn golden_v1_expected() -> Project {
             sample_rate: 48_000,
             size_bytes: 384_044,
         }],
-        // Not in v1 files: the migrations write these literals (frozen with
-        // the migrations, never taken from the live defaults).
         markers: Vec::new(),
         transport: TransportState {
             loop_start: Ticks::ZERO,
@@ -192,8 +183,6 @@ fn fixture(name: &str) -> std::path::PathBuf {
         .join(name)
 }
 
-/// The model the v2 golden file must always load as: v1 plus a saved loop
-/// region and view.
 fn golden_v2_expected() -> Project {
     Project {
         name: "Golden v2".into(),
@@ -216,8 +205,6 @@ fn golden_v2_expected() -> Project {
     }
 }
 
-/// The model the v3 golden file must always load as: v2 plus an armed
-/// track, a vertical scroll and a resized track.
 fn golden_v3_expected() -> Project {
     let mut project = Project {
         name: "Golden v3".into(),
@@ -230,8 +217,6 @@ fn golden_v3_expected() -> Project {
     project
 }
 
-/// The model the v4 golden file must always load as: v3 plus two
-/// locators, punch in and a fixed triplet grid.
 fn golden_v4_expected() -> Project {
     let mut project = Project {
         name: "Golden v4".into(),
@@ -260,8 +245,6 @@ fn golden_v4_expected() -> Project {
     project
 }
 
-/// The model the v5 golden file must always load as: v4 with a clip that
-/// has its own colour, a lock, fades and a loop.
 fn golden_v5_expected() -> Project {
     let mut project = Project {
         name: "Golden v5".into(),
@@ -285,8 +268,6 @@ fn golden_v5_expected() -> Project {
     project
 }
 
-/// The model the v6 golden file must always load as: v5 with fades bent
-/// freely by the owner's C3 handle (a dot off centre, some S-shape).
 fn golden_v6_expected() -> Project {
     use lumen_core::curve::{Curve, Handle};
     let mut project = Project {
@@ -303,10 +284,6 @@ fn golden_v6_expected() -> Project {
     project
 }
 
-/// The model the v7 golden file must always load as: v6 routed. A return
-/// track that the kick sends to before its fader and the bass after it,
-/// a track straight to the master from inside the group, polarity, trim,
-/// the master at −2 dB out of the second pair, and the linear pan law.
 fn golden_v7_expected() -> Project {
     let mut project = Project {
         name: "Golden v7".into(),
@@ -339,8 +316,6 @@ fn golden_v7_expected() -> Project {
     project
 }
 
-/// The model the v8 golden file must always load as: v7 with a group
-/// nested in the drums (holding a MIDI track), and the drums folded.
 fn golden_v8_expected() -> Project {
     let mut project = Project {
         name: "Golden v8".into(),
@@ -362,8 +337,6 @@ fn golden_v8_expected() -> Project {
     project
 }
 
-/// The model the v9 golden file must always load as: v8 with a wider
-/// header column.
 fn golden_v9_expected() -> Project {
     let mut project = Project {
         name: "Golden v9".into(),
@@ -373,8 +346,6 @@ fn golden_v9_expected() -> Project {
     project
 }
 
-/// The model the v10 golden file must always load as: v9 with the area
-/// pinned at the bottom dragged to 110 points and its returns folded.
 fn golden_v10_expected() -> Project {
     let mut project = Project {
         name: "Golden v10".into(),
@@ -385,8 +356,6 @@ fn golden_v10_expected() -> Project {
     project
 }
 
-/// The model the v11 golden file must always load as: v10 with the drum
-/// MIDI clip carrying a controller, pitch bend, pressure and a program change.
 fn golden_v11_expected() -> Project {
     let mut project = Project {
         name: "Golden v11".into(),
@@ -433,8 +402,6 @@ fn golden_v11_expected() -> Project {
     project
 }
 
-/// The values a synth that played the preset called `preset` holds after the
-/// v36 migration: the migration's own frozen record of them.
 fn synth_values_of(preset: &str) -> std::collections::BTreeMap<u32, f64> {
     lumen_project::migrate::synth_values_of(preset)
         .iter()
@@ -442,8 +409,6 @@ fn synth_values_of(preset: &str) -> std::collections::BTreeMap<u32, f64> {
         .collect()
 }
 
-/// The model the v12 golden file must always load as: v11 with the Bass
-/// track given the synth (on its preset Keys) and a MIDI output.
 fn golden_v12_expected() -> Project {
     let mut project = Project {
         name: "Golden v12".into(),
@@ -456,8 +421,6 @@ fn golden_v12_expected() -> Project {
         .expect("the golden project has a Bass track");
     let bass = Arc::make_mut(bass);
     let mut synth = Device::synth(Id(0x12), "keys");
-    // The values the v36 migration gives a synth that played Keys (M8 slice
-    // B4): a name was the sound before, and the sound is its values after.
     synth.params = synth_values_of("keys");
     bass.devices.push(synth);
     bass.midi_to = Some(MidiTo {
@@ -474,8 +437,6 @@ fn golden_v12_file_loads_forever() {
     assert_eq!(bass.instrument().and_then(Device::preset), Some("keys"));
 }
 
-/// The model the v13 golden file must always load as: v12 with the Bass
-/// track listening to one port on channel 3, and monitoring In.
 fn golden_v13_expected() -> Project {
     let mut project = Project {
         name: "Golden v13".into(),
@@ -500,8 +461,6 @@ fn golden_v13_file_loads_forever() {
     common::golden("v13", golden_v13_expected);
 }
 
-/// The model the v14 golden file must always load as: v13 with the first
-/// note of the MIDI clip muted.
 fn golden_v14_expected() -> Project {
     let mut project = Project {
         name: "Golden v14".into(),
@@ -529,9 +488,6 @@ fn golden_v14_file_loads_forever() {
     common::golden("v14", golden_v14_expected);
 }
 
-/// The model the v15 golden file must always load as: v14 with the MIDI
-/// clip keeping a note before its start and one past its end, hidden (a
-/// clip is a window onto its notes).
 fn golden_v15_expected() -> Project {
     let mut project = Project {
         name: "Golden v15".into(),
@@ -591,8 +547,6 @@ fn golden_v15_file_loads_forever() {
     );
 }
 
-/// The model the v16 golden file must always load as: v15 with one hidden
-/// recorded note explicitly barred from carrying through an adjacent seam.
 fn golden_v16_expected() -> Project {
     let mut project = Project {
         name: "Golden v16".into(),
@@ -639,7 +593,6 @@ fn a_muted_note_is_written_with_a_fifth_element_and_others_as_before() {
     let flat: String = text.split_whitespace().collect();
     assert!(flat.contains("[0,352800,36,100,true]"), "muted note");
     assert!(flat.contains("[470400,352800,43,90]"), "plain note");
-    // And the v13 file, which has no fifth element, loads unmuted.
     let old = load(&fixture("v13/golden.lumen")).unwrap();
     assert!(
         old.tracks
@@ -678,7 +631,6 @@ fn midi_inputs_belong_on_midi_tracks_and_are_checked() {
     assert!(refused(&|p| Arc::make_mut(&mut p.tracks[bass])
         .midi_from
         .source = FromSource::Port(String::new())));
-    // Monitor is allowed on any kind of track.
     let mut monitored = good.clone();
     Arc::make_mut(&mut monitored.tracks[audio]).monitor = Monitor::Off;
     assert!(from_bytes(&to_bytes(&monitored).unwrap()).is_ok());
@@ -739,8 +691,6 @@ fn golden_v1_file_loads_forever() {
     common::golden("v1", golden_v1_expected);
 }
 
-/// FNV-1a 64 of `bytes`: a small, stable hash written here rather than
-/// pulled in as a dependency, so a golden's pin cannot drift with a library.
 fn fnv1a64(bytes: &[u8]) -> u64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for byte in bytes {
@@ -750,10 +700,6 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
     hash
 }
 
-/// Every golden file is pinned by its bytes. A golden is frozen: one that
-/// differs from its pin was edited, and that is a deliberate act, never a
-/// test to refresh. Changing a golden means editing
-/// `fixtures/golden_hashes.txt` in the same commit, on purpose.
 #[test]
 fn every_golden_file_is_pinned_to_its_bytes() {
     let manifest = fs::read_to_string(fixture("golden_hashes.txt")).expect("the pins");
@@ -770,7 +716,6 @@ fn every_golden_file_is_pinned_to_its_bytes() {
     for (version, _) in &pinned {
         assert!(seen.insert(version.clone()), "{version} is pinned twice");
     }
-    // Every golden on disk has a pin, and matches it.
     for entry in fs::read_dir(fixture("")).expect("the fixtures folder") {
         let dir = entry.unwrap().path();
         let version = dir
@@ -798,7 +743,6 @@ fn every_golden_file_is_pinned_to_its_bytes() {
              tests/fixtures/golden_hashes.txt in the same commit, on purpose, and saying why."
         );
     }
-    // Every pin has its golden.
     for (version, _) in &pinned {
         let path = fixture(&format!("{version}/golden.lumen"));
         assert!(
@@ -880,7 +824,6 @@ fn other_files_are_not_projects() {
 #[test]
 fn every_truncation_is_an_error_not_a_panic() {
     let bytes = to_bytes(&small_project(7)).unwrap();
-    // The final byte is a newline; everything shorter than that is incomplete.
     for cut in 0..bytes.len() - 1 {
         let result = from_bytes(&bytes[..cut]);
         assert!(
@@ -924,12 +867,12 @@ fn inconsistent_projects_are_rejected_precisely() {
         notes[0].2 = 200;
     }
     let mut cycle = golden_v1_expected();
-    Arc::make_mut(&mut cycle.tracks[0]).parent = Some(Id(2)); // group inside its own child
+    Arc::make_mut(&mut cycle.tracks[0]).parent = Some(Id(2));
     Arc::make_mut(&mut cycle.tracks[1]).kind = TrackKind::Group;
     let mut missing_media = golden_v1_expected();
     missing_media.media.clear();
     let mut apart = golden_v1_expected();
-    apart.tracks.swap(1, 2); // the bass between the drums and the kick
+    apart.tracks.swap(1, 2);
     let mut grouped_return = golden_v1_expected();
     Arc::make_mut(&mut grouped_return.tracks[1]).kind = TrackKind::Return;
 
@@ -940,12 +883,10 @@ fn inconsistent_projects_are_rejected_precisely() {
         (apart, "not right under it"),
         (grouped_return, "inside a group"),
     ] {
-        // Saving refuses, so such a file is never written...
         let Err(SaveError::Invalid(message)) = to_bytes(&project) else {
             panic!("saved an invalid project")
         };
         assert!(message.contains(expected), "{message}");
-        // ...and a hand-edited one is rejected on load.
         let mut document: Value =
             serde_json::from_slice(&to_bytes(&golden_v1_expected()).unwrap()).unwrap();
         document["project"] = serde_json::to_value(&project).unwrap();
@@ -964,7 +905,7 @@ fn a_project_that_cannot_round_trip_is_never_written() {
     save(&golden_v1_expected(), &path, &SaveOptions::default()).unwrap();
     let before = fs::read(&path).unwrap();
     let mut broken = golden_v1_expected();
-    Arc::make_mut(&mut broken.tracks[1]).gain_db = f32::NAN; // JSON would turn this into null
+    Arc::make_mut(&mut broken.tracks[1]).gain_db = f32::NAN;
     assert!(matches!(
         save(&broken, &path, &SaveOptions::default()),
         Err(SaveError::Invalid(_))
@@ -1097,7 +1038,6 @@ fn the_midi_demo_arpeggio_and_bass_start_on_each_chords_root_on_the_downbeat() {
                 .iter()
                 .find(|n| n.0 == start)
                 .expect("a note on the downbeat");
-            // The chord of bar b: its lowest note is the root (pitch class).
             let root = chords
                 .iter()
                 .filter(|n| n.0 == start)

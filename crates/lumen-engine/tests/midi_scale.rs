@@ -1,15 +1,3 @@
-//! How long the audio thread spends on the work that grows with a MIDI
-//! project (M6 review, M7): the chase after a locate, a loop wrap or a start,
-//! and the comparison of a new track list with the old one. A measurement,
-//! not a gate: run it in release and read the table.
-//!
-//! ```text
-//! cargo test --release -p lumen-engine --test midi_scale -- --ignored --nocapture
-//! ```
-//!
-//! Every shape holds 100,000 notes. The block is 128 frames at 48 kHz, which
-//! has 2,667 µs to its name.
-
 use std::time::{Duration, Instant};
 
 use lumen_core::midi::{Event, Msg};
@@ -47,8 +35,6 @@ struct Shape {
     controls: usize,
 }
 
-/// A sixteenth apart, one sixteenth long; the song runs `notes / 4` quarters
-/// on each track.
 fn notes_of(count: usize) -> Vec<MidiNote> {
     let step = Q(1).0 / 4;
     (0..count)
@@ -84,7 +70,6 @@ fn clip(shape: &Shape, notes: Vec<MidiNote>) -> MidiClip {
     }
 }
 
-/// One clip a track, built from `lists`: each clip has an allocation of its own.
 fn clips_of(shape: &Shape, lists: &[Vec<MidiNote>]) -> Vec<MidiClip> {
     (1..=shape.tracks)
         .map(|id| {
@@ -95,7 +80,6 @@ fn clips_of(shape: &Shape, lists: &[Vec<MidiNote>]) -> Vec<MidiClip> {
         .collect()
 }
 
-/// Tracks over `clips`: clones of a clip share its notes.
 fn tracks(clips: &[MidiClip]) -> Vec<MidiTrack> {
     clips
         .iter()
@@ -161,8 +145,6 @@ impl Rig {
         self.transport.send(command).unwrap();
     }
 
-    /// Plays blocks until `n` are done, so the engine has taken everything
-    /// sent so far.
     fn settle(&mut self, n: usize) {
         for _ in 0..n {
             self.block();
@@ -221,7 +203,6 @@ fn what_the_chase_and_the_list_swap_cost_at_a_hundred_thousand_notes() {
         let clips = clips_of(&shape, &lists);
         let late = Q(per_track as i64 / 4 - 10);
 
-        // Making the track list, on the UI thread (the index included).
         let mut times = Vec::new();
         for _ in 0..15 {
             let started = Instant::now();
@@ -231,7 +212,6 @@ fn what_the_chase_and_the_list_swap_cost_at_a_hundred_thousand_notes() {
         }
         row(&shape, "making the track list (UI thread)", times);
 
-        // Steady playing, early in the song.
         let mut r = rig(&shape, &clips);
         r.send(Command::Play);
         r.settle(4);
@@ -241,7 +221,6 @@ fn what_the_chase_and_the_list_swap_cost_at_a_hundred_thousand_notes() {
             (0..2000).map(|_| us(r.block())).collect(),
         );
 
-        // A locate while playing: near the start, then near the end.
         for (what, to) in [
             ("locate to bar 3 while playing", Q(8)),
             (
@@ -265,7 +244,6 @@ fn what_the_chase_and_the_list_swap_cost_at_a_hundred_thousand_notes() {
             row(&shape, what, times);
         }
 
-        // Start from a stopped song, at the end.
         let mut times = Vec::new();
         let mut r = rig(&shape, &clips);
         for _ in 0..15 {
@@ -279,20 +257,18 @@ fn what_the_chase_and_the_list_swap_cost_at_a_hundred_thousand_notes() {
         }
         row(&shape, "play from the end", times);
 
-        // A loop at the end: every wrap chases from the loop start.
         let mut r = rig(&shape, &clips);
         r.send(Command::SetLoop(Region::new(late, late + Q(2), true)));
         r.send(Command::Locate(late));
         r.send(Command::Play);
         r.settle(4);
-        let times: Vec<f64> = (0..1_000).map(|_| us(r.block())).collect(); // 2.7 s: two wraps
+        let times: Vec<f64> = (0..1_000).map(|_| us(r.block())).collect();
         row(
             &shape,
             "loop of 2 quarters at the end (1,000 blocks)",
             times,
         );
 
-        // The track list swapped while the song plays at the end.
         let mut r = rig(&shape, &clips);
         r.send(Command::Locate(late));
         r.send(Command::Play);
@@ -301,21 +277,15 @@ fn what_the_chase_and_the_list_swap_cost_at_a_hundred_thousand_notes() {
         let mut equal = Vec::new();
         let mut edited = Vec::new();
         for trial in 0..15 {
-            // Back to the song as it was (the last trial edited it): not timed.
             r.midi.set(tracks(&clips_of(&shape, &lists))).ok().unwrap();
             r.settle(3);
-            // New allocations with the same notes (the document rebuilt them).
             let rebuilt = clips_of(&shape, &lists);
             r.midi.set(tracks(&rebuilt)).ok().unwrap();
             equal.push(us(r.block()));
             r.settle(2);
-            // The same allocations again (an edit elsewhere): the pointers
-            // match and nothing is compared.
             r.midi.set(tracks(&rebuilt)).ok().unwrap();
             same.push(us(r.block()));
             r.settle(2);
-            // The last note of every track changed: the comparison runs to it
-            // and the notes are chased again.
             let mut changed = lists.clone();
             for list in &mut changed {
                 let last = list.len() - 1;

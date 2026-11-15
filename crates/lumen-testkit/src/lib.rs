@@ -1,40 +1,12 @@
-//! How Lumen's tests wait for work on other threads (ADR-0122).
-//!
-//! A test that waits for a worker (an autosave, a plugin host, a port that
-//! opens, the audio device) asks one question: has it happened yet? How long
-//! it took is the machine's business, not the test's. A busy CI runner can be
-//! ten or a hundred times slower than a developer's machine, so a wait sized
-//! for one ("400 polls of 5 ms") fails on the other for no fault of the code.
-//!
-//! Every such wait goes through here, bounded only by [`patience`]: a guard
-//! against a hang, never a measure of speed. A wait that is satisfied returns
-//! at once, so a long patience costs nothing while the test passes; it only
-//! lengthens how long a hung test takes to say so. CI raises it with
-//! [`PATIENCE_ENV`].
-//!
-//! A test whose claim *is* about time (a block answered within its deadline,
-//! a sender keeping its spacing) is a real-time test: it is listed in
-//! `.github/timing-tests.txt` and does not gate a merge.
-//!
-//! `crates/lumen-app/tests/timing_tests.rs` fails on a counted polling loop
-//! (`for _ in 0..N` with a sleep and an early exit) in test code.
-
 use std::fmt::Display;
 use std::time::{Duration, Instant};
 
-/// Seconds a test waits before it calls the work hung, when set (a
-/// decimal number): CI sets it well above [`DEFAULT_PATIENCE`].
 pub const PATIENCE_ENV: &str = "LUMEN_TEST_PATIENCE";
 
-/// How long a test waits before it calls the work hung, unless
-/// [`PATIENCE_ENV`] says otherwise.
 pub const DEFAULT_PATIENCE: Duration = Duration::from_secs(60);
 
-/// How often a wait looks again.
 pub const POLL: Duration = Duration::from_millis(2);
 
-/// How long a test waits for work on another thread before it calls the
-/// work hung: [`PATIENCE_ENV`] in seconds, or [`DEFAULT_PATIENCE`].
 pub fn patience() -> Duration {
     parse_patience(std::env::var(PATIENCE_ENV).ok().as_deref()).unwrap_or(DEFAULT_PATIENCE)
 }
@@ -44,7 +16,6 @@ fn parse_patience(text: Option<&str>) -> Option<Duration> {
     (seconds.is_finite() && seconds > 0.0).then(|| Duration::from_secs_f64(seconds))
 }
 
-/// A wait's hang guard: started now, ending after [`patience`].
 #[derive(Debug, Clone, Copy)]
 pub struct Deadline {
     started: Instant,
@@ -52,7 +23,6 @@ pub struct Deadline {
 }
 
 impl Deadline {
-    /// A guard that runs out after [`patience`].
     pub fn new() -> Self {
         Self {
             started: Instant::now(),
@@ -60,17 +30,14 @@ impl Deadline {
         }
     }
 
-    /// When the guard runs out.
     pub fn at(&self) -> Instant {
         self.started + self.patience
     }
 
-    /// Whether the guard has run out.
     pub fn passed(&self) -> bool {
         self.started.elapsed() >= self.patience
     }
 
-    /// Panics, saying what was waited for, if the guard has run out.
     #[track_caller]
     pub fn check(&self, what: impl Display) {
         if self.passed() {
@@ -88,15 +55,11 @@ impl Default for Deadline {
     }
 }
 
-/// Looks at `done` every [`POLL`] until it holds. Panics, saying `what` was
-/// waited for, after [`patience`].
 #[track_caller]
 pub fn wait_until(what: impl Display, mut done: impl FnMut() -> bool) {
     wait_for(what, || done().then_some(()));
 }
 
-/// Looks at `found` every [`POLL`] until it gives a value, and returns it.
-/// Panics, saying `what` was waited for, after [`patience`].
 #[track_caller]
 pub fn wait_for<T>(what: impl Display, mut found: impl FnMut() -> Option<T>) -> T {
     let deadline = Deadline::new();

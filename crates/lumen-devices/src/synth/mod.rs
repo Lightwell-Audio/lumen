@@ -1,32 +1,3 @@
-//! Flare, the built-in polyphonic synth (M5 slice 1, ADR-0045; its controls
-//! in M8 slice B4): two band-limited oscillators and a noise generator per
-//! voice, a state-variable filter with its own envelope, an amp envelope, an
-//! LFO, glide and 1 to 16 voices, all read from the same parameter table a
-//! project saves ([`params`]).
-//!
-//! Events apply at their exact frame: a block is rendered in spans between
-//! them. A value the project holds reaches the sound without cutting what
-//! sounds: [`Instrument::configure_values`] points every parameter at its new
-//! value and the voices glide there over [`GLIDE_SECONDS`], and a lane's
-//! points are played on their own frames ([`Instrument::automate`]), so
-//! automating the cutoff is sample-exact.
-//!
-//! The words a value reads as, the five presets as parameter sets, and the
-//! table's ids live in [`params`]. The DSP is played in `f64` arithmetic
-//! worked out by hand ([`det`]), never through an `f32` `sin`, `cos`, `tan`,
-//! `exp` or `powf`, so a golden render is the same on every platform. Nothing
-//! allocates after the constructor.
-//!
-//! The synth listens on every channel. A note is its channel and key: the
-//! same key on two channels is two notes, and a note-off, a retrigger or a
-//! steal ends only the note on its own channel (the piano roll previews on
-//! channel 15, apart from a clip's channel 0). Pitch bend is Â±2 semitones;
-//! CC 64 is the sustain pedal; CC 1 and channel pressure open the filter a
-//! little (up to an octave and a half); CC 120 silences, CC 123 releases, CC
-//! 121 resets the controllers; all of these act on every channel. Program
-//! changes 0 to 4 load one of the five presets into the values the synth
-//! plays. Bank selects are ignored.
-
 use lumen_core::midi::{Event, Kind, Msg, cc};
 
 use crate::Instrument;
@@ -39,27 +10,15 @@ mod voice;
 
 use voice::*;
 
-/// The synth's instrument number in a project (see [`Instrument`]).
 pub const KIND: u32 = 1;
-/// How many voices a project may ask for.
 pub const MOST_VOICES: usize = 16;
-/// How far the pitch bend wheel goes, in semitones.
 const BEND_RANGE: f32 = 2.0;
-/// How far the modulation wheel opens the filter, in octaves.
 const MOD_OCTAVES: f32 = 1.5;
-/// A value the project holds reaches sounding notes by gliding over this
-/// long: long enough that no parameter steps audibly, short enough to feel at
-/// once. The same for a preset.
 pub const GLIDE_SECONDS: f32 = 0.025;
-/// A stolen voice fades out over this long.
 const STEAL_SECONDS: f32 = 0.002;
-/// Below this an envelope has ended (âˆ’80 dB).
 const SILENT: f32 = 1e-4;
-/// The tempo a synth with no transport plays a synced LFO at.
 const DEFAULT_BPM: f32 = 120.0;
 
-/// The five sounds Flare is shipped with: each is a set of parameter values
-/// ([`params::preset_values`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Preset {
     #[default]
@@ -79,7 +38,6 @@ impl Preset {
         Preset::Pad,
     ];
 
-    /// The name saved in projects: never changes.
     pub fn id(self) -> &'static str {
         match self {
             Preset::Poly => "poly",
@@ -94,7 +52,6 @@ impl Preset {
         Self::ALL.into_iter().find(|p| p.id() == id)
     }
 
-    /// What menus show.
     pub fn name(self) -> &'static str {
         match self {
             Preset::Poly => "Poly",
@@ -105,7 +62,6 @@ impl Preset {
         }
     }
 
-    /// The number [`Instrument::configure`] takes.
     pub fn number(self) -> u32 {
         self as u32
     }
@@ -114,72 +70,42 @@ impl Preset {
         Self::ALL.get(number as usize).copied()
     }
 
-    /// This preset as the values a project holds for it, by parameter id,
-    /// normalised.
     pub fn values(self) -> Vec<(u32, f32)> {
         params::preset_values(self)
     }
 }
 
-/// A note waiting for a voice to fade out.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Waiting {
     pub(super) channel: u8,
     pub(super) key: u8,
     pub(super) velocity: u8,
-    /// How far it glides to its pitch, and how long that takes.
     pub(super) glide_oct: f32,
     pub(super) glide: f32,
 }
 
-/// Flare.
 pub struct Synth {
     voices: [Voice; MOST_VOICES],
-    /// The values every parameter holds (normalised), as the project has
-    /// them.
     targets: [f32; params::COUNT],
-    /// Where each parameter is now: it glides to its target when the values
-    /// move.
     glides: [Glide; params::COUNT],
-    /// Each parameter's value for each frame of the block being rendered.
     curves: Box<[[f32; MOST_FRAMES]; params::COUNT]>,
-    /// The settings and the LFO's rate at each derivation slot of the piece
-    /// being played: worked out once for every voice (review M5).
     slots: Slots,
-    /// The lanes the track's automation plays this block.
     events: ParamBlock,
-    /// The same lanes for the piece of it being played.
     chunk: ParamBlock,
-    /// The sound a new note starts on.
     sound: Settings,
-    /// The preset last loaded, for the record (`None` once edited).
     preset: Option<Preset>,
     rate: f32,
-    /// The tempo a synced LFO follows.
     tempo: f32,
-    /// How many notes sound at once.
     voice_limit: usize,
-    /// Portamento, in seconds.
     glide: f32,
-    /// The key the last note started on, for the next note's glide.
     last_key: Option<u8>,
-    /// The pedal is down.
     sustain: bool,
-    /// Pitch bend as a frequency ratio.
     bend: f32,
-    /// The wheel and pressure, 0 to 1.
     wheel: f32,
     pressure: f32,
     clock: u64,
-    /// Frames rendered since the stream began: the voices' derivation grid.
     frame: u64,
-    /// The frame a value glide the project's values started ends at: while one
-    /// runs, a voice works its settings out every [`voice::GLIDE_FRAMES`]
-    /// frames rather than every [`voice::DERIVE_FRAMES`], so a change is a
-    /// slope and never a step.
     glide_until: u64,
-    /// Notes a full synth could not start (every voice was already fading):
-    /// counted, never lost quietly (KNOWN_ISSUES, answered in B4).
     dropped: u32,
 }
 
@@ -190,8 +116,6 @@ impl Default for Synth {
 }
 
 impl Synth {
-    /// Flare on `preset`. Allocates (its curve buffers); call off the audio
-    /// thread.
     pub fn new(preset: Preset) -> Self {
         let mut values = [0.0; params::COUNT];
         params::preset_values_into(&mut values, preset);
@@ -200,9 +124,6 @@ impl Synth {
         synth
     }
 
-    /// Flare on the values `values` gives its parameters (normalised, by id),
-    /// and the table's defaults for any it does not name. Allocates; call off
-    /// the audio thread.
     pub fn with_values(values: &[(u32, f32)]) -> Self {
         let mut targets = params::defaults();
         for &(id, value) in values {
@@ -215,7 +136,6 @@ impl Synth {
         Self::with_array(&targets)
     }
 
-    /// The same, from every parameter's value in the table's order.
     fn with_array(targets: &[f32; params::COUNT]) -> Self {
         let targets = *targets;
         let sound = Settings::from_values(&targets);
@@ -245,13 +165,10 @@ impl Synth {
         }
     }
 
-    /// The preset the sound was last loaded from, when nothing has been
-    /// dialled since.
     pub fn preset(&self) -> Option<Preset> {
         self.preset
     }
 
-    /// The values the parameters hold now (normalised, by id).
     pub fn values(&self) -> Vec<(u32, f32)> {
         params::TABLE
             .iter()
@@ -259,7 +176,6 @@ impl Synth {
             .collect()
     }
 
-    /// Voices sounding now (tests).
     pub fn voices(&self) -> usize {
         self.voices
             .iter()
@@ -268,28 +184,20 @@ impl Synth {
             .count()
     }
 
-    /// Notes that could not start because every voice was already fading out
-    /// (tests and the status line).
     pub fn dropped(&self) -> u32 {
         self.dropped
     }
 
-    /// The tempo a synced LFO follows, as the transport has it.
     pub fn tempo(&self) -> f32 {
         self.tempo
     }
 
-    /// The cutoff each frame of the last block played, in Hz (tests: that a
-    /// lane on the cutoff is sample-exact).
     pub fn played_cutoff(&self, frames: usize) -> Vec<f32> {
         (0..frames.min(MOST_FRAMES))
             .map(|at| params::cutoff_hz(self.curves[(params::FILTER_CUTOFF - 1) as usize][at]))
             .collect()
     }
 
-    /// Fills `self.chunk` with the lanes of `self.events` as they play in the
-    /// piece of the block that begins at `base`: the value each holds at that
-    /// frame, and its own points inside the piece.
     fn chunk(&mut self, base: usize, frames: usize) {
         self.chunk.start(frames);
         let events = &self.events;
@@ -319,10 +227,6 @@ impl Synth {
                 cc::ALL_SOUND_OFF => self.silence(),
                 cc::ALL_NOTES_OFF => {
                     for v in &mut self.voices {
-                        // A note waiting for this voice to fade out is let go
-                        // with it: all notes off means none of them sound, and
-                        // a pending one would sound on the next block (review
-                        // L6).
                         v.pending = None;
                         v.release();
                     }
@@ -336,8 +240,6 @@ impl Synth {
                 _ => {}
             },
             Kind::PitchBend { value } => {
-                // The ratio in f64, rounded once: a bend arrives inside a
-                // block, so its exponential is on the render path (review M2).
                 self.bend =
                     det::exp2(f64::from(value) / 8192.0 * f64::from(BEND_RANGE) / 12.0) as f32;
             }
@@ -364,7 +266,6 @@ impl Synth {
 
     fn note_on(&mut self, channel: u8, key: u8, velocity: u8) {
         self.clock += 1;
-        // The same key on the same channel again lets the first go.
         for v in &mut self.voices {
             if v.channel == channel && v.key == key && v.stage != Stage::Off && (v.down || v.pedal)
             {
@@ -398,7 +299,6 @@ impl Synth {
             );
             return;
         }
-        // Full: the oldest voice fades out, then the new note takes it.
         let oldest = self.voices[..limit]
             .iter()
             .enumerate()
@@ -415,9 +315,6 @@ impl Synth {
                 v.down = false;
                 v.pedal = false;
             }
-            // Every voice is already fading out: the newest note takes the
-            // youngest steal's place, and the note it displaces is counted
-            // rather than dropped without a trace (KNOWN_ISSUES, M5 review).
             None => {
                 if let Some((i, _)) = self.voices[..limit]
                     .iter()
@@ -449,8 +346,6 @@ impl Synth {
         }
     }
 
-    /// Points every parameter at `values` (normalised, by id): a knob moved.
-    /// Sounding notes glide there; new notes start on it.
     fn point_at(&mut self, values: &[(u32, f32)]) {
         let mut targets = self.targets;
         for &(id, value) in values {
@@ -463,14 +358,10 @@ impl Synth {
         self.pointed(targets);
     }
 
-    /// Every parameter's value at once (a preset): normalised, in the table's
-    /// order.
     fn point_at_all(&mut self, values: &[f32; params::COUNT]) {
         self.pointed(*values);
     }
 
-    /// Takes `targets` as what every parameter now holds: the values glides
-    /// head for, the sound new notes start on, and the voice count and glide.
     fn pointed(&mut self, targets: [f32; params::COUNT]) {
         let sounding = self.voices.iter().any(|v| v.stage != Stage::Off);
         if sounding {
@@ -493,23 +384,16 @@ impl Synth {
 impl Instrument for Synth {
     fn render(&mut self, rate: u32, events: &[Event], left: &mut [f32], right: &mut [f32]) {
         if rate != 0 && rate as f32 != self.rate {
-            // The device changed its rate: voices begin again.
             self.silence();
             self.rate = rate as f32;
         }
         let frames = left.len().min(right.len());
         if frames == 0 {
-            // A call with no frames only delivers messages.
             for e in events {
                 self.apply(e.msg);
             }
             return;
         }
-        // A block is played in pieces of at most `MOST_FRAMES`, because the
-        // curves a voice reads are that long: the engine's own block is a
-        // chunk, and a longer one (a device of 480 frames, a test) is the same
-        // samples cut smaller. Each piece's lanes are re-based to it, so the
-        // curve played is the one the whole block would have played.
         let mut next = 0;
         let mut base = 0;
         while base < frames {
@@ -526,8 +410,6 @@ impl Instrument for Synth {
                 );
             }
             let start = self.frame;
-            // A value arriving reads its settings finely; a still sound can
-            // take its time (a still block fills every fourth slot).
             let step = if self.glide_until > start {
                 voice::GLIDE_FRAMES as usize
             } else {
@@ -553,10 +435,6 @@ impl Instrument for Synth {
                     .get(next)
                     .map_or(n, |e| (e.offset as usize).saturating_sub(base).min(n));
                 let end = end.max(done);
-                // Everything a span reads is worked out here, from the frame
-                // it begins at: a controller moved by an event reaches the
-                // sound on that event's frame, and whether a value is arriving
-                // is a question about the frame, never about the cut.
                 let changing = self.glide_until > start + done as u64;
                 let span = Span {
                     rate: self.rate,
@@ -587,7 +465,6 @@ impl Instrument for Synth {
             self.frame += n as u64;
             base += n;
         }
-        // Events past the end of the slices (a release with no frames).
         for e in &events[next..] {
             self.apply(e.msg);
         }
@@ -597,7 +474,6 @@ impl Instrument for Synth {
         if rate as f32 != self.rate {
             return;
         }
-        // Voices are plain data: run a copy, keep the real ones.
         let kept = self.voices;
         self.render(rate, &[], left, right);
         self.voices = kept;
@@ -608,9 +484,6 @@ impl Instrument for Synth {
     }
 
     fn configure(&mut self, preset: u32) {
-        // A program change arrives inside a block, on the audio thread: the
-        // preset's values are worked out into an array, never a `Vec` (review
-        // H1).
         if let Some(preset) = Preset::from_number(preset) {
             let mut values = [0.0; params::COUNT];
             params::preset_values_into(&mut values, preset);
@@ -624,9 +497,6 @@ impl Instrument for Synth {
             return;
         }
         self.point_at(values);
-        // The preset is only a name: once the project's values are set, the
-        // sound is those values (and looking for a preset to match them would
-        // mean working out all five on the audio thread — review H1).
         self.preset = None;
     }
 
@@ -637,8 +507,6 @@ impl Instrument for Synth {
     }
 
     fn automate(&mut self, params: &ParamBlock) {
-        // Copied, never borrowed: the engine's block lives for its own block
-        // and this is read while the next one renders.
         self.events.copy_from(params);
     }
 

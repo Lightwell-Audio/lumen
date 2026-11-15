@@ -52,6 +52,10 @@ It combines **an arrangement-first workflow** with a **clean, polished interface
 
 ## 3. Working agreement
 
+- Code files contain no comments. Keep implementation and intent clear from
+  names and structure. `python tools/no_comments.py` enforces this for Rust,
+  WGSL, TOML, YAML and shell files in the repository paths it scans; extend
+  that check whenever code is added in another language or format.
 - **You make the technical decisions.** Choose the architecture, libraries, UI approach, project format and algorithms. Constraints that are fixed: Rust, VST3 hosting, ASIO support on Windows. Everything else is open.
 - **Record significant decisions** as short decision records (context, options, choice, consequences), including the UI approach and anything with licensing implications.
 - **Plan before building.** For each milestone write a short plan, build in vertical slices that work end to end, keep the main branch green, and finish with a brief report: what shipped, what was deferred and why, measured performance, open risks.

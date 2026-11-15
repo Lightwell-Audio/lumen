@@ -1,11 +1,3 @@
-//! Deterministic VST3 test plugins: an instrument and an effect that sound
-//! exactly the same every time, with faults that can be switched on to make
-//! them misbehave (see [`faults`]). Hosts, the scanner and the golden
-//! renders are tested against them, never against third-party software.
-//!
-//! Built as a module (`cdylib`) for scanning and hosting, and as a library
-//! so the same classes can be tested in process.
-
 #[cfg(target_os = "macos")]
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -91,7 +83,6 @@ pub extern "system" fn ModuleExit() -> bool {
     true
 }
 
-/// The module's entry point.
 #[unsafe(no_mangle)]
 pub extern "system" fn GetPluginFactory() -> *mut vst3::Steinberg::IPluginFactory {
     #[cfg(target_os = "macos")]

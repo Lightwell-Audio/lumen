@@ -1,8 +1,3 @@
-//! The escape hatch from ADR-0002: dense content drawn by a custom wgpu
-//! pipeline inside egui. Notes live on the GPU as instances; a frame only
-//! updates a small uniform with the view, so CPU cost no longer grows with
-//! the number of notes.
-
 use bytemuck::{Pod, Zeroable};
 use eframe::egui::{Color32, Rect};
 use eframe::egui_wgpu::{self, wgpu};
@@ -20,12 +15,10 @@ struct Instance {
     color: u32,
 }
 
-/// The WGSL shader in `src/shaders`, checked by `build.rs`.
 mod shaders {
     include!(concat!(env!("OUT_DIR"), "/shaders.rs"));
 }
 
-// Matches the shader's uniform block, or the build fails.
 const _: () = assert!(size_of::<Uniforms>() == shaders::NOTES_UNIFORM);
 
 #[repr(C)]
@@ -49,7 +42,6 @@ struct NotesGpu {
     count: u32,
 }
 
-/// Uploads the notes once and registers the pipeline with egui's renderer.
 pub fn install(state: &egui_wgpu::RenderState, notes: &[Note]) {
     let device = &state.device;
     let base = Color32::from_rgb(0x5B, 0x9B, 0xE6);
@@ -180,7 +172,6 @@ impl egui_wgpu::CallbackTrait for NotesCallback {
     }
 }
 
-/// The paint shape for all notes in `rect` under `view`.
 pub fn notes_shape(rect: Rect, view: &View) -> eframe::egui::Shape {
     let uniforms = Uniforms {
         size: [rect.width(), rect.height()],

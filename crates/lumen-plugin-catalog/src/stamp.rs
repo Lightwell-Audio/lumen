@@ -1,6 +1,3 @@
-//! Telling whether a module's file has changed: its size and modification
-//! time. A cheap check that decides whether a cached scan still stands.
-
 use std::path::Path;
 use std::time::UNIX_EPOCH;
 
@@ -9,13 +6,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Stamp {
     pub len: u64,
-    /// Nanoseconds since the Unix epoch (zero when the file system has none).
     pub modified_ns: u64,
 }
 
 impl Stamp {
-    /// The stamp of the file at `path` (symbolic links followed), or `None`
-    /// if it cannot be read.
     pub fn of(path: &Path) -> Option<Stamp> {
         let meta = std::fs::metadata(path).ok()?;
         let modified_ns = meta

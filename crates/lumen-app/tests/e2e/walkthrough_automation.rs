@@ -1,13 +1,3 @@
-//! The M7 exit flow (`docs/milestones/M7.md`, slice A8): a track with a plugin
-//! instrument and a plugin effect gets a volume lane and a lane for the
-//! effect's gain, both drawn with the pointer and both heard; a move of the
-//! fader is recorded in Touch; a controller is mapped to the fader and its
-//! sweep is recorded too; a tempo and a time-signature change are added; then
-//! undo, save and reopen keep all of it, and the reopened song still plays
-//! its lanes. The plugins and the host program are the real ones, built by the
-//! test (the Lumen-owned test plugin); real third-party plugins and a hardware
-//! controller are the owner's MT-AUTO-10.
-
 use std::time::Duration;
 
 use eframe::egui::{Key, Modifiers};
@@ -33,14 +23,11 @@ use super::song_lanes::{click_meter, click_tempo, type_in};
 
 const KEYS: Id = Id(1);
 const FX: Id = Id(21);
-/// The effect's gain, which both test plugins give parameter 0.
 const GAIN: Target = Target::Device {
     device: FX,
     param: 0,
 };
-/// The effect's gain at 0 dB, normalized: 60 of its 72 dB.
 const UNITY: f32 = 60.0 / 72.0;
-/// The controller the fader is mapped to.
 const CHANNEL: u8 = 0;
 const NUMBER: u8 = 7;
 
@@ -51,13 +38,6 @@ fn peak(lumen: &mut Lumen) -> f32 {
         .fold(0.0f32, |m, f| m.max(f[0].abs()).max(f[1].abs()))
 }
 
-/// The quietest stretch of half a block (512 frames) in a few windows. An
-/// effect whose host answers late is passed through for that block, so on a
-/// busy machine every 200 ms window can hold a loud block although the lane
-/// holds the plugin shut (Linux CI read 0.034 so); a lane that does not hold
-/// it has no quiet stretch at all (its 440 Hz note has four cycles in each).
-/// The lane opens at the second quarter, so the windows cannot simply be
-/// waited out as `plugin_lanes` does.
 fn quietest(lumen: &mut Lumen) -> f32 {
     let mut least = f32::MAX;
     for _ in 0..4 {
@@ -76,7 +56,6 @@ fn loudest(lumen: &mut Lumen) -> f32 {
     (0..4).map(|_| peak(lumen)).fold(0.0, f32::max)
 }
 
-/// Plays from the start, up to the quarter `to`.
 fn play_to(lumen: &mut Lumen, to: i64) {
     play(lumen);
     lumen.wait_for("the song to reach the quarter", move |app| {
@@ -91,12 +70,10 @@ fn stop_and_rewind(lumen: &mut Lumen) {
     lumen.wait_for("the rewind", |app| app.playhead() == Ticks::ZERO);
 }
 
-/// The volume lane, as a list of points.
 fn volume(lumen: &Lumen) -> Vec<(Ticks, f32)> {
     points(lumen, KEYS, Target::Volume)
 }
 
-/// Draws the volume lane: quiet at the start, opening to 0 dB.
 fn draw_volume(lumen: &mut Lumen) {
     lumen.key(Modifiers::NONE, Key::A);
     lumen.frames(40);
@@ -113,8 +90,6 @@ fn draw_volume(lumen: &mut Lumen) {
     );
 }
 
-/// Chooses the effect's gain from the chip's plugin list and draws it: shut
-/// until the second quarter, open by the third.
 fn draw_gain(lumen: &mut Lumen) {
     lumen.click("Automation lane of Keys: Volume");
     lumen.click("Parameters of Deterministic Test Effect\u{2026}");
@@ -130,7 +105,6 @@ fn draw_gain(lumen: &mut Lumen) {
     assert_eq!(drawn.len(), 2, "two points drawn: {drawn:?}");
 }
 
-/// Shows the volume lane again through the chip.
 fn show_volume(lumen: &mut Lumen) {
     lumen.click("Automation lane of Keys: Deterministic Test Effect \u{00B7} Gain");
     lumen.click("Volume  \u{00B7}  2 points");
@@ -138,9 +112,6 @@ fn show_volume(lumen: &mut Lumen) {
     assert_eq!(lumen.app().automation_shown(KEYS), Some(Target::Volume));
 }
 
-/// The lane is heard shut, then open: at the start the gain lane holds the
-/// plugin at its bottom, and once it has opened the volume lane has reached
-/// its top.
 #[track_caller]
 fn lanes_are_heard(lumen: &mut Lumen, why: &str) {
     play_to(lumen, 1);
@@ -170,8 +141,6 @@ fn lanes_drawn_recorded_and_mapped_with_a_tempo_and_meter_change_save_reopen_and
     lumen.app_mut().select_tracks(&[KEYS]);
     lumen.frames(10);
 
-    // A volume lane drawn with the pointer is heard: quiet near the start,
-    // louder once it has opened.
     draw_volume(&mut lumen);
     play_to(&mut lumen, 1);
     let early = loudest(&mut lumen);
@@ -185,13 +154,9 @@ fn lanes_drawn_recorded_and_mapped_with_a_tempo_and_meter_change_save_reopen_and
     );
     stop_and_rewind(&mut lumen);
 
-    // A lane for the effect's gain, chosen from the plugin's own list: shut
-    // at the start, open by the third quarter.
     draw_gain(&mut lumen);
     lanes_are_heard(&mut lumen, "both lanes");
 
-    // Touch: a fader held while the song plays is written into its lane, and
-    // the whole pass is one undo step.
     show_volume(&mut lumen);
     lumen.app_mut().set_automation_mode(KEYS, "touch");
     lumen.click("Fold Keys");
@@ -221,8 +186,6 @@ fn lanes_drawn_recorded_and_mapped_with_a_tempo_and_meter_change_save_reopen_and
     lumen.key(Modifiers::NONE, Key::Home);
     lumen.wait_for("the rewind", |app| app.playhead() == Ticks::ZERO);
 
-    // Learn: the next controller moved is mapped to the shown lane's fader,
-    // and its sweep is written by Touch like a hand's.
     run_command(&mut lumen, "Learn a controller for the shown lane");
     assert_eq!(
         lumen.app().controller_learning(),
@@ -249,7 +212,6 @@ fn lanes_drawn_recorded_and_mapped_with_a_tempo_and_meter_change_save_reopen_and
     lumen.key(Modifiers::NONE, Key::Home);
     lumen.wait_for("the rewind", |app| app.playhead() == Ticks::ZERO);
 
-    // The tempo slows at the eighth quarter, and the meter becomes 3/4 there.
     lumen.key(Modifiers::NONE, Key::T);
     lumen.frames(40);
     click_tempo(&mut lumen, 8.0, 100.0);
@@ -258,7 +220,6 @@ fn lanes_drawn_recorded_and_mapped_with_a_tempo_and_meter_change_save_reopen_and
     assert_eq!(lumen.app().project().tempo.len(), 2);
     assert_eq!(lumen.app().project().meter.len(), 2);
 
-    // Save, close, reopen: the same project, and the lanes still play.
     let path = project_file(lumen.dir(), "Walk");
     lumen.app_mut().save_to(path.clone());
     lumen.wait_for("the save", |app| !app.is_busy() && !app.is_dirty());

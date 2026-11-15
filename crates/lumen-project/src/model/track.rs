@@ -1,5 +1,3 @@
-//! Tracks and how they are routed (the project document model).
-
 use super::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -18,78 +16,46 @@ pub struct Track {
     pub name: String,
     pub kind: TrackKind,
     pub color: Color,
-    /// Group track this track belongs to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<Id>,
     pub gain_db: f32,
     pub pan: f32,
-    // Format v7 (M4 slice 2). Written only when set.
-    /// Where its audio goes.
     #[serde(default, skip_serializing_if = "Output::is_auto")]
     pub output: Output,
-    /// Sends to return tracks. A return with no send here gets nothing.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sends: Vec<Send>,
-    /// Polarity inverted.
     #[serde(default, skip_serializing_if = "is_false")]
     pub invert: bool,
-    /// Input trim in dB, before everything else on the track.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub trim_db: f32,
     #[serde(default)]
     pub mute: bool,
     #[serde(default)]
     pub solo: bool,
-    /// Record-armed (format v3; recording itself arrives in M9).
     #[serde(default)]
     pub armed: bool,
     #[serde(default)]
     pub devices: Vec<Device>,
-    /// Where a MIDI track plays its notes instead of its instrument (format
-    /// v12): a MIDI output port and channel. Written only when set; the
-    /// instrument stays on the track for switching back.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub midi_to: Option<MidiTo>,
-    /// Which MIDI inputs a MIDI track listens to (format v13). Written only
-    /// when not "all inputs, all channels".
     #[serde(default, skip_serializing_if = "MidiFrom::is_default")]
     pub midi_from: MidiFrom,
-    /// When the track listens to its input (format v13). Stored on every
-    /// kind of track; audio tracks use it from M9.
     #[serde(default, skip_serializing_if = "Monitor::is_default")]
     pub monitor: Monitor,
-    /// The device inputs an audio track records from and monitors (format
-    /// v30, M9 R1). Written only when set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input: Option<AudioInput>,
-    /// The plugin output this audio track plays, if it plays one (format
-    /// v21): an auxiliary output of an instrument, which Lumen made the track
-    /// for. Written only when set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plugin_output: Option<PluginOutput>,
-    /// The lanes that automate this track's values and its devices'
-    /// parameters (format v22), at most one for each target. Written only
-    /// when there are some.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub automation: Vec<AutomationLane>,
-    /// The track plays a rendered file in place of its clips, notes and
-    /// devices (format v29). Written only when frozen.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub frozen: Option<Frozen>,
-    /// The drum map the track's notes are read through (format v35): a map
-    /// in the project's list (the owner's DM A). Written only when set; the
-    /// notes stay as they are when it changes or goes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub drum_map: Option<Id>,
     #[serde(default)]
     pub clips: Vec<Arc<Clip>>,
 }
 
-/// Where an audio track gets its sound from (format v30, M9 R1): the device's
-/// input channel `channel` (0 is input 1), and the one after it when `stereo`.
-/// A mono input plays on both sides of the track, as a mono file does. The
-/// channels are the device's own, so the choice survives changing which inputs
-/// are open; a device without them leaves the track silent and says why.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AudioInput {
     pub channel: u16,
@@ -112,41 +78,26 @@ impl AudioInput {
         }
     }
 
-    /// The device channels it takes: one, or two.
     pub fn channels(&self) -> std::ops::Range<u16> {
         self.channel..self.channel + 1 + u16::from(self.stereo)
     }
 
-    /// Whether the two share a device channel.
     pub fn overlaps(&self, other: &AudioInput) -> bool {
         let (a, b) = (self.channels(), other.channels());
         a.start < b.end && b.start < a.end
     }
 }
 
-/// A frozen track's rendered sound (format v29, M7b E5): what its instrument,
-/// devices, trim and polarity made of its clips, in a file. The track keeps its
-/// clips, notes and devices untouched, so unfreezing gives them back; while
-/// frozen it plays the file as one clip and runs no plugin
-/// (`edit::freeze::played`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Frozen {
-    /// The id the file's clip plays under.
     pub id: Id,
-    /// The rendered file, in the project's media.
     pub media: Id,
-    /// Where the file starts, and how long it lasts with its tail.
     pub start: Ticks,
     pub length: Ticks,
-    /// The track played mono material, so it keeps the project's pan law
-    /// (the file is always stereo).
     #[serde(default, skip_serializing_if = "is_false")]
     pub mono: bool,
 }
 
-/// An output of a plugin instrument that a track plays (format v21): the
-/// device, and the number of its audio output bus (0 is the instrument's own
-/// track, so an output track is 1 or more).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PluginOutput {
     pub device: Id,
@@ -154,7 +105,6 @@ pub struct PluginOutput {
 }
 
 impl Track {
-    /// An empty track at unity, centred, routed automatically.
     pub fn new(id: Id, name: impl Into<String>, kind: TrackKind, color: Color) -> Self {
         Self {
             id,
@@ -184,9 +134,6 @@ impl Track {
         }
     }
 
-    /// Whether the track plays mono material, which pans by the project's law
-    /// (stereo keeps its level at the centre). A frozen track keeps what it
-    /// was before it was frozen.
     pub fn plays_mono(&self, media: &[Media]) -> bool {
         if let Some(frozen) = &self.frozen {
             return frozen.mono;
@@ -203,45 +150,32 @@ impl Track {
         })
     }
 
-    /// The track's built-in synth: its first one (format v12). The engine's
-    /// own instrument; a VST3 instrument is found by [`Track::sound_source`].
     pub fn instrument(&self) -> Option<&Device> {
         self.devices.iter().find(|d| d.is_synth())
     }
 
-    /// What makes the sound on a MIDI track: its first instrument of any
-    /// kind, the built-in synth or a VST3 plugin (format v17).
     pub fn sound_source(&self) -> Option<&Device> {
         self.devices.iter().find(|d| d.is_instrument())
     }
 
-    /// A project's master track.
     pub fn master(id: Id) -> Self {
         Self::new(id, "Master", TrackKind::Master, MASTER_COLOR)
     }
 
-    /// The send to `to`, if there is one.
     pub fn send_to(&self, to: Id) -> Option<&Send> {
         self.sends.iter().find(|s| s.to == to)
     }
 }
 
-/// The master track's colour: a quiet grey, apart from the track palette.
 pub const MASTER_COLOR: Color = Color(0x8A8F99);
 
-/// Where a track's audio goes (format v7).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Output {
-    /// Its group when it is in one, otherwise the master. For the master,
-    /// the device's first pair of outputs.
     #[default]
     Auto,
-    /// The master, even from inside a group.
     Master,
-    /// A group or return track.
     Track(Id),
-    /// A pair of device outputs: 0 is outputs 1 and 2.
     Device(u16),
 }
 
@@ -251,18 +185,14 @@ impl Output {
     }
 }
 
-/// A send into a return track (format v7).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Send {
     pub to: Id,
     pub level: Level,
-    /// Taken before the track's volume and pan; otherwise after (the
-    /// default, owner's choice).
     #[serde(default, skip_serializing_if = "is_false")]
     pub pre_fader: bool,
 }
 
-/// A level in dB that may be silent: written as a number, or `"-inf"`.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub struct Level(pub f32);
 
@@ -273,7 +203,6 @@ impl Level {
         self.0 == f32::NEG_INFINITY
     }
 
-    /// Linear gain: 0 when silent.
     pub fn gain(self) -> f32 {
         if self.is_silent() {
             0.0
@@ -309,31 +238,21 @@ impl<'de> Deserialize<'de> for Level {
     }
 }
 
-/// A MIDI output (format v12): a port by the name the system gave it, and a
-/// channel from 0 (shown as 1) to 15. The port may be unplugged: the name is
-/// kept so the track finds the device again when it returns.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MidiTo {
     pub port: String,
     pub channel: u8,
 }
 
-/// Which inputs feed a MIDI track (format v13).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FromSource {
-    /// Every input switched on for tracks, and the computer keyboard.
     #[default]
     All,
-    /// The computer keyboard only.
     Keyboard,
-    /// One input port, by the name the system gave it. It may be unplugged:
-    /// the name is kept so the track finds the device again.
     Port(String),
 }
 
-/// A MIDI track's input (format v13): a source and a channel from 0 (shown
-/// as 1) to 15, or every channel.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct MidiFrom {
     #[serde(default)]
@@ -343,22 +262,17 @@ pub struct MidiFrom {
 }
 
 impl MidiFrom {
-    /// All inputs, all channels: the default, which is not written.
     pub fn is_default(&self) -> bool {
         *self == Self::default()
     }
 }
 
-/// When a track passes its input through to its output (format v13).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Monitor {
-    /// While the track is armed or selected.
     #[default]
     Auto,
-    /// Always.
     In,
-    /// Never.
     Off,
 }
 

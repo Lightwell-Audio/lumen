@@ -7,9 +7,6 @@ struct Layer {
 @group(0) @binding(0) var<uniform> l: Layer;
 @group(0) @binding(1) var rows: texture_2d<f32>;
 
-// Beats arrive split into whole and fractional parts, and so does the view's
-// left edge: subtracting the parts separately stays exact deep into a long
-// song at sample-level zoom, where one f32 subtraction would be pixels off.
 fn from_left(b: vec2<f32>) -> f32 {
     return (b.x - l.left) + (b.y - l.left_frac);
 }
@@ -33,15 +30,12 @@ struct Out {
 @vertex
 fn vs_main(@builtin(vertex_index) v: u32, b: Box) -> Out {
     var out: Out;
-    // The row's low 24 bits are its first slot; the top 8 bits are how many
-    // slots below it the box also covers (notes inside arrangement clips).
     let first = b.row & 0xFFFFFFu;
     let last = first + (b.row >> 24u);
     let slot = textureLoad(rows, vec2<i32>(i32(first % 256u), i32(first / 256u)), 0);
     let end = textureLoad(rows, vec2<i32>(i32(last % 256u), i32(last / 256u)), 0);
     let height = max(end.x + end.y - slot.x, slot.y) - 2.0 * l.inset;
     if (height <= 0.0 || slot.z <= 0.0) {
-        // A hidden row: a degenerate triangle, nothing drawn.
         out.pos = vec4<f32>(-2.0, -2.0, 0.0, 1.0);
         return out;
     }
@@ -49,12 +43,8 @@ fn vs_main(@builtin(vertex_index) v: u32, b: Box) -> Out {
     let x0 = l.origin.x + from_left(b.start) * l.ppu;
     let x1 = max(l.origin.x + from_left(b.end) * l.ppu, x0 + l.min_width);
     let y0 = l.origin.y + slot.x - l.top + l.inset;
-    // Edges on whole pixels, as egui snaps its rectangles: crisp borders,
-    // and the box lines up with text and shapes drawn beside it.
     let lo = round(vec2<f32>(x0, y0));
     let hi = max(round(vec2<f32>(x1, y0 + height)), lo + vec2<f32>(1.0));
-    // Clamping to the area replaces scissoring; `local` keeps the box's
-    // own coordinates, so a clipped box still draws its shape correctly.
     let p = clamp(mix(lo, hi, corner), l.origin, l.origin + l.size);
     out.pos = vec4<f32>(p.x / l.canvas.x * 2.0 - 1.0, 1.0 - p.y / l.canvas.y * 2.0, 0.0, 1.0);
     out.local = p - lo;
@@ -68,13 +58,11 @@ fn vs_main(@builtin(vertex_index) v: u32, b: Box) -> Out {
     return out;
 }
 
-// Signed distance to a rounded rectangle centred on the origin.
 fn rounded(p: vec2<f32>, half: vec2<f32>, r: f32) -> f32 {
     let q = abs(p) - half + vec2<f32>(r);
     return length(max(q, vec2<f32>(0.0))) + min(max(q.x, q.y), 0.0) - r;
 }
 
-// `top` over `under`, straight alpha.
 fn over(top: vec4<f32>, under: vec4<f32>) -> vec4<f32> {
     let a = top.a + under.a * (1.0 - top.a);
     if (a <= 0.0) {

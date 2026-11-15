@@ -1,5 +1,3 @@
-//! What the table, its words and its presets must always be (M8 slice B4).
-
 use super::*;
 use crate::params::{ParamInfo, Taper};
 use crate::synth::Preset;
@@ -33,7 +31,6 @@ fn a_value_reads_and_is_read_back() {
             info.name
         );
     }
-    // And a few by hand, in the words a person types.
     let near = |a: f32, b: f32| (a - b).abs() < 1e-6;
     let cutoff = find(FILTER_CUTOFF).unwrap();
     assert!(near(
@@ -56,8 +53,6 @@ fn a_value_reads_and_is_read_back() {
     assert!(find(FILTER_CUTOFF).unwrap().value_of("bright").is_none());
 }
 
-/// The table's defaults are Poly, exactly: a state the project does not
-/// name sounds as Lumen always has.
 #[test]
 fn poly_is_the_table_s_defaults() {
     let poly = preset_values(Preset::Poly);
@@ -68,8 +63,6 @@ fn poly_is_the_table_s_defaults() {
     }
 }
 
-/// A preset is a set of values and nothing else: the same values twice
-/// are the same preset, and each of the five differs from the others.
 #[test]
 fn the_presets_are_values() {
     for preset in Preset::ALL {
@@ -90,7 +83,6 @@ fn the_presets_are_values() {
     }
 }
 
-/// The round-2 labels are data, and the plain names are the table's.
 #[test]
 fn the_labels_are_the_round_two_ones() {
     assert_eq!(short_label(OSC1_SHAPE), "Shape");
@@ -98,10 +90,8 @@ fn the_labels_are_the_round_two_ones() {
     assert_eq!(short_label(FILTER_RESO), "Reso");
     assert_eq!(short_label(AMP_ATTACK), "Attack");
     assert_eq!(short_label(AMP_RELEASE), "Release");
-    // The plain name stays for a tooltip, All parameters and a lane.
     assert_eq!(find(AMP_ATTACK).unwrap().name, "Amp attack");
     assert_eq!(find(FILTER_RESO).unwrap().name, "Resonance");
-    // A parameter with no dial of its own says its plain name.
     assert_eq!(short_label(OSC1_DETUNE), "Oscillator 1 detune");
 }
 
@@ -114,13 +104,11 @@ fn a_taper_s_power_is_a_power() {
     let square = 20.0 + 19_980.0 * 0.25;
     assert!((taper_value(Taper::Power(2.0), range, x) - square).abs() < 1e-3);
     assert_eq!(taper_value(Taper::Linear, range, x), 10_010.0);
-    // A choice snaps to its steps.
     assert_eq!(snapped(LFO_TARGET, 0.6), 2.0);
     assert_eq!(snapped(VOICES, 0.0), 1.0);
     assert_eq!(snapped(VOICES, 1.0), 16.0);
 }
 
-/// The description is the table, and Flare reports no timing of its own.
 #[test]
 fn the_description_is_the_table() {
     assert_eq!(DESCRIPTION.name, NAME);
@@ -134,7 +122,6 @@ fn the_description_is_the_table() {
     assert_eq!(tail(&values), 0);
 }
 
-/// The taper works the arithmetic, not the library's `powf`.
 #[test]
 fn a_power_taper_is_the_same_bits_every_time() {
     let whatever = |k: u32| {
@@ -144,7 +131,6 @@ fn a_power_taper_is_the_same_bits_every_time() {
     let first: Vec<u32> = (0..256).map(whatever).collect();
     let again: Vec<u32> = (0..256).map(whatever).collect();
     assert_eq!(first, again);
-    // The words of a stepped parameter are the table's own list.
     let target: &ParamInfo = find(LFO_TARGET).unwrap();
     assert_eq!(target.choices, TARGETS);
     assert_eq!(DIVISION_WORDS.len(), DIVISIONS.len());

@@ -1,6 +1,3 @@
-//! Moving around the arrangement: zoom keys, fit, back, the song's limits,
-//! and Follow turning the page while playing.
-
 use eframe::egui::{Key, Modifiers};
 
 use super::{Lumen, wav};
@@ -23,7 +20,6 @@ fn zoom_keys_fit_and_step_back() {
     lumen.frames(30);
     assert!(lumen.app().view().zoom < closer.zoom, "- zooms out");
 
-    // X steps back through the views, to where it started.
     for _ in 0..3 {
         lumen.key(Modifiers::NONE, Key::X);
         lumen.frames(30);
@@ -34,7 +30,6 @@ fn zoom_keys_fit_and_step_back() {
         "{back:?} vs {start:?}"
     );
 
-    // W fits the song (an empty one: 4 bars) across the width.
     lumen.key(Modifiers::NONE, Key::W);
     lumen.frames(30);
     assert!(lumen.app().view().zoom > start.zoom);
@@ -48,8 +43,6 @@ fn zooming_out_stops_at_the_song() {
     }
     lumen.frames(30);
     let view = lumen.app().view();
-    // An empty song: 32 bars and 10% of room fill the arrangement, so a
-    // beat still takes several points (the old limit was 0.1).
     assert!(view.zoom > 5.0, "{view:?}");
     assert_eq!(view.left, 0.0);
 }
@@ -59,7 +52,6 @@ fn height_keys_fit_and_restore_the_tracks() {
     let mut lumen = Lumen::start("heights");
     lumen.key(Modifiers::COMMAND, Key::T);
     lumen.key(Modifiers::COMMAND, Key::T);
-    // New tracks grow in and moved rows glide (M4.5): let them settle.
     lumen.frames(30);
     let ctx = lumen.harness.ctx.clone();
     let height = |lumen: &Lumen| lumen.app().tracks_height(&ctx);
@@ -75,23 +67,18 @@ fn height_keys_fit_and_restore_the_tracks() {
 #[test]
 fn follow_turns_the_page_while_playing() {
     let mut lumen = Lumen::start("follow");
-    // Zoomed in so far that the playhead leaves the view within a beat.
     lumen.app_mut().set_view(TimeView {
         left: 0.0,
         zoom: 2_000.0,
     });
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.wait_for("the view to turn a page", |app| app.view().left > 0.0);
-    // Following moves the view, never its zoom.
     assert_eq!(lumen.app().view().zoom, 2_000.0);
     lumen.key(Modifiers::NONE, Key::Space);
 }
 
 #[test]
 fn a_project_saved_scrolled_past_its_tracks_opens_showing_them() {
-    // The interface audit's U1: the v10 golden fixture was saved scrolled
-    // 48 points down, past its two rows. It opened with Drums hidden above
-    // the view and empty lanes below; the scroll now keeps to the content.
     let dir = lumen_project::testing::TempDir::new("e2e-scroll-clamp");
     let folder = dir.path().join("Golden");
     std::fs::create_dir_all(folder.join("Samples")).unwrap();

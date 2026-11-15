@@ -1,9 +1,3 @@
-//! One row of the file list (M9 R7c): a sound with its play button,
-//! picture (the owner's R B) and length, a project or a folder; its menu;
-//! and the row picture's painting, which the preview strip shares. What the
-//! pointer did with a row, and its menu, are `app::browser::files::row`
-//! (audit M12).
-
 use std::path::{Path, PathBuf};
 
 use eframe::egui::{self, Rect, Ui, pos2, vec2};
@@ -13,35 +7,26 @@ use super::walk::{Entry, Kind};
 use crate::icons::{self, Icon};
 use crate::{fonts, motion, theme, widgets};
 
-/// The picture on a sound's row.
 const PICTURE: egui::Vec2 = egui::vec2(46.0, 16.0);
-/// The play button on a sound's row, and an icon's box.
 const PLAY: f32 = 18.0;
 pub(crate) const ICON: f32 = 14.0;
 
-/// What a row is drawn from this frame: the picture read for it, whether it
-/// is playing, and the two responses its states come from.
 pub(crate) struct Drawn<'a> {
     pub thumb: Option<&'a Result<Thumb, String>>,
     pub playing: bool,
     pub response: &'a egui::Response,
-    /// The play button, on a sound's row that can be heard.
     pub play: Option<&'a egui::Response>,
 }
 
-/// How a row is drawn.
 pub(crate) struct RowLook {
     pub selected: bool,
     pub two: bool,
     pub pictures: bool,
-    /// A place that is there (a missing one shows the warning shape).
     pub there: bool,
     pub place: bool,
     pub folder_line: String,
 }
 
-/// Paints one row: what leads it, the name, the folder under it, the length
-/// and the picture.
 pub(crate) fn paint_row(ui: &Ui, rect: Rect, entry: &Entry, look: &RowLook, drawn: &Drawn<'_>) {
     let palette = *theme::p();
     let id = row_id(&entry.path);
@@ -70,7 +55,6 @@ pub(crate) fn paint_row(ui: &Ui, rect: Rect, entry: &Entry, look: &RowLook, draw
     } else {
         palette.text_hint
     };
-    // What leads the row.
     let lead = play_rect.center();
     match entry.kind {
         Kind::Audio if !bad => {
@@ -138,7 +122,6 @@ pub(crate) fn paint_row(ui: &Ui, rect: Rect, entry: &Entry, look: &RowLook, draw
             painter.extend(icons::shapes(icon, r, tint));
         }
     }
-    // The right side: the length, and the picture before it.
     let mut right = rect.right() - theme::space::S;
     let detail = match (thumb, entry.kind) {
         (Some(Ok(t)), Kind::Audio | Kind::Midi) => t.seconds.map(super::thumbs::length),
@@ -181,7 +164,6 @@ pub(crate) fn paint_row(ui: &Ui, rect: Rect, entry: &Entry, look: &RowLook, draw
         }
         right = at.left() - theme::space::S;
     }
-    // The name, and under it the folder.
     let left = play_rect.right() + theme::space::S;
     let width = (right - left).max(0.0);
     let name = fit(
@@ -216,7 +198,6 @@ pub(crate) fn paint_row(ui: &Ui, rect: Rect, entry: &Entry, look: &RowLook, draw
     }
 }
 
-/// Where a row's play button sits.
 pub(crate) fn play_rect(rect: Rect) -> Rect {
     Rect::from_center_size(
         pos2(rect.left() + theme::space::S + PLAY / 2.0, rect.center().y),
@@ -224,12 +205,10 @@ pub(crate) fn play_rect(rect: Rect) -> Rect {
     )
 }
 
-/// A row's id: its path.
 pub(crate) fn row_id(path: &Path) -> egui::Id {
     egui::Id::new(("file row", path))
 }
 
-/// The folder a row is in, from the sample folder or place it is under.
 pub(crate) fn folder_line(entry: &Entry, roots: &[PathBuf]) -> String {
     let Some(parent) = entry.path.parent() else {
         return String::new();
@@ -260,7 +239,6 @@ pub(crate) fn heading(ui: &Ui, rect: Rect, text: &str) {
     );
 }
 
-/// `text` in one line of at most `width`, cut with "…" (a label may be).
 fn fit(
     painter: &egui::Painter,
     text: &str,
@@ -275,8 +253,6 @@ fn fit(
     painter.layout_job(job)
 }
 
-/// A row's picture in `rect`: the waveform mirrored about its middle, the
-/// notes as bars, or a flat line.
 pub(crate) fn paint_picture(
     painter: &egui::Painter,
     rect: Rect,

@@ -1,8 +1,3 @@
-//! A lane that drives a plugin's parameter (M7 slice A3): played through the
-//! whole app against the real test plugins, kept apart from the value the
-//! project holds at rest, and chosen from a plugin's own list of parameters
-//! with a search. The plugins are the test plugin's instrument and effect.
-
 use std::time::Duration;
 
 use eframe::egui::{Event, Key, Modifiers};
@@ -20,9 +15,7 @@ use super::hosting::{
 
 const KEYS: Id = Id(1);
 const FX: Id = Id(21);
-/// The parameter both test plugins give their level to.
 const LEVEL: u32 = 0;
-/// The effect's gain at 0 dB, normalized: 60 of its 72 dB.
 const UNITY: f32 = 60.0 / 72.0;
 
 fn lane(points: &[(i64, f32)]) -> Lane {
@@ -42,11 +35,6 @@ fn peak(lumen: &mut Lumen, ms: u64) -> f32 {
         .fold(0.0f32, |m, f| m.max(f[0].abs()).max(f[1].abs()))
 }
 
-/// The quietest window in a while, leaving at the first one that is quiet. An
-/// effect whose host answers a block late is passed through for that block,
-/// so on a busy machine one window in a few reads loud although the lane holds
-/// the plugin shut; a lane that does not hold it never has a quiet window at
-/// all. The limit is generous and a run that is not slow leaves at once.
 fn quietest(lumen: &mut Lumen) -> f32 {
     let mut least = f32::MAX;
     for _ in 0..50 {
@@ -60,8 +48,6 @@ fn quietest(lumen: &mut Lumen) -> f32 {
 
 #[test]
 fn a_plugin_effects_parameter_lane_is_heard_changing_it_when_the_song_reaches_it() {
-    // The effect's gain is held at its bottom (−60 dB) until two seconds in,
-    // then opened to unity: the instrument is all but gone, then heard.
     let _turn = timing_sensitive();
     let song = project(|d| *d = vec![instrument_device(PLUGIN), effect_device(FX)]);
     let mut lumen = launch("lane-effect", &song, &["Plug"]);
@@ -137,12 +123,10 @@ fn the_value_a_lane_drives_is_not_also_sent_to_the_plugin_over_the_control_chann
         device: FX,
         param: LEVEL,
     };
-    // Not driven: a value the project holds reaches the plugin.
     lumen.app_mut().set_device_param(FX, LEVEL, 0.3);
     lumen.frames(30);
     let sent = lumen.app().values_sent_to(FX);
     assert!(sent >= 1, "a free parameter follows the project: {sent}");
-    // Driven: the lane has it, so the project's value at rest is not sent.
     lumen
         .app_mut()
         .give_lane(KEYS, target, lane(&[(0, 0.5)]))
@@ -152,7 +136,6 @@ fn the_value_a_lane_drives_is_not_also_sent_to_the_plugin_over_the_control_chann
     lumen.frames(30);
     assert_eq!(lumen.app().values_sent_to(FX), sent, "the lane has it");
     assert!(!lumen.app().lane_taken_over(KEYS, target));
-    // The lane off, the project's value is the plugin's again.
     lumen.app_mut().switch_lane(KEYS, target, false).unwrap();
     lumen.frames(30);
     assert!(lumen.app().values_sent_to(FX) > sent);
@@ -174,7 +157,6 @@ fn moving_a_control_a_lane_drives_takes_the_lane_over_and_re_enabling_gives_it_b
         .unwrap();
     lumen.frames(5);
     let sent = lumen.app().values_sent_to(FX);
-    // The user's move is heard: the lane lets go and the plugin has the value.
     lumen.app_mut().set_device_param(FX, LEVEL, 0.9);
     lumen.frames(30);
     assert!(lumen.app().lane_taken_over(KEYS, target));
@@ -182,7 +164,6 @@ fn moving_a_control_a_lane_drives_takes_the_lane_over_and_re_enabling_gives_it_b
         lumen.app().values_sent_to(FX) > sent,
         "the move reaches the plugin"
     );
-    // Re-enabled, the lane has it again and the project's value is not sent.
     lumen.app_mut().reenable_lane(KEYS, target);
     lumen.frames(30);
     assert!(!lumen.app().lane_taken_over(KEYS, target));
@@ -196,8 +177,6 @@ fn moving_a_control_a_lane_drives_takes_the_lane_over_and_re_enabling_gives_it_b
     );
 }
 
-/// Lumen with the Keys track holding the instrument and the effect, selected,
-/// its lane shown, and the chooser open on the effect.
 fn chooser(name: &str, module: &str) -> Lumen {
     let song = project(|d| *d = vec![instrument_device(PLUGIN), effect_device(FX)]);
     let mut lumen = launch(name, &song, &[module]);
@@ -294,7 +273,6 @@ fn a_lane_for_a_plugin_parameter_survives_a_save_and_moves_with_its_device() {
     let saved = lumen.app().project_as_saved();
     let kept = saved.tracks[0].lane(target).expect("saved with the track");
     assert_eq!(kept.lane.len(), 2);
-    // The file holds it with the device: reading it back gives the same lane.
     let path = lumen.dir().join("lanes.lumen");
     lumen_project::save(&saved, &path, &Default::default()).unwrap();
     let back = lumen_project::load(&path).unwrap();
@@ -303,10 +281,6 @@ fn a_lane_for_a_plugin_parameter_survives_a_save_and_moves_with_its_device() {
 
 #[test]
 fn a_parameter_can_be_changed_again_once_its_lane_is_switched_off() {
-    // The owner's report (MT-AUTO-4): with a lane off, the plugin's parameter
-    // could no longer be changed. The lane held the gain at −60 dB; the
-    // project's own value for it (and what Lumen last read from the plugin)
-    // was still unity, so setting unity again looked like no change.
     let _turn = timing_sensitive();
     let song = project(|d| *d = vec![instrument_device(PLUGIN), effect_device(FX)]);
     let mut lumen = launch("lane-off-change", &song, &["Plug"]);
@@ -327,8 +301,6 @@ fn a_parameter_can_be_changed_again_once_its_lane_is_switched_off() {
     assert!(quiet < 0.005, "the lane holds the gain at −60 dB: {quiet}");
     let sent = lumen.app().values_sent_to(FX);
     lumen.app_mut().switch_lane(KEYS, target, false).unwrap();
-    // The value at rest is sent to the plugin again, though Lumen's own idea
-    // of the plugin's value had not changed.
     lumen.wait_for("the value at rest to be sent", move |app| {
         app.values_sent_to(FX) > sent
     });
@@ -337,7 +309,6 @@ fn a_parameter_can_be_changed_again_once_its_lane_is_switched_off() {
         back > 0.01,
         "switched off, the value at rest is heard: {back}"
     );
-    // And a new value is taken: first down, then up again.
     let sent = lumen.app().values_sent_to(FX);
     lumen.app_mut().set_device_param(FX, LEVEL, 0.0);
     lumen.wait_for("the new value to be sent", move |app| {
@@ -357,8 +328,6 @@ fn a_parameter_can_be_changed_again_once_its_lane_is_switched_off() {
 
 #[test]
 fn a_plugin_lanes_point_reads_in_the_plugins_own_words_when_the_pointer_rests_on_it() {
-    // Half way up the effect's gain is −24 dB in its own words: the lane
-    // used to say "50%" (KNOWN_ISSUES row 51).
     let song = project(|d| *d = vec![instrument_device(PLUGIN), effect_device(FX)]);
     let mut lumen = launch("lane-words", &song, &["Plug"]);
     wait_for_state(&mut lumen, FX, "ready");
@@ -370,7 +339,6 @@ fn a_plugin_lanes_point_reads_in_the_plugins_own_words_when_the_pointer_rests_on
         .app_mut()
         .give_lane(KEYS, target, lane(&[(0, 0.0), (4, 0.5)]))
         .unwrap();
-    // As the chip's menu shows it.
     lumen.app_mut().show_clip_envelope(KEYS, target);
     lumen.frames(30);
     let at = super::lane_view::point_pos(&lumen, KEYS, 1);
@@ -387,10 +355,6 @@ fn a_plugin_lanes_point_reads_in_the_plugins_own_words_when_the_pointer_rests_on
 
 #[test]
 fn a_lanes_point_and_the_devices_card_each_read_their_own_value_at_once() {
-    // The playhead holds the gain at its bottom (−60 dB) and the pointer
-    // rests on a point half way up (−24 dB): asking for the point's words
-    // must not change what the card says for its own value (review of
-    // ADR-0125: one answer per parameter stood for both).
     let song = project(|d| *d = vec![instrument_device(PLUGIN), effect_device(FX)]);
     let mut lumen = launch("lane-and-card-words", &song, &["Plug"]);
     wait_for_state(&mut lumen, FX, "ready");

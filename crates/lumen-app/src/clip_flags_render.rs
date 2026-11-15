@@ -1,10 +1,3 @@
-//! Reverse and polarity heard through the engine (M7b slice E1): the clips
-//! the project describes are turned into engine clips as the app does, the
-//! reversed twin standing in for a reversed clip's file, and rendered offline.
-//! A reversed clip must play the same stretch of its file backwards on the
-//! same samples; an inverted one must be the plain render with its sign
-//! changed, bit for bit.
-
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -20,15 +13,10 @@ use crate::lanes::engine_clips;
 use crate::media::{self, reversed_key};
 
 const RATE: u32 = 48_000;
-/// Frames of the file: ten seconds.
 const FRAMES: usize = 480_000;
-/// The clip's first source frame.
 const START: i64 = 1_000;
-/// Frames either side of a clip's edges left out of comparisons: the
-/// engine's edge dip and the 20 ms the level glides in over.
 const EDGE: usize = 2_000;
 
-/// A file whose frame `i` is distinct, as a ramp with a little noise.
 fn file() -> Arc<ClipAudio> {
     let left: Vec<f32> = (0..FRAMES)
         .map(|i| (i % 1_999) as f32 / 4_000.0 - 0.25 + (i as f32 * 1e-6))
@@ -40,8 +28,6 @@ fn file() -> Arc<ClipAudio> {
     })
 }
 
-/// A project with one two-second clip (four quarters at 120 BPM) taking the
-/// file from `START`.
 fn document() -> Document {
     let mut doc = Document::new(crate::empty_project());
     doc.import(vec![Imported {
@@ -74,13 +60,10 @@ fn document() -> Document {
     doc
 }
 
-/// Renders the project from its start for `frames`, with the file and its
-/// reversed twin standing for the media.
 fn render(project: &Project, frames: usize, block: usize) -> Vec<f32> {
     render_as(project, frames, block, |id| id.0 & reversed_key(0) != 0)
 }
 
-/// [`render`] with `twin` saying which media ids get the reversed audio.
 fn render_as(
     project: &Project,
     frames: usize,
@@ -90,7 +73,6 @@ fn render_as(
     render_file(project, frames, block, file(), twin)
 }
 
-/// [`render_as`] with `forward` as the file.
 fn render_file(
     project: &Project,
     frames: usize,
@@ -141,8 +123,6 @@ fn a_reversed_clip_plays_the_same_stretch_of_its_file_backwards() {
     let mut doc = document();
     let id = doc.project().tracks[0].clips[0].id;
     assert_eq!(doc.reverse_clips(&[id]).changed, 1);
-    // The oracle: the file reversed first, then the window that ends where
-    // the clip's window began, played forwards.
     let mut oracle = document();
     oracle.apply("oracle", None, |project| {
         let clip = Arc::make_mut(&mut Arc::make_mut(&mut project.tracks[0]).clips[0]);
@@ -176,13 +156,9 @@ fn reversing_one_part_of_a_split_clip_mirrors_only_that_part() {
     let before = left(&render(doc.project(), 96_000, 128));
     doc.reverse_clips(&parts[..1]);
     let after = left(&render(doc.project(), 96_000, 128));
-    // The second part is untouched, away from the seam.
     for k in 48_000 + EDGE..96_000 - EDGE {
         assert_eq!(after[k], before[k], "k {k}");
     }
-    // The first part plays its own second of the file backwards: the oracle
-    // is a one-second clip of the reversed file ending where that stretch
-    // began.
     let mut oracle = document();
     oracle.apply("oracle", None, |project| {
         let clip = Arc::make_mut(&mut Arc::make_mut(&mut project.tracks[0]).clips[0]);
@@ -225,7 +201,6 @@ fn a_reversed_clip_asks_for_the_twin_and_is_silent_until_it_is_there() {
     assert!(list.is_empty(), "no twin yet: nothing to play");
 }
 
-/// The stretch of the file `doc`'s first clip plays and the peak in it.
 fn stretch_peak(doc: &Document, audio: &ClipAudio) -> f32 {
     let project = doc.project();
     let clip = &project.tracks[0].clips[0];
@@ -255,7 +230,6 @@ fn a_normalized_clip_plays_its_file_scaled_so_the_stretch_reaches_full_scale() {
     assert_eq!(doc.normalize_clips(&[(id, db)]), 0, "within the gain range");
     let normalized = render_file(doc.project(), 96_000, 128, source.clone(), |_| false);
 
-    // The oracle: the same clip at unity over a file scaled by hand.
     let scaled = Arc::new(ClipAudio::Memory {
         sample_rate: RATE,
         channels: source
@@ -297,9 +271,6 @@ fn a_reversed_clip_has_the_same_peak_read_from_its_twin() {
     );
 }
 
-// ---- The audio editor's loop brace, heard through the engine (M9.5 D21) ----
-
-/// The clip of [`document`] looping every `turn` quarters, as the brace sets it.
 fn looped_document(turn: i64) -> (Document, Id) {
     use lumen_project::edit::clip_loop::LoopEdit;
     let mut doc = document();
@@ -324,13 +295,9 @@ fn at_bpm(doc: &mut Document, bpm: f64) {
 #[test]
 fn a_looped_clip_plays_its_first_turn_as_before_and_then_repeats_it() {
     let (doc, _) = looped_document(2);
-    // Blocks that divide the 48 000-frame turn: the render of even a plain clip
-    // is not the same sample for sample at every block size (333 differs from
-    // 128 from frame 64), which this test is not about.
     for block in [128, 500] {
         let plain = left(&render(document().project(), 96_000, block));
         let heard = left(&render(doc.project(), 96_000, block));
-        // Two quarters at 120 BPM: 48 000 frames a turn.
         for k in EDGE..48_000 - EDGE {
             assert_eq!(heard[k], plain[k], "first turn, k {k}, block {block}");
         }
@@ -348,7 +315,6 @@ fn a_looped_clips_turn_follows_a_tempo_change_in_the_output() {
     let (mut doc, _) = looped_document(2);
     at_bpm(&mut doc, 90.0);
     let heard = left(&render(doc.project(), 96_000, 128));
-    // Two quarters at 90 BPM: 64 000 frames a turn.
     for k in EDGE..64_000 - EDGE {
         assert_eq!(heard[k], plain[k], "first turn, k {k}");
     }
@@ -361,7 +327,6 @@ fn a_looped_clips_turn_follows_a_tempo_change_in_the_output() {
 fn splitting_a_looped_clip_part_way_through_a_turn_sounds_the_same() {
     let (mut doc, id) = looped_document(2);
     let whole = left(&render(doc.project(), 96_000, 128));
-    // Three quarters in: the second part starts half way through a turn.
     assert_eq!(doc.split_clips(&[id], &[Ticks::quarters(3)]).len(), 2);
     let parts = left(&render(doc.project(), 96_000, 128));
     for k in EDGE..72_000 - EDGE {

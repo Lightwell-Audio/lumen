@@ -1,13 +1,3 @@
-//! M9 R9: the milestone's exit criterion end to end. A song is made in
-//! Lumen, recorded, edited, saved, crashed in the middle of a second take,
-//! recovered, saved again, reopened and exported, without anything done
-//! outside Lumen: tracks are added and named by keys, the first save goes
-//! through Save and its dialog, and the take is undone and redone.
-//!
-//! The input test device plays a ramp (every frame holds its own number), so
-//! each take file shows whether any frame was lost on the way through the
-//! crash, the recovery and the copies into the project folder.
-
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -23,9 +13,7 @@ use super::clip_commands::cut_at;
 use super::{Lumen, wav};
 
 const RATE: u32 = 48_000;
-/// Frames recorded on Vox before Stop: one second, two beats at 120 BPM.
 const VOX_FRAMES: u64 = 48_000;
-/// Frames written on Gtr before the crash.
 const GTR_FRAMES: u64 = 24_000;
 
 fn track_id(lumen: &Lumen, name: &str) -> Id {
@@ -49,7 +37,6 @@ fn clips(lumen: &Lumen, id: Id) -> Vec<Arc<Clip>> {
         .map_or_else(Vec::new, |t| t.clips.clone())
 }
 
-/// Adds an audio track after the selection (Ctrl+T) and names it (F2).
 fn add_audio_track(lumen: &mut Lumen, name: &str) -> Id {
     let before = lumen.app().project().tracks.len();
     lumen.key(Modifiers::COMMAND, Key::T);
@@ -74,7 +61,6 @@ fn add_audio_track(lumen: &mut Lumen, name: &str) -> Id {
     id
 }
 
-/// The `.take` notes left beside unfinished recordings.
 fn unfinished(dir: &Path) -> usize {
     std::fs::read_dir(dir.join("Recordings"))
         .map(|d| {
@@ -85,8 +71,6 @@ fn unfinished(dir: &Path) -> usize {
         .unwrap_or(0)
 }
 
-/// Loads `path` and checks its left channel is one unbroken stretch of the
-/// ramp. Returns its length in frames.
 #[track_caller]
 fn assert_unbroken(path: &Path) -> u64 {
     let audio = lumen_media::load(path, RATE, &AtomicBool::new(false), &mut |_| {})
@@ -116,7 +100,6 @@ fn peak(audio: &lumen_media::Audio) -> f32 {
         .fold(0.0f32, |m, s| m.max(s.abs()))
 }
 
-/// Records on the armed tracks from the start until `track` has `frames`.
 fn begin_take(lumen: &mut Lumen, track: Id, frames: u64) {
     lumen.key(Modifiers::NONE, Key::Home);
     lumen.wait_for("the rewind", |app| app.playhead() == Ticks::ZERO);
@@ -154,11 +137,9 @@ fn record_edit_save_crash_recover_reopen_and_export_a_song() {
     lumen.wait_for("the device's inputs", |app| app.open_inputs() == 2);
     lumen.frames(30);
 
-    // A new song: two audio tracks, added and named from the keyboard.
     let vox = add_audio_track(&mut lumen, "Vox");
     let gtr = add_audio_track(&mut lumen, "Gtr");
 
-    // A loop is imported from outside: it lands on a track of its own.
     let drums = wav(&lumen.dir().join("drums.wav"), 2.0);
     lumen.drop_files(&[drums]);
     lumen.wait_for("the import", |app| {
@@ -166,8 +147,6 @@ fn record_edit_save_crash_recover_reopen_and_export_a_song() {
     });
     lumen.frames(30);
 
-    // Record: the first take on Vox is one clip, and one undo step takes it
-    // away and Redo puts the same clip back.
     lumen.click("Arm Vox");
     begin_take(&mut lumen, vox, VOX_FRAMES);
     lumen.key(Modifiers::NONE, Key::Space);
@@ -191,7 +170,6 @@ fn record_edit_save_crash_recover_reopen_and_export_a_song() {
     assert_eq!(clips(&lumen, vox), take, "Redo puts the same clip back");
     lumen.click("Arm Vox");
 
-    // Edit: the take is split in two at the second beat.
     for _ in 0..3 {
         lumen.key(Modifiers::NONE, Key::Equals);
     }
@@ -202,7 +180,6 @@ fn record_edit_save_crash_recover_reopen_and_export_a_song() {
     let edited = clips(&lumen, vox);
     assert_eq!(edited.len(), 2);
 
-    // Save (Ctrl+S) asks where, as for any new song; the take goes with it.
     let target = project_file(lumen.dir(), "Song");
     lumen.app_mut().answer_next_dialog(vec![target]);
     lumen.key(Modifiers::COMMAND, Key::S);
@@ -217,7 +194,6 @@ fn record_edit_save_crash_recover_reopen_and_export_a_song() {
         lumen.app().file_notice()
     );
 
-    // A second take on Gtr, and Lumen stops in the middle of it.
     lumen.click("Arm Gtr");
     begin_take(&mut lumen, gtr, GTR_FRAMES);
     lumen.wait_for("an autosave", |app| app.autosave_finished());
@@ -225,12 +201,9 @@ fn record_edit_save_crash_recover_reopen_and_export_a_song() {
     assert_eq!(unfinished(lumen.dir()), 1, "the take is marked unfinished");
     let dir = lumen.crash();
 
-    // Recover: the saved edit and the interrupted take are both back, the
-    // project is still the song, and it has unsaved changes.
     let mut lumen = Lumen::start_with(dir, |l| l.with_input_device());
     lumen.recover();
     lumen.wait_for("the recovered project and its takes", |app| {
-        // The takes are read on a worker after the project opens.
         !app.is_busy() && !app.audio_takes_placing() && app.project().tracks.len() == 3
     });
     lumen.frames(10);
@@ -252,12 +225,7 @@ fn record_edit_save_crash_recover_reopen_and_export_a_song() {
         "recovered into the song"
     );
     assert!(lumen.app().is_dirty(), "recovered work is unsaved");
-    // The take's note stays until a save holds it: a second crash now would
-    // find it again (M9 review H3).
     assert_eq!(unfinished(lumen.dir()), 1, "the note waits for a save");
-    // Every frame written before the crash is kept:
-    // the take's header is rewritten as it grows, and recovery repairs the
-    // rest from the file's length.
     let gtr_media = {
         let project = lumen.app().project();
         let lumen_project::model::ClipContent::Audio { media, .. } = recovered[0].content else {
@@ -280,7 +248,6 @@ fn record_edit_save_crash_recover_reopen_and_export_a_song() {
         "{written} frames were written before the crash; {} came back",
         gtr_media.frames
     );
-    // The clip shows the whole recovered file, from its first frame.
     let lumen_project::model::ClipContent::Audio { offset, .. } = recovered[0].content else {
         unreachable!("checked above");
     };
@@ -290,7 +257,6 @@ fn record_edit_save_crash_recover_reopen_and_export_a_song() {
         tempo.len() == 1 && tempo[0].bpm == 120.0,
         "the song is at 120 BPM: {tempo:?}"
     );
-    // At 120 BPM a quarter note is 24,000 frames.
     let whole = Ticks(gtr_media.frames as i64 * lumen_core::time::PPQ / 24_000);
     assert!(
         (recovered[0].length.0 - whole.0).abs() <= lumen_core::time::PPQ / 24_000 + 1,
@@ -298,7 +264,6 @@ fn record_edit_save_crash_recover_reopen_and_export_a_song() {
         recovered[0].length
     );
 
-    // Save puts the recovered take in the project folder too.
     lumen.key(Modifiers::COMMAND, Key::S);
     lumen.wait_for("the save", |app| !app.is_dirty() && !app.is_busy());
     lumen.run_until("the take's note to go", |l| unfinished(l.dir()) == 0);
@@ -307,7 +272,6 @@ fn record_edit_save_crash_recover_reopen_and_export_a_song() {
         "the recovered take was copied into the project: {:?}",
         lumen.app().file_notice()
     );
-    // The open session plays every file from the project folder now.
     let saved = lumen.app().project_as_saved();
     for media in &saved.media {
         let file = lumen.app().media_file(media.id).expect("the file");
@@ -319,7 +283,6 @@ fn record_edit_save_crash_recover_reopen_and_export_a_song() {
     }
     let dir = lumen.crash();
 
-    // Reopen: the same song, nothing missing, every take whole.
     let mut lumen = Lumen::start_with(dir, {
         let song = song.clone();
         move |l| l.with_input_device().opening(song)
@@ -334,8 +297,6 @@ fn record_edit_save_crash_recover_reopen_and_export_a_song() {
     assert_eq!(opened.tracks, saved.tracks);
     assert_eq!(clips(&lumen, vox), edited, "the split survives the reopen");
     assert_eq!(clips(&lumen, gtr), recovered, "so does the whole take");
-    // The media are the same files; their paths are written relative to
-    // the project, so compare what they are, not where the list said.
     let what = |p: &Project| -> Vec<_> {
         p.media
             .iter()
@@ -360,7 +321,6 @@ fn record_edit_save_crash_recover_reopen_and_export_a_song() {
         assert!(frames >= at_least, "{name} holds {frames} frames");
     }
 
-    // Export the mix and the stems; neither touches the project or history.
     let before = lumen.app().project().clone();
     let undo = lumen.app().undo_label().map(str::to_owned);
     lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::E);
@@ -371,7 +331,6 @@ fn record_edit_save_crash_recover_reopen_and_export_a_song() {
     assert_eq!(mix.len(), 1);
     let audio = decode(&mix[0]);
     assert_eq!(audio.sample_rate, RATE);
-    // The song is at least as long as the imported loop.
     assert!(audio.channel(0).len() >= 2 * RATE as usize - 1);
     assert!(peak(&audio) > 0.01, "the mix is heard: {}", peak(&audio));
 
@@ -381,8 +340,6 @@ fn record_edit_save_crash_recover_reopen_and_export_a_song() {
     let stems = export(&mut lumen, &out);
     assert_eq!(stems.len(), 3, "one stem per track: {stems:?}");
     for stem in &stems {
-        // Every track is louder than this: the takes' ramps pass 0.02 within
-        // their first second, and the loop peaks near 0.09.
         let loudest = peak(&decode(stem));
         assert!(
             loudest > 0.01,

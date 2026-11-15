@@ -1,64 +1,38 @@
-//! One voice of Flare: its oscillators, its noise, its filter and its two
-//! envelopes, at the sample the events fall on. Nothing allocates.
-//!
-//! A voice keeps two kinds of setting. What shapes it — the waveforms, the
-//! octaves and detune, the pans, the envelopes' times, the LFO's target —
-//! is worked out from the per-frame curves every [`DERIVE_FRAMES`] frames, on
-//! a grid counted from the start of the stream, so a frame is always computed
-//! the same way whatever block it falls in. What modulates it — the cutoff,
-//! the resonance, the filter envelope's amount, the key and velocity follow,
-//! the levels, the noise and the LFO's depth — is read on **every** frame, so
-//! a lane on the cutoff plays on its own samples (M8 slice B4).
-
 use std::f64::consts::{PI, TAU};
 
 use super::det::{exp, exp2, sin_cos, tan};
 use super::params::{self, COUNT};
 use super::*;
 
-/// Frames between two derivations of a voice's settings: a sixtieth of a
-/// millisecond at 48 kHz, so a lane on a pan or a waveform still reads as a
-/// smooth change, and the same frame is always computed the same way.
 pub(super) const DERIVE_FRAMES: u64 = 32;
 
-/// Frames between two derivations while a value glides: a tenth of a
-/// millisecond at 48 kHz, so a change reaches the sound as a slope.
 pub(super) const GLIDE_FRAMES: u64 = 8;
 
-/// The waveforms, in [`params::SHAPES`]' order.
 pub(super) const SINE: u8 = 0;
 pub(super) const TRIANGLE: u8 = 1;
 pub(super) const SAW: u8 = 2;
 pub(super) const SQUARE: u8 = 3;
 
-/// The filter shapes, in [`params::FILTERS`]' order.
 pub(super) const LOW_12: u8 = 0;
 pub(super) const LOW_24: u8 = 1;
 pub(super) const HIGH_12: u8 = 2;
 pub(super) const BAND_12: u8 = 3;
 
-/// What the LFO moves, in [`params::TARGETS`]' order.
 pub(super) const LFO_OFF: u8 = 0;
 pub(super) const LFO_PITCH: u8 = 1;
 pub(super) const LFO_CUTOFF: u8 = 2;
 pub(super) const LFO_AMP: u8 = 3;
 
-/// How far the LFO's full depth moves the cutoff, in octaves.
 const LFO_OCTAVES: f32 = 4.0;
-/// The Q of a 24 dB filter's second stage: the resonance is the first
-/// stage's, as a cascade of two resonators would double it.
 const CASCADE_Q: f32 = 0.707;
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Osc {
     pub(super) wave: u8,
-    /// Octave and detune together, in cents.
     pub(super) cents: f32,
-    /// −1 to 1.
     pub(super) pan: f32,
 }
 
-/// One envelope's times and sustain, in seconds and 0 to 1.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct Env {
     pub(super) attack: f32,
@@ -67,26 +41,18 @@ pub(super) struct Env {
     pub(super) release: f32,
 }
 
-/// A sound: what a voice works out on its [`DERIVE_FRAMES`] grid. What
-/// modulates the note — the levels, the cutoff, the resonance, velocity, the
-/// LFO's depth — is read per frame instead, from the same curves.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Settings {
     pub(super) osc: [Osc; 2],
     pub(super) filter: u8,
     pub(super) amp: Env,
     pub(super) fenv: Env,
-    /// What the LFO moves, in [`params::TARGETS`]' order.
     pub(super) lfo: u8,
-    /// How many notes sound at once (1 to 16): the synth's, because it
-    /// starts notes.
     pub(super) voices: usize,
-    /// Portamento, in seconds.
     pub(super) glide: f32,
 }
 
 impl Settings {
-    /// Silent, and nothing of it matters: what a slot holds before it is filled.
     pub(super) const IDLE: Settings = Settings {
         osc: [
             Osc {
@@ -118,7 +84,6 @@ impl Settings {
         glide: 0.0,
     };
 
-    /// The settings of `values` (normalised, by id).
     pub(super) fn from_values(values: &[f32; COUNT]) -> Self {
         let value = |id: u32| params::dsp_value(id, values[id as usize - 1]);
         let choice = |id: u32| {
@@ -165,7 +130,6 @@ impl Settings {
         }
     }
 
-    /// The settings the per-frame `curves` hold at `at` frames into the block.
     pub(super) fn at(curves: &Curves<'_>, at: usize) -> Self {
         let mut values = [0.0; COUNT];
         for (slot, info) in values.iter_mut().zip(params::TABLE) {
@@ -175,7 +139,6 @@ impl Settings {
     }
 }
 
-/// How far a note has got with its envelope.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Stage {
     Off,
@@ -183,14 +146,9 @@ pub(super) enum Stage {
     Decay,
     Sustain,
     Release,
-    /// Fading out to make way for `pending`.
     Steal,
 }
 
-/// One envelope's level, the stage it is in, and the coefficients that move
-/// it. The amp envelope and the filter envelope each run their own stages:
-/// a filter envelope with a short decay settles while the amplitude is still
-/// decaying (the note is not released by the filter's own fall).
 #[derive(Debug, Clone, Copy)]
 pub(super) struct EnvState {
     pub(super) stage: Stage,
@@ -209,14 +167,12 @@ impl EnvState {
         release_coef: 1.0,
     };
 
-    /// The coefficients for `env` at `rate`.
     fn retune(&mut self, env: &Env, rate: f32) {
         self.attack_step = 1.0 / (env.attack.max(0.001) * rate);
         self.decay_coef = coef(env.decay, rate);
         self.release_coef = coef(env.release, rate);
     }
 
-    /// Starts again from nothing.
     fn restart(&mut self, env: &Env, rate: f32) {
         self.stage = Stage::Attack;
         self.value = 0.0;
@@ -229,7 +185,6 @@ impl EnvState {
         }
     }
 
-    /// One frame of the envelope, returning its level.
     #[inline(always)]
     fn step(&mut self, env: &Env) -> f32 {
         match self.stage {
@@ -258,10 +213,6 @@ impl EnvState {
                     self.stage = Stage::Off;
                 }
             }
-            // A note held while its sound changes moves to the new sustain
-            // level at the decay's own pace, so a preset change or a lane
-            // never steps the level (the old path set it straight from the
-            // gliding value; this one arrives over the decay).
             Stage::Sustain => {
                 self.value += (env.sustain - self.value) * self.decay_coef;
             }
@@ -271,18 +222,10 @@ impl EnvState {
     }
 }
 
-/// How many settings a block can hold: one for each [`GLIDE_FRAMES`] it
-/// covers, plus both ends (a still block fills every fourth).
 pub(super) const SLOT_COUNT: usize = MOST_FRAMES / GLIDE_FRAMES as usize + 1;
 
-/// The settings a block's derivation slots hold, and the LFO's rate at each:
-/// worked out once for every voice rather than once per voice (review M5).
 pub(super) struct Slots {
-    /// The block offset of the first slot: the first frame whose absolute
-    /// count is a multiple of the step.
     first: usize,
-    /// Frames between two slots: [`DERIVE_FRAMES`], or [`GLIDE_FRAMES`] while
-    /// a value is arriving.
     step: usize,
     len: usize,
     sounds: [Settings; SLOT_COUNT],
@@ -290,7 +233,6 @@ pub(super) struct Slots {
 }
 
 impl Slots {
-    /// An empty list: a block whose slots have not been filled.
     pub(super) const EMPTY: Slots = Slots {
         first: 0,
         step: DERIVE_FRAMES as usize,
@@ -299,8 +241,6 @@ impl Slots {
         lfo: [0.0; SLOT_COUNT],
     };
 
-    /// Works out every slot of the piece that begins at absolute frame `start`
-    /// and covers `frames`, from the piece's curves.
     pub(super) fn fill(
         &mut self,
         curves: &Curves<'_>,
@@ -322,9 +262,6 @@ impl Slots {
         }
     }
 
-    /// The settings of the frame `at` frames into the piece, and the LFO's
-    /// rate there, when it is a derivation slot: every [`DERIVE_FRAMES`] or
-    /// [`GLIDE_FRAMES`] frames is one, and both are steps of this list.
     #[inline(always)]
     pub(super) fn at(&self, at: usize) -> Option<(&Settings, f32)> {
         let off = at.checked_sub(self.first)?;
@@ -336,8 +273,6 @@ impl Slots {
     }
 }
 
-/// The LFO's rate at a slot: its own in Hz when it is free, or its division at
-/// the tempo when it follows it.
 fn lfo_rate(curves: &Curves<'_>, at: usize, tempo: f32) -> f32 {
     let sync = params::snapped(params::LFO_SYNC, curves.at(params::LFO_SYNC, at)) >= 0.5;
     if sync {
@@ -350,14 +285,9 @@ fn lfo_rate(curves: &Curves<'_>, at: usize, tempo: f32) -> f32 {
     }
 }
 
-/// The per-frame normalised value of every parameter for one block: what the
-/// lanes play and what the project holds, straight between points and exact
-/// on a point's own frame.
 pub(super) struct Curves<'a> {
     data: &'a [[f32; MOST_FRAMES]; COUNT],
-    /// The block's first frame, counted from the start of the stream.
     pub(super) start: u64,
-    /// The frames the block holds.
     frames: usize,
 }
 
@@ -370,7 +300,6 @@ impl<'a> Curves<'a> {
         }
     }
 
-    /// The value of parameter `id` at `at` frames into the block.
     #[inline(always)]
     pub(super) fn at(&self, id: u32, at: usize) -> f32 {
         let at = at.min(self.frames.saturating_sub(1));
@@ -381,64 +310,40 @@ impl<'a> Curves<'a> {
 #[derive(Clone, Copy)]
 pub(super) struct Voice {
     pub(super) stage: Stage,
-    /// The MIDI channel and key the note came on: a note is both.
     pub(super) channel: u8,
     pub(super) key: u8,
-    /// The key is down.
     pub(super) down: bool,
-    /// The key came up while the pedal was down: released with the pedal.
     pub(super) pedal: bool,
     pub(super) age: u64,
-    /// The derived settings now.
     sound: Settings,
-    /// Velocity, 0 to 1, and the note's pitch in Hz before detune.
     vel: f32,
     hz: f32,
-    /// The octaves this note glides from (portamento), and the frames of it
-    /// left and in all.
     glide_oct: f32,
     glide: u32,
     glide_frames: u32,
-    /// Each oscillator's pitch in Hz, with its octave and detune.
     freq: [f32; 2],
     phase: [f32; 2],
-    /// The LFO's phase, 0 to 1.
     lfo_phase: f32,
-    /// The LFO's rate in Hz: its own, or its division at the tempo.
     lfo_hz: f32,
-    /// Where the noise generator stands.
     noise_state: u32,
     amp_env: EnvState,
     filter_env: EnvState,
-    /// The filter's two stages, `[ic1eq, ic2eq]` for each side.
     ic: [[f32; 2]; 2],
     ic2: [[f32; 2]; 2],
-    /// The coefficients the filter holds, and what they were worked out for.
     coefs: Option<(u32, u32, Coefficients, Coefficients)>,
-    /// The filter's shape, the one it is cross-fading from (its own state,
-    /// independent of the new one's), and how far that has got.
     filter_old: u8,
     filter_mix: f32,
     ic_old: [[f32; 2]; 2],
     ic2_old: [[f32; 2]; 2],
-    /// The cutoff the corner and its modulation last worked out to, and the
-    /// two they came from: a still sound pays for the exponential once.
     corner: (u32, u32, f32),
     pub(super) steal: f32,
-    /// The note waiting for this voice to fade out.
     pub(super) pending: Option<super::Waiting>,
-    /// Each oscillator's left and right gain (equal-power pan), worked out
-    /// when the settings are derived.
     pans: [[f32; 2]; 2],
-    /// The waveform each oscillator plays now, and the one it is cross-fading
-    /// from with how far that has got (1: none). A change of shape is a slope,
-    /// never a step.
     shapes: [u8; 2],
     shape_old: [u8; 2],
     shape_mix: [f32; 2],
 }
 
-/// One state-variable stage's coefficients.
 #[derive(Clone, Copy)]
 struct Coefficients {
     k: f32,
@@ -521,43 +426,28 @@ pub(super) const IDLE: Voice = Voice {
     shape_mix: [1.0; 2],
 };
 
-/// What one span of rendering shares between voices.
 pub(super) struct Span<'a> {
     pub(super) rate: f32,
-    /// Pitch bend as a frequency ratio.
     pub(super) bend: f32,
-    /// Filter opening from the wheel or pressure, in octaves.
     pub(super) open: f32,
-    /// The sound new notes get (a stolen voice's replacement).
     pub(super) sound: Settings,
-    /// Frames between two derivations of the settings.
     pub(super) derive: u64,
-    /// A value glide is running: a sound the project changed is arriving, and
-    /// its waveforms are cross-faded from the moment it began (not from the
-    /// moment the choice snaps over).
     pub(super) changing: bool,
-    /// The per-frame values of every parameter.
     pub(super) curves: &'a Curves<'a>,
-    /// The settings and the LFO's rate at each derivation slot of the piece.
     pub(super) slots: &'a Slots,
 }
 
-/// Left and right gains for a pan from -1 to 1, at constant power.
 pub(super) fn pan_gains(pan: f32) -> [f32; 2] {
     let angle = (f64::from(pan.clamp(-1.0, 1.0)) + 1.0) * 0.25 * PI;
     let (sin, cos) = sin_cos(angle);
     [cos as f32, sin as f32]
 }
 
-/// How fast an exponential envelope stage moves, for a time constant of
-/// `4.6`: the level falls to −80 dB in `seconds`.
 pub(super) fn coef(seconds: f32, rate: f32) -> f32 {
     (1.0 - exp(-4.6 / (f64::from(seconds.max(1e-4)) * f64::from(rate)))) as f32
 }
 
 impl Voice {
-    /// Starts a note: `glide_oct` is how many octaves above it the last note
-    /// was (portamento), and `glide` how long it takes to arrive.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn start(
         &mut self,
@@ -618,15 +508,9 @@ impl Voice {
         self.refresh(rate, None);
     }
 
-    /// Works the values derived from the settings out again (pitch, pans and
-    /// the envelopes' coefficients).
     pub(super) fn refresh(&mut self, rate: f32, arriving: Option<&Settings>) {
-        // A copy: the filter's shape is written below, and the rest is read.
         let p = self.sound;
         for n in 0..2 {
-            // While a change arrives, its waveform takes over at once and the
-            // one playing fades out under it, as the old path cross-faded: the
-            // shape does not wait for the choice to snap over halfway.
             let wanted = match arriving {
                 Some(target) if target.osc[n].wave != self.shapes[n] => target.osc[n].wave,
                 _ => p.osc[n].wave,
@@ -637,9 +521,6 @@ impl Voice {
                 self.shape_mix[n] = 0.0;
             }
         }
-        // A changed filter shape cross-fades too, from a filter of its own so
-        // its state is its own: the response slides from the old shape to the
-        // new one over the glide, and no sample jumps (review M3).
         let wanted_filter = match arriving {
             Some(target) if target.filter != self.sound.filter => target.filter,
             _ => p.filter,
@@ -670,7 +551,6 @@ impl Voice {
         self.pedal = false;
     }
 
-    /// Adds the frames of this voice from `at` frames into the block.
     pub(super) fn render(
         &mut self,
         span: &Span<'_>,
@@ -689,7 +569,6 @@ impl Voice {
         let inv = 1.0 / span.rate;
         let rate = span.rate;
         let steal_step = 1.0 / (STEAL_SECONDS * rate);
-        // A changed waveform cross-fades over the time a value glides.
         let fade_step = 1.0 / (GLIDE_SECONDS * rate);
         let full = left.len();
         for i in 0..full {
@@ -701,11 +580,8 @@ impl Voice {
                 self.lfo_hz = lfo_hz;
                 self.refresh(rate, span.changing.then_some(&span.sound));
             }
-            // The amp envelope decides where the note is.
             match self.stage {
                 Stage::Off => return,
-                // Both envelopes run their own stages; the note follows the
-                // amp envelope, which is what "sounding" means.
                 Stage::Attack | Stage::Decay | Stage::Sustain | Stage::Release => {
                     self.amp_env.step(&self.sound.amp);
                     self.stage = self.amp_env.stage;
@@ -741,7 +617,6 @@ impl Voice {
             }
             let level = self.amp_env.value;
             let filter_env = self.filter_env.step(&self.sound.fenv);
-            // The LFO: a sine from the note's own start.
             let (lfo, depth) = if self.sound.lfo == LFO_OFF {
                 (0.0, 0.0)
             } else {
@@ -753,7 +628,6 @@ impl Voice {
                 let depth = params::percent(span.curves.at(params::LFO_DEPTH, frame_at)) / 100.0;
                 (sin as f32, depth)
             };
-            // The pitch: the note, its glide, the bend, and the LFO.
             let mut bend = span.bend;
             if self.sound.lfo == LFO_PITCH && depth > 0.0 {
                 bend *= exp2(f64::from(depth * lfo)) as f32;
@@ -764,9 +638,6 @@ impl Voice {
                 glide_mul = exp2(f64::from(self.glide_oct) * f64::from(1.0 - done)) as f32;
                 self.glide -= 1;
             }
-            // The cutoff: the setting, the filter envelope, the key, velocity
-            // and the wheel — read every frame, so a lane on it plays on its
-            // own samples.
             let base = params::cutoff_hz(span.curves.at(params::FILTER_CUTOFF, frame_at));
             let mut octaves = params::signed_octaves(span.curves.at(params::FILTER_ENV, frame_at))
                 * filter_env
@@ -775,15 +646,11 @@ impl Voice {
                     / 12.0
                 + params::vel_octaves(span.curves.at(params::FILTER_VEL, frame_at))
                     * (self.vel - 0.5)
-                    // A full-velocity note gains `vel_oct` octaves over a
-                    // half-velocity one.
                     * 2.0
                 + span.open;
             if self.sound.lfo == LFO_CUTOFF && depth > 0.0 {
                 octaves += depth * LFO_OCTAVES * lfo;
             }
-            // The corner, only when the setting or its modulation moved: a
-            // held note with nothing on its filter costs a comparison.
             let (base_bits, octave_bits) = (base.to_bits(), octaves.to_bits());
             let cutoff = if self.corner.0 == base_bits && self.corner.1 == octave_bits {
                 self.corner.2
@@ -808,7 +675,6 @@ impl Voice {
                     (first, second)
                 }
             };
-            // The oscillators and the noise.
             let mut sides = [0.0f32; 2];
             for n in 0..2 {
                 let voiced = params::percent(span.curves.at(
@@ -840,9 +706,6 @@ impl Voice {
                 sides[0] += white;
                 sides[1] += white;
             }
-            // The filter, on each side: the new shape's, and while a changed
-            // shape slides in, the old one's from a filter of its own state
-            // (review M3).
             let filter = self.sound.filter;
             let mix = self.filter_mix;
             let fading = mix < 1.0 && self.filter_old != filter;
@@ -873,7 +736,6 @@ impl Voice {
                     out
                 };
             }
-            // The level: velocity, the output level, the tremolo and a steal.
             let velocity = params::percent(span.curves.at(params::VELOCITY, frame_at)) / 100.0;
             let vel_scale = 1.0 - velocity + velocity * self.vel;
             let out_level = params::percent(span.curves.at(params::LEVEL, frame_at)) / 100.0;
@@ -893,8 +755,6 @@ impl Voice {
         }
     }
 
-    /// The next white sample, from a 32-bit xorshift: the same sequence on
-    /// every platform.
     #[inline(always)]
     fn noise(&mut self) -> f32 {
         let mut x = self.noise_state;
@@ -906,7 +766,6 @@ impl Voice {
     }
 }
 
-/// One frame of a shape's output through a filter stage.
 #[inline(always)]
 fn shaped(
     kind: u8,
@@ -925,7 +784,6 @@ fn shaped(
     }
 }
 
-/// One state-variable stage's outputs: the band-pass and the low-pass.
 #[inline(always)]
 fn svf(c: Coefficients, ic: &mut [f32; 2], x: f32) -> (f32, f32) {
     let v3 = x - ic[1];
@@ -952,8 +810,6 @@ pub(super) fn wave_at(wave: u8, t: f32, dt: f32) -> f32 {
     }
 }
 
-/// The polyBLEP correction for a step at phase 0 of an oscillator whose
-/// phase advances `dt` per sample.
 #[inline]
 pub(super) fn blep(t: f32, dt: f32) -> f32 {
     if dt <= 0.0 {

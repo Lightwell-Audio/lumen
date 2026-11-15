@@ -1,11 +1,3 @@
-//! The clip's loop brace under the editor's ruler (M9.5 S2b, the owner's LB A
-//! and LS A, D21). A click on the band loops the clip, or stops it looping;
-//! the brace's ends set where the loop starts and ends in the file. The file
-//! does not move and the clip stays where it is on the arrangement, so every
-//! frame from the clip's start to its first repeat stays the same. The edit
-//! is `edit::clip_loop` through `Document::set_clip_loop`; a drag is one
-//! undo step.
-
 use std::sync::Arc;
 
 use eframe::egui::{self, CursorIcon, Painter, PointerButton, Pos2, Rect, Response, Stroke, pos2};
@@ -23,12 +15,9 @@ use crate::commands::Command;
 use crate::widgets::raised;
 use crate::{theme, widgets};
 
-/// What the chip says while the loop's start holds at the clip's start (LS A).
 const STOPS_AT_START: &str = "The loop starts at the clip's start at the latest";
 
 impl App {
-    /// The brace's pointer work: hover, the click that loops or stops, and
-    /// a drag of an end.
     pub(super) fn brace_pointer(
         &mut self,
         response: &Response,
@@ -95,8 +84,6 @@ impl App {
         }
     }
 
-    /// The opened clip loops, or stops looping (a click on the band, or the
-    /// command). Says why when it cannot.
     pub(crate) fn toggle_clip_loop(&mut self, clip: &Clip) {
         if !self.opened_clip_takes_edits(clip.id) {
             return;
@@ -112,8 +99,6 @@ impl App {
         }
     }
 
-    /// One frame of a brace drag at `p`: the view scrolls at the wave's side
-    /// (D29), then the edit is redone from where the drag began.
     fn step_brace(
         &mut self,
         ctx: &egui::Context,
@@ -139,7 +124,6 @@ impl App {
             BracePart::Start => LoopEdit::Start(to),
             _ => LoopEdit::End(to),
         };
-        // The base's clip: the drag redoes its edit from there each frame.
         let tempo = edit::tempo_of(&drag.base);
         let held = drag
             .base
@@ -179,8 +163,6 @@ impl App {
         }
     }
 
-    /// The brace: the thin mark of the clip's window until it loops, then the
-    /// loop between its ends, with grips, and the clip start's flag.
     pub(super) fn paint_brace(
         &self,
         painter: &Painter,
@@ -259,7 +241,6 @@ impl App {
     }
 }
 
-/// The ruler's part above the band, and the band.
 pub(super) fn split_ruler(ruler: Rect) -> (Rect, Rect) {
     let top = ruler.bottom() - theme::size::BRACE_BAND;
     (

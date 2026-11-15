@@ -1,8 +1,3 @@
-//! The plugin's editor window through the manager: what it says when the
-//! window opens, moves, is closed by the user, stops answering and is ended.
-//! The host's stand-in window (`LUMEN_HOST_HEADLESS_EDITOR`) stands in for a
-//! window system.
-
 mod support;
 
 use std::time::Duration;
@@ -15,8 +10,6 @@ fn manager() -> Manager {
 }
 
 const HEADLESS: &str = "LUMEN_HOST_HEADLESS_EDITOR";
-/// The host says a window is not responding after this many milliseconds
-/// rather than the system's five seconds, so the tests stay quick.
 const WAIT_MS: &str = "600";
 const AT: EditorBounds = EditorBounds {
     x: 40,
@@ -26,8 +19,6 @@ const AT: EditorBounds = EditorBounds {
     dpi: 96,
 };
 
-/// A manager with one instrument whose host has the stand-in window set as
-/// `headless` says, linked.
 fn with_window(headless: &str) -> Manager {
     let mut manager = manager();
     let mut start = instrument("");
@@ -41,8 +32,6 @@ fn with_window(headless: &str) -> Manager {
     manager
 }
 
-/// The next `n` editor events, in order. (Events that arrive together are
-/// kept: picking one out of a batch with `wait_for` would drop the rest.)
 fn editor_events(manager: &mut Manager, n: usize) -> Vec<EditorEvent> {
     let mut seen = Vec::new();
     let end = std::time::Instant::now() + Duration::from_secs(10);
@@ -115,8 +104,6 @@ fn a_window_that_stops_answering_is_flagged_then_answers_again() {
     assert!(matches!(editor_event(&mut manager), EditorEvent::Closed(_)));
 }
 
-/// The owner's choice (M6 slice 4): the computer keyboard's keys pressed in a
-/// plugin's window reach the app.
 #[test]
 fn keys_taken_from_the_window_reach_the_app_down_then_up() {
     let mut manager = with_window("on,press=75");

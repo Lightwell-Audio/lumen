@@ -1,35 +1,14 @@
-//! Plugin parameter lanes in the mixer (M7 slice A3, ADR-0084).
-//!
-//! A lane of a plugin's parameter is baked to the sample clock like any other
-//! ([`AutoLane`]); for each block the mixer works out the points the plugin is
-//! given: the value at the block's first frame, every point of the lane inside
-//! the block on its exact sample, and for a curved segment a value every
-//! [`KNOT`] frames, so the plugin ramps along the curve. A straight segment
-//! needs only its ends, which the plugin interpolates itself. A step is a hold
-//! up to the frame before the point and the new value on it.
-//!
-//! What a block holds is a pure function of the lane and the block's place on
-//! the timeline, so any block size gives the same curve, and a locate or a
-//! loop wrap reads the same values again. Nothing is remembered between
-//! blocks: the first point of every block says where the parameter is.
-
 use lumen_core::automation::Shape;
 use lumen_devices::ParamBlock;
 
 use super::auto::{AutoLane, KNOT};
 
-/// A lane of one parameter of a plugin, on the device's sample clock.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParamLane {
-    /// The plugin's id for the parameter.
     pub param: u32,
     pub lane: AutoLane,
 }
 
-/// Adds `lane`'s points for the `frames` frames from timeline sample `start`
-/// to `block` as a queue. A lane that does not fit is cut down to the value
-/// at each end of the block, and given up on when even that does not fit;
-/// either way the block counts it.
 pub fn fill(block: &mut ParamBlock, lane: &ParamLane, start: i64, frames: usize) {
     if frames == 0 {
         return;
@@ -58,8 +37,6 @@ pub fn fill(block: &mut ParamBlock, lane: &ParamLane, start: i64, frames: usize)
     }
 }
 
-/// Calls `put(offset, value)` for each point of the block, in time order.
-/// False when `put` refuses one.
 fn walk(lane: &AutoLane, start: i64, frames: usize, mut put: impl FnMut(u32, f64) -> bool) -> bool {
     let end = start + frames as i64;
     let last = frames as u32 - 1;
@@ -67,7 +44,6 @@ fn walk(lane: &AutoLane, start: i64, frames: usize, mut put: impl FnMut(u32, f64
         return false;
     }
     let points = lane.points();
-    // The first point after the block's first frame.
     let mut next = points.partition_point(|p| p.at <= start);
     while next < points.len() && points[next].at < end {
         let b = points[next];
@@ -75,7 +51,6 @@ fn walk(lane: &AutoLane, start: i64, frames: usize, mut put: impl FnMut(u32, f64
         if let Some(a) = next.checked_sub(1).map(|i| points[i]) {
             match a.shape {
                 Shape::Step => {
-                    // Held to the frame before the point, then the jump.
                     if offset > 0 && !put(offset - 1, f64::from(a.value)) {
                         return false;
                     }
@@ -93,8 +68,6 @@ fn walk(lane: &AutoLane, start: i64, frames: usize, mut put: impl FnMut(u32, f64
         }
         next += 1;
     }
-    // The segment in force at the block's last frame, if it is still ramping
-    // when the block ends: the plugin is told where it has got to.
     if let Some(a) = next.checked_sub(1).map(|i| points[i])
         && points.get(next).is_some()
         && a.shape != Shape::Step
@@ -109,8 +82,6 @@ fn walk(lane: &AutoLane, start: i64, frames: usize, mut put: impl FnMut(u32, f64
     true
 }
 
-/// The value every [`KNOT`] frames along the curved segment that leaves the
-/// point at `from`, after sample `start` and before `before`.
 fn knots(
     lane: &AutoLane,
     from: i64,
@@ -136,7 +107,6 @@ mod tests {
     use lumen_core::curve::Curve;
     use lumen_devices::{MOST_POINTS, MOST_QUEUES};
 
-    /// A lane's value as the block holds it.
     fn v(value: f32) -> f64 {
         f64::from(value)
     }
@@ -166,8 +136,6 @@ mod tests {
         b.queue(0).1.to_vec()
     }
 
-    /// The value the plugin would hold at `frame` of the block if it holds a
-    /// point's value from its offset and ramps between points.
     fn held(points: &[(u32, f64)], frame: u32) -> f64 {
         let after = points.partition_point(|p| p.0 <= frame);
         let Some(before) = after.checked_sub(1) else {
@@ -191,7 +159,6 @@ mod tests {
     #[test]
     fn a_step_holds_to_the_frame_before_its_point_and_jumps_on_it() {
         let l = lane(&[(0, 0.2, Shape::Step), (1000, 0.9, Shape::Step)]);
-        // The point is at offset 40 of this block.
         let points = block(&l, 960, 128);
         assert_eq!(points, vec![(0, v(0.2)), (39, v(0.2)), (40, v(0.9))]);
         assert_eq!(held(&points, 39), v(0.2));
@@ -283,7 +250,6 @@ mod tests {
 
     #[test]
     fn a_lane_too_busy_for_the_block_is_cut_to_its_ends_and_counted() {
-        // A step on every frame cannot fit the points a block holds.
         let wild: Vec<(i64, f32, Shape)> = (0..1500)
             .map(|k| (i64::from(k), (k % 2) as f32, Shape::Step))
             .collect();
@@ -318,8 +284,6 @@ mod tests {
 
     #[test]
     fn the_busiest_real_lanes_fit_the_region() {
-        // 64 curved lanes at the longest block a plugin is given: each is a
-        // start, a value every 32 frames and an end.
         let l = lane(&[
             (0, 0.0, Shape::Curve(Curve::S_CURVE)),
             (48_000, 1.0, Shape::Linear),

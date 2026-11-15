@@ -1,10 +1,6 @@
-//! The test plugins' sound: exact and repeatable, so a golden render can be
-//! compared sample for sample. Nothing here allocates after construction.
-
 use crate::params::MAX_LATENCY;
 
 pub const VOICES: usize = 16;
-/// The most output buses the instrument plays on.
 pub const MAX_BUSES: usize = 9;
 
 #[derive(Clone, Copy, Default)]
@@ -17,18 +13,12 @@ struct Voice {
     phase: f64,
     step: f64,
     rate: f64,
-    /// Released, and fading by this much a sample (0 while held).
     fade: f32,
 }
 
-/// A square or saw voice bank. A note starts at phase 0 on exactly the
-/// sample of its event and stops at once on its note-off (no release), so
-/// where a note sounds is a plain function of its events. With a release
-/// (the `release` fault), a note fades out in a straight line over it instead.
 pub struct Voices {
     voices: [Voice; VOICES],
     next: usize,
-    /// Seconds a released note takes to fade out; 0 stops it at once.
     release: f64,
 }
 
@@ -53,7 +43,6 @@ impl Voices {
         self.voices.iter().filter(|v| v.on).count()
     }
 
-    /// Starts a note. When all voices are busy the oldest is taken.
     pub fn note_on(&mut self, channel: i16, pitch: i16, velocity: f32, note_id: i32, rate: f64) {
         let free = self.voices.iter().position(|v| !v.on).unwrap_or_else(|| {
             let taken = self.next;
@@ -74,8 +63,6 @@ impl Voices {
         };
     }
 
-    /// Stops the note with this id, or (id -1) the first on this pitch and
-    /// channel.
     pub fn note_off(&mut self, channel: i16, pitch: i16, note_id: i32) {
         let found = self.voices.iter_mut().find(|v| {
             v.on && v.fade == 0.0
@@ -95,9 +82,6 @@ impl Voices {
         }
     }
 
-    /// The next sample of each bus's voices, scaled by `level`: a voice
-    /// plays on the bus its pitch picks (`pitch % buses`) when `on` has that
-    /// bus's bit, and on bus 0 when it has not.
     pub fn next_routed(
         &mut self,
         level: f32,
@@ -131,7 +115,6 @@ impl Voices {
         sums.map(|s| s * level)
     }
 
-    /// The next sample of the sum, scaled by `level`.
     pub fn next_sample(&mut self, level: f32, saw: bool) -> f32 {
         let mut sum = 0.0;
         for v in self.voices.iter_mut().filter(|v| v.on) {
@@ -149,7 +132,6 @@ impl Voices {
             }
             if v.fade > 0.0 {
                 v.amp -= v.fade;
-                // Half a step's room for rounding in the sum of the steps.
                 if v.amp <= v.fade * 0.5 {
                     v.on = false;
                 }
@@ -159,7 +141,6 @@ impl Voices {
     }
 }
 
-/// A stereo delay of 0 to `MAX_LATENCY` samples.
 pub struct Delay {
     ring: [Vec<f32>; 2],
     at: usize,
@@ -180,7 +161,6 @@ impl Delay {
         }
     }
 
-    /// Takes one stereo frame in and gives the frame from `delay` frames ago.
     pub fn step(&mut self, input: [f32; 2], delay: usize) -> [f32; 2] {
         let len = self.ring[0].len();
         let delay = delay.min(len - 1);
@@ -215,7 +195,6 @@ mod tests {
     fn a_release_fades_a_note_out_in_a_straight_line() {
         let mut v = Voices::new();
         v.set_release(0.001);
-        // A release of 48 samples at 48 kHz.
         v.note_on(0, 69, 0.5, -1, 48_000.0);
         assert_eq!(v.next_sample(1.0, false), 0.5);
         v.note_off(0, 69, -1);
@@ -250,7 +229,6 @@ mod tests {
     #[test]
     fn square_flips_at_half_a_period() {
         let mut v = Voices::new();
-        // 440 Hz at 48 kHz: a period of about 109 samples.
         v.note_on(0, 69, 1.0, -1, 48_000.0);
         let wave: Vec<f32> = (0..109).map(|_| v.next_sample(1.0, false)).collect();
         assert_eq!(wave[0], 1.0);

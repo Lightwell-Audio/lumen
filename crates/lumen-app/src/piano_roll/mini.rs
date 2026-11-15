@@ -1,38 +1,11 @@
-//! Notes inside arrangement clips (M5 slice 3b): a mini piano roll fitted
-//! to its track's pitch range, drawn on the GPU beside the clip bodies.
-//!
-//! The box layer places a box vertically only by its row slots, so a track
-//! gets [`BANDS`] slots, thin horizontal bands under its clips' title bars,
-//! divided evenly among the pitches its MIDI clips play ([`Fit`],
-//! [`track_range`]). Every clip on a track
-//! shares that layout, so a pitch is at the same height in all of them and
-//! a part an octave up sits higher; every pitch is a row of the same height,
-//! and neighbouring pitches touch, as in the piano roll. A note covers its
-//! pitch's bands. The notes are rebuilt only when the clips change (with
-//! the clip boxes), and panning and zooming only move the view.
-//!
-//! While recording, the arrangement draws the project with the take placed
-//! as far as it has gone (`Arrangement::preview`), so a note is drawn by
-//! this same layout, where it will be once the take is committed.
-
 use eframe::egui::Color32;
 use lumen_render::{BoxInstance, RowSlot, beats, spanning};
 
 use super::notes::{ClipNotes, pack, velocity_alpha};
 
-/// Bands a track's clips are divided into, top to bottom: fine enough that
-/// every one of the 128 pitches gets at least one, and that rows of any
-/// range are even to within a band.
 pub(crate) const BANDS: u32 = 128;
-/// A track's pitch range is shown at least this many semitones tall (four
-/// octaves, centred on its notes), so a few notes are thin rows with room
-/// to show where they move, instead of filling the clips.
 const MIN_RANGE: u8 = 48;
 
-/// The lowest and highest pitch of every note the MIDI clips in `clips`
-/// hold (a track's clips: they share one [`Fit`]). Notes hidden outside a
-/// clip's window count too, so trimming an edge over them never moves the
-/// track's layout while the edge is dragged.
 pub(crate) fn track_range(
     clips: &[std::sync::Arc<lumen_project::model::Clip>],
 ) -> Option<(u8, u8)> {
@@ -47,7 +20,6 @@ pub(crate) fn track_range(
         .fold(None, |range, p| union(range, Some((p, p))))
 }
 
-/// The union of two pitch ranges.
 pub(crate) fn union(a: Option<(u8, u8)>, b: Option<(u8, u8)>) -> Option<(u8, u8)> {
     match (a, b) {
         (Some((a0, a1)), Some((b0, b1))) => Some((a0.min(b0), a1.max(b1))),
@@ -56,8 +28,6 @@ pub(crate) fn union(a: Option<(u8, u8)>, b: Option<(u8, u8)>) -> Option<(u8, u8)
     }
 }
 
-/// How a track's pitch range sits in its clips' bodies: `rows` equal rows (the range,
-/// padded to [`MIN_RANGE`] and centred), the bottom one at pitch `first`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Fit {
     first: f32,
@@ -65,7 +35,6 @@ pub(crate) struct Fit {
 }
 
 impl Fit {
-    /// The fit of notes spanning `lo` to `hi`.
     pub(crate) fn new(lo: u8, hi: u8) -> Self {
         let (lo, hi) = (lo.min(hi), hi.max(lo));
         let span = f32::from(hi - lo) + 1.0;
@@ -76,8 +45,6 @@ impl Fit {
         }
     }
 
-    /// The bands (0 is the top) `pitch` covers: the first, and how many more
-    /// below it. Higher pitches are higher up.
     pub(crate) fn bands(&self, pitch: u8) -> (u32, u32) {
         let top = self.first + self.rows;
         let edge = |p: f32| (((top - p) / self.rows) * BANDS as f32).round();
@@ -88,9 +55,6 @@ impl Fit {
     }
 }
 
-/// The boxes of a clip's notes on `track` (a dense number among the tracks
-/// with notes: its bands are slots `track * BANDS ..`), laid out by the
-/// track's `fit`, in `color`.
 pub(crate) fn mini_instances(
     out: &mut Vec<BoxInstance>,
     clip: &ClipNotes<'_>,
@@ -119,21 +83,15 @@ pub(crate) fn mini_instances(
     });
 }
 
-/// Where the clips' bodies are in one track row, in physical pixels: the
-/// bands lie between the title bar and the bottom edge.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Body {
-    /// The row's top and height.
     pub top: f32,
     pub height: f32,
-    /// The row's opacity (dimmed tracks).
     pub alpha: f32,
-    /// Space above the bands (inset, title bar and a gap) and below them.
     pub above: f32,
     pub below: f32,
 }
 
-/// The [`BANDS`] row slots of one track.
 pub(crate) fn slots(body: Body) -> [RowSlot; BANDS as usize] {
     let room = body.height - body.above - body.below;
     let unit = room / BANDS as f32;
@@ -197,7 +155,6 @@ mod tests {
         let notes = vec![
             Note::new(q(0), q(1), 64, 90),
             Note::new(q(1), q(1), 48, 90),
-            // Past the clip's end, hidden: a trim over it keeps the layout.
             Note::new(q(9), q(1), 100, 90),
         ];
         assert_eq!(track_range(&[midi(notes)]), Some((48, 100)));
@@ -215,7 +172,6 @@ mod tests {
 
     #[test]
     fn every_pitch_is_an_even_row_and_neighbours_touch() {
-        // The piano roll's proportions: one row per semitone, no gaps.
         for (lo, hi) in [(60, 60), (60, 67), (36, 84), (0, 127), (10, 100)] {
             let fit = Fit::new(lo, hi);
             let heights: Vec<u32> = (lo..=hi).map(|p| fit.bands(p).1 + 1).collect();
@@ -244,7 +200,6 @@ mod tests {
             "one note sits mid-clip: {middle}"
         );
         assert!(Fit::new(60, 62).bands(62).0 < Fit::new(60, 62).bands(60).0);
-        // Still in bounds at the ends of the keyboard.
         for p in [0, 127] {
             let (first, extra) = Fit::new(p, p).bands(p);
             assert!(first + extra < BANDS);
@@ -253,9 +208,6 @@ mod tests {
 
     #[test]
     fn an_octave_up_is_higher_in_a_shared_fit() {
-        // Two clips on a track, one note each, an octave apart (the owner's
-        // finding): the track's fit puts them at different heights, 12 rows
-        // apart, where a fit per clip centred both.
         let fit = Fit::new(48, 60);
         let (low, high) = (fit.bands(48), fit.bands(60));
         assert!(high.0 < low.0);

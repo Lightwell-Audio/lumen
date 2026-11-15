@@ -1,7 +1,3 @@
-//! The test plugins, driven through their VST3 interfaces by a small host.
-
-// The bindings' enum constants are `i32` on Windows and `u32` elsewhere, so
-// a cast one platform needs is a no-op on the other.
 #![allow(clippy::unnecessary_cast)]
 
 mod support;
@@ -37,13 +33,11 @@ fn wide(buf: &[u16]) -> String {
     String::from_utf16_lossy(&units)
 }
 
-/// Eight frames of silence, as the blocks below ask for.
 const SILENCE: [&[f32]; 2] = [&[0.0; 8], &[0.0; 8]];
 
 #[test]
 fn the_factory_lists_four_classes_with_categories() {
     let factory = lumen_test_plugin::factory();
-    // SAFETY: plain factory queries with valid out pointers.
     unsafe {
         assert_eq!(factory.countClasses(), 4);
         let mut names = Vec::new();
@@ -86,7 +80,6 @@ fn the_factory_creates_the_components_it_lists() {
     let factory = lumen_test_plugin::factory();
     for cid in [lumen_test_plugin::INSTRUMENT, lumen_test_plugin::EFFECT] {
         let mut object = std::ptr::null_mut();
-        // SAFETY: valid class and interface ids; `object` receives a reference.
         let result = unsafe {
             factory.createInstance(
                 cid.as_ptr(),
@@ -96,12 +89,10 @@ fn the_factory_creates_the_components_it_lists() {
         };
         assert_eq!(result, kResultOk);
         assert!(!object.is_null());
-        // SAFETY: an owned reference from createInstance.
         drop(unsafe { vst3::ComPtr::<vst3::Steinberg::Vst::IComponent>::from_raw(object.cast()) });
     }
     let mut object = std::ptr::null_mut();
     let unknown = [7_i8; 16];
-    // SAFETY: valid ids.
     let result = unsafe {
         factory.createInstance(
             unknown.as_ptr(),
@@ -122,7 +113,6 @@ fn buses_match_the_plugin_kind() {
         BusDirections_::kInput as i32,
         BusDirections_::kOutput as i32,
     );
-    // SAFETY: plain calls on live objects.
     unsafe {
         assert_eq!(inst.component.getBusCount(audio, input), 0);
         assert_eq!(inst.component.getBusCount(audio, output), 1);
@@ -189,7 +179,6 @@ fn the_effect_delays_by_its_latency_and_reports_it() {
     assert_eq!(result, kResultOk);
     let at: Vec<usize> = (0..64).filter(|&i| out[0][i] != 0.0).collect();
     assert_eq!(at, [24]);
-    // SAFETY: plain calls on live objects.
     unsafe {
         assert_eq!(p.processor.getLatencySamples(), 24);
         assert_eq!(p.processor.getTailSamples(), 24);
@@ -202,7 +191,6 @@ fn changing_latency_in_the_controller_asks_the_host_to_restart() {
     p.start();
     let told = ComWrapper::new(Told::default());
     let handler = told.to_com_ptr::<IComponentHandler>().expect("listed");
-    // SAFETY: plain calls on live objects.
     unsafe {
         assert_eq!(
             p.controller.setComponentHandler(handler.as_ptr()),
@@ -235,16 +223,13 @@ fn state_round_trips_between_instances() {
     b.start();
     assert_eq!(b.load(bytes.clone()), kResultOk);
     assert_eq!(b.save().1, bytes);
-    // SAFETY: plain calls on live objects.
     unsafe {
         assert_eq!(
             b.processor.getLatencySamples(),
             u32::from(MAX_LATENCY as u16 / 2)
         )
     };
-    // The controller follows through setComponentState.
     let (stream, _) = support::Stream::open(bytes);
-    // SAFETY: plain calls on live objects.
     unsafe {
         assert_eq!(b.controller.setComponentState(stream.as_ptr()), kResultOk);
         assert_eq!(b.controller.getParamNormalized(LEVEL), 0.3);
@@ -302,7 +287,6 @@ fn activating_again_restarts_the_fault_clock_and_silences() {
     p.start();
     p.process(8, None, vec![note_on(0, 69, 1.0)], &[]);
     assert_ne!(p.process(8, None, vec![], &[]).0, kResultOk);
-    // SAFETY: plain calls on live objects.
     unsafe {
         p.component.setActive(0);
         p.component.setActive(1);
@@ -315,7 +299,6 @@ fn activating_again_restarts_the_fault_clock_and_silences() {
 #[test]
 fn bad_metadata_is_reported_as_asked() {
     let bad = Plugin::new(Kind::Instrument, "bad_buses,bad_params");
-    // SAFETY: plain calls on live objects.
     unsafe {
         let mut info: BusInfo = std::mem::zeroed();
         bad.component.getBusInfo(
@@ -342,7 +325,6 @@ fn bad_metadata_is_reported_as_asked() {
 #[test]
 fn the_controller_describes_and_formats_parameters() {
     let p = Plugin::new(Kind::Instrument, "");
-    // SAFETY: plain calls on live objects.
     unsafe {
         assert_eq!(p.controller.getParameterCount(), 2);
         let mut info: ParameterInfo = std::mem::zeroed();

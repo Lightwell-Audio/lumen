@@ -5,9 +5,6 @@ use super::lifecycle::join_within;
 use super::log::host_line;
 use super::*;
 
-/// The host shares its stderr with the plugin, so a line is only the host's
-/// when it carries the nonce this process chose: one that merely looks like a
-/// host line is a plugin's, and is dropped.
 #[test]
 fn only_a_line_with_this_hosts_nonce_is_the_hosts() {
     let mark = crate::process::mark("4f2a");

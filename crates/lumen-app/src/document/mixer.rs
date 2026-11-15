@@ -1,8 +1,3 @@
-//! Routing edits (M4 slice 2, format v7): outputs, sends, polarity, input
-//! trim and the pan law. Each is one undo step; drags merge into one. An
-//! edit that would make the routing feed back into itself is refused and
-//! changes nothing (`lumen_project::routing::has_loop`).
-
 use std::sync::Arc;
 
 use lumen_core::pan::PanLaw;
@@ -11,30 +6,20 @@ use lumen_project::model::{Id, Level, Output, Project, Send, Track, TrackKind};
 
 use super::Document;
 
-/// A project holds at most this many return tracks (the owner, MT-MIX-4
-/// run 2): letters A to L.
 pub const MAX_RETURNS: usize = 12;
 
-/// Send levels, in dB: from silence to +6 dB.
 pub const SEND_MAX_DB: f32 = 6.0;
-/// Input trim, in dB.
 pub const TRIM_RANGE_DB: f32 = 24.0;
 
-/// Why a routing edit was refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Refused {
-    /// No such track, or a track that cannot take that output or send.
     Invalid,
-    /// The audio would come back round to where it started.
     Loop,
-    /// Groups would go deeper than `groups::MAX_NESTING` (M4 slice 3).
     TooDeep,
-    /// More than [`MAX_RETURNS`] return tracks.
     TooManyReturns,
 }
 
 impl Refused {
-    /// Why, in a few words, for a note on screen.
     pub fn reason(self) -> &'static str {
         match self {
             Refused::Invalid => "That cannot go there",
@@ -46,9 +31,6 @@ impl Refused {
 }
 
 impl Document {
-    /// Sends `id`'s output to `output`. Refused when the target cannot take
-    /// audio (not a group or return, or the track itself) or when it would
-    /// feed back.
     pub fn set_output(&mut self, id: Id, output: Output) -> Result<(), Refused> {
         let project = self.project();
         let track = find(project, id).ok_or(Refused::Invalid)?;
@@ -70,8 +52,6 @@ impl Document {
         self.routed("Change output", None, id, |t| t.output = output)
     }
 
-    /// Sets `id`'s send to the return `to` (made, post-fader, if it is not
-    /// there yet), from silent to +6 dB. A drag merges into one step.
     pub fn set_send(&mut self, id: Id, to: Id, level: Level) -> Result<(), Refused> {
         self.check_send(id, to)?;
         let level = if level.is_silent() || level.0.is_nan() {
@@ -93,7 +73,6 @@ impl Document {
         })
     }
 
-    /// Takes `id`'s send to `to` before or after its volume and pan.
     pub fn set_send_pre_fader(&mut self, id: Id, to: Id, pre_fader: bool) -> Result<(), Refused> {
         self.check_send(id, to)?;
         let label = if pre_fader {
@@ -113,7 +92,6 @@ impl Document {
         })
     }
 
-    /// Inverts the polarity of `ids` (the master included).
     pub fn set_invert(&mut self, ids: &[Id], invert: bool) {
         let label = if invert {
             "Invert polarity"
@@ -129,7 +107,6 @@ impl Document {
         });
     }
 
-    /// Input trim in dB (±24). A drag merges into one undo step per track.
     pub fn set_trim(&mut self, id: Id, db: f32) {
         if !db.is_finite() {
             return;
@@ -140,7 +117,6 @@ impl Document {
         let _ = self.routed("Change input trim", Some(&merge), id, |t| t.trim_db = db);
     }
 
-    /// The project's pan law.
     pub fn set_pan_law(&mut self, law: PanLaw) {
         if self.project().pan_law == law {
             return;
@@ -149,7 +125,6 @@ impl Document {
             .apply("Change pan law", None, |project| project.pan_law = law);
     }
 
-    /// A send from `id` can go to `to`: a return track other than itself.
     fn check_send(&self, id: Id, to: Id) -> Result<(), Refused> {
         let project = self.project();
         let from = find(project, id).ok_or(Refused::Invalid)?;
@@ -163,8 +138,6 @@ impl Document {
         Ok(())
     }
 
-    /// Applies `change` to track `id` as one step, unless the result would
-    /// feed back into itself.
     fn routed(
         &mut self,
         label: &str,
@@ -189,12 +162,10 @@ impl Document {
     }
 }
 
-/// Track `id`, the master included.
 pub(super) fn find(project: &Project, id: Id) -> Option<&Track> {
     lumen_project::routing::all_tracks(project).find(|t| t.id == id)
 }
 
-/// Every track, the master last, to edit.
 pub(super) fn tracks_mut(project: &mut Project) -> impl Iterator<Item = &mut Arc<Track>> {
     project
         .tracks
@@ -202,11 +173,6 @@ pub(super) fn tracks_mut(project: &mut Project) -> impl Iterator<Item = &mut Arc
         .chain(std::iter::once(&mut project.master))
 }
 
-/// After tracks are deleted: outputs to them go back to automatic, sends
-/// to them go (the owner's choice: a deleted return takes its sends), and a
-/// drum sound sent to one of them plays on its own track's instrument again
-/// (M8 D4: a route names a track, and a project whose route names none is
-/// refused by `validate`).
 pub(super) fn forget_routes_to(project: &mut Project, gone: &[Id]) {
     for track in tracks_mut(project) {
         let output = matches!(track.output, Output::Track(to) if gone.contains(&to));
@@ -217,7 +183,6 @@ pub(super) fn forget_routes_to(project: &mut Project, gone: &[Id]) {
                 track.output = Output::Auto;
             }
             track.sends.retain(|s| !gone.contains(&s.to));
-            // A send's lane goes with the send.
             track.automation.retain(
                 |l| !matches!(l.target, lumen_project::automation::Target::Send { to } if gone.contains(&to)),
             );
@@ -265,7 +230,6 @@ mod tests {
         doc.undo();
         assert_eq!(track(&doc, audio).output, Output::Master);
         assert_eq!(doc.history().undo_label(), Some("Change output"));
-        // Not into an audio track, itself, or a missing track.
         assert_eq!(
             doc.set_output(audio, Output::Track(audio)),
             Err(Refused::Invalid)
@@ -278,7 +242,6 @@ mod tests {
             doc.set_output(Id(999), Output::Master),
             Err(Refused::Invalid)
         );
-        // The master goes to a device pair only.
         let master = doc.project().master.id;
         assert_eq!(doc.set_output(master, Output::Device(1)), Ok(()));
         assert_eq!(
@@ -292,7 +255,6 @@ mod tests {
         let (mut doc, ids) = doc_with(&[TrackKind::Group, TrackKind::Return]);
         let (group, ret) = (ids[0], ids[1]);
         let before = doc.state();
-        // The return into the group, then the group sending to the return.
         assert_eq!(doc.set_output(ret, Output::Track(group)), Ok(()));
         assert_eq!(doc.set_send(group, ret, Level(0.0)), Err(Refused::Loop));
         assert_eq!(doc.set_send_pre_fader(group, ret, true), Err(Refused::Loop));
@@ -316,7 +278,6 @@ mod tests {
         doc.undo();
         doc.undo();
         assert!(track(&doc, audio).sends.is_empty(), "the whole drag undone");
-        // Only into returns, never from the master.
         assert_eq!(doc.set_send(ret, audio, Level(0.0)), Err(Refused::Invalid));
         let master = doc.project().master.id;
         assert_eq!(doc.set_send(master, ret, Level(0.0)), Err(Refused::Invalid));
@@ -358,7 +319,6 @@ mod tests {
 
     #[test]
     fn a_project_holds_twelve_returns_at_most() {
-        // MT-MIX-4 run 2 (owner).
         let mut doc = Document::new(crate::empty_project());
         let first = doc.add_track(TrackKind::Return, None);
         for _ in 1..MAX_RETURNS {

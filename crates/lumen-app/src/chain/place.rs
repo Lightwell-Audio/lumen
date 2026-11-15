@@ -1,24 +1,14 @@
-//! Where a device the browser chose goes (the owner's D3 and D5). Pure, so
-//! every case is tested; `App::add_device` applies the answer.
-
 use lumen_project::model::{DeviceKind, Id, Project, TrackKind};
 use lumen_project::routing::all_tracks;
 
 use crate::document::Slot;
 
-/// What choosing a device does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Place {
-    /// Add it to this track at `slot`.
     Track { track: Id, slot: Slot },
-    /// Make a track of the right kind after `after` and put it there.
     NewTrack { after: Option<Id> },
 }
 
-/// The track a choice lands on. The tracks selected count, the last chosen
-/// first. An instrument needs a MIDI track; an effect takes any track but the
-/// master. With no track that fits, a new one is made (D3). An effect goes
-/// after the chosen card when it is on that track, else at the end (D5).
 pub(crate) fn place(
     project: &Project,
     selected: &[Id],
@@ -104,7 +94,6 @@ mod tests {
                 slot: Slot::End
             }
         );
-        // A chosen card on another track is not a place on this one.
         assert_eq!(
             place(&p, &[Id(2)], Some(Id(10)), DeviceKind::Effect),
             Place::Track {
@@ -124,7 +113,6 @@ mod tests {
                 slot: Slot::End
             }
         );
-        // The last chosen track that fits wins.
         assert_eq!(
             place(&p, &[Id(2), Id(1)], None, DeviceKind::Effect),
             Place::Track {
@@ -145,8 +133,6 @@ mod tests {
             place(&p, &[], None, DeviceKind::Effect),
             Place::NewTrack { after: None }
         );
-        // The master takes an effect, but no instrument (and no track is
-        // made after it).
         let master = p.master.id;
         assert_eq!(
             place(&p, &[master], None, DeviceKind::Effect),

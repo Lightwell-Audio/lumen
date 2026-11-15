@@ -1,7 +1,3 @@
-//! Golden renders of the mixer graph (M4 slice 1): groups, returns, sends,
-//! mute, polarity, pan laws and device output pairs, and changes while
-//! playing that glide or crossfade instead of clicking.
-
 use std::sync::Arc;
 
 use lumen_core::pan::PanLaw;
@@ -17,7 +13,6 @@ lumen_rt::install_guarded_allocator!();
 
 const RATE: u32 = 48_000;
 const MASTER: u64 = 100;
-/// Past the 2 ms play fade-in and any 20 ms glide.
 const SETTLED: usize = 2_000;
 
 type Player = Engine<Mixer<ClipPlayer>>;
@@ -30,7 +25,6 @@ struct Rig {
     channels: usize,
 }
 
-/// Steady audio at `level` on both sides (or distinct sides).
 fn steady(left: f32, right: f32) -> Arc<ClipAudio> {
     Arc::new(ClipAudio::Memory {
         sample_rate: RATE,
@@ -38,7 +32,6 @@ fn steady(left: f32, right: f32) -> Arc<ClipAudio> {
     })
 }
 
-/// Audio whose every sample differs, to catch any misplaced frame.
 fn ramp() -> Arc<ClipAudio> {
     let left: Vec<f32> = (0..480_000)
         .map(|i| ((i % 997) as f32 - 498.0) / 1e3)
@@ -89,8 +82,6 @@ fn rig(clips: Vec<Clip>, routing: Routing, channels: usize) -> Rig {
 }
 
 impl Rig {
-    /// Renders `frames` in blocks of `block`; returns each frame's
-    /// channels.
     fn run(&mut self, frames: usize, block: usize) -> Vec<Vec<f32>> {
         let channels = self.channels;
         let mut data = vec![0.0; channels * block];
@@ -98,8 +89,6 @@ impl Rig {
         let mut done = 0;
         while done < frames {
             let n = block.min(frames - done);
-            // The render is the audio thread's work: nothing here may reach
-            // the heap (the allocation guard, `realtime.rs`).
             let ((), heap) = count_rt_violations(|| {
                 self.engine
                     .process(RATE, &mut data[..channels * n], channels, n);
@@ -111,7 +100,6 @@ impl Rig {
         out
     }
 
-    /// The last frame after settling.
     fn settled(&mut self) -> Vec<f32> {
         self.run(SETTLED, 128).pop().unwrap()
     }
@@ -126,7 +114,6 @@ fn close(a: &[f32], b: &[f32]) -> bool {
     a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-5)
 }
 
-/// The largest change from one frame to the next, on any channel.
 fn steepest(out: &[Vec<f32>]) -> f32 {
     out.windows(2)
         .flat_map(|w| w[0].iter().zip(&w[1]).map(|(a, b)| (b - a).abs()))
@@ -153,7 +140,6 @@ fn a_group_equals_the_sum_of_its_children() {
         cue: None,
         measure: None,
     };
-    // Nested: a group inside a group.
     let nested = Routing {
         nodes: vec![
             master(),
@@ -170,7 +156,6 @@ fn a_group_equals_the_sum_of_its_children() {
         let got = rig(clips.clone(), routing, 2).run(5_000, 128);
         assert_eq!(got, want);
     }
-    // And the sum is the two clips added together.
     let one = rig(
         vec![clip(1, 1, &a)],
         Routing {
@@ -235,8 +220,6 @@ fn a_muted_track_is_silent_and_so_are_its_sends() {
 
 #[test]
 fn a_silent_output_can_keep_its_sends_wet_only() {
-    // M4 slice 4: a soloed return plays the sends into it, not the
-    // tracks' own outputs.
     let audio = steady(0.25, 0.125);
     let wet = |audible| {
         let mut track = to_master(1);
@@ -254,7 +237,6 @@ fn a_silent_output_can_keep_its_sends_wet_only() {
     };
     let mut r = rig(vec![clip(1, 1, &audio)], wet(false), 2);
     assert!(close(&r.settled(), &[0.25, 0.125]), "the send alone");
-    // Opening the output glides: no click.
     r.reroute(&wet(true));
     let out = r.run(SETTLED, 128);
     assert!(close(out.last().unwrap(), &[0.5, 0.25]));
@@ -306,7 +288,6 @@ fn pre_fader_sends_ignore_the_fader_and_post_fader_sends_follow_it() {
         r.settled()
     };
     assert!(close(&send(true), &[0.5, 0.5]));
-    // After volume and pan: hard left with the balance law.
     assert!(close(&send(false), &[0.125, 0.0]));
 }
 
@@ -362,8 +343,6 @@ fn tracks_reach_the_device_output_pair_they_are_routed_to() {
     let clips = vec![clip(1, 1, &audio), clip(2, 2, &audio), clip(3, 3, &audio)];
     let mut four = rig(clips.clone(), routing.clone(), 4);
     assert!(close(&four.settled(), &[0.5, 0.25, 0.5, 0.25]));
-    // A pair the device does not have is silent; a mono device gets the
-    // left side.
     let mut mono = rig(clips, routing, 1);
     assert!(close(&mono.settled(), &[0.5]));
 }
@@ -385,8 +364,6 @@ fn a_track_missing_from_the_routing_is_not_heard() {
 
 #[test]
 fn volume_pan_mute_and_polarity_changes_glide_instead_of_stepping() {
-    // Owner (M3): dragging volume or pan crackled during playback, and
-    // muting clicked. The mixer's levels glide as clip levels did.
     let audio = steady(0.5, 0.5);
     let routing = |volume: f32, pan: f32, audible: bool, invert: bool| Routing {
         nodes: vec![
@@ -406,7 +383,6 @@ fn volume_pan_mute_and_polarity_changes_glide_instead_of_stepping() {
     };
     let mut r = rig(vec![clip(1, 1, &audio)], routing(1.0, 0.0, true, false), 2);
     let mut out = r.run(1_000, 128);
-    // A drag: a new routing every 16 ms (one screen frame).
     for (volume, pan) in [(0.8, 0.0), (0.6, -0.3), (0.6, -0.9), (1.0, 0.5)] {
         r.reroute(&routing(volume, pan, true, false));
         out.extend(r.run(768, 128));
@@ -418,7 +394,6 @@ fn volume_pan_mute_and_polarity_changes_glide_instead_of_stepping() {
     out.extend(r.run(2_000, 128));
     let centre = 0.5 * std::f32::consts::FRAC_1_SQRT_2;
     assert!(close(out.last().unwrap(), &[-centre, -centre]), "inverted");
-    // Full scale (−1 to +1 of the gain) in 20 ms, on audio at 0.5.
     let max_step = 2.0 * 0.5 / (RATE as f32 * 0.02) + 1e-6;
     assert!(
         steepest(&out[200..]) <= max_step,
@@ -429,8 +404,6 @@ fn volume_pan_mute_and_polarity_changes_glide_instead_of_stepping() {
 
 #[test]
 fn rerouting_while_playing_crossfades() {
-    // A track moves from one device pair to another: the old path fades
-    // out over 5 ms while the new one fades in.
     let audio = steady(0.5, 0.5);
     let pair = |pair| Routing {
         nodes: vec![NodeSpec::unity(1, Destination::Hardware(pair))],
@@ -442,14 +415,12 @@ fn rerouting_while_playing_crossfades() {
     r.reroute(&pair(1));
     out.extend(r.run(1_000, 128));
     assert!(close(out.last().unwrap(), &[0.0, 0.0, 0.5, 0.5]));
-    // 0.5 over 240 frames.
     let max_step = 0.5 / 240.0 + 1e-6;
     assert!(
         steepest(&out[200..]) <= max_step,
         "{}",
         steepest(&out[200..])
     );
-    // The total never dips: in and out add up to one.
     for frame in &out[200..] {
         assert!((frame.iter().sum::<f32>() - 1.0).abs() < 1e-5, "{frame:?}");
     }
@@ -475,8 +446,6 @@ fn a_track_that_joins_the_routing_while_playing_fades_in() {
     });
     out.extend(r.run(3_000, 128));
     assert!(close(out.last().unwrap(), &[0.5, 0.5]));
-    // A new shape: the plan crossfades in over 5 ms, under the clip's own
-    // 20 ms fade-in.
     let max_step = 0.5 / 240.0 + 1e-6;
     assert!(steepest(&out) <= max_step, "{}", steepest(&out));
 }
@@ -489,8 +458,6 @@ fn a_routed_mix_is_the_same_at_every_block_size() {
     let render = |block: usize| {
         let mut r = rig(clips.clone(), routing.clone(), 2);
         let mut out = r.run(3_000, block);
-        // Levels change and a track moves partway (a glide and a plan
-        // crossfade), at the same frame whatever the block size.
         r.reroute(&lumen_engine::testing::routed(16, 1));
         out.extend(r.run(3_000, block));
         out
@@ -522,17 +489,12 @@ fn replaced_plans_come_back_to_be_freed() {
         assert!(r.routing.set(&routing(volume)).unwrap());
     }
     r.run(256, 128);
-    // The empty plan the mixer starts with, the first routing, and the
-    // two that queued up and never played.
     assert_eq!(r.routing.collect_garbage(), 4);
     assert!(close(&r.settled(), &[0.35, 0.35]));
 }
 
 #[test]
 fn while_stopped_every_clip_list_and_routing_is_taken_and_play_starts_on_the_last() {
-    // Found by the M4 exit walkthrough: stopped, the engine took nothing,
-    // so after four edits the queues were full, the UI held back every
-    // routing after them, and playback started on stale ones.
     let audio = steady(0.5, 0.5);
     let routing = |volume| Routing {
         nodes: vec![
@@ -560,11 +522,8 @@ fn while_stopped_every_clip_list_and_routing_is_taken_and_play_starts_on_the_las
         r.routing.collect_garbage();
         r.run(128, 128);
     }
-    // Play: the newest list and routing from the first frame, no glide.
     r.transport.send(Command::Play).unwrap();
     let first = r.run(1_000, 128);
-    // The clip at 0.5, its gain 0.45 and the track at half volume (the
-    // balance law leaves the centre at unity).
     let want = 0.5 * 0.45 * 0.5;
     assert!(close(&first[999], &[want, want]), "{:?}", first[999]);
     assert!(close(&r.settled(), &[want, want]));
@@ -595,8 +554,6 @@ fn a_routing_that_cannot_play_is_refused_and_the_old_one_plays_on() {
 
 #[test]
 fn a_cued_track_is_heard_on_the_cue_pair_before_its_fader_and_mute() {
-    // M4 slice 4 (the owner's C1): cue is pre-fader, on its own pair, and
-    // never touched by mute or solo.
     let audio = steady(0.5, 0.25);
     let cued = |volume: f32, audible: bool, cue_volume: f32| {
         let mut track = to_master(1);
@@ -623,22 +580,18 @@ fn a_cued_track_is_heard_on_the_cue_pair_before_its_fader_and_mute() {
         close(&frame[2..], &[0.5, 0.25]),
         "cue: before the fader, {frame:?}"
     );
-    // Muted (or silenced by a solo): the cue plays on.
     r.reroute(&cued(0.5, false, 1.0));
     let frame = r.settled();
     assert!(close(&frame[..2], &[0.0, 0.0]));
     assert!(close(&frame[2..], &[0.5, 0.25]));
-    // The cue level, gliding.
     r.reroute(&cued(0.5, false, 0.5));
     let out = r.run(SETTLED, 128);
     assert!(close(&out.last().unwrap()[2..], &[0.25, 0.125]));
     assert!(steepest(&out) < 0.01);
-    // Not cued: the cue pair is silent.
     let mut quiet = cued(0.5, true, 1.0);
     quiet.nodes[1].cue = false;
     r.reroute(&quiet);
     assert!(close(&r.settled()[2..], &[0.0, 0.0]));
-    // A device without the cue pair simply does not hear it.
     let mut two = rig(vec![clip(1, 1, &audio)], cued(1.0, true, 1.0), 2);
     assert_eq!(two.settled().len(), 2);
 }

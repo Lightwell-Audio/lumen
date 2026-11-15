@@ -1,7 +1,3 @@
-//! M9 slice R4 (ADR-0105): joined, bounced and frozen audio is made at the
-//! project's sample rate (Project settings), whatever the audio device runs
-//! at. The test device runs at 48 kHz.
-
 use std::sync::atomic::AtomicBool;
 
 use eframe::egui::{Key, Modifiers};
@@ -11,8 +7,6 @@ use lumen_project::model::{ClipContent, Media};
 use super::Lumen;
 use super::clip_commands::{audio, command};
 
-/// An audio track with a clip, in a project set to 44.1 kHz in its settings
-/// window, as a person would set it.
 fn at_44_1(name: &str) -> Lumen {
     let mut lumen = audio(name);
     command(&mut lumen, "Project settings");
@@ -26,7 +20,6 @@ fn at_44_1(name: &str) -> Lumen {
     lumen
 }
 
-/// The file `media` names, decoded.
 fn decoded(media: &Media) -> lumen_media::Audio {
     lumen_media::decode(
         std::path::Path::new(&media.path),
@@ -36,7 +29,6 @@ fn decoded(media: &Media) -> lumen_media::Audio {
     .expect("the rendered file reads back")
 }
 
-/// What the first clip of the first track plays.
 fn clip_media(lumen: &Lumen, track: usize) -> Media {
     let ClipContent::Audio { media, .. } = lumen.app().project().tracks[track].clips[0].content
     else {
@@ -52,7 +44,6 @@ fn clip_media(lumen: &Lumen, track: usize) -> Media {
         .clone()
 }
 
-/// A clip of `ticks` is this many seconds long at 120 BPM.
 fn seconds(ticks: i64) -> f64 {
     ticks as f64 / PPQ as f64 * 0.5
 }
@@ -82,7 +73,6 @@ fn a_join_is_made_at_the_project_rate_and_is_as_long_as_the_clip() {
         file.channel(0).iter().any(|v| v.abs() > 0.01),
         "the file has the sound in it"
     );
-    // The clip still starts and ends where it did on the timeline.
     let joined = &lumen.app().project().tracks[0].clips[0];
     assert_eq!((joined.start, joined.length), (clip.start, clip.length));
 }
@@ -98,7 +88,6 @@ fn a_bounce_is_made_at_the_project_rate() {
     lumen.key(Modifiers::NONE, Key::Enter);
     lumen.wait_for("the bounce", |app| app.undo_label() == Some("Bounce"));
 
-    // The bounce went to a new track below.
     let media = clip_media(&lumen, 1);
     assert_eq!(media.sample_rate, 44_100);
     assert_eq!(decoded(&media).sample_rate, 44_100);

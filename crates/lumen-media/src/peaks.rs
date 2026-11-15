@@ -1,40 +1,20 @@
-//! Waveform peaks (M3 slice 4c, ADR-0027): the minimum and maximum of the
-//! audio in buckets of frames, at several resolutions, so a waveform can be
-//! drawn crisply at any zoom without reading the audio itself.
-//!
-//! Level 0 has a bucket for every [`BASE`] frames; each level above covers
-//! [`FACTOR`] buckets of the one below. Values are signed 8-bit fractions of
-//! full scale: plenty for a waveform a few hundred pixels tall, at a quarter
-//! of the memory of floats. The minimum rounds down and the maximum up, so
-//! quiet audio still shows.
-
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// What [`Peaks::to_bytes`] begins with: the format and its version.
 const PEAKS_TAG: &[u8] = b"lumen peaks 1\n";
 
-/// Frames per bucket at the finest level.
 pub const BASE: usize = 16;
-/// Buckets of the level below that one bucket covers.
 pub const FACTOR: usize = 4;
-/// Levels: 16 frames per bucket up to 16 × 4⁶ = 65,536.
 pub const LEVELS: usize = 7;
 
-/// One bucket: left minimum, left maximum, right minimum, right maximum,
-/// as fractions of full scale times 127. Mono repeats its one channel.
 pub type Bucket = [i8; 4];
 
-/// The peaks of one piece of audio, finest level first.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Peaks {
-    /// 1 or 2: how many channels the waveform shows.
     pub channels: usize,
     levels: Vec<Vec<Bucket>>,
 }
 
 impl Peaks {
-    /// Builds the peaks of planar `channels` (only the first two count, as
-    /// in playback). `None` if `cancel` was set.
     pub fn build(channels: &[Vec<f32>], cancel: &AtomicBool) -> Option<Self> {
         let left = channels.first().map_or(&[][..], Vec::as_slice);
         let right = channels.get(1).map_or(left, Vec::as_slice);
@@ -55,8 +35,6 @@ impl Peaks {
         Some(Self::of_finest(channels.len(), finest))
     }
 
-    /// The peaks whose finest level is `finest`, the levels above built from
-    /// it.
     fn of_finest(channels: usize, finest: Vec<Bucket>) -> Self {
         let mut levels = vec![finest];
         while levels.len() < LEVELS {
@@ -69,9 +47,6 @@ impl Peaks {
         }
     }
 
-    /// The peaks as bytes, for the peak cache (M9 slice R6): a tag, the
-    /// channels and the finest level; the levels above are built again when
-    /// read.
     pub fn to_bytes(&self) -> Vec<u8> {
         let finest = self.levels.first().map_or(&[][..], Vec::as_slice);
         let mut out = Vec::with_capacity(PEAKS_TAG.len() + 9 + finest.len() * 4);
@@ -84,7 +59,6 @@ impl Peaks {
         out
     }
 
-    /// Peaks written by [`Self::to_bytes`]; `None` if `bytes` are not that.
     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
         let rest = bytes.strip_prefix(PEAKS_TAG)?;
         let (&channels, rest) = rest.split_first()?;
@@ -102,16 +76,10 @@ impl Peaks {
         Some(Self::of_finest(usize::from(channels), finest))
     }
 
-    /// The levels, finest first: level `n` has a bucket for every
-    /// `BASE × FACTOR^n` frames.
     pub fn levels(&self) -> &[Vec<Bucket>] {
         &self.levels
     }
 
-    /// The bucket covering frames `from..to`: the extent of every bucket
-    /// under them, from the coarsest level that still has four buckets
-    /// across the range. Frames past the end are silent, and a range is
-    /// never narrower than one bucket.
     pub fn extent(&self, from: f64, to: f64) -> Bucket {
         let span = to - from;
         let mut level = 0;
@@ -131,7 +99,6 @@ impl Peaks {
             .map_or([0; 4], merge)
     }
 
-    /// Bytes held.
     pub fn memory(&self) -> usize {
         self.levels
             .iter()
@@ -167,27 +134,18 @@ fn merge(buckets: &[Bucket]) -> Bucket {
         })
 }
 
-/// Fine buckets in one coarse bucket of [`Growing`]: 16 × 16 = 256 frames.
 pub const GROWING_FACTOR: usize = 16;
 
-/// The peaks of audio that is still arriving (a take being recorded), built
-/// with the finished waveform's own buckets (the same extent, rounded the
-/// same way) so the live picture is the final one drawn early. It keeps the
-/// finest level and one coarse level of 256 frames, which a zoomed-out view
-/// reads instead of every fine bucket. A partly filled bucket is not shown.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Growing {
-    /// 1 or 2, as [`Peaks::channels`]: how many channels the take has.
     pub channels: usize,
     fine: Vec<Bucket>,
     coarse: Vec<Bucket>,
-    /// Extent of the bucket in progress, as `[min, max]` of each channel.
     pending: [f32; 4],
     filled: usize,
 }
 
 impl Growing {
-    /// Takes in frames of `left` and, for a take of two channels, `right`.
     pub fn add(&mut self, left: &[f32], right: Option<&[f32]>) {
         self.channels = if right.is_some() { 2 } else { 1 };
         let right = right.unwrap_or(left);
@@ -213,8 +171,6 @@ impl Growing {
         }
     }
 
-    /// The finished peaks, the partly filled last bucket included: the same
-    /// as [`Peaks::build`] over every frame added (a file read in blocks).
     pub fn finish(mut self) -> Peaks {
         if self.filled > 0 {
             let [l_min, l_max, r_min, r_max] = self.pending;
@@ -224,15 +180,10 @@ impl Growing {
         Peaks::of_finest(self.channels, self.fine)
     }
 
-    /// Frames in the buckets so far.
     pub fn frames(&self) -> usize {
         self.fine.len() * BASE
     }
 
-    /// The bucket covering frames `from..to` of the take: the extent of
-    /// every bucket under them, from the coarse level when `to - from` holds
-    /// several of its buckets and the fine level otherwise. Frames past the
-    /// end are silent, and a range is never narrower than one bucket.
     pub fn extent(&self, from: f64, to: f64) -> Bucket {
         let coarse = to - from >= (BASE * GROWING_FACTOR * 4) as f64;
         let (buckets, size) = if coarse {
@@ -283,7 +234,6 @@ mod tests {
 
     #[test]
     fn an_extent_covers_its_frames_at_any_width() {
-        // Silence, then one loud frame at 10,000, then silence.
         let mut audio = vec![0.0; 40_000];
         audio[10_000] = 0.5;
         let peaks = build(&[audio]);
@@ -295,15 +245,12 @@ mod tests {
 
     #[test]
     fn each_bucket_holds_the_extent_of_its_frames() {
-        // 40 frames: two whole buckets and a partial one.
         let left: Vec<f32> = (0..40).map(|i| (i as f32 - 20.0) / 20.0).collect();
         let right: Vec<f32> = left.iter().map(|v| -v * 0.5).collect();
         let peaks = build(&[left, right]);
         let finest = &peaks.levels()[0];
         assert_eq!(finest.len(), 3);
-        // Frames 0–15: left −1.0 to −0.25; right +0.5 to +0.125.
         assert_eq!(finest[0], [-127, -31, 15, 64]);
-        // Frames 32–39, the partial bucket: left 0.6 to 0.95.
         assert_eq!(finest[2][..2], [76, 121]);
         assert_eq!(peaks.channels, 2);
     }
@@ -315,7 +262,6 @@ mod tests {
             .collect();
         let right: Vec<f32> = left.iter().map(|v| v * -0.3).collect();
         let finished = build(&[left.clone(), right.clone()]);
-        // Fed in uneven chunks, as the audio arrives.
         let mut live = Growing::default();
         let mut at = 0;
         for step in [1, 17, 300, 5, 677] {
@@ -324,13 +270,10 @@ mod tests {
             at = end;
         }
         assert_eq!(live.channels, 2);
-        // 62 whole buckets; the partial one is not shown.
         assert_eq!(live.frames(), 992);
         assert_eq!(live.fine, finished.levels()[0][..62]);
-        // A range reads the extent of the buckets under it.
         assert_eq!(live.extent(0.0, 16.0), finished.levels()[0][0]);
         assert_eq!(live.extent(16.0, 48.0), merge(&finished.levels()[0][1..3]));
-        // A wide range reads the coarse level, past the end is silent.
         assert_eq!(live.extent(0.0, 512.0), merge(&finished.levels()[0][..32]));
         assert_eq!(live.extent(5_000.0, 5_016.0), [0; 4]);
     }
@@ -349,7 +292,6 @@ mod tests {
         assert_eq!(quiet.levels()[0][0][..2], [0, 1], "rounded up to one step");
         let silent = build(&[vec![0.0; 32]]);
         assert_eq!(silent.levels()[0][0], [0, 0, 0, 0]);
-        // Over full scale is clamped.
         let loud = build(&[vec![1.5, -2.0]]);
         assert_eq!(loud.levels()[0][0][..2], [-127, 127]);
     }

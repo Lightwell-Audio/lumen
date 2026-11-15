@@ -1,11 +1,5 @@
-//! The Audio page's Latency section rows: the recording offset and an
-//! offset measured with another device (M9 slices R2 and R2b).
-
 use super::*;
 
-/// The recording offset field: milliseconds added to the latency the driver
-/// reports, for drivers that report it wrongly; and the loopback helper's
-/// Measure… button, which unfolds its card.
 pub(super) fn record_offset(
     ui: &mut Ui,
     offset_ms: f32,
@@ -48,8 +42,6 @@ pub(super) fn record_offset(
     });
 }
 
-/// Says so when the offset was measured on another device setup than the
-/// one running.
 pub(super) fn measured_elsewhere(ui: &mut Ui, with: &MeasuredWith, running: &MeasuredWith) {
     if with.same_setup(running) {
         return;
@@ -76,7 +68,6 @@ pub(super) fn measured_elsewhere(ui: &mut Ui, with: &MeasuredWith, running: &Mea
     });
 }
 
-/// A small filled dot, drawn rather than typed (the UI font has no "●").
 pub(super) fn dot(ui: &mut Ui, color: egui::Color32) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(10.0, 20.0), egui::Sense::hover());
     ui.painter().circle_filled(rect.center(), 3.5, color);

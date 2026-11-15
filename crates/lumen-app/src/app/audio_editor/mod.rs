@@ -1,10 +1,3 @@
-//! The audio clip editor in the Clip tab (M9.5 S1): the clip editors' shared
-//! header, the properties strip under it (S3, `strip`), then the editor: a
-//! ruler of bars and file time, and the clip's whole file with the part it
-//! plays bright. The drawing is `audio_editor::paint`; the mapping
-//! `audio_editor::source`; the handles are `gestures` (the pointer) and `keys`
-//! (the keyboard) here, with `audio_editor::handles` for where they are.
-
 mod brace;
 mod envelope;
 mod gestures;
@@ -46,13 +39,9 @@ use crate::timeview::TimeView;
 use crate::widgets::{self, raised};
 use crate::{App, theme};
 
-/// The editor needs at least this much wave area to be drawn.
 const MIN_BODY: f32 = 24.0;
-/// The most samples read for one frame's drawing (a screen's width at
-/// 8 points a sample on a wide display).
 const MOST_SAMPLES: i64 = 16_384;
 
-/// A loaded file: what its wave needs.
 struct Loaded {
     source: waves::Source,
     peaks: Arc<Peaks>,
@@ -60,8 +49,6 @@ struct Loaded {
 }
 
 impl App {
-    /// An opened audio clip: its editor, with the header and the properties
-    /// strip over it.
     pub(crate) fn audio_clip_view(&mut self, ui: &mut Ui, area: Rect, clip: Id) {
         if self.detail.audio_popped {
             self.popped_note(ui, area);
@@ -72,8 +59,6 @@ impl App {
         self.audio_editor = ed;
     }
 
-    /// The note that stands where the editor was while it is in its own
-    /// window, with the way to dock it back.
     fn popped_note(&mut self, ui: &mut Ui, rect: Rect) {
         let state = widgets::EmptyState {
             icon: None,
@@ -91,8 +76,6 @@ impl App {
         }
     }
 
-    /// The file of `key` (a media id, or a reversed twin's) when it is loaded
-    /// at the device rate with its peaks.
     fn loaded(&self, key: u64) -> Option<Loaded> {
         let rate = self.lanes.rate();
         self.lanes
@@ -135,8 +118,6 @@ impl App {
             pos2(area.right(), strip.bottom() + RULER),
         );
         let (scale, band) = self::brace::split_ruler(ruler);
-        // A warped clip has its markers' strip between the ruler and the wave
-        // (S5b, P A).
         let strip_rect = warp_strip::rect_under(ruler, &clip);
         let body = Rect::from_min_max(
             pos2(
@@ -145,7 +126,6 @@ impl App {
             ),
             area.max,
         );
-        // Another clip opened: what was picked in the last one goes.
         if ed.framed_for != Some(clip.id) {
             ed.cursor = None;
             ed.anchor = None;
@@ -154,8 +134,6 @@ impl App {
             ed.markers = WarpEditor::default();
         }
         if let Some(file) = &file {
-            // Opening a clip frames it with nothing to go back to: the view
-            // before belongs to another clip, or to this one opened before.
             let opening = ed.framed_for != Some(clip.id);
             if opening {
                 ed.framed_for = Some(clip.id);
@@ -182,7 +160,6 @@ impl App {
         self.audio_strip(ui, strip, (&clip, colour), ed);
         let is_loaded = loaded.is_some();
         let (Some(file), Some(loaded)) = (file, loaded) else {
-            // Nothing to zoom: keys pressed now do not wait for a file.
             ed.zooms.clear();
             ed.last = None;
             self.audio_empty_state(ui, Rect::from_min_max(ruler.min, area.max), key, is_loaded);
@@ -208,12 +185,10 @@ impl App {
         );
         let wheeled = audio_wheel(&ctx, over, body, &mut ed.time, limits);
         if zoomed || wheeled {
-            // Looking around pauses Follow, as in the arrangement.
             self.transport.follow_paused = true;
         }
         self.audio_follow(ed, body);
         ed.hovered |= over.is_some();
-        // A handle that took the keyboard or moved by a key comes into view.
         if let Some(part) = ed.reveal.take()
             && let Some(q) = self
                 .shown_clip(id)
@@ -226,8 +201,6 @@ impl App {
             }
         }
 
-        // The areas that take the pointer. The handles' Tab stops come last,
-        // after the header's and the ruler's.
         let base = ui.id().with(("audio editor", clip.id.0));
         let wave_response = ui.interact(body, base.with("wave"), Sense::CLICK | Sense::DRAG);
         wave_response.widget_info(|| {
@@ -249,9 +222,6 @@ impl App {
 
         let band_response = ui.interact(band, base.with("brace"), Sense::CLICK | Sense::DRAG);
 
-        // The pointer's edits, then the clip and file as they left them, so
-        // what is drawn is never a frame behind the hand: the brace, the
-        // envelope, then the wave.
         let area_now = WaveArea {
             body,
             file: &file,
@@ -290,7 +260,6 @@ impl App {
             None => false,
         };
         let hit = self.audio_wave_pointer(&wave_response, id, &area_now, ed, taken);
-        // The stops' keys, with the file and the envelope at hand.
         if !ed.keys.is_empty()
             && let Some(now) = self.shown_clip(id)
         {
@@ -309,13 +278,11 @@ impl App {
             }
             _ => (clip, file),
         };
-        // The markers as the edits left them.
         let strip = strip_rect.map(|rect| WarpStrip::of(&clip, &file, (rate, ed.time), rect));
         if let Some(strip) = &strip {
             self.reveal_marker(strip, limits, ed);
         }
 
-        // What to draw.
         let painter = ui.painter().clone();
         let meter = &self.transport.timeline.meter;
         let from = ticks_at(ed.time, body.left(), body.left()).max(Ticks::ZERO);
@@ -323,7 +290,6 @@ impl App {
         let lines = self.grid.lines(meter, from, to, ed.time.zoom);
         let palette = theme::p();
         painter.rect_filled(body, 0.0, palette.canvas);
-        // The same lines again over the clip's body, where the wave draws.
         let over_clip: Vec<(f32, lumen_core::grid::Level)> = lines
             .iter()
             .map(|l| (ed.time.x(body.left(), l.at.as_quarters()), l.level))
@@ -389,9 +355,6 @@ impl App {
         if let Some(key) = crate::audio_editor::detect::file_key(&clip)
             && let Some(found) = ed.detect.analysis(key)
         {
-            // A warped clip shows them as triangles in its strip; one that
-            // is not shows the same triangles at the top of its wave only
-            // while the Warp popover is open.
             let at = (ed.time, rate);
             match (
                 crate::audio_editor::detect::Shown::of(strip.is_some(), previewing),
@@ -419,9 +382,6 @@ impl App {
             }
         }
         paint::ruler(&painter, scale, ed.time, &lines, meter, &file, rate);
-        // The wave's Tab stop, then the envelope and the range over the
-        // wave, each handle's stop and the handles, then the envelope's and
-        // the loop's stops and the brace.
         let ruler_stop = self.ruler_stop(ui, scale);
         let wave_stop = self.wave_stop(ui, body, &clip, ed);
         let shown = self.shown_clip(id);
@@ -514,7 +474,6 @@ impl App {
         }
     }
 
-    /// The opened clip and its colour.
     fn opened_clip_look(&self, id: Id) -> Option<(Arc<Clip>, egui::Color32)> {
         all_tracks(self.document.project()).find_map(|t| {
             let clip = t.clips.iter().find(|c| c.id == id)?;
@@ -522,8 +481,6 @@ impl App {
         })
     }
 
-    /// The colours of the crossfade out of the opened clip: its own and the
-    /// next clip's.
     fn audio_crossing_colours(&self, id: Id) -> Option<(egui::Color32, egui::Color32)> {
         let shown = self.shown_clip(id).filter(|c| c.crossfade)?;
         let end = shown.start + shown.length;
@@ -537,8 +494,6 @@ impl App {
         })
     }
 
-    /// The file's place on the timeline, worked out again only when the
-    /// clip, the tempo, the rate or the file changes.
     fn file_of(
         &self,
         clip: &Arc<Clip>,
@@ -570,10 +525,6 @@ impl App {
         ed.file.as_ref().map(|c| c.file.clone())
     }
 
-    /// Keeps the samples for `want` (the frames in view) at hand: they are
-    /// asked for with a screen's width to spare on either side, and kept
-    /// while the view stays inside them, so a file played from disk is not
-    /// read again every frame.
     fn audio_samples(
         &self,
         ed: &mut AudioEditor,
@@ -605,8 +556,6 @@ impl App {
         }
     }
 
-    /// What the editor says when it cannot draw the clip's file.
-    /// `loaded`: the file is ready at the device rate with its peaks.
     fn audio_empty_state(&mut self, ui: &mut Ui, rect: Rect, key: Option<u64>, loaded: bool) {
         let item = key.and_then(|key| self.lanes.library.with_twins().find(|i| i.id == key));
         let (title, hint, pool) = match item.map(|i| &i.state) {
@@ -653,9 +602,6 @@ impl App {
         }
     }
 
-    /// The editor's keys are live: the pointer is over it, the detail panel
-    /// has the keyboard on the Clip tab of an audio clip, or the keys are
-    /// read for the editor's own window (all of its keyboard is the editor's).
     pub(crate) fn audio_editor_live(&self, ctx: &egui::Context) -> bool {
         self.detail_audio_clip().is_some()
             && (window::its_keyboard(self.detail.audio_popped, ctx.viewport_id())
@@ -668,13 +614,10 @@ impl App {
                     && crate::app::panes::focused(ctx) == Some(crate::app::panes::Pane::Detail)))
     }
 
-    /// Once a frame, before the keys.
     pub(crate) fn refresh_audio_editor(&mut self) {
         let ed = &mut self.audio_editor;
         ed.hovered_before = ed.hovered;
         ed.hovered = false;
-        // A scrub whose ruler stopped being drawn (the panel was hidden under
-        // the held pointer) never sees its release: let go of it here.
         if ed.scrub_sent.is_some() {
             if ed.scrub_drawn {
                 ed.scrub_drawn = false;
@@ -687,10 +630,6 @@ impl App {
         }
     }
 
-    /// The playhead through an editor's ruler and body, as the arrangement
-    /// draws it: a beam while playing (a white core in the accent, its
-    /// halo, light cast on the content and a cap on the ruler), a plain line
-    /// when stopped. Shared by both clip editors.
     pub(crate) fn paint_editor_playhead(
         &self,
         painter: &egui::Painter,

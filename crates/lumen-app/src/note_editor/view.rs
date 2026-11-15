@@ -1,11 +1,3 @@
-//! Where notes are on the screen (M5 slice 3c): the editor's geometry. The
-//! horizontal axis is the editor's own [`TimeView`] (zoom and scroll are
-//! the editor's, not the arrangement's: owner decision, ADR-0048), the
-//! vertical one is pitch, scrolled and sized by the editor alone. Both use
-//! the same beats as the arrangement, so a clip sits at the same place in
-//! both. A note's start is in clip time (ticks from the clip's start,
-//! `lumen_project::edit::note_time`).
-
 use eframe::egui::{Pos2, Rect, pos2};
 use lumen_core::time::Ticks;
 use lumen_project::model::Note;
@@ -15,26 +7,15 @@ use crate::timeview::{Limits, TimeView};
 
 pub(crate) use crate::piano_roll::draw::Rows;
 
-/// Pitches there are: 0 to 127.
 pub(crate) const PITCHES: i32 = 128;
-/// The tallest row a pitch can have, and the shortest (points).
 pub(crate) const ROW_MIN: f32 = 8.0;
 pub(crate) const ROW_MAX: f32 = 32.0;
 pub(crate) const ROW_DEFAULT: f32 = 16.0;
-/// Width of the key column (points).
 pub(crate) const KEY_WIDTH: f32 = 56.0;
-/// Width of the key column on a track with a drum map: the lanes' name
-/// column, [`crate::theme::size::LANE_NAME`] (M8 D1, `docs/specimens/m8/chosen.html`, Lanes).
 pub(crate) const KEY_WIDTH_DRUMS: f32 = crate::theme::size::LANE_NAME;
-/// Height of the time ruler above the notes (points).
 pub(crate) const RULER_HEIGHT: f32 = 20.0;
-/// How near a note's end the pointer grabs the end (points), at most a
-/// third of the note's width.
 pub(crate) const EDGE: f32 = 6.0;
 
-/// The view that frames a clip when it opens: its span (`start` to
-/// `start + length`) across `width` points, with the small margin
-/// [`TimeView::fit`] leaves either side.
 pub(crate) fn fit_clip(start: Ticks, length: Ticks, width: f32, limits: Limits) -> TimeView {
     TimeView::fit(
         start.as_quarters(),
@@ -44,34 +25,19 @@ pub(crate) fn fit_clip(start: Ticks, length: Ticks, width: f32, limits: Limits) 
     )
 }
 
-/// What the editor shows: the note area, its own time axis and the pitch
-/// scroll.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct EditorView {
-    /// The area notes are drawn in (right of the key column, below the
-    /// ruler).
     pub body: Rect,
-    /// The editor's zoom and scroll (its own, not the arrangement's).
     pub time: TimeView,
-    /// Where the open clip starts on the arrangement.
     pub clip_start: Ticks,
-    /// Points a pitch's row is tall.
     pub row_height: f32,
-    /// Points scrolled down from the top of the first row.
     pub scroll: f32,
-    /// Which rows show: every pitch, a drum map's sounds (M8 D1), or the
-    /// drum editor's lanes in the map's order (M8 D2).
     pub rows: Rows,
-    /// The drum editor's lanes: a hit is a diamond on its onset (DE A), and
-    /// a vertical drag on a picked hit sets its velocity.
     pub lanes: bool,
 }
 
-/// Where a hidden pitch's row is put: far below the body, so nothing is
-/// drawn for it and no arithmetic sees a nonsense number.
 const HIDDEN_ROW: f32 = 1.0e6;
 
-/// Part of a note the pointer is on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Zone {
     Start,
@@ -80,25 +46,20 @@ pub(crate) enum Zone {
 }
 
 impl EditorView {
-    /// The x of clip time `local`.
     pub fn x_of(&self, local: Ticks) -> f32 {
         self.time
             .x(self.body.left(), (self.clip_start + local).as_quarters())
     }
 
-    /// The clip time at `x`, unsnapped (it may be before the clip: negative).
     pub fn local_at(&self, x: f32) -> Ticks {
         let beat = self.time.beat_at(self.body.left(), x);
         Ticks((beat * lumen_core::time::PPQ as f64).round() as i64) - self.clip_start
     }
 
-    /// The arrangement time at `x`, never before the start.
     pub fn absolute_at(&self, x: f32) -> Ticks {
         ruler::ticks_at(self.time.beat_at(self.body.left(), x))
     }
 
-    /// The top edge of pitch `pitch`'s row (far below the body when the row
-    /// is hidden).
     pub fn row_top(&self, pitch: i32) -> f32 {
         match self.rows.row_of(pitch) {
             Some(row) => self.top_of_row(row),
@@ -106,21 +67,16 @@ impl EditorView {
         }
     }
 
-    /// The top edge of row `row`.
     fn top_of_row(&self, row: usize) -> f32 {
         self.body.top() + row as f32 * self.row_height - self.scroll
     }
 
-    /// The pitch whose row contains `y`, clamped to the rows there are.
     pub fn pitch_at(&self, y: f32) -> i32 {
         let row = ((y - self.body.top() + self.scroll) / self.row_height).floor();
         let last = self.rows.len().saturating_sub(1) as f32;
         self.rows.pitch_of(row.clamp(0.0, last) as usize)
     }
 
-    /// The lane's row at `y`, when a lane is there: in the drum editor's lanes
-    /// there is no row below the last lane (nor in a map with none), so a
-    /// press there draws nothing (M8 D2 review M1).
     pub fn lane_at(&self, y: f32) -> Option<usize> {
         if !self.body.y_range().contains(y) {
             return None;
@@ -129,12 +85,10 @@ impl EditorView {
         (row >= 0.0 && (row as usize) < self.rows.len()).then_some(row as usize)
     }
 
-    /// The furthest the view scrolls down.
     pub fn max_scroll(&self) -> f32 {
         (self.rows.len() as f32 * self.row_height - self.body.height()).max(0.0)
     }
 
-    /// Where `note` is drawn (not cut to the body).
     pub fn note_rect(&self, note: Note) -> Rect {
         let top = self.row_top(i32::from(note.pitch()));
         let (left, right) = (self.x_of(note.start()), self.x_of(note.end()));
@@ -144,10 +98,6 @@ impl EditorView {
         )
     }
 
-    /// Whether `note` could show: inside the body's times and pitches. The
-    /// editor shows every note of the clip, those outside its window too
-    /// (they sit in the dimmed time outside the clip; ADR-0059): the
-    /// arrangement hides them, the editor does not.
     pub fn shows(&self, note: Note) -> bool {
         let r = self.note_rect(note);
         r.right() >= self.body.left()
@@ -156,15 +106,11 @@ impl EditorView {
             && r.top() <= self.body.bottom()
     }
 
-    /// The top-most note under `p` and the part of it, if any. Muted notes
-    /// count: they are there to be seen and unmuted.
     pub fn note_at(&self, notes: &[Note], p: Pos2) -> Option<(usize, Zone)> {
         if !self.body.contains(p) {
             return None;
         }
         let pitch = self.pitch_at(p.y);
-        // Notes of the pitch under the pointer, the latest first: the one
-        // drawn on top.
         let (i, note) = notes.iter().enumerate().rev().find(|(_, n)| {
             let r = self.note_rect(**n);
             self.shows(**n)
@@ -184,24 +130,19 @@ impl EditorView {
         Some((i, zone))
     }
 
-    /// Keeps the scroll inside its limits.
     pub fn clamp_scroll(&mut self) {
         self.scroll = self.scroll.clamp(0.0, self.max_scroll());
     }
 }
 
-/// The scroll that puts pitch `pitch` in the middle of a body `height`
-/// tall.
 pub(crate) fn scroll_to_centre(pitch: i32, row_height: f32, height: f32) -> f32 {
     scroll_to_row((PITCHES - 1 - pitch) as usize, row_height, height)
 }
 
-/// The scroll that puts row `row` in the middle of a body `height` tall.
 pub(crate) fn scroll_to_row(row: usize, row_height: f32, height: f32) -> f32 {
     (row as f32 + 0.5) * row_height - height / 2.0
 }
 
-/// "C4", "F#3": middle C (60) is C4.
 pub(crate) fn pitch_name(pitch: i32) -> String {
     const NAMES: [&str; 12] = [
         "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
@@ -241,7 +182,6 @@ mod tests {
     #[test]
     fn pitch_and_y_agree() {
         let v = view();
-        // Row of pitch 127 starts at body top - scroll.
         assert_eq!(v.row_top(127), 50.0 - 600.0);
         let y = v.row_top(60) + 3.0;
         assert_eq!(v.pitch_at(y), 60);
@@ -286,8 +226,6 @@ mod tests {
 
     #[test]
     fn the_lanes_have_no_row_below_the_last_one() {
-        // Review M1: a press below the last lane (or with no lanes) has no
-        // row, so the draw tool adds nothing there; the roll clamps.
         use crate::piano_roll::draw::Rows;
         let mut v = view();
         v.lanes = true;
@@ -340,11 +278,9 @@ mod tests {
         assert_eq!(v.max_scroll(), 0.0, "two rows fit");
         assert_eq!(v.pitch_at(5.0), 46);
         assert_eq!(v.pitch_at(15.0), 36);
-        // A note whose pitch is hidden is never drawn or found.
         let note = Note::new(Ticks::ZERO, Ticks::quarters(1), 60, 100);
         assert!(!v.shows(note));
         assert_eq!(v.note_at(&[note], v.body.center()), None);
-        // An empty list falls back to the keyboard.
         assert!(Rows::mapped(&[]).is_all());
     }
 
@@ -359,8 +295,6 @@ mod tests {
 
     #[test]
     fn a_clip_opens_framed_with_a_little_margin_either_side() {
-        // Beats 4 to 12 across 800 points: the span fills the width, with
-        // the same small margin on each side.
         let view = fit_clip(Ticks::quarters(4), Ticks::quarters(8), 800.0, limits(800.0));
         let (left, right) = (view.x(0.0, 4.0), view.x(0.0, 12.0));
         assert!(left > 0.0 && right < 800.0, "{left} {right}");

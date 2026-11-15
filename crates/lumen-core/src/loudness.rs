@@ -1,25 +1,5 @@
-//! Loudness and true peak as ITU-R BS.1770-4 and EBU R 128 define them
-//! (M4 slice 5), shared by the engine that filters on the audio thread and
-//! the interface that gates and shows the result.
-//!
-//! - [`KWeighting`]: the two-stage filter that weights a channel the way
-//!   loudness is heard, for any sample rate.
-//! - [`Blocks`]: sums the weighted power of a stereo signal into 100 ms
-//!   blocks, the step every loudness window moves by.
-//! - [`Loudness`]: momentary (400 ms), short-term (3 s) and gated
-//!   integrated loudness from those blocks.
-//! - [`TruePeak`]: the peak between samples, found by oversampling four
-//!   times.
-//!
-//! Everything that runs per sample (`KWeighting`, `Blocks`, `TruePeak`)
-//! holds fixed-size state and never allocates, so it can run on the audio
-//! thread. [`Loudness`] keeps every block since its last reset and belongs
-//! on the UI side.
-
-/// A loudness of nothing: below every gate.
 pub const SILENT: f64 = f64::NEG_INFINITY;
 
-/// One biquad stage in direct form I.
 #[derive(Debug, Clone, Copy, Default)]
 struct Biquad {
     b: [f64; 3],
@@ -40,10 +20,6 @@ impl Biquad {
     }
 }
 
-/// The K-weighting filter for one channel: a high shelf (+4 dB above about
-/// 1.7 kHz, the head's effect) then a high-pass (the RLB curve). The
-/// coefficients are derived for any rate, as libebur128 does, and match the
-/// standard's tables at 48 kHz.
 #[derive(Debug, Clone, Copy)]
 pub struct KWeighting {
     shelf: Biquad,
@@ -90,14 +66,10 @@ impl KWeighting {
     }
 }
 
-/// Sums the K-weighted power of a stereo signal into 100 ms blocks. Each
-/// finished block's mean square (left and right added, as BS.1770 weights
-/// both at 1.0) is handed to a callback.
 #[derive(Debug, Clone, Copy)]
 pub struct Blocks {
     filters: [KWeighting; 2],
     rate: u32,
-    /// Frames in a block: a tenth of a second.
     length: u32,
     frames: u32,
     sum: f64,
@@ -119,8 +91,6 @@ impl Blocks {
         self.rate
     }
 
-    /// Adds `left` and `right` (the same length), calling `done` with the
-    /// mean square of every block they finish. Real-time safe.
     pub fn add(&mut self, left: &[f32], right: &[f32], mut done: impl FnMut(f32)) {
         let [l, r] = &mut self.filters;
         for (&a, &b) in left.iter().zip(right) {
@@ -136,7 +106,6 @@ impl Blocks {
     }
 }
 
-/// The loudness of a mean square: `−0.691 + 10·log10(z)` LUFS.
 pub fn lufs(mean_square: f64) -> f64 {
     if mean_square > 0.0 {
         -0.691 + 10.0 * mean_square.log10()
@@ -145,26 +114,15 @@ pub fn lufs(mean_square: f64) -> f64 {
     }
 }
 
-/// Blocks in a momentary window (400 ms) and a short-term one (3 s).
 const MOMENTARY: usize = 4;
 const SHORT_TERM: usize = 30;
-/// The absolute gate, in LUFS, and the relative one, in LU below the
-/// ungated mean.
 const ABSOLUTE_GATE: f64 = -70.0;
 const RELATIVE_GATE: f64 = -10.0;
 
-/// Momentary, short-term and integrated loudness from 100 ms blocks
-/// ([`Blocks`]). UI side: it keeps every gating block since the last
-/// [`reset`](Self::reset).
 #[derive(Debug, Clone, Default)]
 pub struct Loudness {
-    /// The last 30 blocks' mean squares, oldest first.
     recent: std::collections::VecDeque<f64>,
-    /// Every 400 ms gating block's mean square since the reset (one per
-    /// 100 ms, overlapping by 75%), louder than the absolute gate.
     gating: Vec<f64>,
-    /// Blocks pushed since the reset: a gating block only counts once all
-    /// four of its 100 ms blocks came after it.
     fresh: usize,
     integrated: f64,
 }
@@ -177,14 +135,12 @@ impl Loudness {
         }
     }
 
-    /// Starts integrating again; the windows keep their history.
     pub fn reset(&mut self) {
         self.gating.clear();
         self.fresh = 0;
         self.integrated = SILENT;
     }
 
-    /// Adds one 100 ms block's mean square.
     pub fn push(&mut self, mean_square: f32) {
         if self.recent.len() == SHORT_TERM {
             self.recent.pop_front();
@@ -200,8 +156,6 @@ impl Loudness {
         }
     }
 
-    /// The mean of the last `blocks`, or nothing until there are that
-    /// many.
     fn window(&self, blocks: usize) -> f64 {
         if self.recent.len() < blocks {
             return 0.0;
@@ -209,24 +163,19 @@ impl Loudness {
         self.recent.iter().rev().take(blocks).sum::<f64>() / blocks as f64
     }
 
-    /// The last 400 ms, in LUFS.
     pub fn momentary(&self) -> f64 {
         lufs(self.window(MOMENTARY))
     }
 
-    /// The last 3 s, in LUFS.
     pub fn short_term(&self) -> f64 {
         lufs(self.window(SHORT_TERM))
     }
 
-    /// Everything since the reset, gated, in LUFS.
     pub fn integrated(&self) -> f64 {
         self.integrated
     }
 }
 
-/// Gated mean of `blocks` (already above the absolute gate): the blocks
-/// within 10 LU of their own mean.
 fn integrate(blocks: &[f64]) -> f64 {
     if blocks.is_empty() {
         return SILENT;
@@ -244,20 +193,14 @@ fn integrate(blocks: &[f64]) -> f64 {
     }
 }
 
-/// Oversampling factor for true peak.
 const PHASES: usize = 4;
-/// Taps per phase. 49 taps in all, centred on a whole sample, so the
-/// interpolated points fall at 0, ¼, ½ and ¾ of the way between samples.
 const TAPS: usize = 13;
 
-/// The interpolation filter: a Kaiser-windowed sinc, `PHASES` phases of
-/// `TAPS` taps each, every phase summing to one.
 fn interpolator() -> [[f32; TAPS]; PHASES] {
     let length = PHASES * (TAPS - 1) + 1;
     let centre = (length - 1) as f64 / 2.0;
     let beta = 8.0;
     let i0 = |x: f64| {
-        // Modified Bessel function of the first kind, order zero.
         let (mut sum, mut term, mut k) = (1.0, 1.0, 1.0);
         while term > 1e-12 * sum {
             term *= (x / (2.0 * k)).powi(2);
@@ -291,14 +234,9 @@ fn interpolator() -> [[f32; TAPS]; PHASES] {
     phases
 }
 
-/// The true peak of one channel: the loudest of four points between each
-/// pair of samples. Real-time safe once made.
 #[derive(Debug, Clone, Copy)]
 pub struct TruePeak {
-    /// Each phase's taps, oldest sample first.
     phases: [[f32; TAPS]; PHASES],
-    /// The last `TAPS` samples, written twice so the window ending at any
-    /// position is one contiguous slice: `history[at + 1..=at + TAPS]`.
     history: [f32; 2 * TAPS],
     at: usize,
 }
@@ -310,8 +248,6 @@ impl Default for TruePeak {
 }
 
 impl TruePeak {
-    /// Allocation-free, but works out the filter: make it off the audio
-    /// thread.
     pub fn new() -> Self {
         let mut phases = interpolator();
         for phase in &mut phases {
@@ -324,16 +260,12 @@ impl TruePeak {
         }
     }
 
-    /// The highest absolute value among `samples` and the points between
-    /// them (linear, not dB).
     pub fn process(&mut self, samples: &[f32]) -> f32 {
         let mut peak = 0.0f32;
         for &x in samples {
             self.at = if self.at + 1 == TAPS { 0 } else { self.at + 1 };
             self.history[self.at] = x;
             self.history[self.at + TAPS] = x;
-            // `at` is below TAPS, so the window is TAPS long inside the
-            // doubled history; an array reference with no `expect`.
             let start = self.at + 1;
             let window: &[f32; TAPS] = self
                 .history
@@ -365,8 +297,6 @@ mod tests {
             .collect()
     }
 
-    /// Feeds `parts` (each a stereo tone level and a duration) through
-    /// `Blocks` into `Loudness`.
     fn measure(parts: &[(f64, f64)]) -> Loudness {
         let mut blocks = Blocks::new(RATE);
         let mut loudness = Loudness::new();
@@ -381,7 +311,6 @@ mod tests {
         (a - b).abs() <= tolerance
     }
 
-    // EBU Tech 3341, cases 1 to 5 (stereo 1 kHz tones), within 0.1 LU.
     #[test]
     fn a_tone_at_minus_23_dbfs_reads_minus_23_lufs() {
         let l = measure(&[(-23.0, 20.0)]);
@@ -422,7 +351,6 @@ mod tests {
 
     #[test]
     fn the_k_weighting_matches_the_standard_at_48_khz() {
-        // BS.1770-4 table 1 and table 2.
         let k = KWeighting::new(48_000);
         let close = |a: f64, b: f64| (a - b).abs() < 1e-8;
         assert!(close(k.shelf.b[0], 1.535_124_859_586_97));
@@ -460,10 +388,7 @@ mod tests {
         let mut l = measure(&[(-23.0, 5.0)]);
         l.reset();
         assert_eq!(l.integrated(), SILENT);
-        // The windows keep their history.
         assert!(near(l.momentary(), -23.0, 0.1));
-        // Integrating starts once a whole 400 ms block follows the reset:
-        // nothing from before it counts.
         for _ in 0..3 {
             l.push(1e-3);
         }
@@ -476,8 +401,6 @@ mod tests {
 
     #[test]
     fn true_peak_finds_the_peak_between_samples() {
-        // A quarter-rate sine at 45°: every sample is at 0.707 of the
-        // peak, the peak itself falls between them.
         let tone = sine(f64::from(RATE) / 4.0, 0.0, 0.1, std::f64::consts::FRAC_PI_4);
         let sample_peak = tone.iter().fold(0.0f32, |m, s| m.max(s.abs()));
         assert!((20.0 * sample_peak.log10() + 3.01).abs() < 0.05);

@@ -1,8 +1,3 @@
-//! A plugin's parameters on its card (M6 slice 4): the strip's knobs and the
-//! panel with every parameter, driven as a person does it. The plugin is the
-//! test plugin, with three hundred extra parameters in groups, some hidden
-//! and some read only (the module named `Many`).
-
 use eframe::egui::{Event, Key, Modifiers, Pos2, vec2};
 use egui_kittest::kittest::{NodeT, Queryable};
 use lumen_core::time::Ticks;
@@ -47,8 +42,6 @@ fn faults(stem: &str) -> Option<&'static str> {
     }
 }
 
-/// Lumen with the effect on the audio track, running, and its Devices tab
-/// showing.
 fn launch(name: &str) -> Lumen {
     let dir = TempDir::new(&format!("e2e-parameters-{name}"));
     let path = dir.path().join("song.lumen");
@@ -72,8 +65,6 @@ fn launch(name: &str) -> Lumen {
     lumen
 }
 
-/// Whether the panel with every parameter is open (its title is on the
-/// window and in it).
 fn panel_open(lumen: &Lumen) -> bool {
     lumen
         .harness
@@ -82,7 +73,6 @@ fn panel_open(lumen: &Lumen) -> bool {
         .is_some()
 }
 
-/// The centre of the control called `label` (a name starts with it).
 #[track_caller]
 fn at(lumen: &Lumen, label: &str) -> Pos2 {
     lumen.harness.get_by_label_contains(label).rect().center()
@@ -101,8 +91,6 @@ fn the_card_shows_eight_knobs_named_with_the_plugins_own_words_and_a_button_for_
     lumen.wait_for("the knobs", |_| true);
     lumen.frames(10);
     assert_eq!(knobs(&lumen), 8);
-    // The first parameters a person would move: not the hidden, not the
-    // read-only ones.
     let ids = lumen.app().strip_parameters(FX);
     assert_eq!(ids.len(), 8);
     assert_eq!(&ids[..2], &[0, 1], "the plugin's own two come first");
@@ -113,7 +101,6 @@ fn the_card_shows_eight_knobs_named_with_the_plugins_own_words_and_a_button_for_
             "{id} is hidden or read only"
         );
     }
-    // The plugin's own text, once it has answered: 0.0 dB at the default.
     lumen.wait_for("the plugin's text", |_| true);
     for _ in 0..40 {
         lumen.frames(2);
@@ -125,7 +112,6 @@ fn the_card_shows_eight_knobs_named_with_the_plugins_own_words_and_a_button_for_
         lumen.shows("Gain, parameter: 0.0"),
         "the gain knob should read in the plugin's words"
     );
-    // The hidden ones are not counted.
     let all = lumen
         .harness
         .get_by_label_contains("All parameters (")
@@ -148,13 +134,11 @@ fn dragging_a_knob_sets_the_value_as_one_undo_step_and_double_click_resets_it() 
     assert!(held[0].1 > 0.9, "dragged up: {}", held[0].1);
     assert_eq!(lumen.app().undo_label(), Some("Change Gain"));
 
-    // One undo takes the whole drag back.
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert!(lumen.app().device_params(FX).is_empty());
     lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z);
     assert_eq!(lumen.app().device_params(FX).len(), 1);
 
-    // A double-click sets the plugin's default.
     let knob = at(&lumen, "Gain, parameter");
     lumen.double_click(knob);
     let held = lumen.app().device_params(FX);
@@ -164,8 +148,6 @@ fn dragging_a_knob_sets_the_value_as_one_undo_step_and_double_click_resets_it() 
     );
 }
 
-/// A lane drives the gain, the song plays, the lane is let go of (`remove`
-/// takes it away, else it is switched off) and the knob is dragged.
 fn lane_then_drag(name: &str, remove: bool) {
     use lumen_core::automation::{Lane, Point, Shape};
     use lumen_project::automation::Target;
@@ -213,7 +195,6 @@ fn a_knob_can_be_dragged_again_once_its_lane_is_removed() {
     lane_then_drag("lane-removed-drag", true);
 }
 
-/// Types `text` into the focused knob of `label` and confirms with Enter.
 #[track_caller]
 fn type_value(lumen: &mut Lumen, label: &str, text: &str) {
     lumen.harness.get_by_label_contains(label).click();
@@ -227,7 +208,6 @@ fn type_value(lumen: &mut Lumen, label: &str, text: &str) {
 fn a_value_typed_on_a_knob_is_read_by_the_plugin_and_is_one_undo_step() {
     let mut lumen = launch("typed");
     assert!(lumen.app().device_params(FX).is_empty());
-    // The test plugin reads a number as decibels: -6 dB of -60 to +12.
     type_value(&mut lumen, "Gain, parameter", "-6");
     lumen.wait_for("the plugin to read the text", |app| {
         !app.device_params(FX).is_empty()
@@ -236,7 +216,6 @@ fn a_value_typed_on_a_knob_is_read_by_the_plugin_and_is_one_undo_step() {
     assert_eq!(held[0].0, GAIN);
     assert!((held[0].1 - 0.75).abs() < 1e-6, "{held:?}");
     assert_eq!(lumen.app().undo_label(), Some("Change Gain"));
-    // The knob reads it in the plugin's words.
     for _ in 0..40 {
         lumen.frames(2);
         if lumen.shows("Gain, parameter: -6.0") {
@@ -244,7 +223,6 @@ fn a_value_typed_on_a_knob_is_read_by_the_plugin_and_is_one_undo_step() {
         }
     }
     assert!(lumen.shows("Gain, parameter: -6.0"));
-    // One undo takes it back.
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert!(lumen.app().device_params(FX).is_empty());
 }
@@ -254,7 +232,6 @@ fn a_value_typed_on_a_panel_bar_reaches_the_plugin_too() {
     let mut lumen = launch("typed-panel");
     lumen.click("All parameters (259)");
     lumen.frames(10);
-    // The panel is the later window: its bar is the last of the two.
     let bar = lumen
         .harness
         .get_all_by_label_contains("Gain, parameter")
@@ -291,7 +268,6 @@ fn text_the_plugin_does_not_understand_changes_nothing_and_says_so() {
         .get_by_label_contains("Gain, parameter")
         .click();
     lumen.frames(3);
-    // Enter opens the field with the plugin's own text; replace it.
     lumen.key(Modifiers::NONE, Key::Enter);
     lumen.frames(3);
     lumen
@@ -333,14 +309,12 @@ fn the_panel_lists_every_parameter_quickly_narrows_by_search_and_stars_onto_the_
     lumen.click("All parameters (259)");
     lumen.frames(10);
     assert!(panel_open(&lumen));
-    // Hundreds of parameters, and only the rows in view are made.
     let rows = lumen
         .harness
         .query_all_by_label_contains("the strip")
         .count();
     assert!(rows > 3 && rows < 30, "{rows} rows drawn");
 
-    // Take one off in the panel, then star another one found by search.
     assert_eq!(lumen.app().strip_parameters(FX)[0], 0);
     lumen.click("Take Gain off the strip");
     lumen.frames(3);
@@ -354,7 +328,6 @@ fn the_panel_lists_every_parameter_quickly_narrows_by_search_and_stars_onto_the_
     lumen.click("Put Param 8 on the strip");
     lumen.frames(3);
     assert!(lumen.app().strip_parameters(FX).contains(&108));
-    // The choice is saved with the project's view.
     let saved = lumen.app().project_as_saved();
     assert!(
         saved
@@ -364,7 +337,6 @@ fn the_panel_lists_every_parameter_quickly_narrows_by_search_and_stars_onto_the_
             .is_some_and(|s| s.contains(&108))
     );
 
-    // The strip is full again, so another star is refused with the reason.
     lumen.click("Search parameters");
     lumen.key(Modifiers::COMMAND, Key::A);
     lumen
@@ -390,19 +362,15 @@ fn the_search_finds_parameters_by_name_and_group_words() {
     let mut lumen = launch("search");
     lumen.click("All parameters (259)");
     lumen.frames(10);
-    // Typed into the search field, which has the keyboard when the panel opens.
     lumen
         .harness
         .get_by_label("Search parameters")
         .type_text("group 2 param 5");
     lumen.frames(10);
-    // Param 5 is read only (5 % 11 == 5) and its group is (5 % 4) + 1 = 2.
     assert!(
         lumen.shows("Param 5, parameter: 50.0 %"),
         "the bar for Param 5 (read only, still listed)"
     );
-    // Nothing else in the first screen matches both words except the
-    // parameters of the same group whose names contain "param 5".
     assert!(
         lumen
             .harness
@@ -427,7 +395,6 @@ fn a_knob_leaves_the_strip_from_its_menu_and_an_empty_slot_offers_the_panel() {
     lumen.frames(5);
     assert_eq!(knobs(&lumen), 7);
     assert_eq!(lumen.app().strip_parameters(FX).len(), 7);
-    // An empty slot is a button that opens the panel.
     lumen.click("Choose a parameter for this slot");
     lumen.frames(5);
     assert!(panel_open(&lumen));

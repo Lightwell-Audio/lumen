@@ -1,8 +1,3 @@
-//! A VST3 module that misbehaves on purpose, chosen by its own file name:
-//! `*crash*` dereferences null in `GetPluginFactory`, `*hang*` never returns,
-//! anything else returns no factory. Seed of the "test plugin" the quality
-//! bar asks for; M6 grows it into a full plugin with configurable faults.
-
 #![cfg(windows)]
 
 use std::ffi::c_void;
@@ -16,7 +11,6 @@ use windows_sys::Win32::System::LibraryLoader::{
 fn own_file_name() -> String {
     let mut module = std::ptr::null_mut();
     let mut buf = [0_u16; 1024];
-    // SAFETY: looks up the module containing this function; no refcount change.
     unsafe {
         GetModuleHandleExW(
             GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
@@ -42,7 +36,6 @@ pub extern "system" fn ExitDll() -> bool {
 pub extern "system" fn GetPluginFactory() -> *mut c_void {
     let name = own_file_name();
     if name.contains("crash") {
-        // SAFETY: deliberately not safe; simulates a plugin crashing in its factory.
         unsafe { std::ptr::null_mut::<u32>().write_volatile(0xDEAD) };
     }
     if name.contains("hang") {

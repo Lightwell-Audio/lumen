@@ -1,8 +1,3 @@
-//! The runs translated last time, kept while the clips, the map, the
-//! destination and a Replace window are stable (ADR-0058; M8 D4): an edit
-//! elsewhere does not copy a 100,000-note clip again, and the engine's
-//! comparison is a pointer check.
-
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -13,15 +8,8 @@ use lumen_project::model::{self, DrumMap, Id};
 use super::notes::{loop_fragment, loop_pattern, run_controls, run_notes, run_notes_masked};
 use super::{Dest, Member, Suppression, extent, loop_period};
 
-/// The run's original periodic pattern is shared by prefix and suffix pieces,
-/// even when the bounded Replace window moves.
 struct Pattern {
-    /// The clips they were built from, and how much of each played (also
-    /// keeps their addresses from being reused while the entry lives).
     members: Vec<(Arc<model::Clip>, Ticks)>,
-    /// The drum map they were read through (M8 D0), if any: one shared copy
-    /// for every run that plays it, not a whole kit per cached clip
-    /// (review L7).
     map: Option<Arc<DrumMap>>,
     notes: Arc<[MidiNote]>,
     controls: Arc<[MidiControl]>,
@@ -37,8 +25,6 @@ impl Pattern {
     }
 }
 
-/// A translated run, kept while its clips, its map and suppression window are
-/// stable.
 struct Cached {
     members: Vec<(Arc<model::Clip>, Ticks)>,
     map: Option<Arc<DrumMap>>,
@@ -62,26 +48,16 @@ impl Cached {
     }
 }
 
-/// Translated runs by their first clip's id and the instrument they were read
-/// for, so an edit elsewhere does not copy a 100,000-note clip again and the
-/// engine's comparison is a pointer check.
 #[derive(Default)]
 pub struct Cache {
     runs: HashMap<Key, Cached>,
     patterns: HashMap<Key, Pattern>,
-    /// One shared copy of each drum map the runs were translated through, so
-    /// a project of 20,000 mapped clips holds one kit, not 20,000
-    /// (M8 D0 review L7).
     maps: HashMap<Id, Arc<DrumMap>>,
 }
 
-/// A cached translation: the first clip of the run, and which instrument the
-/// run was read for (M8 D4: a track whose sounds are sent is read once for
-/// itself and once for each track that plays one).
 type Key = (Id, Dest);
 
 impl Cache {
-    /// The shared copy of `map`, made once and kept while it is unchanged.
     pub(super) fn shared(&mut self, map: Option<&DrumMap>) -> Option<Arc<DrumMap>> {
         let map = map?;
         if let Some(known) = self.maps.get(&map.id)
@@ -94,9 +70,6 @@ impl Cache {
         Some(fresh)
     }
 
-    /// The engine clip `run` plays as, optionally masking a bounded Replace
-    /// interval. Cached note and control lists are rebuilt only when either
-    /// the run or its suppression window changes.
     pub(crate) fn clip_with_suppression(
         &mut self,
         run: &[Member<'_>],
@@ -242,7 +215,6 @@ impl Cache {
             .expect("the MIDI run cache was filled above")
     }
 
-    /// Forgets runs whose first clip is not in `project` any more.
     pub(crate) fn retain(&mut self, project: &model::Project) {
         let live: std::collections::HashSet<Id> = project
             .tracks
@@ -255,7 +227,6 @@ impl Cache {
         if self.patterns.len() > live.len() {
             self.patterns.retain(|key, _| live.contains(&key.0));
         }
-        // A map the project no longer holds is let go of with its runs.
         if self.maps.len() > project.drum_maps.len() {
             self.maps
                 .retain(|id, _| project.drum_maps.iter().any(|map| map.id == *id));
@@ -283,8 +254,6 @@ fn engine_clip(
     }
 }
 
-/// Builds the phase-rotated first source fragment, then ordinary source-loop
-/// repeats. `elapsed` is the clip's timeline offset of this segment.
 struct LoopSpan {
     start: Ticks,
     elapsed: Ticks,

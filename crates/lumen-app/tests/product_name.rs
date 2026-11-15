@@ -1,9 +1,3 @@
-//! The product's name lives in `lumen_core::product` (the `lumen-architecture`
-//! skill, hard rule 8): text the user reads that names it is built from
-//! `PRODUCT_NAME`, and text that cannot be built (a static command
-//! description) says "the app". This scans the app's sources for the name
-//! spelled out inside a string literal.
-
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -18,8 +12,6 @@ fn sources(dir: &Path, into: &mut Vec<PathBuf>) {
     }
 }
 
-/// The text inside each plain string literal on a line (no raw strings; the
-/// app has none that name the product).
 fn literals(line: &str) -> Vec<String> {
     let mut found = Vec::new();
     let mut chars = line.chars().peekable();
@@ -42,8 +34,6 @@ fn literals(line: &str) -> Vec<String> {
     found
 }
 
-/// Words that read as the name in a literal: "Lumen" on its own, not part of
-/// an identifier such as `lumen-app` (lower case) or `LumenFoo`.
 fn names_the_product(text: &str) -> bool {
     text.match_indices("Lumen").any(|(at, _)| {
         let before = text[..at].chars().next_back();
@@ -52,7 +42,6 @@ fn names_the_product(text: &str) -> bool {
     })
 }
 
-/// The product's name spelled out in a literal before a file's tests.
 fn spelled_out(source: &str) -> Vec<(usize, String)> {
     let mut found = Vec::new();
     for (number, line) in source.lines().enumerate() {
@@ -95,7 +84,6 @@ fn no_string_the_user_reads_spells_out_the_products_name() {
     );
 }
 
-/// A template's text without its `{# … #}` comments.
 fn without_comments(template: &str) -> String {
     let mut kept = String::new();
     let mut rest = template;
@@ -109,9 +97,6 @@ fn without_comments(template: &str) -> String {
     kept
 }
 
-/// The docs' templates take the name from the site's config
-/// (`config.extra.product`, docs/USER_DOCS.md §9.4), so a rename is one
-/// line there; only the pages' prose writes it out.
 #[test]
 fn no_docs_template_spells_out_the_products_name() {
     let mut files = Vec::new();

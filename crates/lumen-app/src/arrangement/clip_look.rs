@@ -1,7 +1,3 @@
-//! How a clip looks: its colours, title bar and name, from its track,
-//! its media's load state and what a recording gives it. `clips` draws
-//! the lanes with these.
-
 use eframe::egui::{self, Align2, Color32, FontId, Painter, Rect, Stroke, pos2, vec2};
 use lumen_project::model::{Clip, ClipContent};
 use lumen_render::{BoxInstance, beats, rgba};
@@ -13,20 +9,13 @@ use crate::lanes::Lanes;
 use crate::media::{Item, State};
 use crate::{icons, theme};
 
-/// How opaque a clip's body is: the grid shows faintly through it
-/// (the owner's G1, MT-APP-14 run 2). The title bar and waveform
-/// stay solid.
 const BODY_OPACITY: f32 = 0.55;
-/// A locked clip's padlock, and the narrowest title that shows it.
 const LOCK_ICON: f32 = 9.0;
 const LOCK_MIN_WIDTH: f32 = 30.0;
-/// A clip's title bar shows which take plays from this width.
 const TAKES_MIN_WIDTH: f32 = 72.0;
-/// The "REC" tag's dot: its radius, and the room it takes before the name.
 const TAG_DOT: f32 = 3.0;
 const TAG_ROOM: f32 = 11.0;
 
-/// What a clip's audio is doing, for drawing.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) enum ClipState {
     Ready,
@@ -43,26 +32,18 @@ pub(super) fn item_state(item: &Item) -> ClipState {
     }
 }
 
-/// How a clip looks: its name, track colour and load state, and `alpha`,
-/// which fades it in and dims it when the track cannot be heard.
 pub(super) struct ClipLook<'a> {
     pub(super) name: &'a str,
-    /// The take playing and how many there are (counted from 1), for a clip
-    /// that keeps the passes of a loop recording.
     pub(super) takes: Option<(u32, u32)>,
     pub(super) color: Color32,
     pub(super) state: ClipState,
     pub(super) progress: Option<f32>,
     pub(super) alpha: f32,
-    /// Locked (the owner's K3, slice 6e): a padlock ends the title bar.
     pub(super) locked: bool,
-    /// What a recording gives the clip (3-A): none for a clip not recording.
     pub(super) paint: Paint,
-    /// What was done to the clip that its name does not say (M9.5 S3).
     pub(super) marks: Marks,
 }
 
-/// A project clip's look on `track`, before dimming for its track.
 pub(super) fn look_of<'a>(
     clip: &'a Clip,
     track: &lumen_project::model::Track,
@@ -88,15 +69,12 @@ pub(super) fn look_of<'a>(
         state,
         progress,
         alpha: lanes.shown(key, ctx),
-        // A frozen track's clips cannot change, so they show the padlock too.
         locked: clip.locked || track.frozen.is_some(),
         paint,
         marks: Marks::of(clip),
     }
 }
 
-/// A clip body's colour at `alpha`: the clip body at the grid's opacity,
-/// unless a recording gives it a colour (the record red take).
 fn body_color(paint: &Paint, palette: &theme::Palette, alpha: f32) -> Color32 {
     match paint.body {
         Some(color) => color.gamma_multiply(alpha),
@@ -104,8 +82,6 @@ fn body_color(paint: &Paint, palette: &theme::Palette, alpha: f32) -> Color32 {
     }
 }
 
-/// A clip's outline at `alpha`: the track colour at 60%, unless a recording
-/// gives it the record red.
 fn outline_color(paint: &Paint, track: Color32, alpha: f32) -> Color32 {
     match paint.outline {
         Some(color) => color.gamma_multiply(alpha),
@@ -113,7 +89,6 @@ fn outline_color(paint: &Paint, track: Color32, alpha: f32) -> Color32 {
     }
 }
 
-/// The title bar's colour and text for a clip in `state`.
 fn bar_and_label(look: &ClipLook<'_>, palette: &theme::Palette) -> (Color32, String) {
     let name = look.name;
     match look.state {
@@ -130,7 +105,6 @@ fn bar_and_label(look: &ClipLook<'_>, palette: &theme::Palette) -> (Color32, Str
     }
 }
 
-/// A clip's body for the GPU: the same colours as [`draw_body`].
 pub(super) fn clip_box(
     clip: &Clip,
     row: u32,
@@ -158,9 +132,6 @@ pub(super) fn clip_box(
     }
 }
 
-/// A clip body drawn by egui: dark body, track-coloured border and title
-/// bar. Only clips still loading for import use it; the rest are on the
-/// GPU ([`clip_box`]).
 pub(super) fn draw_body(painter: &Painter, rect: Rect, look: &ClipLook<'_>) {
     let palette = theme::p();
     let radius = theme::radius::SMALL;
@@ -197,8 +168,6 @@ pub(super) fn draw_body(painter: &Painter, rect: Rect, look: &ClipLook<'_>) {
     );
 }
 
-/// A clip's name in its title bar, kept within the visible part of the
-/// lane.
 pub(super) fn draw_name(painter: &Painter, rect: Rect, lane: Rect, look: &ClipLook<'_>) {
     let palette = theme::p();
     let title = Rect::from_min_size(rect.min, vec2(rect.width(), TITLE.min(rect.height())));
@@ -209,8 +178,6 @@ pub(super) fn draw_name(painter: &Painter, rect: Rect, lane: Rect, look: &ClipLo
     let (_, label) = bar_and_label(look, palette);
     let alpha = look.alpha;
     let mut room = visible.shrink2(vec2(4.0, 0.0));
-    // A recording's tag: a drawn dot (the UI font has no "●") and "REC" in
-    // front of the name, so the state never rests on colour alone.
     let (label, text_left) = if look.paint.tag {
         painter.circle_filled(
             pos2(visible.left() + 5.0 + TAG_DOT, title.center().y),
@@ -244,7 +211,6 @@ pub(super) fn draw_name(painter: &Painter, rect: Rect, lane: Rect, look: &ClipLo
     } else {
         theme::CLIP_TEXT.gamma_multiply(alpha)
     };
-    // Which take plays, as "2/5" at the right end of the bar.
     if let Some((now, all)) = look.takes
         && visible.width() >= TAKES_MIN_WIDTH
     {
@@ -262,8 +228,6 @@ pub(super) fn draw_name(painter: &Painter, rect: Rect, lane: Rect, look: &ClipLo
         );
         room.max.x = right - width - 4.0;
     }
-    // The marks sit left of the padlock and the counter, which keep their
-    // places; the name has what is left (`clip_marks::place`).
     let y = title.center().y;
     let caption = FontId::proportional(theme::size::CAPTION);
     let marks_width = look.marks.width(|text| {
@@ -304,7 +268,6 @@ pub(super) fn draw_name(painter: &Painter, rect: Rect, lane: Rect, look: &ClipLo
         Align2::LEFT_CENTER,
         label,
         FontId::proportional(theme::size::CAPTION),
-        // Dimmed clips keep a readable name in both themes.
         ink,
     );
 }

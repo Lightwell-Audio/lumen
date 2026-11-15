@@ -1,8 +1,3 @@
-//! How the clip selection is drawn (M3 slice 6a, the owner's S3 and H1):
-//! selected clips glow, the hovered header or body brightens,
-//! a time range is a band with accent brackets, and the
-//! marquee is a soft rounded box. Split from `clips.rs` (M4 review M1).
-
 use eframe::egui::{self, Painter, Rect, Stroke, pos2, vec2};
 use lumen_core::time::Ticks;
 use lumen_project::model::Project;
@@ -15,10 +10,6 @@ use crate::widgets::draw_glow_rect;
 use crate::{light, theme};
 
 impl Arrangement {
-    /// The selection, in the owner's choices: selected clips glow (S3),
-    /// the hovered header or body brightens,
-    /// a time range is a band with accent brackets along its top, and
-    /// the marquee is a soft rounded box.
     pub(super) fn draw_selection(
         &self,
         painter: &Painter,
@@ -36,10 +27,6 @@ impl Arrangement {
             )
         };
         let x = |t: Ticks| time.x(canvas.left(), t.as_quarters());
-        // Deep in, a clip or range can be hundreds of millions of points
-        // wide: everything drawn here is cut to the lanes in view (plus a
-        // margin, so edges outside stay outside). A dashed line across a
-        // whole long clip once asked for 64 GiB (owner, after slice 6c).
         let (near_left, near_right) = (canvas.left() - 16.0, canvas.right() + 16.0);
         let shown = |x0: f32, x1: f32| (x0.max(near_left), x1.min(near_right));
 
@@ -97,8 +84,6 @@ impl Arrangement {
                     x0..=x1.max(x0 + 1.0),
                     lane.top() + INSET..=lane.bottom() - INSET,
                 );
-                // Each repeat of a looping clip starts at a notch: from the
-                // first in view, not the clip's start.
                 if let Some(period) = clip.loop_length.filter(|p| *p > Ticks::ZERO) {
                     let step = (period.as_quarters() * time.zoom) as f32;
                     if step >= 6.0 {
@@ -130,13 +115,9 @@ impl Arrangement {
                         }
                     }
                 }
-                // Fades and gain (slice 6d), placed by the clip's whole
-                // extent and drawn only where they are in view.
-                // A frozen track's clips are clamped like locked ones.
                 let locked = clip.locked || project.tracks[index].frozen.is_some();
                 let whole = Rect::from_x_y_ranges(left..=right, rect.y_range());
                 if locked && right - left >= 4.0 * CLAMP {
-                    // K3: clamped at both ends; it has no handles to show.
                     let clamp = palette.text.gamma_multiply(theme::alpha::INK_QUIET);
                     for x in [left, right - CLAMP] {
                         if (near_left..=near_right).contains(&x) {
@@ -145,8 +126,6 @@ impl Arrangement {
                         }
                     }
                 }
-                // At fit-all thousands of clips are too narrow for handles.
-                // Reject those before cloning a clip or resolving its join.
                 let handles = (!locked)
                     .then(|| ClipHandles::of(clip, whole, x))
                     .flatten()
@@ -158,7 +137,6 @@ impl Arrangement {
                 if let Some(h) = handles {
                     let view = egui::Rangef::new(near_left, near_right);
                     let track = &project.tracks[index];
-                    // The colours of the two clips a crossfade blends.
                     let crossing = h
                         .crossfade
                         .then(|| {
@@ -192,7 +170,6 @@ impl Arrangement {
                     edge: Some(edge), ..
                 }) = hovered
                 {
-                    // L3: the side that would trim glows as a rail.
                     let side = match edge {
                         select::Edge::Start => rect.left() + 1.5,
                         select::Edge::End => rect.right() - 1.5,

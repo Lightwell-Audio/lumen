@@ -1,31 +1,12 @@
-//! A smooth playhead while playing (owner, after slice 7: Follow was
-//! choppy and jittered now and then).
-//!
-//! The engine publishes its position once per audio block, and blocks do not
-//! line up with frames: at 512 samples and 48 kHz a block is 10.7 ms and a
-//! frame 16.7 ms, so one frame moves the playhead one block and the next two.
-//! [`Clock`] runs on the frame clock instead, at the sample rate, and leans
-//! gently towards what the engine reports so it never drifts. Jumps (Play,
-//! a locate) start it again at the engine's position; a loop wrap moves it
-//! back by exactly the loop, so it stays smooth across the wrap.
-
-/// How quickly the clock leans towards the engine (seconds): long enough
-/// that the block-sized steps in what the engine reports average out.
 const SETTLE: f64 = 0.5;
-/// A difference larger than this (seconds) is a jump, not drift.
 const JUMP: f64 = 0.25;
-/// The clock runs ahead of the engine by at most this (seconds), so a stalled
-/// device does not carry the playhead on.
 const LEAD: f64 = 0.1;
 
-/// What the engine reported this frame.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Reading {
     pub playing: bool,
-    /// The next sample the engine will play.
     pub sample: i64,
     pub sample_rate: u32,
-    /// The active loop in samples, `[start, end)`.
     pub looped: Option<(i64, i64)>,
 }
 
@@ -36,17 +17,12 @@ pub(crate) struct Clock {
 
 #[derive(Debug, Clone, Copy)]
 struct Run {
-    /// Where the clock was at `time`; past the loop end until the engine
-    /// wraps.
     sample: f64,
     time: f64,
-    /// The engine's sample at the last frame.
     reported: i64,
 }
 
 impl Clock {
-    /// The playhead's sample at `now` (seconds on the frame clock). Called
-    /// once per frame.
     pub(crate) fn update(&mut self, now: f64, reading: Reading) -> f64 {
         let reported = reading.sample;
         if !reading.playing || reading.sample_rate == 0 {
@@ -60,7 +36,6 @@ impl Clock {
         let looped = reading.looped.filter(|(start, end)| end > start);
         if reported < run.reported {
             match looped {
-                // The engine wrapped at the loop end: so does the clock.
                 Some((start, end)) if run.reported < end && reported >= start => {
                     run.sample -= (end - start) as f64;
                 }
@@ -74,7 +49,6 @@ impl Clock {
             return self.restart(now, reported);
         }
         let lean = 1.0 - (-elapsed / SETTLE).exp();
-        // Never backwards, and never far ahead of the engine.
         let sample = (predicted + error * lean)
             .max(run.sample)
             .min(reported as f64 + LEAD * rate);
@@ -84,7 +58,6 @@ impl Clock {
             reported,
         });
         match looped {
-            // Until the engine wraps, show the wrap already.
             Some((start, end)) if reported < end && sample >= end as f64 => {
                 sample - (end - start) as f64
             }
@@ -119,7 +92,6 @@ mod tests {
         }
     }
 
-    /// The engine's position at `time`, reported once per block.
     fn engine(time: f64) -> i64 {
         (time * f64::from(RATE)) as i64 / BLOCK * BLOCK
     }
@@ -133,13 +105,10 @@ mod tests {
             shown.push(clock.update(now, playing(engine(now))));
         }
         let ideal = f64::from(RATE) * FRAME;
-        // The raw position moves by one block or two; after settling the
-        // clock moves by the frame's worth within a few percent.
         for pair in shown[60..].windows(2) {
             let step = pair[1] - pair[0];
             assert!((step - ideal).abs() < ideal * 0.05, "step {step}");
         }
-        // And it keeps up with the engine.
         let last = *shown.last().unwrap();
         let now = 599.0 * FRAME;
         assert!((last - now * f64::from(RATE)).abs() < 2.0 * BLOCK as f64);
@@ -151,7 +120,6 @@ mod tests {
         clock.update(0.0, playing(0));
         clock.update(FRAME, playing(800));
         assert_eq!(clock.update(2.0 * FRAME, playing(480_000)), 480_000.0);
-        // Back, too.
         assert_eq!(clock.update(3.0 * FRAME, playing(1_000)), 1_000.0);
     }
 

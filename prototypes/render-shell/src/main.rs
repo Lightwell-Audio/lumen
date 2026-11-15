@@ -1,11 +1,3 @@
-//! P-RENDER host 2: `lumen-render` in a bare winit window, with no UI toolkit.
-//! Same scene and metrics as `ui-stress`, so the two hosts compare directly.
-//!
-//! ```text
-//! render-shell --bench    scripted scenarios, vsync off, then idle CPU; prints results
-//! render-shell            interactive window (static scene)
-//! ```
-
 mod a11y;
 mod process;
 mod text;
@@ -29,7 +21,6 @@ const IDLE_SECONDS: u64 = 10;
 struct Scenario {
     name: &'static str,
     overlay: bool,
-    /// Parley clip labels drawn through Vello (text spike).
     labels: bool,
     drive: fn(f32, [f32; 2], [f32; 2]) -> (View, View),
 }
@@ -162,7 +153,6 @@ impl App {
                 .create_window(attributes)
                 .map_err(|e| e.to_string())?,
         );
-        // AccessKit must be attached before the window is shown.
         let accessibility = accesskit_winit::Adapter::with_direct_handlers(
             event_loop,
             &window,
@@ -191,7 +181,6 @@ impl App {
         let mut config = surface
             .get_default_config(&adapter, size.width.max(1), size.height.max(1))
             .ok_or("surface not supported")?;
-        // Vello writes gamma-encoded colour; match egui's non-sRGB target.
         let caps = surface.get_capabilities(&adapter);
         if let Some(format) = caps.formats.iter().copied().find(|f| !f.is_srgb()) {
             config.format = format;
@@ -200,7 +189,6 @@ impl App {
             config.present_mode = wgpu::PresentMode::AutoNoVsync;
         }
         surface.configure(&device, &config);
-        // Vello's shaders compile at start-up; a pipeline cache (Vulkan) reuses them.
         let cache_path = std::env::temp_dir().join("lumen-vello-pipeline.cache");
         let (cache, cache_state) =
             lumen_render::open_pipeline_cache(&device, std::fs::read(&cache_path).ok());

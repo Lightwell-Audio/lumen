@@ -1,8 +1,3 @@
-//! The edit controller of both test plugins: parameters and their text.
-//! There is no editor view unless the `editor` switch is on (see
-//! [`crate::editor`]): hosts must offer their generic controls for a plugin
-//! like this.
-
 use std::ffi::c_char;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -24,7 +19,6 @@ use crate::faults::{Faults, Kind as Fault};
 use crate::params::{Kind, LATENCY, LEVEL, WAVE};
 use crate::{faults, state, streams, text};
 
-/// How many parameters `bad_params` claims.
 pub const BAD_COUNT: i32 = 4_000_000;
 const STATE_LIMIT: usize = 4096;
 
@@ -33,37 +27,23 @@ pub struct Controller {
     faults: Faults,
     values: [AtomicU64; 2],
     handler: Mutex<Option<ComPtr<IComponentHandler>>>,
-    /// The values of the extra parameters `many_params` adds.
     extra: Vec<AtomicU64>,
-    /// The trigger's value (bits), when the `window_edits` fault is on.
     trigger: AtomicU64,
-    /// The trigger was stepped on under `titles_changed`: it has a new name.
     retitled: AtomicBool,
-    /// The program-change parameter's value (bits), with `presets`.
     program: AtomicU64,
-    /// The controller's own state (bits): a view value, with `presets`.
     view: AtomicU64,
 }
 
-/// The first id of the extra parameters.
 pub const EXTRA_BASE: u32 = 100;
-/// The id of the instrument's trigger, which exists with the `window_edits`
-/// fault: stepping it from off to on makes the plugin edit its wave as a
-/// gesture of its own, the way a control moved in its window would.
 pub const TRIGGER: u32 = 90;
-/// The id of the instrument's program-change parameter, with `presets`.
 pub const PROGRAM: u32 = 91;
-/// The programs the instrument offers with `presets`: name, normalized level
-/// and normalized wave.
 pub const PROGRAMS: [(&str, f64, f64); 3] = [
     ("Square, quiet", 0.25, 0.0),
     ("Saw, loud", 0.9, 1.0),
     ("Saw, half", 0.5, 1.0),
 ];
-/// What the controller's state holds before a `setState`.
 pub const VIEW_DEFAULT: f64 = 0.5;
 const VIEW_TAG: [u8; 4] = *b"LTV1";
-/// How many groups the extra parameters are spread over (ids 1 to this).
 pub const EXTRA_GROUPS: u32 = 4;
 
 impl Class for Controller {
@@ -92,7 +72,6 @@ impl Controller {
         }
     }
 
-    /// Whether the instrument offers its program list.
     fn has_programs(&self) -> bool {
         self.kind == Kind::Instrument && self.faults.has(Fault::Presets)
     }
@@ -105,7 +84,6 @@ impl Controller {
         self.kind.params().iter().position(|p| p.id == id)
     }
 
-    /// Whether the controller lists the trigger.
     fn has_trigger(&self) -> bool {
         self.kind == Kind::Instrument
             && (self.faults.has(Fault::WindowEdits)
@@ -115,14 +93,12 @@ impl Controller {
                 || self.faults.has(Fault::BusChange))
     }
 
-    /// Which extra parameter `id` is, if it is one.
     fn extra_index(&self, id: u32) -> Option<usize> {
         let k = id.checked_sub(EXTRA_BASE)? as usize;
         (k < self.extra.len()).then_some(k)
     }
 
     fn handler(&self) -> Option<ComPtr<IComponentHandler>> {
-        // Cloned out so no lock is held over the host's call.
         self.handler
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -176,7 +152,6 @@ impl IConnectionPointTrait for Controller {
 
 impl IEditControllerTrait for Controller {
     unsafe fn setComponentState(&self, stream: *mut IBStream) -> tresult {
-        // SAFETY: the host passes a live stream or null.
         let Some(bytes) = (unsafe { streams::read_all(stream, STATE_LIMIT) }) else {
             return kResultFalse;
         };
@@ -193,7 +168,6 @@ impl IEditControllerTrait for Controller {
         if !self.faults.has(Fault::Presets) {
             return kResultOk;
         }
-        // SAFETY: the host passes a live stream or null.
         let Some(bytes) = (unsafe { streams::read_all(stream, STATE_LIMIT) }) else {
             return kResultFalse;
         };
@@ -214,7 +188,6 @@ impl IEditControllerTrait for Controller {
         }
         let mut bytes = VIEW_TAG.to_vec();
         bytes.extend_from_slice(&f64::from_bits(self.view.load(Ordering::Relaxed)).to_le_bytes());
-        // SAFETY: the host passes a live stream or null.
         if unsafe { streams::write_all(stream, &bytes) } {
             kResultOk
         } else {
@@ -242,7 +215,6 @@ impl IEditControllerTrait for Controller {
             && self.has_programs()
             && index as usize == params.len() + self.extra.len() + usize::from(self.has_trigger())
         {
-            // SAFETY: the host passes a valid out pointer.
             let info = unsafe { &mut *info };
             info.id = PROGRAM;
             text::copy_wstring("Program", &mut info.title);
@@ -261,7 +233,6 @@ impl IEditControllerTrait for Controller {
             && self.has_trigger()
             && past == self.extra.len()
         {
-            // SAFETY: the host passes a valid out pointer.
             let info = unsafe { &mut *info };
             info.id = TRIGGER;
             let title = if self.retitled.load(Ordering::Relaxed) {
@@ -279,7 +250,6 @@ impl IEditControllerTrait for Controller {
             return kResultOk;
         }
         if index >= 0 && index as usize >= params.len() && !bad && past < self.extra.len() {
-            // SAFETY: the host passes a valid out pointer.
             let info = unsafe { &mut *info };
             let k = past as u32;
             info.id = EXTRA_BASE + k;
@@ -301,9 +271,7 @@ impl IEditControllerTrait for Controller {
         if index < 0 || (index as usize >= params.len() && !bad) || index >= BAD_COUNT {
             return kInvalidArgument;
         }
-        // Past the real parameters, `bad_params` repeats the first one.
         let p = params.get(index as usize).unwrap_or(&params[0]);
-        // SAFETY: the host passes a valid out pointer.
         let info = unsafe { &mut *info };
         info.id = p.id;
         text::copy_wstring(p.title, &mut info.title);
@@ -319,19 +287,16 @@ impl IEditControllerTrait for Controller {
     unsafe fn getParamStringByValue(&self, id: u32, value: f64, string: *mut String128) -> tresult {
         if id == PROGRAM && self.has_programs() {
             let k = (value.clamp(0.0, 1.0) * (PROGRAMS.len() - 1) as f64).round() as usize;
-            // SAFETY: the host passes a valid String128.
             text::copy_wstring(PROGRAMS[k].0, unsafe { &mut *string });
             return kResultOk;
         }
         if id == TRIGGER && self.has_trigger() {
-            // SAFETY: the host passes a valid String128.
             text::copy_wstring(if value < 0.5 { "Off" } else { "On" }, unsafe {
                 &mut *string
             });
             return kResultOk;
         }
         if self.extra_index(id).is_some() {
-            // SAFETY: the host passes a valid String128.
             text::copy_wstring(&format!("{:.1} %", value * 100.0), unsafe { &mut *string });
             return kResultOk;
         }
@@ -339,12 +304,9 @@ impl IEditControllerTrait for Controller {
             return kInvalidArgument;
         }
         let mut words = self.kind.display(id, value);
-        // Renamed by `titles_changed`: the values read otherwise too, as a
-        // patch's may.
         if self.retitled.load(Ordering::Relaxed) {
             words.push_str(" (new)");
         }
-        // SAFETY: the host passes a valid String128.
         text::copy_wstring(&words, unsafe { &mut *string });
         kResultOk
     }
@@ -359,8 +321,6 @@ impl IEditControllerTrait for Controller {
             return kInvalidArgument;
         }
         let mut units = Vec::new();
-        // SAFETY: the host passes a NUL-terminated string; reading stops at
-        // the NUL or after a generous cap.
         unsafe {
             while units.len() < 256 && *string.add(units.len()) != 0 {
                 units.push(*string.add(units.len()));
@@ -368,7 +328,6 @@ impl IEditControllerTrait for Controller {
         }
         match self.kind.parse(id, &String::from_utf16_lossy(&units)) {
             Some(v) => {
-                // SAFETY: the host passes a valid out pointer.
                 unsafe { *value = v };
                 kResultOk
             }
@@ -408,10 +367,7 @@ impl IEditControllerTrait for Controller {
             let (_, level, wave) = PROGRAMS[k];
             self.values[0].store(level.to_bits(), Ordering::Relaxed);
             self.values[1].store(wave.to_bits(), Ordering::Relaxed);
-            // A program changes other parameters: the plugin tells the host,
-            // as a gesture of its own, so the processor hears them too.
             if let Some(handler) = self.handler() {
-                // SAFETY: a live handler the host gave us.
                 unsafe {
                     for (id, v) in [(LEVEL, level), (WAVE, wave)] {
                         handler.beginEdit(id);
@@ -430,10 +386,7 @@ impl IEditControllerTrait for Controller {
             let value = value.clamp(0.0, 1.0);
             let before = f64::from_bits(self.trigger.swap(value.to_bits(), Ordering::Relaxed));
             if before < 0.5 && value >= 0.5 {
-                // Stands in for the plugin's window: a control moved there is
-                // a gesture of the plugin's own, told to the host.
                 if let Some(handler) = self.handler() {
-                    // SAFETY: a live handler the host gave us.
                     unsafe {
                         if self.faults.has(Fault::WindowEdits) {
                             handler.beginEdit(WAVE);
@@ -453,7 +406,6 @@ impl IEditControllerTrait for Controller {
                             handler.restartComponent(RestartFlags_::kParamTitlesChanged);
                         }
                         if self.faults.has(Fault::BusChange) {
-                            // The instrument now has one output more.
                             crate::component::EXTRA_OUTPUT.store(true, Ordering::Relaxed);
                             handler.restartComponent(RestartFlags_::kIoChanged);
                         }
@@ -478,16 +430,12 @@ impl IEditControllerTrait for Controller {
         let value = value.clamp(0.0, 1.0);
         let before = f64::from_bits(self.values[i].swap(value.to_bits(), Ordering::Relaxed));
         if self.kind == Kind::Effect && id == LATENCY && before != value {
-            // The delay is the plugin's reported latency: tell the host to
-            // ask again. The handler is cloned out so no lock is held over
-            // the host's call.
             let handler = self
                 .handler
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .clone();
             if let Some(handler) = handler {
-                // SAFETY: a live handler the host gave us.
                 unsafe { handler.restartComponent(RestartFlags_::kLatencyChanged) };
             }
         }
@@ -495,14 +443,12 @@ impl IEditControllerTrait for Controller {
     }
 
     unsafe fn setComponentHandler(&self, handler: *mut IComponentHandler) -> tresult {
-        // SAFETY: the host passes a live handler or null.
         let handler = unsafe { ComRef::from_raw(handler) }.map(|h| h.to_com_ptr());
         *self.handler.lock().unwrap_or_else(|e| e.into_inner()) = handler;
         kResultOk
     }
 
     unsafe fn createView(&self, name: *const c_char) -> *mut IPlugView {
-        // SAFETY: a NUL-terminated name or null, per the VST3 ABI.
         let wanted = !name.is_null() && unsafe { std::ffi::CStr::from_ptr(name) } == c"editor";
         if wanted && self.faults.editor() {
             crate::editor::create(&self.faults)
@@ -522,15 +468,12 @@ impl IUnitInfoTrait for Controller {
     }
 
     unsafe fn getUnitInfo(&self, index: int32, info: *mut UnitInfo) -> tresult {
-        // SAFETY: a plain call on this object.
         let count = unsafe { self.getUnitCount() };
         if index < 0 || index >= count || info.is_null() {
             return kInvalidArgument;
         }
-        // SAFETY: the host passes a valid out pointer.
         let info = unsafe { &mut *info };
         info.id = index;
-        // The root has no parent (`kNoParentUnitId`).
         info.parentUnitId = if index == 0 { -1 } else { 0 };
         let name = if index == 0 {
             "Root".to_string()
@@ -554,7 +497,6 @@ impl IUnitInfoTrait for Controller {
         if index != 0 || !self.has_programs() || info.is_null() {
             return kInvalidArgument;
         }
-        // SAFETY: the host passes a valid out pointer.
         let info = unsafe { &mut *info };
         info.id = 0;
         text::copy_wstring("Factory", &mut info.name);
@@ -574,7 +516,6 @@ impl IUnitInfoTrait for Controller {
         let Some((title, _, _)) = usize::try_from(index).ok().and_then(|k| PROGRAMS.get(k)) else {
             return kInvalidArgument;
         };
-        // SAFETY: the host passes a valid out pointer.
         text::copy_wstring(title, unsafe { &mut *name });
         kResultOk
     }
@@ -633,9 +574,6 @@ impl IUnitInfoTrait for Controller {
 }
 
 impl IMidiMappingTrait for Controller {
-    /// Channel 0 only: the level follows controller 7 (volume) and the wave
-    /// follows pitch bend (129). Pressure (128) and everything else map to
-    /// nothing, so a host's handling of an unmapped controller can be tested.
     unsafe fn getMidiControllerAssignment(
         &self,
         bus: int32,
@@ -651,7 +589,6 @@ impl IMidiMappingTrait for Controller {
             129 => WAVE,
             _ => return kResultFalse,
         };
-        // SAFETY: the host passes a valid out pointer.
         unsafe { *id = mapped };
         kResultOk
     }

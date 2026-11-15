@@ -1,8 +1,3 @@
-//! The link is what the audio thread calls: `submit`, `collect` and `ended`
-//! must not allocate, against a real host process. Under RealtimeSanitizer
-//! only the polling wait is run, because an operating-system wait is flagged
-//! as blocking by design (ADR-0069 puts that one wait on trial).
-
 mod support;
 
 use std::time::{Duration, Instant};
@@ -51,8 +46,6 @@ fn the_link_does_not_allocate_on_the_audio_thread() {
             let stereo: [&[f32]; 2] = [&input, &input];
             let audio: &[&[f32]] = if is_instrument { &[] } else { &stereo };
             let (mut left, mut right) = (vec![0.0_f32; 128], vec![0.0_f32; 128]);
-            // Parameters change in every block: a stepped one and a ramped
-            // one (M7 slice A3), written into the region like the events.
             let mut params = ParamBlock::new();
             params.start(128);
             params.open(0);
@@ -63,7 +56,6 @@ fn the_link_does_not_allocate_on_the_audio_thread() {
             params.point(0, 0.0);
             params.point(127, 1.0);
 
-            // Warm up outside the section, so start-up work does not count.
             linked.link.submit(128, audio, &events, &params).unwrap();
             linked.link.collect(
                 Instant::now() + Duration::from_secs(5),

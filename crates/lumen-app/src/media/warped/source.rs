@@ -1,7 +1,3 @@
-//! Reading a warped stream: the file it plays, opened, and the renderer that
-//! turns it into the stream's frames. For workers, never the UI or audio
-//! thread.
-
 use std::sync::Arc;
 
 use lumen_engine::ClipAudio;
@@ -13,16 +9,13 @@ use lumen_media::stretch::{Chunks, Stretcher};
 
 use super::{Engine, Warped};
 
-/// A warped stream opened for reading.
 pub(in crate::media) struct Rendering {
     warped: Arc<Warped>,
-    /// Never waits for background work (the disk thread's rendering).
     polling: bool,
     renderer: Renderer,
     input: Input,
 }
 
-/// What turns the file into the stream's frames.
 enum Renderer {
     Repitch(repitch::Renderer),
     Stretch(Box<Chunks>),
@@ -38,7 +31,6 @@ enum Input {
 }
 
 impl Rendering {
-    /// `warped` over `file`, the reader of its stream file when it plays one.
     pub(in crate::media) fn new(
         warped: Arc<Warped>,
         file: Option<Reader>,
@@ -61,8 +53,6 @@ impl Rendering {
         let renderer = match warped.engine {
             Engine::Stretch(preset) => Stretcher::new(warped.channels, warped.rate, preset)
                 .map(|s| Renderer::Stretch(Box::new(Chunks::new(s))))
-                // A stretcher that cannot be made plays the stream as
-                // Repitch: something to hear rather than a hole.
                 .unwrap_or_else(|_| Renderer::Repitch(repitch::Renderer::new())),
             Engine::Repitch => Renderer::Repitch(repitch::Renderer::new()),
             Engine::Slices => Renderer::Slices(Slicer::new()),
@@ -75,9 +65,6 @@ impl Rendering {
         })
     }
 
-    /// Reads the stream's frames from `from` into `left` and, for two
-    /// channels, `right`. Returns the frames the stream has there; the rest
-    /// are left as silence by the caller.
     pub(in crate::media) fn read(
         &mut self,
         from: u64,
@@ -92,8 +79,6 @@ impl Rendering {
             &mut right[..0]
         };
         let position = |k| warped.position(k);
-        // A stream with a pitch is told its shift at every hop; one without
-        // never is (Repitch has none, whatever the clip holds).
         let cents = |k| warped.cents_at(k);
         let pitch: Option<&dyn Fn(i64) -> f64> = warped.pitch.is_set().then_some(&cents);
         match &mut self.renderer {
@@ -158,7 +143,6 @@ impl Source for Input {
     }
 }
 
-/// The frames in the file a stream reads.
 pub(super) fn frames_of(origin: &super::Origin) -> Option<u64> {
     match origin {
         super::Origin::Memory(audio) => Some(audio.frames() as u64),
@@ -169,8 +153,6 @@ pub(super) fn frames_of(origin: &super::Origin) -> Option<u64> {
     }
 }
 
-/// The transients of the file a stream reads, read through a reader of its own
-/// (for a worker).
 pub(super) fn scan_file(
     origin: &super::Origin,
     channels: usize,

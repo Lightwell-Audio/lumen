@@ -1,21 +1,3 @@
-//! A soak: real host processes running the test plugins are played like the
-//! engine plays them, while one or two of them at a time are made to fail
-//! (crash, hang, run too slowly, write non-finite samples, be ended from
-//! outside, fail to load) and are then brought back. Throughout:
-//!
-//! - the hosts that are not failing never miss a block because of the ones
-//!   that are, and never fail;
-//! - a failed host is silent at once and is not started again by itself;
-//! - the audio thread's work (`begin` and `finish`) never allocates, even
-//!   while a host is failing;
-//! - no host process outlives the one that replaced it, and the test process
-//!   holds no more memory or handles at the end than after its first pass.
-//!
-//! `cargo test -p lumen-hosting --test soak` makes one pass through every
-//! fault. The long run is `LUMEN_SOAK_SECONDS=3600 cargo test --release -p
-//! lumen-hosting --test soak -- --ignored --nocapture`; `LUMEN_SOAK_SEED`
-//! repeats a run that found something (the seed is printed).
-
 mod support;
 
 use std::time::{Duration, Instant};
@@ -28,43 +10,22 @@ use support::*;
 lumen_rt::install_guarded_allocator!();
 
 const FRAMES: usize = lumen_devices::MOST_FRAMES;
-/// The engine's share of a block's period.
 const BUDGET: Duration = Duration::from_micros(4_000);
-/// Blocks between looks at the world, outside the audio section.
 const CHUNK: u32 = 20;
-/// Blocks a failing host is played for after it has failed.
 const AFTER_FAILURE: u32 = 40;
-/// Blocks every survivor is played for before a round ends.
 const SURVIVE_BLOCKS: u32 = 200;
-/// Most blocks a fault may take to show itself.
 const MOST_BLOCKS: u32 = 3000;
-/// How long a quiet world is watched for a host starting by itself.
 const WATCH: Duration = Duration::from_millis(300);
-/// Late blocks a healthy host may have in a hundred. The blocks are played
-/// back to back and a late one costs its whole budget, so one stall of the
-/// machine's scheduler (up to 18 ms on a virtual machine, a hundred on a
-/// loaded runner) late-s a run of blocks, not one; on macOS the wake-up is a
-/// poll with short sleeps as well (KNOWN_ISSUES, "Off Windows and Linux the
-/// signal wait polls"). A host that stopped playing, or one held up by a
-/// neighbour's fault, is late in nearly every block: this tells those apart
-/// from a busy machine. Every other check in the soak (no host given up on,
-/// silence from a failed host, no allocation, no orphan process) is strict.
 const LATE_PERCENT: u32 = 25;
-/// Blocks counted after the replacement hosts have warmed up.
 const AFTER_BLOCKS: u32 = 240;
-/// How long a replacement host plays before its late share is counted.
 const WARM_UP: Duration = Duration::from_millis(500);
 const SEATS: usize = 6;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Expect {
-    /// The host must be given up on.
     Fails,
-    /// It must go on playing, with finite samples.
     Survives,
-    /// Either; nothing may go wrong around it.
     Either,
-    /// It must not load.
     NoLoad,
 }
 
@@ -73,7 +34,6 @@ struct Fault {
     label: String,
     env: String,
     expect: Expect,
-    /// End the host from outside after this many blocks.
     kill_after: Option<u32>,
 }
 
@@ -154,7 +114,6 @@ fn start(instrument_: bool, fault: &str) -> Start {
         effect(fault)
     };
     start.frames = FRAMES as u32;
-    // A load that hangs is given up on soon.
     start.deadlines.load = Duration::from_secs(3);
     start.deadlines.configure = Duration::from_secs(3);
     start
@@ -181,7 +140,6 @@ struct World {
     right: Vec<f32>,
     sine: Vec<f32>,
     patterns: Vec<Vec<Event>>,
-    /// Every host process started.
     pids: Vec<u32>,
     violations: u64,
     blocks: u64,
@@ -239,9 +197,6 @@ impl World {
         }
     }
 
-    /// Plays `count` blocks the way the engine does: every host is handed
-    /// its block, then each is collected until the shared deadline. The
-    /// whole of it is the audio thread's work.
     fn play(&mut self, count: u32) -> Vec<Tally> {
         let mut tally = vec![Tally::default(); self.seats.len()];
         let first = self.blocks as usize;
@@ -284,8 +239,6 @@ impl World {
         tally
     }
 
-    /// The next thing each of `devices` does: a link (`Ok`) or a failure.
-    /// Anything said about another device is a host started by itself.
     fn answers(
         &mut self,
         devices: &[u64],
@@ -311,7 +264,6 @@ impl World {
         found
     }
 
-    /// Watches for `WATCH` that no host starts or is given up on by itself.
     fn watch_quiet(&mut self, context: &str) {
         let end = Instant::now() + WATCH;
         while Instant::now() < end {
@@ -326,8 +278,6 @@ impl World {
         }
     }
 
-    /// One pass: `victims` fail as their faults say, the rest play on, then
-    /// every victim is replaced by a good host.
     fn round(&mut self, victims: &[(usize, Fault)]) {
         let label: Vec<String> = victims
             .iter()
@@ -337,7 +287,6 @@ impl World {
         let began = Instant::now();
         self.rounds += 1;
 
-        // The faulty hosts replace the good ones.
         let mut replaced = Vec::new();
         for (i, fault) in victims {
             let seat = &mut self.seats[*i];
@@ -373,7 +322,6 @@ impl World {
             }
         }
 
-        // Play on until each loaded fault has shown itself.
         let mut totals = vec![Tally::default(); self.seats.len()];
         let mut killed = vec![false; victims.len()];
         let mut failed_at: Vec<Option<u32>> = vec![None; victims.len()];
@@ -404,8 +352,6 @@ impl World {
                 match fault.expect {
                     Expect::Fails => {
                         if guard.failed() {
-                            // It may have failed part way through this chunk;
-                            // from the next chunk on it is silent at once.
                             let already = failed_at[at].is_some();
                             failed_at[at].get_or_insert(played);
                             if already {
@@ -428,7 +374,6 @@ impl World {
             assert!(played < MOST_BLOCKS, "{label}: a fault never took effect");
         }
 
-        // The survivors: playing, finite, and not late because of the rest.
         for (i, seat) in self.seats.iter().enumerate() {
             let victim = victims.iter().find(|(v, _)| *v == i);
             let guard = seat.guard.as_ref();
@@ -456,10 +401,8 @@ impl World {
                 assert!(!guard.failed(), "{label}: it was given up on");
             }
         }
-        // Nothing is started by itself behind the failure.
         self.watch_quiet(&label);
 
-        // Bring the victims back with good hosts.
         let faulty: Vec<u32> = victims.iter().map(|(i, _)| self.seats[*i].pid).collect();
         for (i, _) in victims {
             let seat = &mut self.seats[*i];
@@ -480,12 +423,6 @@ impl World {
             seat.pid = l.pid;
             seat.guard = Some(Guard::new(Box::new(l.link), l.latency));
         }
-        // A host just started pays for its first blocks (pages loaded, caches
-        // cold) while the others play on: on a machine with few cores that
-        // made a healthy seat late more than the share allows. Blocks are
-        // played back to back, so a count of them is a few milliseconds: the
-        // warm-up is a stretch of time. Its blocks are played, and a host
-        // given up on in them fails the check below, but they are not counted.
         let warm = Instant::now() + WARM_UP;
         while Instant::now() < warm {
             self.play(10);
@@ -504,7 +441,6 @@ impl World {
             );
         }
 
-        // No host outlives the one that replaced it.
         for pid in replaced.into_iter().chain(faulty) {
             assert!(
                 gone_within(pid, Duration::from_secs(10)),
@@ -525,8 +461,6 @@ impl World {
         );
     }
 
-    /// The end: every host process ever started has gone, the audio thread
-    /// never allocated.
     fn finish(mut self, baseline: Option<(u64, u64)>) {
         self.manager.shutdown(Duration::from_secs(10));
         drop(self.seats);
@@ -575,7 +509,6 @@ fn seed() -> u64 {
 
 #[test]
 fn every_fault_in_turn_leaves_the_other_hosts_playing_and_nothing_behind() {
-    // A fixed seed: this test is a regression test, not a search.
     let mut world = World::new(0x5eed);
     let mut rng = Rng(0x5eed);
     let faults = catalog(&mut rng);
@@ -583,11 +516,9 @@ fn every_fault_in_turn_leaves_the_other_hosts_playing_and_nothing_behind() {
     for (n, fault) in faults.iter().enumerate() {
         world.round(&[(n % SEATS, fault.clone())]);
         if n == 0 {
-            // After the first pass the one-off allocations are done.
             baseline = resources();
         }
     }
-    // Two at a time, an instrument and an effect among them.
     for pair in [(0, 3, 0, 1), (1, 4, 5, 6), (2, 5, 1, 7)] {
         let (a, b, x, y) = pair;
         world.round(&[

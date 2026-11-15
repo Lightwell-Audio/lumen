@@ -1,10 +1,3 @@
-//! Lumen's side of a scan: one child process for one module, a deadline,
-//! and an answer that says how it went.
-//!
-//! Nothing here can block on the module. The child's output is read on
-//! threads of their own, the wait polls, and a child that outlives its
-//! deadline or a cancel is killed.
-
 use std::io::{self, Read};
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -15,40 +8,22 @@ use std::time::{Duration, Instant};
 use crate::client::ExitKind;
 use crate::scan::report::{MAX_REPLY, ScanReply, ScanReport};
 
-/// How much of a child's error output is kept to explain a failure. The
-/// rest is read and dropped so the child never blocks on a full pipe.
 const STDERR_KEPT: usize = 2048;
-/// How long to wait for the output threads once the child has ended.
 const DRAIN: Duration = Duration::from_millis(500);
 const POLL: Duration = Duration::from_millis(5);
-/// How long the check of the scan program may take: it loads nothing.
 const CHECK_DEADLINE: Duration = Duration::from_secs(10);
 
-/// How one module's scan ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ScanOutcome {
-    /// The module loaded and described itself.
     Scanned(ScanReport),
-    /// The module could not be loaded or has no factory; the message is the
-    /// loader's.
     Failed(String),
-    /// The child died, by a signal or an exception, or exited with a failure
-    /// code before it could answer. `how` names which; `detail` is the tail
-    /// of what the module printed, if anything.
     Crashed { how: String, detail: String },
-    /// The child did not answer by the deadline and was killed.
     TimedOut,
-    /// The scan was cancelled and the child killed.
     Cancelled,
-    /// The child ended cleanly but its reply does not fit.
     Malformed(String),
-    /// The child could not be started (a missing or unusable host binary).
     Unstarted(String),
 }
 
-/// Scans `module` with the host binary at `exe`, giving it `deadline`.
-/// `env` is added to the child's environment (tests choose a fault with it).
-/// Setting `cancel` ends the scan within a few milliseconds.
 pub fn run_scan(
     exe: &Path,
     module: &Path,
@@ -67,9 +42,6 @@ pub fn run_scan(
     for (key, value) in env {
         command.env(key, value);
     }
-    // Windows lets a child inherit a pipe end that another thread has made
-    // inheritable and not yet closed. Spawning one child at a time keeps
-    // scans that run side by side out of each other's pipes.
     let spawned = {
         static SPAWN: Mutex<()> = Mutex::new(());
         let _one_at_a_time = SPAWN.lock().unwrap_or_else(|e| e.into_inner());
@@ -86,9 +58,6 @@ pub fn run_scan(
         return ScanOutcome::Unstarted(format!("could not group the scan process: {e}"));
     }
 
-    // One byte past the limit tells "exactly full" from "too much". A reader
-    // thread that cannot start is a value, not a panic: the scan must never
-    // take the app down.
     let stdout = match collect(
         child.stdout.take().expect("piped stdout"),
         MAX_REPLY + 1,
@@ -96,13 +65,10 @@ pub fn run_scan(
     ) {
         Ok(read) => read,
         Err(error) => {
-            // Without this reader there is no reply to read at all.
             let outcome = reader_failed("output", error);
             return stopped(&mut child, outcome);
         }
     };
-    // The module's error output only explains a failure, so a scan goes on
-    // without it rather than giving up the answer.
     let stderr = collect(
         child.stderr.take().expect("piped stderr"),
         STDERR_KEPT,
@@ -126,10 +92,6 @@ pub fn run_scan(
         std::thread::sleep(POLL);
     };
 
-    // The child is gone, so everything it wrote is in the pipes. Wait briefly
-    // for the end of each, but use what was read either way: something else
-    // holding a pipe open (another process that inherited it, a helper the
-    // module started) must not turn a finished answer into "no reply".
     let reply = stdout.finish();
     let detail = match stderr {
         Some(stderr) => String::from_utf8_lossy(&stderr.finish()).trim().to_string(),
@@ -138,25 +100,18 @@ pub fn run_scan(
     classify(status, &reply, detail)
 }
 
-/// A child's output read as it arrives, so that what has been written is
-/// never lost to a pipe that stays open.
 struct Collected {
     bytes: Arc<Mutex<Vec<u8>>>,
     ended: mpsc::Receiver<()>,
 }
 
 impl Collected {
-    /// What was read, once the pipe ended or [`DRAIN`] passed.
     fn finish(&self) -> Vec<u8> {
         let _ = self.ended.recv_timeout(DRAIN);
         self.bytes.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 }
 
-/// Reads `pipe` on a thread of its own, keeping the first `keep` bytes and
-/// reading on past them so a child that writes more cannot stall. `what` names
-/// the pipe in the thread's name and in a failure. A system out of threads
-/// refuses the thread; that is returned, never panicked.
 fn collect(mut pipe: impl Read + Send + 'static, keep: usize, what: &str) -> io::Result<Collected> {
     let bytes = Arc::new(Mutex::new(Vec::new()));
     let (ended_tx, ended) = mpsc::channel();
@@ -178,21 +133,12 @@ fn collect(mut pipe: impl Read + Send + 'static, keep: usize, what: &str) -> io:
     Ok(Collected { bytes, ended })
 }
 
-/// A reader thread that could not start leaves nothing to read, so the module's
-/// scan cannot run. It is reported as a scan that could not start, which is
-/// what it is; the app carries on with the other modules.
 fn reader_failed(what: &str, error: io::Error) -> ScanOutcome {
     ScanOutcome::Unstarted(format!(
         "could not start the thread reading the scan's {what}: {error}"
     ))
 }
 
-/// Asks the scan program at `exe` a question it can only answer if it is a
-/// current `lumen-plugin-host`: to scan a module that does not exist, which
-/// it must refuse with a reply of its own. No plugin code runs. An older
-/// build, or some other program, ends without that reply; every module it
-/// was asked about would then look blocked, so the caller must not scan with
-/// it. The error says what to do.
 pub fn check_host(exe: &Path) -> Result<(), String> {
     let missing = exe
         .parent()
@@ -210,14 +156,12 @@ pub fn check_host(exe: &Path) -> Result<(), String> {
     }
 }
 
-/// Ends a child that is still running and returns `outcome`.
 fn stopped(child: &mut std::process::Child, outcome: ScanOutcome) -> ScanOutcome {
     let _ = child.kill();
     let _ = child.wait();
     outcome
 }
 
-/// Turns how the child ended and what it wrote into an outcome.
 fn classify(status: std::process::ExitStatus, reply: &[u8], detail: String) -> ScanOutcome {
     match ExitKind::of(status) {
         ExitKind::Clean => {}
@@ -244,8 +188,6 @@ fn classify(status: std::process::ExitStatus, reply: &[u8], detail: String) -> S
 mod tests {
     use super::*;
 
-    /// Yields its bytes, then waits for a signal that never comes, like a
-    /// pipe another process still holds open.
     struct Held {
         bytes: Option<Vec<u8>>,
         never: mpsc::Receiver<()>,
@@ -280,8 +222,6 @@ mod tests {
         assert_eq!(read.expect("a reader").finish(), vec![7u8; 10]);
     }
 
-    /// A reader that cannot start becomes a scan that could not start, naming
-    /// the pipe, rather than a panic that would end the app's scan.
     #[test]
     fn a_reader_thread_that_cannot_start_is_a_scan_that_could_not_start() {
         let outcome = reader_failed(

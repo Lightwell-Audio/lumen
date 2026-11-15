@@ -1,13 +1,8 @@
-//! Iris's parts: what a point says, where it sits, what a drag, a key and the
-//! wheel write, and what the three dials aim at.
-
 use eframe::egui::{Rect, pos2, vec2};
 
 use super::*;
 use crate::chain::strip::Slot;
 
-/// Slots for every parameter Iris reads, at the table's defaults, with the
-/// changes `set` makes (in each parameter's own units).
 fn slots(set: &[(u32, f32)]) -> Vec<Slot> {
     READS
         .iter()
@@ -98,8 +93,6 @@ fn the_chip_names_what_the_band_is() {
     assert_eq!(band(&values(&notch), 3).chip(), "2.50 kHz Q 4.00");
 }
 
-/// The axis the picture is drawn on and the one a drag reads agree: a point
-/// dragged to where another sits writes that place's values.
 #[test]
 fn a_drag_reads_the_axis_the_curve_is_drawn_on() {
     let rect = screen();
@@ -131,14 +124,11 @@ fn the_dials_aim_at_what_the_picked_band_has() {
     let held = slots(&[]);
     let v = values(&held);
     let aimed = |band: usize, control: usize| aim(&v, band, control).map(|a| (a.param, a.name));
-    // A bell: Freq, Gain, Q.
     assert_eq!(aimed(1, 0), Some((eq::freq_of(2), "Freq")));
     assert_eq!(aimed(1, 1), Some((eq::gain_of(2), "Gain")));
     assert_eq!(aimed(1, 2), Some((eq::q_of(2), "Q")));
-    // A cut: Freq and Slope, no Q.
     assert_eq!(aimed(0, 1), Some((eq::gain_of(1), "Slope")));
     assert_eq!(aimed(0, 2), None);
-    // A notch has no gain; a shelf has no Q.
     let notch = slots(&[(eq::type_of(4), 3.0)]);
     let shelf = slots(&[(eq::type_of(5), 1.0)]);
     assert_eq!(aim(&values(&notch), 3, 1).map(|a| a.name), None);

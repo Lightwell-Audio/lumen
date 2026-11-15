@@ -1,15 +1,3 @@
-//! Editing time on the arrangement (M3 slice 6b): taking the part of a
-//! clip between two times, clearing a span, deleting or inserting time
-//! across the whole song; the clipboard is `clipboard.rs`. Pure functions
-//! over the
-//! model, so every edit is tested here and the app wraps each in one undo
-//! step.
-//!
-//! A clip cut at a time keeps its audio in place: an unlooped clip retains its
-//! integer media offset and advances `audio_phase_seconds`; looped clips
-//! retain their source origin and advance `loop_phase`. MIDI notes are cut
-//! at the edges, or stay loop-local when the clip repeats.
-
 use std::sync::Arc;
 
 use lumen_core::time::{TempoMap, Ticks};
@@ -60,21 +48,14 @@ pub use note_time::{
 pub use windows::slice;
 use windows::{crop_fade_end, crop_fade_start};
 
-/// Times before and after any clip, for "everything before" and "everything
-/// after" (far from overflow).
 const FOREVER_BEFORE: Ticks = Ticks(i64::MIN / 4);
 const FOREVER_AFTER: Ticks = Ticks(i64::MAX / 4);
 
-/// The project's tempo, or 120 BPM if it is invalid (validation keeps it
-/// valid; this only avoids a panic).
 pub fn tempo_of(project: &Project) -> TempoMap {
     TempoMap::new(project.tempo.clone())
         .unwrap_or_else(|_| TempoMap::constant(120.0).expect("120 BPM is a valid tempo"))
 }
 
-/// Empties `[a, b)` on `tracks`: clips inside go, clips crossing an edge
-/// are cut back to it, and a clip spanning the whole span is split in two
-/// (the right part gets an id from `fresh`). Locked clips stay whole.
 pub fn clear(
     project: &mut Project,
     tracks: &[Id],
@@ -85,7 +66,6 @@ pub fn clear(
     clear_except(project, tracks, a, b, &[], fresh);
 }
 
-/// [`clear`], leaving the clips `keep` alone.
 pub fn clear_except(
     project: &mut Project,
     tracks: &[Id],
@@ -130,9 +110,6 @@ pub fn clear_except(
     }
 }
 
-/// The rule for clips put down on others (slice 6c, owner): the
-/// clips `placed` win, and whatever they cover on their own track is cut
-/// away, as [`clear`] does.
 pub fn overwrite(project: &mut Project, placed: &[Id], fresh: &mut impl FnMut() -> Id) {
     let spans: Vec<(Id, Ticks, Ticks)> = project
         .tracks
@@ -146,17 +123,14 @@ pub fn overwrite(project: &mut Project, placed: &[Id], fresh: &mut impl FnMut() 
     }
 }
 
-/// Which edge of a clip a trim moves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Edge {
     Start,
     End,
 }
 
-/// The shortest a trim leaves a clip: a 1/64 note.
 pub const MIN_LENGTH: Ticks = Ticks(lumen_core::time::PPQ / 16);
 
-/// An audio clip's file: its rate, its frames and the clip's offset into it.
 fn audio_of(project: &Project, clip: &Clip) -> Option<(u32, i64, i64)> {
     let ClipContent::Audio { media, offset, .. } = &clip.content else {
         return None;
@@ -165,11 +139,6 @@ fn audio_of(project: &Project, clip: &Clip) -> Option<(u32, i64, i64)> {
     Some((file.sample_rate.max(1), file.frames as i64, *offset))
 }
 
-/// `clip` with `edge` moved to `to` (snapped by the caller). The audio
-/// stays in place, so a trim can reveal no more than the file holds: the
-/// start stops where the file starts, and the end where it ends, unless
-/// the clip loops. With `looping` (Shift on the end edge), a clip that does
-/// not loop yet starts repeating its current length (loop-extend).
 pub fn trim(
     project: &Project,
     tempo: &TempoMap,
@@ -191,14 +160,10 @@ pub fn trim(
             if clip.loop_length.is_none()
                 && let Some(first) = warp::first_tick(clip)
             {
-                // Not before the file's first frame, where any pass's map puts it.
                 start = start.max(clip.start + first);
             } else if let Some((rate, _, offset)) = audio
                 && clip.loop_length.is_none()
             {
-                // Not before the file's first frame. `audio_phase_seconds`
-                // tracks a fractional source position from the integer file
-                // offset, so it participates in the available source time.
                 let earliest = tempo.ticks_at_seconds(
                     tempo.seconds_at(clip.start)
                         - (offset as f64 / f64::from(rate) + clip.audio_phase_seconds),
@@ -209,7 +174,6 @@ pub fn trim(
             if moved > Ticks::ZERO && clip.loop_length.is_none_or(|p| p.0 <= 0) {
                 let seconds = tempo.seconds_at(start) - tempo.seconds_at(clip.start);
                 let rate = audio.map(|(rate, _, _)| f64::from(rate));
-                // Trimming hides notes, it does not mark them: as the active pass.
                 takes::advance(&mut c, moved, seconds, rate, &|_| false);
             }
             c.start = start;
@@ -218,7 +182,6 @@ pub fn trim(
                 c.loop_phase = Ticks(clip.loop_phase.0.saturating_add(moved.0));
             } else {
                 c.envelopes.shift(Ticks::ZERO - moved);
-                // The map is measured from the start, which moved.
                 if let Some(warp) = &mut c.warp {
                     warp.shift(Ticks::ZERO - moved);
                 }
@@ -260,13 +223,11 @@ pub fn trim(
                 && let Some(total) = warp::file_seconds(project, clip)
                 && let Some(last) = warp::last_tick(&c, total)
             {
-                // Not past the file's last frame, where any pass's map puts it.
                 let latest = clip.start + last;
                 new_end = new_end.min(latest.max(clip.start + MIN_LENGTH));
             } else if c.loop_length.is_none()
                 && let Some((rate, frames, offset)) = audio
             {
-                // Not past the file's last frame.
                 let source_at_start = offset as f64 / f64::from(rate) + clip.audio_phase_seconds;
                 let latest = tempo.ticks_at_seconds(
                     tempo.seconds_at(clip.start)
@@ -274,7 +235,6 @@ pub fn trim(
                 );
                 new_end = new_end.min(latest.max(clip.start + MIN_LENGTH));
             }
-            // A MIDI clip's notes past its new end are kept, hidden.
             c.length = new_end - clip.start;
             if new_end < end {
                 c.fade_out = crop_fade_end(c.fade_out, end - new_end);
@@ -300,32 +260,24 @@ pub fn trim(
     c
 }
 
-/// Notes `by` earlier in their clip (its start moved later by `by`). None is
-/// dropped or shortened: those now outside the clip's window are hidden
-/// (`note_time::in_window`), and come back when an edge is dragged back.
 fn shift_notes(notes: &mut [Note], by: Ticks) {
     for n in notes {
         n.0 = n.0 - by;
     }
 }
 
-/// Events `by` earlier in their clip, kept as notes are.
 fn shift_events(events: &mut [ClipEvent], by: Ticks) {
     for e in events {
         e.at = e.at - by;
     }
 }
 
-/// `clip` with its content slid `by` (later when positive) inside it,
-/// the clip itself staying put (Ctrl+Alt+drag). Audio slides no further
-/// than the file allows.
 pub fn slip(project: &Project, tempo: &TempoMap, clip: &Clip, by: Ticks) -> Clip {
     let mut c = clip.clone();
     if clip.takes.is_some() && by != Ticks::ZERO {
         takes::slipped(project, tempo, clip, &mut c, by);
     }
     if let Some(warp) = &mut c.warp {
-        // The audio slides under the window: the map moves with it.
         if by != Ticks::ZERO {
             warp.shift(warp::slip_limit(project, clip, by));
             warp::anchor(project, &mut c);
@@ -349,9 +301,6 @@ pub fn slip(project: &Project, tempo: &TempoMap, clip: &Clip, by: Ticks) -> Clip
             };
             let target = *offset - moved;
             if target < 0 && phase_frames > 0.0 {
-                // A trim leaves its advance in the phase, not the offset
-                // (which cannot go negative): sliding back takes it from
-                // there, and stops where the file starts.
                 *offset = 0;
                 c.audio_phase_seconds = (phase_frames + target as f64).max(0.0) / f64::from(rate);
             } else {
@@ -366,8 +315,6 @@ pub fn slip(project: &Project, tempo: &TempoMap, clip: &Clip, by: Ticks) -> Clip
     c
 }
 
-/// Where a time lands when `[a, b)` is deleted: before it stays, inside it
-/// goes to `a`, after it moves back by its length.
 fn closed(t: Ticks, a: Ticks, b: Ticks) -> Ticks {
     if t <= a {
         t
@@ -378,9 +325,6 @@ fn closed(t: Ticks, a: Ticks, b: Ticks) -> Ticks {
     }
 }
 
-/// Deletes `[a, b)` from the whole song (Delete Time): every
-/// track is cleared there and everything after moves back; locators inside
-/// go, those after move; the loop closes up (unless that would empty it).
 pub fn delete_time(project: &mut Project, a: Ticks, b: Ticks, fresh: &mut impl FnMut() -> Id) {
     if a >= b {
         return;
@@ -408,9 +352,6 @@ pub fn delete_time(project: &mut Project, a: Ticks, b: Ticks, fresh: &mut impl F
     sort_clips(project);
 }
 
-/// Inserts `length` of silence at `at` across the whole song (Insert
-/// Time): clips crossing it split, and everything after moves on,
-/// locators and the loop included.
 pub fn insert_time(
     project: &mut Project,
     at: Ticks,
@@ -479,8 +420,6 @@ mod tests {
         Ticks::quarters(n)
     }
 
-    /// Three audio tracks; track 0 has a clip from 4 to 12, track 1 one
-    /// from 0 to 8, track 2 is empty. 120 BPM, files at 48 kHz.
     pub(super) fn song() -> Project {
         let mut project = crate::testing::small_project(1);
         project.tempo = vec![lumen_core::time::TempoPoint {
@@ -555,7 +494,6 @@ mod tests {
         }
     }
 
-    /// `(id, start, length, offset)` per clip on track `i`, in quarters.
     pub(super) fn clips(p: &Project, i: usize) -> Vec<(u64, i64, i64, i64)> {
         p.tracks[i]
             .clips
@@ -576,8 +514,6 @@ mod tests {
         use lumen_core::automation::{Lane, Point};
         let p = song();
         let tempo = tempo_of(&p);
-        // The clip runs from quarter 4; its envelope has points at 1 and 5
-        // quarters in, so at timeline quarters 5 and 9.
         let mut clip = (*p.tracks[0].clips[0]).clone();
         clip.envelopes.set(
             Kind::Gain,
@@ -589,14 +525,10 @@ mod tests {
                 .as_ref()
                 .map_or_else(Vec::new, |l| l.points().iter().map(|x| x.at).collect())
         };
-        // A part cut at quarter 6 starts there: the first point is now one
-        // quarter before its start, hidden, and the second is 3 quarters in.
         let right = slice(&p, &tempo, &clip, q(6), q(100)).unwrap();
         assert_eq!(places(&right), vec![q(-1), q(3)]);
-        // The part before the cut starts where the clip did.
         let left = slice(&p, &tempo, &clip, q(0), q(6)).unwrap();
         assert_eq!(places(&left), vec![q(1), q(5)]);
-        // The two points have the values they had.
         let values: Vec<f32> = right
             .envelopes
             .gain
@@ -607,13 +539,10 @@ mod tests {
             .map(|x| x.value)
             .collect();
         assert_eq!(values, vec![-6.0, 0.0]);
-        // Trimming the start to quarter 7 moves it three quarters.
         let trimmed = trim(&p, &tempo, &clip, Edge::Start, q(7), false);
         assert_eq!(places(&trimmed), vec![q(-2), q(2)]);
-        // And dragging it back out brings the points back.
         let again = trim(&p, &tempo, &trimmed, Edge::Start, q(4), false);
         assert_eq!(places(&again), vec![q(1), q(5)]);
-        // The end, a slip and a move leave the points alone.
         assert_eq!(
             places(&trim(&p, &tempo, &clip, Edge::End, q(8), false)),
             vec![q(1), q(5)]
@@ -626,7 +555,6 @@ mod tests {
         let p = song();
         let tempo = tempo_of(&p);
         let clip = &p.tracks[0].clips[0];
-        // From quarter 6: two quarters in, a second at 120 BPM.
         let part = slice(&p, &tempo, clip, q(6), q(100)).unwrap();
         assert_eq!((part.start, part.length), (q(6), q(6)));
         assert!(matches!(
@@ -641,8 +569,6 @@ mod tests {
 
     #[test]
     fn a_midi_slice_is_a_window_that_keeps_every_note() {
-        // The clip window (format v15): the slice from 4 to 6 shows the note
-        // at 5 and keeps the others, hidden, so nothing is lost.
         let p = song();
         let mut clip = (*p.tracks[1].clips[0]).clone();
         clip.content = ClipContent::Midi {
@@ -682,8 +608,6 @@ mod tests {
             }
         );
         assert_eq!(shown_notes(&part), vec![1], "only the note at 5 shows");
-        // Dragging its start back to the original's shows the first again,
-        // where it was.
         let back = trim(&p, &tempo_of(&p), &part, Edge::Start, clip.start, false);
         let ClipContent::Midi { notes, .. } = &back.content else {
             unreachable!()
@@ -705,8 +629,6 @@ mod tests {
         assert!(shown_notes(&clip).is_empty());
         let recovered = trim(&p, &tempo_of(&p), &clip, Edge::Start, q(1), false);
         assert_eq!(shown_notes(&recovered), vec![0]);
-        // Slicing the recovered note creates a legitimate hidden copy on the
-        // right, which must carry through the new seam.
         let left = slice(&p, &tempo_of(&p), &recovered, q(1), q(2)).unwrap();
         let right = slice(&p, &tempo_of(&p), &recovered, q(2), q(5)).unwrap();
         let ClipContent::Midi {
@@ -769,7 +691,6 @@ mod tests {
     #[test]
     fn a_dropped_clip_cuts_away_what_it_covers() {
         let mut p = song();
-        // Track 1's clip (0 to 8) dropped over track 0's (4 to 12) at 6.
         let mut moved = (*p.tracks[1].clips[0]).clone();
         moved.start = q(6);
         moved.length = q(2);
@@ -783,9 +704,7 @@ mod tests {
     fn trims_stop_at_the_file_and_shift_the_audio() {
         let p = song();
         let tempo = tempo_of(&p);
-        let clip = &p.tracks[0].clips[0]; // 4 to 12, offset 1,000 of 480,000
-        // The start back by 2 quarters (1 s): the offset is only 1,000
-        // frames, so it stops 1,000 frames before quarter 4.
+        let clip = &p.tracks[0].clips[0];
         let early = trim(&p, &tempo, clip, Edge::Start, q(2), false);
         assert!(matches!(
             early.content,
@@ -796,7 +715,6 @@ mod tests {
             "{:?}",
             early.start
         );
-        // The start forward by 2 quarters: the audio stays in place.
         let late = trim(&p, &tempo, clip, Edge::Start, q(6), false);
         assert_eq!((late.start, late.length), (q(6), q(6)));
         assert!(matches!(
@@ -804,17 +722,14 @@ mod tests {
             ClipContent::Audio { offset: 1_000, .. }
         ));
         assert_eq!(late.audio_phase_seconds, 1.0);
-        // The end past the file (10 s = 20 quarters from 4) stops there.
         let long = trim(&p, &tempo, clip, Edge::End, q(100), false);
         assert!(
             long.length <= q(20) && long.length > q(19),
             "{:?}",
             long.length
         );
-        // With Shift it loops its current 8 quarters instead.
         let looped = trim(&p, &tempo, clip, Edge::End, q(100), true);
         assert_eq!((looped.length, looped.loop_length), (q(96), Some(q(8))));
-        // Never shorter than a 1/64 note.
         assert_eq!(
             trim(&p, &tempo, clip, Edge::End, q(0), false).length,
             MIN_LENGTH
@@ -845,7 +760,7 @@ mod tests {
     fn slipping_moves_the_audio_not_the_clip_within_the_file() {
         let p = song();
         let tempo = tempo_of(&p);
-        let clip = &p.tracks[0].clips[0]; // offset 1,000
+        let clip = &p.tracks[0].clips[0];
         let earlier = slip(&p, &tempo, clip, Ticks(-q(2).0));
         assert_eq!(
             earlier.content,

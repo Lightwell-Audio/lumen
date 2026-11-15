@@ -1,13 +1,3 @@
-//! The host process's side of the protocol: read a request, act on the
-//! plugin, answer it. One request in flight at a time; every request gets
-//! exactly one response, in order.
-//!
-//! The plugin is shared with the audio thread through one lock, held only for
-//! what touches the instance's own state: setting the plugin up, and moments
-//! of bookkeeping. The controller's calls (its editor, its state, its
-//! parameters) go through [`Controls`] without it, so a plugin that is slow to
-//! answer them never stalls its own blocks.
-
 use std::io::{self, Read, Write};
 use std::path::Path;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
@@ -23,17 +13,10 @@ use crate::protocol::{
 };
 use crate::shm::HostLink;
 
-/// How long a request about the editor window may keep the main thread
-/// before the host answers that it is not responding: the system's own rule
-/// for a window that stops answering. A plugin that builds a large window
-/// takes seconds to open it, and is opening, not stuck.
 pub const EDITOR_WAIT: Duration = Duration::from_secs(5);
 
-/// The environment variable that shortens [`EDITOR_WAIT`], in milliseconds,
-/// so tests of a window that stops answering need not wait seconds.
 pub const EDITOR_WAIT_VAR: &str = "LUMEN_HOST_EDITOR_WAIT_MS";
 
-/// [`EDITOR_WAIT`], or what the environment asks for.
 pub fn editor_wait() -> Duration {
     std::env::var(EDITOR_WAIT_VAR)
         .ok()
@@ -41,24 +24,17 @@ pub fn editor_wait() -> Duration {
         .map_or(EDITOR_WAIT, Duration::from_millis)
 }
 
-/// Why the loop ended.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Exit {
-    /// Asked to quit.
     Quit,
-    /// Lumen closed the stream (it exited or dropped this host).
     Closed,
-    /// A message that could not be trusted; the stream is abandoned.
     Malformed,
 }
 
 struct State {
-    // The module is kept so it outlives the instance.
     module: Option<Module>,
-    /// The plugin, shared with the audio thread once one is attached.
     shared: Shared,
     blocks: Option<Blocks>,
-    /// The plugin's editor window, if the platform has any.
     editors: Box<dyn Editors>,
 }
 
@@ -91,7 +67,6 @@ impl State {
         }
     }
 
-    /// Ends the audio thread, if there is one. Waits for the block it is on.
     fn detach(&mut self) {
         if let Some(blocks) = self.blocks.take() {
             blocks.stop();
@@ -156,7 +131,6 @@ impl State {
                         response
                     }
                     Err(e) => {
-                        // A failed configuration leaves nothing to process.
                         guard.generation = None;
                         from_instance(e)
                     }
@@ -274,8 +248,6 @@ impl State {
                 None => not_loaded(),
             },
             Request::TakeEdits => {
-                // What the processor heard is taken under the lock; the
-                // controller is told without it.
                 let taken = lock(&self.shared)
                     .instance
                     .as_mut()
@@ -293,8 +265,6 @@ impl State {
                 }
             }
             Request::Attach { base, layout, wake } => {
-                // A second attach replaces the first, and the old audio
-                // thread is finished before the new one starts.
                 self.detach();
                 match HostLink::open(&base, layout, wake) {
                     Ok((link, stopper)) => {
@@ -310,9 +280,6 @@ impl State {
                 }
             }
             Request::OpenEditor { bounds } => {
-                // Neither the view (some plugins take a second to make it) nor
-                // the window is made under the lock: the audio thread never
-                // waits for them.
                 let Some((title, controls)) = lock(&self.shared)
                     .instance
                     .as_ref()
@@ -339,14 +306,10 @@ impl State {
         }
     }
 
-    /// The controller's side of the plugin, cloned out under the lock and
-    /// used without it.
     fn controls(&self) -> Option<Controls> {
         lock(&self.shared).instance.as_ref().map(Instance::controls)
     }
 
-    /// What follows the last request: the audio thread ends first, then the
-    /// editor, then the plugin, then the module it came from.
     fn finish(&mut self) {
         self.detach();
         self.editors.close();
@@ -356,14 +319,10 @@ impl State {
 
 impl Drop for State {
     fn drop(&mut self) {
-        // However the loop ended, the audio thread stops before the plugin
-        // it is using can go.
         self.detach();
     }
 }
 
-/// Serves requests until the stream closes, a quit arrives or a message
-/// cannot be trusted.
 pub fn serve<R: Read, W: Write>(input: &mut R, output: &mut W) -> io::Result<Exit> {
     let mut state = State::new(Box::new(Unavailable));
     loop {
@@ -386,21 +345,13 @@ pub fn serve<R: Read, W: Write>(input: &mut R, output: &mut W) -> io::Result<Exi
     }
 }
 
-/// Wakes the main thread after a request is queued for it.
 pub type Waker = Arc<dyn Fn() + Send + Sync>;
 
-/// The loop the host's main thread runs while a reader thread takes requests
-/// off the stream. A window system's main thread pumps messages in it; others
-/// wait to be woken ([`Plain`]).
 pub trait Pump {
-    /// What the reader calls after queueing a request.
     fn waker(&self) -> Waker;
-    /// Runs on the calling thread: calls `drain` once at the start and again
-    /// whenever the waker is called, until it returns false.
     fn run(&mut self, drain: &mut dyn FnMut() -> bool);
 }
 
-/// A main thread that does nothing but wait for work.
 pub struct Plain {
     wake: Sender<()>,
     woken: Receiver<()>,
@@ -434,7 +385,6 @@ fn lock_plain<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// A request for the main thread, and where its answer goes.
 struct Job {
     request: Request,
     reply: Sender<Response>,
@@ -442,18 +392,9 @@ struct Job {
 
 enum Queued {
     Job(Job),
-    /// The reader is done: the stream closed, a quit was answered or a
-    /// message could not be trusted.
     End,
 }
 
-/// Whether `request` is about the editor window: the only requests the
-/// reader answers "not responding" when the main thread is too slow. A plugin
-/// that stops answering in its own window code stops the main thread, and the
-/// host says so rather than going quiet. Every other request waits its turn,
-/// however long the main thread takes, under the deadline its caller gave it:
-/// a plugin busy in its window (loading a patch, opening a large editor) is
-/// not a reason to refuse setting it up.
 fn about_the_window(request: &Request) -> bool {
     matches!(
         request,
@@ -471,12 +412,6 @@ fn unresponsive() -> Response {
     )
 }
 
-/// What the reader thread does: takes requests off `input`, gives each to
-/// the main thread and writes its answer to `output`. A window request the
-/// main thread is too slow to answer is answered "not responding"; until the
-/// main thread finishes it, further window requests are answered the same
-/// way at once, other requests wait behind it, and its late answer is dropped,
-/// so every request still gets exactly one response, in order.
 fn read_requests<R: Read, W: Write>(
     mut input: R,
     output: &Mutex<W>,
@@ -486,12 +421,10 @@ fn read_requests<R: Read, W: Write>(
     editor_wait: Duration,
 ) -> io::Result<Exit> {
     let send = |response: &Response| write_response(&mut *lock_plain(output), response);
-    // The answer owed by a request given up on.
     let mut owed: Option<Receiver<Response>> = None;
     let end = |exit: io::Result<Exit>| {
         let _ = jobs.send(Queued::End);
         wake();
-        // A main thread stuck in a plugin's window code cannot be waited for.
         if *lock_plain(stuck) {
             crate::process::end_now(0);
         }
@@ -515,7 +448,6 @@ fn read_requests<R: Read, W: Write>(
                 }
                 Err(mpsc::TryRecvError::Empty) => {
                     if request == Request::Quit {
-                        // Nobody to end the plugin cleanly: the process goes.
                         let _ = send(&Response::Done);
                         crate::process::end_now(0);
                     }
@@ -555,10 +487,6 @@ fn read_requests<R: Read, W: Write>(
     }
 }
 
-/// Serves requests as [`serve`] does, but with the requests read on a thread
-/// of their own while the calling thread runs `pump` and acts on them: the
-/// calling thread is the one that made the plugin, and the one that can show
-/// its window.
 pub fn serve_pumped<R, W>(
     input: R,
     output: W,
@@ -572,8 +500,6 @@ where
     let (jobs, queue) = mpsc::channel::<Queued>();
     let wake = pump.waker();
     let stuck = Arc::new(Mutex::new(false));
-    // Answers come from the reader thread; news (keys pressed in the plugin's
-    // window) from this one. A whole frame is written under the lock.
     let output = Arc::new(Mutex::new(output));
     let notify: Notify = {
         let output = Arc::clone(&output);

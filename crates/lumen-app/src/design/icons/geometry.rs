@@ -1,6 +1,3 @@
-//! Each icon's geometry on the 16 x 16 grid: the mapped grid `shapes` draws
-//! one icon in, and the shape of every icon in `Icon`.
-
 use std::f32::consts::{PI, TAU};
 
 use eframe::egui::{self, Color32, Pos2, Rect, Shape, Stroke, Vec2};
@@ -9,12 +6,8 @@ use crate::theme;
 
 use super::Icon;
 
-/// How strongly an icon's secondary line is drawn (the tempo lanes' meter
-/// line).
 const FAINT: f32 = 0.45;
 
-/// Maps the 16-unit icon grid onto a square centred in `rect`. The drum
-/// glyphs (`drums.rs`) share it, so every picture in the set has one scale.
 pub(super) struct Grid {
     pub(super) origin: Pos2,
     pub(super) unit: f32,
@@ -38,7 +31,6 @@ impl Grid {
     }
 }
 
-/// The shapes for `icon` in `rect`.
 pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
     let g = Grid::new(rect);
     let stroke = Stroke::new(theme::stroke::ICON * g.unit, color);
@@ -135,8 +127,6 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
             color,
         )],
         Icon::Record => vec![Shape::circle_filled(g.p(8.0, 8.0), 4.75 * g.unit, color)],
-        // The ring's outer edge is the filled dot's radius: the stroke is
-        // centred 0.8 units inside it.
         Icon::RecordRing => vec![Shape::circle_stroke(g.p(8.0, 8.0), 3.95 * g.unit, stroke)],
         Icon::Layers => vec![
             Shape::closed_line(
@@ -150,7 +140,6 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
             ),
         ],
         Icon::Star | Icon::StarFilled => {
-            // Ten points, outer and inner in turn, from the top.
             let centre = g.p(8.0, 8.6);
             let points: Vec<Pos2> = (0..10)
                 .map(|k| {
@@ -161,8 +150,6 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
                 .collect();
             let mut shapes = Vec::new();
             if icon == Icon::StarFilled {
-                // A star is not convex, but every point sees its centre:
-                // a fan of triangles fills it.
                 let mut mesh = eframe::egui::Mesh::default();
                 mesh.colored_vertex(centre, color);
                 for point in &points {
@@ -202,7 +189,6 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
             Shape::circle_filled(g.p(8.0, 11.5), 0.9 * g.unit, color),
         ],
         Icon::Power => {
-            // An open ring with a bar through its gap.
             let (centre, radius) = (g.p(8.0, 8.5), 4.8 * g.unit);
             let (start, sweep) = (-PI / 2.0 + 0.7, TAU - 1.4);
             let arc: Vec<Pos2> = (0..=28)
@@ -262,7 +248,6 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
             ),
         ],
         Icon::Loop => {
-            // An almost-closed circle with an arrowhead at its end.
             let (centre, radius) = (g.p(8.0, 8.0), 5.0 * g.unit);
             let (start, sweep) = (-PI / 2.0 + 0.55, TAU - 1.1);
             let at = |angle: f32| centre + radius * Vec2::angled(angle);
@@ -271,7 +256,7 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
                 .collect();
             let end_angle = start + sweep;
             let tip = at(end_angle);
-            let along = Vec2::angled(end_angle + PI / 2.0); // direction of travel
+            let along = Vec2::angled(end_angle + PI / 2.0);
             let across = Vec2::angled(end_angle);
             let head = vec![
                 tip + along * 2.6 * g.unit,
@@ -297,8 +282,6 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
             Shape::circle_filled(g.p(10.3, 7.0), 1.3 * g.unit, color),
         ],
         Icon::Magnet | Icon::MagnetOff => {
-            // A horseshoe: two legs joined by a half circle on top, with
-            // pole tips at the bottom.
             let thick = Stroke::new(theme::stroke::ICON_BOLD * g.unit, color);
             let mut arch: Vec<Pos2> = (0..=12)
                 .map(|k| {
@@ -306,7 +289,6 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
                     g.p(8.0 + 4.0 * a.cos(), 7.5 + 4.0 * a.sin())
                 })
                 .collect();
-            // The legs stop short of the tips, so the notch shows at 100%.
             arch.insert(0, g.p(4.0, 10.0));
             arch.push(g.p(12.0, 10.0));
             let mut shapes = vec![
@@ -323,7 +305,6 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
             shapes
         }
         Icon::Lock => vec![
-            // A shackle over a solid body.
             Shape::line(
                 std::iter::once(g.p(5.0, 8.0))
                     .chain((0..=12).map(|k| {
@@ -336,12 +317,6 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
             ),
             Shape::rect_filled(g.rect(3.0, 7.5, 13.0, 14.5), 1.0 * g.unit, color),
         ],
-        // The ring is a fully rounded square on the same half-point grid
-        // as the framed icons beside it (the panel toggles, 2.5 to 13.5
-        // top to bottom),
-        // centred on their middle line: rectangles snap to pixels and
-        // circles do not, so drawn this way it stays level with them at
-        // every scale.
         Icon::Search => vec![
             Shape::rect_stroke(
                 g.rect(2.5, 3.5, 11.5, 12.5),
@@ -352,7 +327,6 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
             Shape::line_segment([g.p(10.2, 11.2), g.p(13.25, 14.25)], stroke),
         ],
         Icon::Mouse => vec![
-            // A rounded body with the buttons' parting line.
             Shape::rect_stroke(
                 g.rect(4.0, 1.5, 12.0, 14.5),
                 4.0 * g.unit,
@@ -376,7 +350,6 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
             ),
         ],
         Icon::Din => {
-            // The shell, and five pins on its upper arc (180 degrees).
             let pin = 1.1 * g.unit;
             let mut shapes = vec![Shape::circle_stroke(g.p(8.0, 8.0), 6.6 * g.unit, stroke)];
             for (x, y) in [(3.6, 9.6), (4.7, 6.0), (8.0, 4.6), (11.3, 6.0), (12.4, 9.6)] {
@@ -385,7 +358,6 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
             shapes
         }
         Icon::Speaker | Icon::SpeakerOff => {
-            // A cone and box, and one wave; Off adds the slash.
             let mut shapes = vec![
                 Shape::convex_polygon(
                     vec![
@@ -485,7 +457,6 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
             Shape::circle_filled(g.p(8.0, 8.0), 1.5 * g.unit, color),
         ],
         Icon::Reverse => vec![
-            // Two short wave bars under an arrow that points back.
             Shape::line_segment([g.p(13.5, 5.0), g.p(3.5, 5.0)], stroke),
             Shape::convex_polygon(
                 vec![g.p(2.0, 5.0), g.p(6.0, 2.2), g.p(6.0, 7.8)],
@@ -497,8 +468,6 @@ pub fn shapes(icon: Icon, rect: Rect, color: Color32) -> Vec<Shape> {
             Shape::line_segment([g.p(11.0, 10.5), g.p(11.0, 13.0)], stroke),
         ],
         Icon::Polarity => vec![
-            // The slash runs past the ring, which tells it from the Mute
-            // tool's circle.
             Shape::circle_stroke(g.p(8.0, 8.0), 4.5 * g.unit, stroke),
             Shape::line_segment([g.p(3.0, 13.0), g.p(13.0, 3.0)], stroke),
         ],

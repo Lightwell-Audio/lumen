@@ -1,9 +1,3 @@
-//! The peak scan behind Normalize (M7b slice E1). Reading every sample of a
-//! clip's stretch of its file is work for a worker: it reports its progress,
-//! stops when asked and says nothing if it was stopped. The stretch (which
-//! seconds of the file a clip plays) is `lumen_project::edit::normalize`;
-//! what gain a peak asks for is there too.
-
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
@@ -13,47 +7,33 @@ use lumen_engine::ClipAudio;
 use lumen_project::edit::normalize::{Source, Window};
 use lumen_project::model::Id;
 
-/// Frames read between looks at the cancel flag and the progress counter.
 const CHUNK: usize = 1 << 16;
 
-/// One clip's stretch to read.
 pub struct Job {
     pub clip: Id,
-    /// The audio the clip plays (its reversed twin, if it is reversed).
     pub audio: Arc<ClipAudio>,
-    /// What the scan reads, kept to tell afterwards whether the clip still
-    /// plays it.
     pub source: Source,
 }
 
-/// What a scan found for one clip: the largest absolute sample over every
-/// channel of its stretch.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Peak {
     pub clip: Id,
     pub peak: f32,
-    /// What it read.
     pub source: Source,
 }
 
-/// Where a scan stands.
 #[derive(Debug, PartialEq)]
 pub enum Poll {
-    /// Still reading, this far (0.0 to 1.0).
     Running(f32),
     Done(Vec<Peak>),
-    /// Stopped before it finished; nothing was found.
     Stopped,
-    /// The worker could not start; the words say why.
     Failed(String),
 }
 
-/// A scan on its worker. Dropping it stops the worker.
 pub struct Scan {
     results: Receiver<Vec<Peak>>,
     cancel: Arc<AtomicBool>,
     progress: Arc<AtomicU32>,
-    /// Why the worker could not start, reported once.
     failure: Option<String>,
 }
 
@@ -63,8 +43,6 @@ impl Drop for Scan {
     }
 }
 
-/// The frames of `audio` that `window` covers: from its start to the end of
-/// the stretch or the audio, whichever comes first.
 fn frames_of(audio: &ClipAudio, window: Window) -> std::ops::Range<usize> {
     let rate = f64::from(audio.sample_rate());
     let first = (window.from * rate).round().max(0.0);
@@ -73,9 +51,6 @@ fn frames_of(audio: &ClipAudio, window: Window) -> std::ops::Range<usize> {
     (first.min(total) as usize)..(last.min(total) as usize)
 }
 
-/// The largest absolute sample of `window` in `audio`, over every channel.
-/// `read` is told how many frames were read after each chunk; the scan
-/// stops, returning `None`, once `cancel` is set.
 pub fn peak_of(
     audio: &ClipAudio,
     window: Window,
@@ -85,8 +60,6 @@ pub fn peak_of(
     let frames = frames_of(audio, window);
     let mut peak = 0.0f32;
     let mut at = frames.start;
-    // A file played from disk is read a chunk at a time (M9 slice R6); one
-    // that cannot be read counts as silent, as a missing file plays.
     let mut readers = crate::media::streams::Readers::default();
     let (mut left, mut right) = (Vec::new(), Vec::new());
     while at < frames.end {
@@ -122,7 +95,6 @@ pub fn peak_of(
 }
 
 impl Scan {
-    /// Starts reading `jobs` on a worker; `ctx` is woken as it goes.
     pub fn start(jobs: Vec<Job>, ctx: &egui::Context) -> Self {
         let (tx, results) = channel();
         let cancel = Arc::new(AtomicBool::new(false));
@@ -170,7 +142,6 @@ impl Scan {
         }
     }
 
-    /// Where the scan stands; a finished scan answers `Done` once.
     pub fn poll(&self) -> Poll {
         if let Some(why) = &self.failure {
             return Poll::Failed(why.clone());
@@ -184,7 +155,6 @@ impl Scan {
         }
     }
 
-    /// Asks the worker to stop.
     pub fn stop(&self) {
         self.cancel.store(true, Ordering::Relaxed);
     }
@@ -198,7 +168,6 @@ mod tests {
     fn audio(frames: usize) -> Arc<ClipAudio> {
         let left: Vec<f32> = (0..frames).map(|i| (i % 100) as f32 / 1_000.0).collect();
         let mut right = vec![0.0; frames];
-        // The loudest sample is negative, on the second channel.
         right[frames / 2] = -0.9;
         Arc::new(ClipAudio::Memory {
             sample_rate: 1_000,

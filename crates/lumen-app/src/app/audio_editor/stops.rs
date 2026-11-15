@@ -1,20 +1,3 @@
-//! The audio editor's other Tab stops (M9.5 S2b, D17 and D28): the wave,
-//! the envelope while a pill is lit, and the clip's loop with its two ends.
-//! Their keys are taken before the commands see them (`audio_handle_keys`),
-//! and run while the editor draws, where the file and the envelope's frame
-//! are at hand: an edge placed by a key lands on a zero crossing as one
-//! placed by the hand does.
-//!
-//! - **Clip wave:** Left and Right move the edit cursor by the grid (Alt
-//!   finely); the first press puts it at the playhead, if that is in the
-//!   heard stretch, or at the stretch's start. Home and End go to the
-//!   stretch's ends. Shift with them picks a range from the cursor, which
-//!   stays its anchor while the range stands.
-//! - **Envelope:** Ctrl with Left or Right picks the point before or after,
-//!   the arrows move it, Delete takes it away, Enter adds one at the cursor.
-//! - **Clip loop:** Enter loops the clip or stops it; on a loop's start or
-//!   end, Left and Right move it by the grid.
-
 use eframe::egui::{self, Event, EventFilter, Key, Modifiers, Rect, Response, Sense, Ui};
 use lumen_core::time::Ticks;
 use lumen_project::edit::{self, clip_loop::LoopEdit};
@@ -29,7 +12,6 @@ use crate::audio_editor::AudioEditor;
 use crate::audio_editor::brace::{Brace, BracePart};
 use crate::widgets::raised;
 
-/// A Tab stop of the editor that is not a handle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Stop {
     Ruler,
@@ -62,19 +44,16 @@ impl Stop {
     }
 }
 
-/// The stable id of a stop.
 pub(crate) fn stop_id(stop: Stop) -> egui::Id {
     egui::Id::new(("audio editor stop", stop.key()))
 }
 
-/// The stop with the keyboard.
 pub(crate) fn focused(ctx: &egui::Context) -> Option<Stop> {
     Stop::ALL
         .into_iter()
         .find(|stop| ctx.memory(|m| m.has_focus(stop_id(*stop))))
 }
 
-/// Takes the keys `stop` answers from `events`.
 fn take_keys(events: &mut Vec<Event>, stop: Stop) -> Vec<(Key, Modifiers)> {
     let mut taken = Vec::new();
     events.retain(|event| {
@@ -117,8 +96,6 @@ fn take_keys(events: &mut Vec<Event>, stop: Stop) -> Vec<(Key, Modifiers)> {
 }
 
 impl App {
-    /// The keys of a focused stop, before the commands see them: kept for
-    /// the editor's next drawing.
     pub(crate) fn audio_stop_keys(&mut self, ctx: &egui::Context) {
         if let Some(index) = super::warp_markers::focused(ctx, &self.audio_editor.markers.ids) {
             let keys = ctx.input_mut(|i| super::warp_markers::take_keys(&mut i.events));
@@ -137,8 +114,6 @@ impl App {
             .extend(keys.into_iter().map(|(key, mods)| (stop, key, mods)));
     }
 
-    /// The keys kept for the stops, run with the file and the envelope at
-    /// hand.
     pub(super) fn run_stop_keys(
         &mut self,
         ctx: &egui::Context,
@@ -168,7 +143,6 @@ impl App {
         }
     }
 
-    /// A key on the wave: the cursor and the range (D28).
     fn wave_key(
         &mut self,
         ctx: &egui::Context,
@@ -241,8 +215,6 @@ impl App {
         self.select_opened_clip(clip.id);
     }
 
-    /// Left or Right on a loop's start or end: it moves by the grid, one
-    /// undo step a press.
     fn loop_edge_key(&mut self, zoom: f64, clip: &Clip, start: bool, key: Key, mods: Modifiers) {
         if !self.opened_clip_takes_edits(clip.id) {
             return;
@@ -263,8 +235,6 @@ impl App {
         self.select_opened_clip(clip.id);
     }
 
-    /// The stops' places and names, every frame: the wave first, before the
-    /// handles. Returns its response when it has the keyboard.
     pub(super) fn wave_stop(
         &self,
         ui: &mut Ui,
@@ -287,7 +257,6 @@ impl App {
         response.has_focus().then_some(response)
     }
 
-    /// The envelope's stop (after the handles), and the loop's.
     pub(super) fn later_stops(
         &self,
         ui: &mut Ui,
@@ -362,10 +331,6 @@ impl App {
     }
 }
 
-/// While `response` has the keyboard the arrows are its own, not egui's for
-/// moving the focus; with `escape`, Esc is too, so it clears what the stop
-/// holds (the range, then the cursor; the picks) and the stop keeps the
-/// keyboard.
 fn lock_arrows(ui: &Ui, response: &Response, escape: bool) {
     if response.has_focus() {
         ui.memory_mut(|m| {
@@ -382,7 +347,6 @@ fn lock_arrows(ui: &Ui, response: &Response, escape: bool) {
     }
 }
 
-/// The brace's part a loop stop stands for.
 pub(super) fn brace_part(stop: Stop) -> BracePart {
     match stop {
         Stop::LoopStart => BracePart::Start,
@@ -392,8 +356,6 @@ pub(super) fn brace_part(stop: Stop) -> BracePart {
 }
 
 impl App {
-    /// The ruler's Tab stop (M9.5 S2c): Left and Right move the playhead by
-    /// the grid, and with Alt finely.
     pub(super) fn ruler_stop(&self, ui: &mut Ui, scale: Rect) -> Option<Response> {
         let response = ui.interact(
             scale,
@@ -411,7 +373,6 @@ impl App {
         response.has_focus().then_some(response)
     }
 
-    /// Left or Right on the ruler: the playhead moves by the grid.
     fn ruler_key(&mut self, zoom: f64, key: Key, mods: Modifiers) {
         let direction = if key == Key::ArrowLeft { -1 } else { 1 };
         let at = self.key_step(zoom, self.transport.position(), direction, mods.alt);

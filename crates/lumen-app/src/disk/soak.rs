@@ -1,16 +1,3 @@
-//! The automated soak (M9 slice R6, S8): 64 streamed stereo tracks played in
-//! real time from a disk whose reads take a varying time and now and then
-//! stall, with a loop going round and locates to markers, to the loop's
-//! start and to places nothing marks, each held until the disk has read
-//! there, as the transport holds them (L A). No late read is allowed. The
-//! wait is not cut off at 150 ms, so that a CI machine under load tests the
-//! read-ahead rather than its own disk; holds longer than that are reported.
-//! Blocks whose time passed while the machine was busy are missed, as a
-//! device misses them, and reported apart: they are dropouts, not late reads.
-//!
-//! `LUMEN_SOAK_SECONDS` runs it longer than CI's default. CI runs it alone,
-//! with the other real-time tests (`.github/timing-tests.txt`).
-
 use std::sync::atomic::AtomicUsize;
 
 use lumen_core::time::Ticks;
@@ -26,13 +13,9 @@ use crate::transport::hold::{Gate, Held, LONGEST};
 const RATE: u32 = 48_000;
 const BLOCK: usize = 128;
 const TRACKS: u64 = 64;
-/// A minute of audio per file: 704 pages.
 const FILE_SECONDS: u64 = 60;
-/// A quarter at 120 BPM.
 const QUARTER: i64 = 24_000;
 
-/// Pages read after a time that varies from 50 to 250 µs (a fast disk under
-/// load), and every 1,000th read stalls for 40 ms (the disk busy elsewhere).
 struct Uneven {
     reads: Arc<AtomicUsize>,
 }
@@ -49,8 +32,6 @@ impl Pages for Uneven {
         if n % 1_000 == 999 {
             std::thread::sleep(Duration::from_millis(40));
         } else {
-            // Spun: a sleep this short lasts a millisecond or more on some
-            // systems.
             let wait = Duration::from_micros(50 + (n as u64 * 7_919) % 200);
             let started = Instant::now();
             while started.elapsed() < wait {
@@ -67,16 +48,11 @@ impl Pages for Uneven {
     fn keep(&mut self, _: &[StreamAudio]) {}
 }
 
-/// What the soak does, in seconds after it starts.
 #[derive(Clone, Copy, Debug)]
 enum Step {
-    /// To the start (a point the disk keeps).
     Start,
-    /// To the marker (a point).
     Marker,
-    /// To the loop's start (a point), and round the loop from there.
     Loop,
-    /// Somewhere nothing marks: the disk is cued there first.
     Elsewhere(i64),
 }
 
@@ -91,7 +67,6 @@ impl Step {
     }
 }
 
-/// The steps of one 8 s round, the `round`th: each place is played for 2 s.
 fn round(round: i64) -> [Step; 4] {
     [
         Step::Start,
@@ -141,7 +116,6 @@ fn sixty_four_streamed_tracks_play_with_loops_and_locates_and_none_is_late() {
             .unwrap()
     );
     let (mut handle, mut engine) = engine(Timeline::default(), source, RATE);
-    // A loop of one second, from 8 s.
     let looped = (16 * QUARTER, 18 * QUARTER);
     handle
         .send(Command::SetLoop(Region::new(
@@ -182,15 +156,12 @@ fn sixty_four_streamed_tracks_play_with_loops_and_locates_and_none_is_late() {
     let mut first = true;
     let mut longest_hold = Duration::ZERO;
     let mut overdue = 0usize;
-    // Each late read: when, how long after the last start was sent, and in
-    // which step, so a failure says where the read-ahead fell short.
     let mut sent = Instant::now();
     let mut step = None;
     let mut late = Vec::new();
     let mut counted = 0;
     let mut missed = 0u32;
     while started.elapsed().as_secs_f64() < seconds {
-        // The next step every 2 s, held for the disk.
         if held.is_none()
             && next < steps.len()
             && started.elapsed().as_secs_f64() >= 2.0 * next as f64
@@ -206,8 +177,6 @@ fn sixty_four_streamed_tracks_play_with_loops_and_locates_and_none_is_late() {
             first = false;
             next += 1;
             step = Some(steps[next - 1]);
-            // As the transport starts (`Transport::start`): the disk reads
-            // there first until the playhead has arrived.
             gate.cuer.cue(Some(sample));
             if gate.ready(sample) {
                 handle.send(command).unwrap();
@@ -237,11 +206,6 @@ fn sixty_four_streamed_tracks_play_with_loops_and_locates_and_none_is_late() {
             late.push((now - counted, started.elapsed(), sent.elapsed(), step));
             counted = now;
         }
-        // In real time: wait for the block's time to come. A block whose
-        // time has passed is missed, as a device's callback is when the
-        // machine is busy: a dropout, which the app counts apart from late
-        // reads. Processing the missed blocks one after another instead
-        // would play faster than real time, which no device does.
         match (block * played).checked_sub(started.elapsed()) {
             Some(wait) => std::thread::sleep(wait),
             None => {

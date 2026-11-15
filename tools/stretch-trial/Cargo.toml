@@ -1,6 +1,3 @@
-# The M9.5 S0 time-stretch trial (docs/milestones/M9.5.md, TS1). A bench
-# program that is never shipped: it is its own workspace, so its candidate
-# libraries (some GPL or MPL) never enter Lumen's Cargo.lock or cargo-deny.
 [package]
 name = "stretch-trial"
 version = "0.0.1"

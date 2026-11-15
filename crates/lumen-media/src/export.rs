@@ -1,10 +1,3 @@
-//! Standalone export encoding from a rendered stereo float WAV.
-//!
-//! All work is intended for a worker thread. WAV output is written in bounded
-//! blocks to a sibling temporary file and installed only after it is complete.
-//! FLAC frames are encoded individually to a temporary file, with cancellation
-//! between frames. The render is read in blocks and never held whole.
-
 use std::fs::{self, File};
 use std::io::{BufReader, BufWriter, Read, Seek, Write};
 use std::path::{Path, PathBuf};
@@ -19,7 +12,6 @@ use crate::{MediaError, cancelled};
 
 const BLOCK_FRAMES: usize = 16_384;
 
-/// The destination encoding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
     WavI16,
@@ -47,7 +39,6 @@ impl Format {
     }
 }
 
-/// Output options. Dither is applied only to integer formats.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Spec {
     pub sample_rate: u32,
@@ -56,24 +47,13 @@ pub struct Spec {
     pub tpdf_dither: bool,
 }
 
-/// Summary of the audio that was installed at the destination.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ResultInfo {
     pub frames: u64,
-    /// Maximum absolute sample after normalization and output-rate conversion.
     pub sample_peak: f32,
-    /// Linear gain applied by peak normalization, or 1.0 when it was not used.
     pub normalization_gain: f64,
 }
 
-/// Encodes a stereo 32-bit float WAV render to `destination`.
-///
-/// The destination is untouched until encoding succeeds. The render is read
-/// in blocks and never held whole (M9 slice R6): a rate change converts it
-/// into a temporary file beside the destination first, normalizing reads it
-/// once for its peak, then the output is written block by block. WAV output
-/// becomes RF64 beyond 4 GiB. Cancellation is checked between blocks and
-/// between FLAC frames. Progress runs from 0.0 to 1.0.
 pub fn encode(
     source: &Path,
     destination: &Path,
@@ -188,12 +168,8 @@ fn validate_float_stereo_wav(path: &Path) -> Result<(), MediaError> {
     }
 }
 
-/// What [`blocks`] hands each block to: the left and right samples and the
-/// share of the file read so far.
 type Block<'b> = dyn FnMut(&[f32], &[f32], f32) -> Result<(), MediaError> + 'b;
 
-/// Reads the stereo file `path` in blocks of `size` frames; returns the
-/// frames read.
 fn blocks(
     path: &Path,
     size: usize,
@@ -220,7 +196,6 @@ fn blocks(
     Ok(frames)
 }
 
-/// Checks a block is finite and raises `peak` to its largest sample.
 fn scan(left: &[f32], right: &[f32], peak: &mut f32) -> Result<(), MediaError> {
     for &v in left.iter().chain(right) {
         if !v.is_finite() {
@@ -233,8 +208,6 @@ fn scan(left: &[f32], right: &[f32], peak: &mut f32) -> Result<(), MediaError> {
     Ok(())
 }
 
-/// Converts the stereo render `source` from `from` to `to` into a float
-/// file at `destination`, block by block.
 fn convert_stereo(
     source: &Path,
     from: u32,
@@ -304,8 +277,6 @@ fn encode_wav(
                 l += f64::from(rng.tpdf()) / scale;
                 r += f64::from(rng.tpdf()) / scale;
             }
-            // Quantize in f64 before conversion to the exactly representable
-            // PCM step, so f32 addition cannot bias 24-bit dither.
             let pcm = |v: f64| {
                 if spec.format.is_float() {
                     v as f32
@@ -402,8 +373,6 @@ fn encode_flac(
     frame_file.get_ref().sync_all().map_err(crate::wav::io)?;
     drop(frame_file);
     stream.stream_info_mut().set_total_samples(frames as usize);
-    // Fixed blocking uses this nominal size even when the last frame is
-    // shorter. Readers derive frame positions from it.
     stream
         .stream_info_mut()
         .set_block_sizes(block_size, block_size)
@@ -649,7 +618,6 @@ mod tests {
                 let streaminfo = u64::from_be_bytes(bytes[18..26].try_into().unwrap());
                 ((streaminfo >> 36) & 0x1f) as u16 + 1
             } else {
-                // After the 36-byte JUNK chunk kept for RF64.
                 u16::from_le_bytes([bytes[70], bytes[71]])
             };
             assert_eq!(found_depth, depth, "{format:?}");

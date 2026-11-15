@@ -1,9 +1,3 @@
-//! Importing Standard MIDI Files (M5 slice 7, owner's F1 and F2): a file
-//! dropped on a MIDI track becomes one clip there; dropped between tracks or
-//! on empty lanes, a new MIDI track per part. Notes are placed in beats, so
-//! they follow the project's tempo; the file's tempo and meter are taken
-//! only when asked ([`Document::use_file_tempo`]). Each is one undo step.
-
 use std::sync::Arc;
 
 use lumen_core::meter::{Meter, MeterPoint, tidy};
@@ -15,8 +9,6 @@ use lumen_project::smf::{FileTrack, MidiFile};
 use super::clips::fresh_ids;
 use super::{Document, MAX_BEATS_PER_BAR, track_color};
 
-/// A clip's content from parts of a file: their notes and events merged,
-/// in time order.
 fn merged<'a>(parts: impl IntoIterator<Item = &'a FileTrack>) -> (Vec<Note>, Vec<ClipEvent>) {
     let (mut notes, mut events) = (Vec::new(), Vec::new());
     for part in parts {
@@ -28,8 +20,6 @@ fn merged<'a>(parts: impl IntoIterator<Item = &'a FileTrack>) -> (Vec<Note>, Vec
     (notes, events)
 }
 
-/// A clip's length for content ending at `end`: whole bars of the
-/// project's meter where the clip begins at `at`, one at least.
 fn bars_for(project: &Project, at: Ticks, end: Ticks) -> Ticks {
     let bar = project.meter_map().meter_at(at).bar();
     Ticks(((end.0 + bar.0 - 1) / bar.0).max(1) * bar.0)
@@ -66,9 +56,6 @@ fn clip(
     })
 }
 
-/// The new tracks' names: each part's track name, or the file's; a name
-/// shared by several parts (a type 0 file split by channel) gets its
-/// channel.
 fn part_names(file: &MidiFile, fallback: &str) -> Vec<String> {
     let base: Vec<&str> = file
         .tracks
@@ -89,10 +76,6 @@ fn part_names(file: &MidiFile, fallback: &str) -> Vec<String> {
 }
 
 impl Document {
-    /// Puts every part of `file` as one clip named `name` on the MIDI track
-    /// `track` at `at`, cutting away the unlocked clips it covers. Returns
-    /// the clip, or nothing when the file holds no notes or events, the
-    /// track is not a MIDI track, or a locked clip is in the way.
     pub fn import_midi_clip(
         &mut self,
         track: Id,
@@ -133,10 +116,6 @@ impl Document {
         Some(id)
     }
 
-    /// Adds a new MIDI track for each part of `file`, with the synth, each
-    /// holding the part as one clip at `at`; before the track `before` (at
-    /// the end when `None`), inside `group`. `name` names parts the file
-    /// leaves unnamed. Returns the new tracks (none for an empty file).
     pub fn import_midi_tracks(
         &mut self,
         before: Option<Id>,
@@ -201,9 +180,6 @@ impl Document {
         ids.into_iter().map(|(track, _, _)| track).collect()
     }
 
-    /// Takes a MIDI file's tempo map and time signature (F2's "Use them"),
-    /// as one undo step. A tempo map Lumen cannot hold is left out; so is
-    /// the meter, when there is none. Clips stay where they are in beats.
     pub fn use_file_tempo(&mut self, tempo: &[TempoPoint], meter: &[MeterPoint]) {
         let tempo = TempoMap::new(tempo.to_vec())
             .ok()
@@ -242,7 +218,6 @@ mod tests {
         Ticks::quarters(n)
     }
 
-    /// Two parts: keys on channel 1 with a pedal, drums on channel 10.
     fn song() -> MidiFile {
         MidiFile {
             tracks: vec![
@@ -310,7 +285,6 @@ mod tests {
         assert_eq!(doc.history().steps().0.len(), steps + 1, "one step");
         let clips = &doc.project().tracks[0].clips;
         let new = clips.iter().find(|c| c.id == id).unwrap();
-        // The drums end at quarter 6: two 4/4 bars.
         assert_eq!(
             (new.start, new.length, new.name.as_str()),
             (q(4), q(8), "song")
@@ -321,7 +295,6 @@ mod tests {
         assert!(clips.iter().any(|c| c.id == old && c.length == q(4)));
         assert_eq!(lumen_project::validate(doc.project()), Ok(()));
 
-        // Not a MIDI track, or an empty file: nothing.
         let audio = doc.add_track(TrackKind::Audio, None);
         assert_eq!(doc.import_midi_clip(audio, q(0), "song", &song()), None);
         assert_eq!(
@@ -358,8 +331,6 @@ mod tests {
         );
     }
 
-    /// A MIDI file on new tracks gives each the New tracks instrument (M9
-    /// R7): the chosen preset, or none.
     #[test]
     fn imported_parts_get_the_new_tracks_instrument() {
         let mut doc = Document::new(crate::empty_project());
@@ -403,7 +374,6 @@ mod tests {
         assert_eq!(project.meter, file.meter);
         doc.undo();
         assert_eq!(doc.project().tempo.len(), 1);
-        // A map Lumen cannot hold is left out; the meter still comes.
         doc.use_file_tempo(
             &[TempoPoint {
                 at: q(1),

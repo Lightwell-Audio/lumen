@@ -1,7 +1,3 @@
-//! Where a MIDI track listens and plays to (M5 slice 2, the owner's R A):
-//! the choices as menus, shared by the track menu and the mixer strip's
-//! From and To rows, and the Monitor switch.
-
 use eframe::egui::{Color32, FontId, Id as EguiId, Rect, Ui};
 use lumen_devices::Preset;
 use lumen_project::model::{FromSource, Id, MidiFrom, MidiTo, Monitor, Track, TrackKind};
@@ -12,8 +8,6 @@ use crate::app::hardware::{MenuInputs, MenuPorts};
 use crate::document::Document;
 use crate::{theme, widgets};
 
-/// A MIDI input as a strip shows it: "All ins", "Keyboard" or the port's
-/// name, then the channel if one is chosen.
 pub(super) fn from_text(from: &MidiFrom, inputs: &MenuInputs) -> String {
     let source = match &from.source {
         FromSource::All => "All ins".to_owned(),
@@ -30,8 +24,6 @@ pub(super) fn from_text(from: &MidiFrom, inputs: &MenuInputs) -> String {
     }
 }
 
-/// Where a MIDI track plays, as a strip shows it: the instrument's sound,
-/// or the output port and channel.
 pub(super) fn to_text(track: &Track, outputs: &MenuPorts) -> String {
     match &track.midi_to {
         Some(out) => {
@@ -49,9 +41,6 @@ pub(super) fn to_text(track: &Track, outputs: &MenuPorts) -> String {
     }
 }
 
-/// The choices of what `midi` tracks listen to: all inputs, the computer
-/// keyboard, then each input present with its channels, and the inputs the
-/// tracks name that are not plugged in, dimmed.
 pub(super) fn from_menu(ui: &mut Ui, doc: &mut Document, midi: &[Id], current: &MidiFrom) {
     let inputs = MenuInputs::of(ui.ctx());
     let set = |doc: &mut Document, ui: &mut Ui, source: FromSource, channel: Option<u8>| {
@@ -103,8 +92,6 @@ pub(super) fn from_menu(ui: &mut Ui, doc: &mut Document, midi: &[Id], current: &
     }
 }
 
-/// The choices of where `midi` tracks play: the instrument, or an output
-/// port and channel.
 pub(super) fn to_menu(ui: &mut Ui, doc: &mut Document, midi: &[Id], to: &Option<MidiTo>) {
     let ports = MenuPorts::of(ui.ctx());
     if widgets::menu_toggle(ui, "Instrument", None, to.is_none()).clicked() {
@@ -140,7 +127,6 @@ pub(super) fn to_menu(ui: &mut Ui, doc: &mut Document, midi: &[Id], to: &Option<
     }
 }
 
-/// The Monitor row of the track menu: a caption and In, Auto, Off.
 pub(super) fn monitor_row(ui: &mut Ui, doc: &mut Document, ids: &[Id], current: Monitor) {
     widgets::menu_caption(ui, "Monitor");
     let choices = [
@@ -154,14 +140,10 @@ pub(super) fn monitor_row(ui: &mut Ui, doc: &mut Document, ids: &[Id], current: 
     }
 }
 
-/// Whether "From" and "To" fit before their values in a strip's rows of
-/// width `row`: when either does not, both rows show the values alone (the
-/// tooltips and names say which is which), so the pair reads alike.
 fn prefixes_fit(ui: &Ui, row: Rect, track: &Track) -> bool {
     let from = from_text(&track.midi_from, &MenuInputs::of(ui.ctx()));
     let to = to_text(track, &MenuPorts::of(ui.ctx()));
     let font = FontId::proportional(theme::size::CAPTION);
-    // The room `row_button` gives text.
     let room = row.width() - 20.0;
     [format!("From  {from}"), format!("To  {to}")]
         .into_iter()
@@ -175,7 +157,6 @@ fn prefixes_fit(ui: &Ui, row: Rect, track: &Track) -> bool {
 }
 
 impl Arrangement {
-    /// A MIDI strip's From row; a click opens the choices.
     pub(super) fn input_row(
         &mut self,
         ui: &mut Ui,
@@ -207,7 +188,6 @@ impl Arrangement {
         });
     }
 
-    /// A MIDI strip's To row; a click opens the choices.
     pub(super) fn output_row(
         &mut self,
         ui: &mut Ui,
@@ -239,8 +219,6 @@ impl Arrangement {
         });
     }
 
-    /// The MIDI tracks a change on `id` applies to: the selection when `id`
-    /// is in it, otherwise `id`.
     pub(super) fn midi_targets(&self, doc: &Document, id: Id) -> Vec<Id> {
         let targets = self.targets(id);
         doc.project()

@@ -1,11 +1,3 @@
-//! The Frozen badge on a track header (M7b slice E5, the owner's FR2): a small
-//! lit pill after the name, shown only while the track is frozen. A click
-//! unfreezes the track, so the way out of the read-only state is always at
-//! hand. It is on (`Tone::On`, like the Monitor badge): a state the user
-//! chose, not something sounding. It says "Frozen" when the name keeps room
-//! beside it, and is the padlock alone (the clips' own mark) when the header
-//! is narrow; either way it is named for assistive technology.
-
 use eframe::egui::{self, Align2, Id as EguiId, Rect, Sense, Ui, pos2, vec2};
 use eframe::emath::GuiRounding as _;
 use lumen_project::model::Track;
@@ -17,9 +9,7 @@ use crate::{motion, theme, widgets};
 
 const WORD: &str = "Frozen";
 const PADDING: f32 = 6.0;
-/// The gap between the name and the badge.
 const GAP: f32 = 4.0;
-/// The name keeps at least this much, or the badge shrinks to the padlock.
 const NAME_MIN: f32 = 44.0;
 const LOCK: f32 = 10.0;
 
@@ -27,8 +17,6 @@ fn font() -> egui::FontId {
     egui::FontId::proportional(theme::size::CAPTION)
 }
 
-/// The badge's width: the word, or the padlock when the name would be left
-/// with less than [`NAME_MIN`] of `available`.
 fn width(ui: &Ui, available: f32) -> (f32, bool) {
     let word = ui
         .painter()
@@ -43,14 +31,10 @@ fn width(ui: &Ui, available: f32) -> (f32, bool) {
     }
 }
 
-/// The width the badge takes in a name `available` wide, with the gap
-/// before it.
 pub(super) fn room(ui: &Ui, available: f32) -> f32 {
     width(ui, available).0 + GAP
 }
 
-/// Draws the badge at the right end of `row` (the name's rectangle before
-/// the badge took its room); returns whether it was clicked.
 pub(super) fn badge(ui: &mut Ui, row: Rect, id: EguiId, track: &Track, selected: bool) -> bool {
     let (wide, compact) = width(ui, row.width());
     let size = vec2(wide, theme::size::CONTROL_SMALL - 4.0);

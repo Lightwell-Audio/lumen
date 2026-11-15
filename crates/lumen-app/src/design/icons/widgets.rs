@@ -1,7 +1,3 @@
-//! The controls that show an icon: the transport-bar button and panel
-//! toggle (`button`, `toggle`, `beam`), a window's close button, and the cue
-//! button's headphones.
-
 use eframe::egui::{self, Color32, Painter, Pos2, Rect, Response, Sense, Stroke, Ui, Vec2, vec2};
 use eframe::emath::GuiRounding as _;
 
@@ -9,10 +5,6 @@ use crate::theme;
 
 use super::{Icon, shapes};
 
-/// Lights a transport button that is sounding now (Play while playing):
-/// the `light::BEAM` level's halo around it (ADR-0043). Drawn over the
-/// button `button` returned; the button itself gives the icon its core
-/// colour and the fill its `accent_muted`.
 pub fn beam(ui: &Ui, rect: egui::Rect) {
     crate::light::halo_around(
         ui.painter(),
@@ -23,15 +15,6 @@ pub fn beam(ui: &Ui, rect: egui::Rect) {
     );
 }
 
-/// A transport-bar button showing `icon`, as a piece of the well it sits
-/// in (the interface audit's TB1; lay it out in `widgets::well::row`).
-/// `active` marks a toggle that is on (or Play while playing, Record while
-/// recording). The accessible name is `label`; the tooltip adds the
-/// shortcut as keycaps and a hint (`tip`).
-///
-/// It is bare at rest, a `text_secondary` icon; hover lays Ember over it;
-/// pressed it sinks; on it is filled in [`Tone::On`], Play while playing
-/// has the icon in `core`, and Record while recording is [`Tone::Record`].
 pub fn button(
     ui: &mut Ui,
     icon: Icon,
@@ -55,41 +38,24 @@ pub fn button(
     )
 }
 
-/// How a transport button is in its state and painted (the Record button's
-/// states, M5 slice 6d). The fields left at their default keep [`button`]'s
-/// look.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Look<'a> {
-    /// A toggle that is on (Record while recording, Overdub when on).
     pub active: bool,
     pub enabled: bool,
-    /// Said after the label when disabled.
     pub disabled_reason: &'a str,
-    /// The tone it lights in (default: Record for the record glyph, On for
-    /// the rest).
     pub tone: Option<theme::Tone>,
-    /// The icon's colour, in place of the face's text.
     pub ink: Option<Color32>,
-    /// How lit, 0 to 1, in place of the cross-fade from `active` (a pulse
-    /// that is not a state).
     pub lit: Option<f32>,
-    /// How its body is drawn.
     pub body: Body,
 }
 
-/// How a transport-bar button's body is drawn.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Body {
-    /// A piece of a sunk well, filled while on.
     #[default]
     Piece,
-    /// Bare, and on an accent icon over a short accent underline: a panel
-    /// toggle, on most of the time, stays quiet (the interface audit's TB1).
     Underlined,
 }
 
-/// A panel toggle at the bar's right: [`button`] with the underlined body,
-/// on while its panel is shown.
 pub fn toggle(
     ui: &mut Ui,
     icon: Icon,
@@ -111,7 +77,6 @@ pub fn toggle(
     )
 }
 
-/// [`button`] with its state and look given by `look`.
 pub fn button_look(
     ui: &mut Ui,
     icon: Icon,
@@ -140,7 +105,6 @@ pub fn button_look(
     });
     if ui.is_rect_visible(rect) {
         let c = theme::p();
-        // Hover and being lit cross-fade (motion: FAST).
         let hot = enabled && (response.hovered() || response.has_focus());
         let lit = look
             .lit
@@ -164,13 +128,11 @@ pub fn button_look(
             }
             Body::Underlined => paint_underlined(ui.painter(), rect, &face),
         };
-        // Play while playing reads in the core colour, like the playhead.
         let color = if matches!(icon, Icon::Play | Icon::Pause) {
             face.text().lerp_to_gamma(c.core, lit)
         } else {
             look.ink.unwrap_or_else(|| face.text())
         };
-        // The icon sits on the body's centre, in whole pixels.
         let icon_rect = Rect::from_center_size(body.center().round(), Vec2::splat(ICON_SIZE));
         for shape in shapes(icon, icon_rect, color) {
             ui.painter().add(shape);
@@ -201,13 +163,8 @@ pub fn button_look(
     crate::widgets::tip(response, &label, tip.keys, tip.hint)
 }
 
-/// The icon's side on a transport button: the 16 pt grid of every icon.
 const ICON_SIZE: f32 = 16.0;
 
-/// A panel toggle's body: nothing at rest, an Ember wash on hover, the
-/// sunk look while pressed, and while on a 2 pt accent line under the icon
-/// (the icon itself turns accent through the face). Returns the rect the
-/// icon is centred in.
 fn paint_underlined(painter: &Painter, rect: Rect, face: &crate::widgets::raised::Face) -> Rect {
     use crate::widgets::raised;
     if !face.enabled {
@@ -235,15 +192,10 @@ fn paint_underlined(painter: &Painter, rect: Rect, face: &crate::widgets::raised
     rect
 }
 
-/// How long a panel toggle's underline is: 10 pt, under the middle of
-/// its icon.
 const UNDERLINE: f32 = ICON_SIZE - theme::space::XS - theme::space::XXS;
 
-/// The close button's size.
 pub const CLOSE_SIZE: f32 = 22.0;
 
-/// A window's close button (ADR-0051): a bare X at rest, and a small raised
-/// control on hover that sinks while pressed. The focus ring is 2 pt.
 pub fn close_button(ui: &mut Ui) -> Response {
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(CLOSE_SIZE), egui::Sense::click());
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Close"));
@@ -273,8 +225,6 @@ pub fn close_button(ui: &mut Ui) -> Response {
     response.on_hover_text("Close (Esc)")
 }
 
-/// Headphones, about 11 pt, for a cue button (M4 slice 4): a band over
-/// two ear cups.
 pub fn draw_headphones(painter: &Painter, center: Pos2, color: Color32) {
     let stroke = Stroke::new(theme::stroke::GLYPH_WIDE, color);
     let r = 4.6;

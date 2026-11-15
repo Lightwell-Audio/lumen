@@ -1,22 +1,3 @@
-//! Live MIDI into the engine (M5 slice 2, ADR-0046): messages from the
-//! MIDI inputs and the computer keyboard, each placed on the device frame
-//! at which it is heard.
-//!
-//! The owner's J ("steady"): a message is heard one block after it was
-//! played, so a phrase keeps its spacing whatever the block boundaries. The
-//! time it was played comes from the driver's stamp (stamps keep the
-//! spacing; each input's offset from the clock is the smallest
-//! `arrived - stamp` seen lately, which drifts up slowly so a driver clock
-//! that runs slow is followed). Frames come from the audio callback's
-//! [`StreamClock`]: the earliest `time - frame` lately seen is frame 0's
-//! time, as for MIDI out. A message is never placed earlier than the part
-//! being rendered, nor more than two blocks after the block that takes it,
-//! so a clock that is off can only make it sound sooner.
-//!
-//! [`LiveFeed`] runs on the audio thread, inside the engine's MIDI player:
-//! nothing here allocates once it is made. The computer keyboard sends
-//! through [`LiveKeys`] from the UI thread.
-
 use std::sync::Arc;
 
 use lumen_core::midi::{Kind, Msg};
@@ -26,28 +7,18 @@ use lumen_midi::Timed;
 use crate::live_tap::{Heard, Played, Shared, TAP_QUEUE, Tap};
 use crate::midi::out::{StreamClock, frame_ns};
 
-/// How many recent blocks frame 0's time is taken over.
 const WINDOW: usize = 256;
-/// Messages waiting for their frame; more are played at once.
 const PENDING: usize = 512;
-/// A message stamped this much before it arrived is not believed: the
-/// input's offset starts again from this message.
 const DOUBT_NS: i64 = 20_000_000;
-/// A note-on this late is dropped (the audio stood still); its note-off
-/// still goes, so nothing hangs.
 const STALE_NS: i64 = 100_000_000;
-/// Messages queued from the computer keyboard.
 const KEYS_QUEUE: usize = 256;
 
-/// One input's offset from its driver stamps to the clock.
 #[derive(Debug, Clone, Copy, Default)]
 struct StampMap {
     offset: Option<i64>,
 }
 
 impl StampMap {
-    /// The clock time at which a message stamped `stamp_ns` that arrived at
-    /// `arrived_ns` was played.
     fn played(&mut self, stamp_ns: i64, arrived_ns: i64) -> i64 {
         let gap = arrived_ns - stamp_ns;
         let offset = match self.offset {
@@ -59,7 +30,6 @@ impl StampMap {
     }
 }
 
-/// Frame 0's time: the earliest `time - frame` over recent blocks.
 struct FrameMap {
     offsets: [i64; WINDOW],
     count: usize,
@@ -98,7 +68,6 @@ impl FrameMap {
             .unwrap_or(0);
     }
 
-    /// The frame heard at clock time `nanos`, or `None` before any block.
     fn frame_at(&self, nanos: i64, rate: u32) -> Option<u64> {
         if self.count == 0 {
             return None;
@@ -108,33 +77,25 @@ impl FrameMap {
     }
 }
 
-/// A message from the computer keyboard, at clock time `nanos`.
 #[derive(Debug, Clone, Copy)]
 struct Keyed {
     nanos: i64,
-    /// For the piano roll's audition: the track it sounds on.
     track: Option<u64>,
     msg: Msg,
 }
 
-/// The UI's side of the computer keyboard: sends notes now.
 pub struct LiveKeys {
     tx: rtrb::Producer<Keyed>,
     clock: Arc<StreamClock>,
-    /// Messages sent so far: the activity light compares it frame to frame.
     sent: u32,
-    /// The keys held down, one bit a key: the light stays lit while any is.
     held: u128,
 }
 
 impl LiveKeys {
-    /// Sends `msg` as played now. False if the queue is full.
     pub fn send(&mut self, msg: Msg) -> bool {
         self.push(None, msg)
     }
 
-    /// Sends `msg` as an audition on `track` (M5 slice 3d): it sounds
-    /// there whether or not the track listens, and has notes of its own.
     pub fn send_to(&mut self, track: u64, msg: Msg) -> bool {
         self.push(Some(track), msg)
     }
@@ -153,49 +114,36 @@ impl LiveKeys {
         sent
     }
 
-    /// How many messages have been sent (for the activity light).
     pub fn activity(&self) -> u32 {
         self.sent
     }
 
-    /// Whether a key is held down now (for the activity light).
     pub fn held(&self) -> bool {
         self.held != 0
     }
 }
 
-/// What the block taking messages looks like.
 #[derive(Clone, Copy)]
 struct Block {
-    /// The callback's first frame.
     start: u64,
     frames: u64,
     rate: u32,
 }
 
-/// The audio side: hands the engine each part's live messages. A
-/// [`LiveInput`].
 pub(crate) struct LiveFeed {
     input: Option<rtrb::Consumer<Timed>>,
     keys: rtrb::Consumer<Keyed>,
     clock: Arc<StreamClock>,
     frames: FrameMap,
     stamps: [StampMap; INPUT_SLOTS as usize],
-    /// For each source, the frame and played frame of the last message it
-    /// had placed: the next is never before them.
     floor: [(u64, u64); LIVE_SOURCES as usize],
-    /// Sorted by frame; `len` used.
     pending: [LiveIn; PENDING],
     len: usize,
-    /// Controller messages for the interface (M7 slice A5).
     tap: rtrb::Producer<Heard>,
-    /// Note-ons for the interface (M8 D1: the map editor's Learn).
     notes: rtrb::Producer<Played>,
     shared: Arc<Shared>,
 }
 
-/// The three ends: the feed for the engine, the keyboard's sender, and the
-/// interface's tap on the controllers and the notes.
 pub(crate) fn live(
     input: Option<rtrb::Consumer<Timed>>,
     clock: Arc<StreamClock>,
@@ -240,9 +188,6 @@ pub(crate) fn live(
 }
 
 impl LiveFeed {
-    /// The frame at which a message played at `nanos` is heard, and the
-    /// frame it was played at (the clock's, before the feed's block of
-    /// delay), which a recording puts it at.
     fn place(&self, nanos: i64, block: Option<Block>, start: u64) -> (u64, u64) {
         let Some(block) = block else {
             return (start, start);
@@ -258,8 +203,6 @@ impl LiveFeed {
         }
     }
 
-    /// Tells the interface a controller moved, or counts it if the queue is
-    /// full: nothing here waits.
     fn tell(&mut self, source: u8, channel: u8, number: u8, value: u8, played: u64) {
         let heard = Heard {
             source,
@@ -275,8 +218,6 @@ impl LiveFeed {
         }
     }
 
-    /// Tells the interface a note was played, or counts it if the queue is
-    /// full: the map editor's Learn listens (M8 D1); nothing here waits.
     fn tell_note(&mut self, source: u8, channel: u8, key: u8, velocity: u8) {
         let played = Played {
             source,
@@ -291,26 +232,17 @@ impl LiveFeed {
         }
     }
 
-    /// Whether a message played at `nanos` is too late to start a note.
     fn stale(&self, nanos: i64, msg: Msg) -> bool {
         matches!(msg.kind(), Kind::NoteOn { .. }) && self.clock.now() - nanos > STALE_NS
     }
 
-    /// Queues `message` in frame order, or gives it at once if the queue
-    /// is full.
     fn queue(&mut self, mut message: LiveIn, take: &mut dyn FnMut(LiveIn)) {
-        // One source's messages keep the order they came in. The frame map
-        // is an estimate that moves between blocks (its window forgets its
-        // earliest sample), so a later message can map before an earlier
-        // one; a note-on must never overtake the note-off of its key.
         if let Some(floor) = self.floor.get_mut(usize::from(message.source)) {
             message.frame = message.frame.max(floor.0);
             message.played = message.played.max(floor.1);
             *floor = (message.frame, message.played);
         }
         if self.len == PENDING {
-            // Overloaded: everything waiting goes first, in order, then this
-            // one, so a note-off is never given before its note-on.
             for waiting in &self.pending[..self.len] {
                 take(*waiting);
             }
@@ -356,7 +288,6 @@ impl LiveInput for LiveFeed {
                 let (frame, at) = self.place(played, block, start);
                 if let Kind::Controller { number, value } = msg.kind() {
                     self.tell(source, msg.channel(), number, value, at);
-                    // A controller a mapping moves is not the engine's.
                     if self.shared.taken.contains(msg.channel(), number) {
                         continue;
                     }
@@ -429,8 +360,6 @@ mod tests {
         }
     }
 
-    /// Runs one 128-frame block at 48 kHz that started at clock time
-    /// `nanos`, returning what it played.
     fn block(feed: &mut LiveFeed, clock: &StreamClock, index: u64, nanos: i64) -> Vec<LiveIn> {
         clock.publish_at(index * 128, 128, 48_000, nanos);
         let mut got = Vec::new();
@@ -438,7 +367,6 @@ mod tests {
         got
     }
 
-    /// Nanoseconds of frame `frame` at 48 kHz.
     fn at(frame: i64) -> i64 {
         frame * 1_000_000_000 / 48_000
     }
@@ -448,19 +376,14 @@ mod tests {
         let clock = StreamClock::new();
         let (mut tx, rx) = rtrb::RingBuffer::new(64);
         let (mut feed, _keys, _tap) = live(Some(rx), Arc::clone(&clock));
-        // Blocks every 128 frames, each callback up to 0.9 ms late.
         let late = [
             0, 900_000, 300_000, 0, 700_000, 100_000, 0, 0, 500_000, 0, 0, 0,
         ];
-        // Notes played at frames 100, 333, 610, 1000 (driver stamps from
-        // an origin 5 s before the clock's).
         let played = [100_i64, 333, 610, 1_000];
         let mut heard = Vec::new();
         let callback = |i: usize| at(i as i64 * 128) + late[i];
         for i in 0..late.len() {
             for (n, &frame) in played.iter().enumerate() {
-                // It arrives up to 0.6 ms after it was played, and is taken
-                // by the first callback after that.
                 let arrives = at(frame) + (n as i64 % 3) * 300_000;
                 let after_previous = i == 0 || arrives > callback(i - 1);
                 if after_previous && arrives <= callback(i) {
@@ -479,8 +402,6 @@ mod tests {
         }
         let frames: Vec<u64> = heard.iter().map(|m| m.frame).collect();
         assert_eq!(frames, vec![228, 461, 738, 1_128]);
-        // Where the notes were played, without the block of delay: where a
-        // recording puts them.
         let played: Vec<u64> = heard.iter().map(|m| m.played).collect();
         assert_eq!(played, vec![100, 333, 610, 1_000]);
         assert!(heard.iter().all(|m| m.source == 2));
@@ -492,15 +413,11 @@ mod tests {
         let (mut tx, rx) = rtrb::RingBuffer::new(8);
         let (mut feed, _keys, _tap) = live(Some(rx), Arc::clone(&clock));
         block(&mut feed, &clock, 0, 0);
-        // Frame 0 was at 0 ns; the next callback is 37 ms late, and takes a
-        // note played at 39 ms (frame 1,872).
         clock.publish_at(128, 128, 48_000, 40 * MS);
         tx.push(timed(&clock, 1, 39_000, 39 * MS, Msg::note_on(0, 60, 100)))
             .unwrap();
         let mut got = Vec::new();
         feed.pull(128, 256, &mut |m| got.push(m));
-        // Placed at most two blocks on from the block taking it: here it
-        // waits, then plays in the next block at frame 384.
         assert!(got.is_empty());
         let next = block(&mut feed, &clock, 3, 40 * MS + 1);
         assert_eq!(next.len(), 1);
@@ -530,10 +447,7 @@ mod tests {
     fn driver_stamps_that_do_not_move_fall_back_to_arrival() {
         let mut map = StampMap::default();
         assert_eq!(map.played(0, 10 * MS), 10 * MS);
-        // The same stamp 50 ms later: not believed, so it is when it came.
         assert_eq!(map.played(0, 60 * MS), 60 * MS);
-        // A stamp that moves with the clock keeps its spacing.
-        // (The offset creeps up by 1/256 of a later gap: a few µs here.)
         let played = map.played(5 * MS, 66 * MS);
         assert!((played - 65 * MS).abs() < MS / 100, "{played}");
     }
@@ -544,17 +458,12 @@ mod tests {
         let (mut tx, rx) = rtrb::RingBuffer::new(8);
         let (mut feed, _keys, _tap) = live(Some(rx), Arc::clone(&clock));
         block(&mut feed, &clock, 0, 0);
-        // A note-off played at 20 ms is taken by block 1 and waits for its
-        // frame, two blocks on.
         clock.publish_at(128, 128, 48_000, 21 * MS);
         tx.push(timed(&clock, 1, 20_000, 20 * MS, Msg::note_off(0, 60)))
             .unwrap();
         let mut got = Vec::new();
         feed.pull(128, 256, &mut |m| got.push(m));
         assert!(got.is_empty());
-        // The next block restarts the frame map far later (a rate change
-        // forgets the window), so a note-on played at 39 ms maps to a frame
-        // before the waiting note-off's.
         clock.publish_at(256, 128, 44_100, 100 * MS);
         tx.push(timed(&clock, 1, 39_000, 39 * MS, Msg::note_on(0, 60, 100)))
             .unwrap();
@@ -573,8 +482,6 @@ mod tests {
         let (mut feed, _keys, _tap) = live(Some(rx), Arc::clone(&clock));
         block(&mut feed, &clock, 0, 0);
         clock.publish_at(128, 128, 48_000, 11 * MS);
-        // A note-on and its note-off, over and over: more than the queue
-        // holds, all taken by one block.
         let sent: Vec<Msg> = (0..=PENDING)
             .map(|i| {
                 let key = 40 + (i / 2 % 40) as u8;
@@ -608,8 +515,6 @@ mod tests {
         assert!(block(&mut feed, &clock, 0, now).is_empty());
     }
 
-    // M7 slice A5: the interface's tap on the controllers.
-
     fn heard_by_the_tap(tap: &mut Tap) -> Vec<Heard> {
         let mut got = Vec::new();
         tap.drain(|h| got.push(h));
@@ -622,8 +527,6 @@ mod tests {
         let (mut tx, rx) = rtrb::RingBuffer::new(16);
         let (mut feed, _keys, mut tap) = live(Some(rx), Arc::clone(&clock));
         block(&mut feed, &clock, 0, 0);
-        // Controller 7 on channel 3, value 99, played at frame 200; a note
-        // and a pitch bend beside it.
         let stamp = (at(200) + 5_000 * MS) / 1_000;
         let arrives = at(200);
         tx.push(timed(
@@ -671,7 +574,6 @@ mod tests {
         let arrives = at(200);
         tx.push(timed(&clock, 2, 1, arrives, Msg::controller(2, 7, 10)))
             .unwrap();
-        // The same number on another channel, and another number: not taken.
         tx.push(timed(&clock, 2, 2, arrives, Msg::controller(3, 7, 11)))
             .unwrap();
         tx.push(timed(&clock, 2, 3, arrives, Msg::controller(2, 8, 12)))
@@ -684,7 +586,6 @@ mod tests {
             kinds,
             vec![Msg::controller(3, 7, 11), Msg::controller(2, 8, 12)]
         );
-        // Letting go of the mapping gives the controller back to the engine.
         tap.take([]);
         tx.push(timed(&clock, 2, 4, at(300), Msg::controller(2, 7, 13)))
             .unwrap();
@@ -745,8 +646,6 @@ mod tests {
         let (mut feed, _keys, tap) = live(Some(rx), Arc::clone(&clock));
         tap.take([(0, 1)]);
         block(&mut feed, &clock, 0, 0);
-        // Enough controllers to fill the tap and overflow it, some of them
-        // taken, with notes between them.
         for i in 0..TAP_QUEUE + 40 {
             let msg = if i % 50 == 49 {
                 Msg::note_on(0, 60, 9)

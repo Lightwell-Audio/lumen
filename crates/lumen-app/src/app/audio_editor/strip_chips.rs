@@ -1,9 +1,3 @@
-//! The two chips of the audio editor's strip (M9.5 S3): the Clip chip at the
-//! left, which opens Name and Color, and the File chip at the right, which
-//! opens what is known about the clip's file (§10.5). Both are ordinary
-//! controls: Tab stops with accessible names, opened by a click, Enter or
-//! Space, closed by Esc.
-
 use eframe::egui::{self, Color32, FontId, Key, Rect, RichText, Sense, Ui, pos2, vec2};
 use eframe::emath::GuiRounding as _;
 use lumen_project::model::{Clip, Id};
@@ -15,23 +9,17 @@ use crate::icons::{self, Icon};
 use crate::widgets::{self, Menu, raised};
 use crate::{App, lanes, theme};
 
-/// The Clip chip's colour dot.
 pub(super) const DOT: f32 = 10.0;
-/// The room of a chip's chevron.
 pub(super) const CHEVRON: f32 = 9.0;
-/// The File chip's icon.
 const FILE_ICON: f32 = 13.0;
-/// The most of the clip's name the chip shows.
 pub(super) const CHIP_NAME: f32 = 120.0;
 
-/// A chevron pointing down, centred on `c`.
 pub(super) fn chevron(painter: &egui::Painter, c: egui::Pos2, ink: Color32) {
     let stroke = egui::Stroke::new(theme::stroke::LIT, ink);
     painter.line_segment([c + vec2(-3.0, -1.5), c + vec2(0.0, 1.5)], stroke);
     painter.line_segment([c + vec2(0.0, 1.5), c + vec2(3.0, -1.5)], stroke);
 }
 
-/// The width of `text` in `font`.
 pub(super) fn text_width(ui: &Ui, text: &str, font: FontId) -> f32 {
     ui.painter()
         .layout_no_wrap(text.to_owned(), font, Color32::PLACEHOLDER)
@@ -39,25 +27,18 @@ pub(super) fn text_width(ui: &Ui, text: &str, font: FontId) -> f32 {
         .x
 }
 
-/// How wide the Clip chip is with the name, and as its dot alone.
 pub(super) fn clip_chip_widths(ui: &Ui, name: &str) -> (f32, f32) {
     let name = text_width(ui, name, FontId::proportional(theme::size::BODY)).min(CHIP_NAME);
     let s = theme::space::S;
     (s + DOT + s + name + s + CHEVRON + s, theme::size::CONTROL)
 }
 
-/// How wide the File chip is when it can be: its icon and the file's name,
-/// at most [`theme::size::STRIP_FILE`].
 pub(super) fn file_chip_width(ui: &Ui, name: &str) -> f32 {
     let s = theme::space::S;
     let name = text_width(ui, name, FontId::proportional(theme::size::BODY));
     (s + FILE_ICON + s + name + s + CHEVRON + s).min(theme::size::STRIP_FILE)
 }
 
-/// A chip of the strip that opens a popover (the Warp and Pitch chips): a
-/// raised face with `text` in it (the accent when `lit`) and a chevron, a Tab
-/// stop named `name` for a screen reader, with the focus ring. The caller opens
-/// the popover under the response.
 pub(super) fn popover_chip(
     ui: &mut Ui,
     rect: Rect,
@@ -105,8 +86,6 @@ pub(super) fn popover_chip(
 }
 
 impl App {
-    /// The Clip chip: the clip's colour dot and name (the dot alone when
-    /// `named` is false), opening Name and Color for the opened clip.
     pub(super) fn clip_chip(
         &mut self,
         row: &mut Ui,
@@ -176,21 +155,15 @@ impl App {
         });
         let open = Menu::is_open_for(&ctx, response.id);
         if open && !was {
-            // The name is where the keyboard starts.
             self.clip_props_focus_name();
         }
         if ed.chip_was_open && !open {
-            // Closed while a name was being typed: Esc takes it back, any
-            // other way of leaving applies it, as leaving the field does.
             let cancelled = ctx.input(|i| i.key_pressed(Key::Escape));
             self.apply_pending_clip_name(clip, cancelled);
         }
         ed.chip_was_open = open;
     }
 
-    /// The File chip in `rect`: the file's icon and name, "Missing" in the
-    /// warning colour when it cannot be found. It opens the file's facts, the
-    /// path, Reveal and, for a missing file, Relink.
     pub(super) fn file_chip(&mut self, ui: &mut Ui, rect: Rect, media: Id) {
         let palette = *theme::p();
         let state = self.clip_file_state(media);
@@ -269,7 +242,6 @@ impl App {
         });
     }
 
-    /// What the File chip opens.
     fn file_popover(&mut self, ui: &mut Ui, media: Id, state: &ClipFile, name: &str) {
         let palette = *theme::p();
         ui.label(RichText::new(name).strong());
@@ -332,8 +304,6 @@ impl App {
         });
     }
 
-    /// The words on the File chip: the file's name, or "Missing" when it
-    /// cannot be found.
     pub(super) fn file_chip_text(&self, media: Id) -> String {
         if self.clip_file_state(media) == ClipFile::Missing {
             "Missing".to_owned()
@@ -342,8 +312,6 @@ impl App {
         }
     }
 
-    /// The name of the file of `media`, from the library, or from the
-    /// project when the library does not hold it (a missing file).
     pub(super) fn clip_file_name(&self, media: Id) -> String {
         if let Some(item) = self.lanes.library.get(media.0) {
             return item.name.clone();

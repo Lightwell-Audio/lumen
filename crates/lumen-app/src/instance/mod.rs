@@ -1,19 +1,3 @@
-//! One Lumen per settings file (M9 R8, ADR-0117, owner SI A).
-//!
-//! A start first takes the instance lock, a file in the settings folder
-//! locked with `File::try_lock`, before it writes settings, opens audio or
-//! starts autosave. The holder is the instance: the system frees the lock
-//! when a process ends, however it ends, so a free lock proves the old one
-//! is gone, and two starts at once elect exactly one. The holder then
-//! listens on a named pipe (Windows) or a socket (Unix) for later starts.
-//!
-//! A later start does not touch settings, audio or autosave. It sends its
-//! request (open a project, or only come to the front) and exits once the
-//! running Lumen's window has taken it. For up to 10 s it alternates
-//! between connecting and taking the lock again, which covers a holder
-//! still starting and one that closes meanwhile. A holder that does not
-//! answer is never replaced: its lock proves it is alive.
-
 mod protocol;
 pub(crate) mod start;
 #[cfg(unix)]
@@ -37,32 +21,20 @@ use unix as transport;
 #[cfg(windows)]
 use windows as transport;
 
-/// How long a later start keeps trying before it says Lumen is not answering.
 pub(crate) const PATIENCE: Duration = Duration::from_secs(10);
-/// How long the listener waits for the window to take a request.
 const WINDOW_TAKES: Duration = Duration::from_secs(5);
-/// How long one read or write on a connection may take.
 const IO_TIMEOUT: Duration = Duration::from_secs(2);
-/// Requests waiting for the window, at most; more are turned away as busy.
 const QUEUE: usize = 8;
-/// Between tries of a later start.
 const RETRY: Duration = Duration::from_millis(100);
 
-/// Where an instance lives: its lock file and its endpoint's name, both
-/// from one key.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Place {
     pub(crate) key: String,
     pub(crate) lock: PathBuf,
-    /// The settings folder (the Unix socket's fallback folder).
     pub(crate) folder: PathBuf,
 }
 
 impl Place {
-    /// The instance for the settings file at `settings`: its folder made
-    /// canonical (made first if missing) and its file name, lowercased on
-    /// Windows, so equivalent paths give one instance. `None` if the folder
-    /// cannot be made.
     pub(crate) fn for_settings(settings: &Path) -> Option<Self> {
         let folder = settings.parent().filter(|p| !p.as_os_str().is_empty());
         let folder = folder.unwrap_or(Path::new("."));
@@ -87,52 +59,37 @@ impl Place {
     }
 }
 
-/// FNV-1a, 64 bits: stable across builds and toolchains, unlike std's
-/// hasher, so a debug and a release build agree on the key.
 fn fnv1a(bytes: &[u8]) -> u64 {
     bytes.iter().fold(0xcbf2_9ce4_8422_2325, |h, &b| {
         (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
     })
 }
 
-/// What a start found.
 pub(crate) enum Claim {
-    /// This start is the instance.
     Owner(Instance),
-    /// The running Lumen took the request: this start ends.
     Handed,
-    /// The running Lumen refused it, saying why.
     Refused(String),
-    /// A Lumen holds the lock but did not answer in time.
     NotAnswering,
 }
 
-/// The running instance: its lock, and the requests later starts send.
 pub(crate) struct Instance {
-    /// Held for the run; a fake instance (tests) has none.
     _lock: Option<File>,
     requests: Option<Receiver<Incoming>>,
     waker: Waker,
-    /// A fake instance's way in (tests).
     injector: Option<SyncSender<Incoming>>,
 }
 
-/// A request as the window gets it, with the way to answer it.
 pub(crate) struct Incoming {
     pub(crate) request: Request,
     answer: SyncSender<Reply>,
 }
 
 impl Incoming {
-    /// Answers the later start. `false` if it stopped waiting (the window
-    /// took too long), in which case the request must be dropped: the
-    /// later start already told the person Lumen did not answer.
     pub(crate) fn answer(self, reply: Reply) -> bool {
         self.answer.send(reply).is_ok()
     }
 }
 
-/// Wakes the window from the listener's thread once it exists.
 #[derive(Clone, Default)]
 pub(crate) struct Waker(Arc<Mutex<Option<egui::Context>>>);
 
@@ -145,20 +102,16 @@ impl Waker {
 }
 
 impl Instance {
-    /// Called once the window exists, so requests wake it.
     pub(crate) fn attach(&self, ctx: &egui::Context) {
         if let Ok(mut slot) = self.waker.0.lock() {
             *slot = Some(ctx.clone());
         }
     }
 
-    /// The next request waiting, if any.
     pub(crate) fn next(&self) -> Option<Incoming> {
         self.requests.as_ref()?.try_recv().ok()
     }
 
-    /// An instance with no lock and no endpoint, whose requests come from
-    /// [`Self::inject`] (in-process tests).
     pub(crate) fn fake() -> Self {
         let (tx, rx) = mpsc::sync_channel(QUEUE);
         Instance {
@@ -169,8 +122,6 @@ impl Instance {
         }
     }
 
-    /// Sends `request` as a later start would (a fake instance only); the
-    /// answer arrives on the returned receiver.
     pub(crate) fn inject(&self, request: Request) -> Receiver<Reply> {
         let (answer, answered) = mpsc::sync_channel(1);
         if let Some(tx) = &self.injector {
@@ -180,34 +131,27 @@ impl Instance {
     }
 }
 
-/// What a start tries, and for how long (tests shorten it).
 pub(crate) struct Attempt<'a> {
     pub(crate) place: &'a Place,
     pub(crate) request: &'a Request,
     pub(crate) patience: Duration,
-    /// How the listener answers (tests change it).
     pub(crate) listener: Listener,
 }
 
-/// How a holder's listener answers: normally, or as tests need it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) enum Listener {
     #[default]
     Normal,
-    /// Takes requests and never answers (`--instance-deaf`).
     Deaf,
-    /// Turns every request away as busy (`--instance-busy`).
     Busy,
 }
 
-/// Takes the instance, or hands `request` to the one running.
 pub(crate) fn claim(attempt: &Attempt<'_>) -> Claim {
     let deadline = Instant::now() + attempt.patience;
     loop {
         if let Some(lock) = take_lock(&attempt.place.lock) {
             return Claim::Owner(listen(attempt.place, lock, attempt.listener));
         }
-        // A path the protocol cannot carry would never get through.
         if attempt.request.encode().is_none() {
             return Claim::Refused(format!(
                 "The file's path cannot be passed to the running {}. Open it from File › Open.",
@@ -227,7 +171,6 @@ pub(crate) fn claim(attempt: &Attempt<'_>) -> Claim {
     }
 }
 
-/// The lock, if no other process holds it.
 fn take_lock(path: &Path) -> Option<File> {
     let file = File::options()
         .create(true)
@@ -239,9 +182,6 @@ fn take_lock(path: &Path) -> Option<File> {
     Some(file)
 }
 
-/// Starts the listener for the instance that holds `lock`. If the endpoint
-/// cannot be made, the instance runs without one: later starts then say it
-/// is not answering, and never start a second engine.
 fn listen(place: &Place, lock: File, listener: Listener) -> Instance {
     let (tx, rx) = mpsc::sync_channel(QUEUE);
     let waker = Waker::default();
@@ -262,7 +202,6 @@ fn listen(place: &Place, lock: File, listener: Listener) -> Instance {
     }
 }
 
-/// Hands a request to the window and waits for its answer.
 fn deliver(
     tx: &SyncSender<Incoming>,
     waker: &Waker,
@@ -300,7 +239,6 @@ fn deliver(
     }
 }
 
-/// A listener's handler: a request in, a reply out.
 pub(crate) type Deliver = Box<dyn Fn(Request) -> Reply + Send>;
 
 #[cfg(test)]
@@ -335,7 +273,6 @@ mod tests {
 
     #[test]
     fn the_key_is_stable() {
-        // FNV-1a's published value for "a": builds must agree on keys.
         assert_eq!(fnv1a(b"a"), 0xaf63_dc4c_8601_ec8c);
     }
 
@@ -359,7 +296,6 @@ mod tests {
                 .sum()
         });
         assert_eq!(winners, 1);
-        // Every holder has been dropped: the lock is free again.
         assert!(take_lock(&lock).is_some());
     }
 
@@ -447,7 +383,6 @@ mod tests {
     fn a_stale_socket_left_by_a_killed_holder_is_replaced() {
         let dir = TempDir::new("instance-stale");
         let place = place(&dir, "settings.json");
-        // A holder killed outright leaves its socket file behind.
         let stale = transport::socket(&place);
         std::fs::create_dir_all(stale.parent().unwrap()).unwrap();
         drop(std::os::unix::net::UnixListener::bind(&stale).unwrap());

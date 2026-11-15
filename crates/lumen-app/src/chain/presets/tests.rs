@@ -1,5 +1,3 @@
-//! The preset menu's tests.
-
 use super::menu::filter;
 use super::state::{Choice, Current, Source};
 use super::*;

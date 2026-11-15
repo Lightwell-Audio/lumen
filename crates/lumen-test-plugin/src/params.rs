@@ -1,20 +1,12 @@
-//! The parameters of the two test plugins, and how their normalized values
-//! (0 to 1, what a host stores) map to plain values (what the DSP uses).
-
-/// Which plugin a component or controller belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     Instrument,
     Effect,
 }
 
-/// The parameter every plugin has: instrument level or effect gain.
 pub const LEVEL: u32 = 0;
-/// The instrument's waveform (0 square, 1 saw).
 pub const WAVE: u32 = 1;
-/// The effect's delay in samples, reported to the host as latency.
 pub const LATENCY: u32 = 1;
-/// The longest delay the effect offers.
 pub const MAX_LATENCY: u32 = 4096;
 
 const GAIN_FLOOR_DB: f64 = -60.0;
@@ -24,7 +16,6 @@ pub struct Param {
     pub id: u32,
     pub title: &'static str,
     pub units: &'static str,
-    /// 0 for continuous, else the number of steps.
     pub steps: i32,
     pub default: f64,
 }
@@ -76,8 +67,6 @@ impl Kind {
         [p[0].default, p[1].default]
     }
 
-    /// The plain value a normalized one stands for: a linear level, a gain
-    /// in dB, a waveform index or a delay in samples.
     pub fn plain(self, id: u32, normalized: f64) -> f64 {
         let n = normalized.clamp(0.0, 1.0);
         match (self, id) {
@@ -101,7 +90,6 @@ impl Kind {
         }
     }
 
-    /// The text a host shows for a normalized value.
     pub fn display(self, id: u32, normalized: f64) -> String {
         let plain = self.plain(id, normalized);
         match (self, id) {
@@ -112,8 +100,6 @@ impl Kind {
         }
     }
 
-    /// The normalized value a typed string means, if it is a number (or a
-    /// wave name).
     pub fn parse(self, id: u32, text: &str) -> Option<f64> {
         let text = text.trim();
         if self == Kind::Instrument && id == WAVE {
@@ -130,7 +116,6 @@ impl Kind {
     }
 }
 
-/// A linear gain from decibels.
 pub fn db_to_gain(db: f64) -> f32 {
     10_f64.powf(db / 20.0) as f32
 }

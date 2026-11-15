@@ -1,23 +1,3 @@
-//! Automation in the mixer (M7 slice A0, ADR-0081): lanes baked to the
-//! device's sample clock, and the stages that play them.
-//!
-//! The interface bakes a track's lanes (ticks, in the project's units) into
-//! an [`AutoLane`] when it builds a routing, with the tempo map and the
-//! device rate; the audio thread then only reads. A lane is a pure function
-//! of the timeline sample, so a loop wrap, a locate or a tail rendered ahead
-//! always read the same values.
-//!
-//! **Time.** Points land on their exact sample. Inside a straight or curved
-//! segment the value is worked out every [`KNOT`] frames, counted from the
-//! segment's start, and the gain runs straight between: the same numbers at
-//! any block size, eight evaluations a 256-frame chunk. The step from one
-//! held value to the next ramps over 1 ms from its point, so a mute or a
-//! stepped fader never clicks.
-//!
-//! **Units.** A lane holds the target's own units. A level lane is in dB and
-//! is turned into a gain at the knots (silent at the floor), so a fade
-//! between two dB values is a straight line in dB.
-
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -29,40 +9,25 @@ use super::params::{self, ParamLane};
 use super::plan::CHUNK;
 use super::spec::Device;
 
-/// Frames between two evaluations inside a straight or curved segment
-/// (D4). A gain straight between two knots is within 0.001 of the curve for
-/// any shape a segment can draw, and within 0.02 (0.17 dB) at the one bend a
-/// pan law has, at its centre.
 pub const KNOT: i64 = 32;
 
-/// A step from one held value to the next ramps over this long.
 const STEP_SECONDS: f64 = 0.001;
 
-/// A change of plan (a lane edited while playing) glides the output from
-/// where it was to where the new lane puts it, over this long.
 const FOLLOW_SECONDS: f32 = 0.02;
 
-/// One point of a lane on the sample clock.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AutoPoint {
-    /// The timeline sample.
     pub at: i64,
     pub value: f32,
-    /// The segment leaving the point.
     pub shape: Shape,
 }
 
-/// A lane baked to samples: at least one point, in time order, one to a
-/// sample. Cloning shares the points.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AutoLane {
     points: Arc<[AutoPoint]>,
 }
 
 impl AutoLane {
-    /// The lane of `points`; `None` when none of them can be played. Points
-    /// that are not finite are dropped, and where several fall on one
-    /// sample the last one wins.
     pub fn new(mut points: Vec<AutoPoint>) -> Option<Self> {
         points.retain(|p| p.value.is_finite());
         points.sort_by_key(|p| p.at);
@@ -82,9 +47,6 @@ impl AutoLane {
         &self.points
     }
 
-    /// The raw value at sample `at`, without the ramp between steps and the
-    /// knots: what `lumen_core::automation::Lane::value_at` gives at the
-    /// same moment.
     pub fn value_at(&self, at: i64) -> f32 {
         let after = self.points.partition_point(|p| p.at <= at);
         let Some(before) = after.checked_sub(1) else {
@@ -93,7 +55,6 @@ impl AutoLane {
         self.segment(before, at)
     }
 
-    /// The value of the segment leaving point `j` at sample `at`.
     fn segment(&self, j: usize, at: i64) -> f32 {
         let a = self.points[j];
         let Some(b) = self.points.get(j + 1) else {
@@ -103,10 +64,6 @@ impl AutoLane {
         a.shape.between(a.value, b.value, x as f32)
     }
 
-    /// Calls `emit` for each stretch of the `frames` frames from timeline
-    /// sample `start`: the frames it covers, and the raw value at the two
-    /// knots (`k0` to `k1`, in samples) it runs between in a straight line.
-    /// A held stretch has `k0 == k1`.
     fn runs(&self, start: i64, frames: usize, rate: u32, mut emit: impl FnMut(Run)) {
         let end = start + frames as i64;
         let ramp = ((f64::from(rate) * STEP_SECONDS) as i64).max(1);
@@ -115,7 +72,6 @@ impl AutoLane {
         while x < end {
             let j = points.partition_point(|p| p.at <= x);
             let Some(i) = j.checked_sub(1) else {
-                // Before the first point: the first value is held.
                 let stop = points[0].at.min(end);
                 emit(Run::held(start, x..stop, points[0].value));
                 x = stop;
@@ -125,8 +81,6 @@ impl AutoLane {
             let seg_end = points.get(j).map(|b| b.at);
             let stop = seg_end.map_or(end, |e| e.min(end));
             let held = a.shape == Shape::Step || seg_end.is_none();
-            // A held value that differs from the one before it is reached by
-            // a ramp from its point, not by a jump.
             if i > 0 && x < a.at + ramp {
                 let before = points[i - 1];
                 if before.shape == Shape::Step && before.value != a.value {
@@ -167,9 +121,6 @@ impl AutoLane {
 }
 
 impl AutoLane {
-    /// Writes the gains of `kind` for the `frames` frames from sample `start`
-    /// of the lane's clock: the first output into `out[0]` and, for a pan,
-    /// the second into `out[1]`. Each slice is at least `frames` long.
     pub(crate) fn fill(
         &self,
         start: i64,
@@ -198,7 +149,6 @@ impl AutoLane {
     }
 }
 
-/// A stretch of frames inside one chunk, between two knots.
 struct Run {
     frames: Range<usize>,
     k0: i64,
@@ -219,14 +169,10 @@ impl Run {
     }
 }
 
-/// What a lane's value becomes in the audio.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum Kind {
-    /// A level in dB, silent at [`FLOOR_DB`].
     Db,
-    /// Mute, 0 (heard) to 1 (muted): the gain is what is left.
     Mute,
-    /// Pan, −1 to 1: the left and right gains of the law.
     Pan(PanLaw),
 }
 
@@ -247,7 +193,6 @@ impl Kind {
     }
 }
 
-/// The linear gain of `db`: silence at the floor and below.
 pub fn db_gain(db: f32) -> f32 {
     if db <= FLOOR_DB {
         0.0
@@ -256,21 +201,13 @@ pub fn db_gain(db: f32) -> f32 {
     }
 }
 
-/// One lane playing: its gains for the chunk in hand, and where it was when
-/// the plan before it stopped.
 #[derive(Debug, Clone)]
 pub(super) struct Stage {
     lane: AutoLane,
     kind: Kind,
-    /// Gains for the chunk: `CHUNK` frames for the first output, then for
-    /// the second (pan only).
     out: Box<[f32]>,
-    /// The last gains played.
     last: Option<[f32; 2]>,
-    /// Where the plan before it left off, until this plan's first block
-    /// works the difference out.
     carried: Option<[f32; 2]>,
-    /// The difference being glided away, and the frames left of the glide.
     offset: [f32; 2],
     left: u32,
 }
@@ -288,14 +225,10 @@ impl Stage {
         }
     }
 
-    /// The gains for output `side` of the last [`Stage::render`].
     pub(super) fn gains(&self, side: usize, frames: usize) -> &[f32] {
         &self.out[side * CHUNK..side * CHUNK + frames]
     }
 
-    /// Works out the gains for `frames` frames from timeline sample
-    /// `start`. With `advance` false (a tail rendered ahead, or a look
-    /// ahead of the real block) nothing about the stage moves on.
     pub(super) fn render(&mut self, start: i64, frames: usize, rate: u32, advance: bool) {
         let kind = self.kind;
         let outputs = kind.outputs();
@@ -307,8 +240,6 @@ impl Stage {
             kind,
             [&mut first[..frames], &mut second[..frames]],
         );
-        // A lane that changed under the playhead glides from where the old
-        // one was to where this one is, compared at the frame before.
         let (mut offset, mut left) = (self.offset, self.left);
         if let Some(carried) = self.carried {
             let mut before = [0.0f32; 2];
@@ -349,22 +280,18 @@ impl Stage {
         }
     }
 
-    /// Takes over where `old` left off, so an edited lane glides in.
     fn carry(&mut self, old: &Stage) {
         self.carried = old.last;
         self.offset = [0.0; 2];
         self.left = 0;
     }
 
-    /// The playhead jumped (and the engine crossfades it): start at the
-    /// lane's value.
     fn settle(&mut self) {
         self.carried = None;
         self.offset = [0.0; 2];
         self.left = 0;
     }
 
-    /// Multiplies `gain` by this stage's first output.
     fn scale(&mut self, start: i64, rate: u32, advance: bool, gain: &mut [f32]) {
         self.render(start, gain.len(), rate, advance);
         for (g, s) in gain.iter_mut().zip(&self.out[..CHUNK]) {
@@ -373,23 +300,13 @@ impl Stage {
     }
 }
 
-/// What a node's lanes bake to, as the routing hands them over. Each is the
-/// lane of that target, if it has one.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct NodeAutomation {
-    /// Input trim, in dB.
     pub trim: Option<AutoLane>,
-    /// Mute, 0 or 1.
     pub mute: Option<AutoLane>,
-    /// The fader, in dB.
     pub volume: Option<AutoLane>,
-    /// Pan, −1 to 1.
     pub pan: Option<AutoLane>,
-    /// Each send's level in dB, by the send's place in the node's `sends`.
     pub sends: Vec<Option<AutoLane>>,
-    /// The parameters of the node's devices that lanes drive (M7 slice A3,
-    /// plugins; M8 slice B0, built-ins): the device's id and the lane of one
-    /// of its parameters.
     pub plugins: Vec<(u64, ParamLane)>,
 }
 
@@ -403,8 +320,6 @@ impl NodeAutomation {
             && self.plugins.is_empty()
     }
 
-    /// Which lanes there are, for the plan's shape: a plan with another set
-    /// crossfades in.
     pub(super) fn shape(&self) -> ([bool; 4], Vec<(u64, u32)>) {
         (
             [
@@ -421,9 +336,6 @@ impl NodeAutomation {
     }
 }
 
-/// A node's stages, with how far its input trails the timeline before and
-/// after its devices (each lane is read at the time of the audio it acts
-/// on).
 #[derive(Debug, Clone)]
 pub(super) struct NodeStages {
     lag_pre: i64,
@@ -433,15 +345,10 @@ pub(super) struct NodeStages {
     volume: Option<Stage>,
     pan: Option<Stage>,
     sends: Vec<Option<Stage>>,
-    /// The plugin parameters lanes drive: the host, the lane, and how far
-    /// the audio the plugin is given trails the timeline.
     plugins: Vec<(u64, ParamLane, i64)>,
 }
 
 impl NodeStages {
-    /// The stages of `lanes` for a node whose `devices` are in this order.
-    /// A device is given the audio that reaches it: `lag_pre` behind the
-    /// timeline, and later still by the devices before it.
     pub(super) fn new(
         lanes: &NodeAutomation,
         law: PanLaw,
@@ -478,10 +385,6 @@ impl NodeStages {
         }
     }
 
-    /// Adds the lanes that drive `device`'s parameters to `block`, for the
-    /// `frames` frames it is given from timeline sample `start`: the points are
-    /// added to a block the caller has started (the value the project holds
-    /// comes first, so a lane's queue is the one a device reads).
     pub(super) fn device_block(
         &self,
         device: u64,
@@ -498,17 +401,11 @@ impl NodeStages {
         self.mute.is_some()
     }
 
-    /// Whether a lane drives parameter `param` of `device` in this block: what
-    /// a built-in's value the project holds is always sent for, so the lane's
-    /// points are read as a lane and never as a value at rest (M8 slice B0,
-    /// review L6).
     pub(super) fn drives(&self, device: u64, param: u32) -> bool {
         self.plugins
             .iter()
             .any(|(d, lane, _)| *d == device && lane.param == param)
     }
-    /// Multiplies the input gain by the trim lane, and by the mute lane
-    /// when mute comes with the input (a node with no devices).
     pub(super) fn input(
         &mut self,
         start: i64,
@@ -526,7 +423,6 @@ impl NodeStages {
         }
     }
 
-    /// Multiplies the cue gain by the trim lane.
     pub(super) fn cue(&mut self, start: i64, rate: u32, advance: bool, gain: &mut [f32]) {
         let at = start - self.lag_pre;
         if let Some(trim) = self.trim.as_mut() {
@@ -534,7 +430,6 @@ impl NodeStages {
         }
     }
 
-    /// Multiplies the mute gain that follows the devices by the mute lane.
     pub(super) fn heard(&mut self, start: i64, rate: u32, advance: bool, gain: &mut [f32]) {
         let at = start - self.lag_post;
         if let Some(mute) = self.mute.as_mut() {
@@ -542,7 +437,6 @@ impl NodeStages {
         }
     }
 
-    /// Applies the fader and pan lanes to the node's sound.
     pub(super) fn mix(
         &mut self,
         start: i64,
@@ -574,7 +468,6 @@ impl NodeStages {
         }
     }
 
-    /// Multiplies send `index`'s gain by its lane.
     pub(super) fn send(
         &mut self,
         index: usize,
@@ -589,7 +482,6 @@ impl NodeStages {
         }
     }
 
-    /// Takes over where the same node in the plan before left off.
     pub(super) fn carry(&mut self, old: &NodeStages) {
         fn pair(new: &mut Option<Stage>, old: &Option<Stage>) {
             if let (Some(new), Some(old)) = (new.as_mut(), old.as_ref()) {
@@ -631,8 +523,6 @@ mod tests {
         AutoLane::new(points.iter().map(|&(a, v, s)| point(a, v, s)).collect()).unwrap()
     }
 
-    /// The gains `stage` plays for `frames` frames from `start`, a chunk at a
-    /// time as the plan asks for them.
     fn play(stage: &mut Stage, start: i64, frames: usize, side: usize) -> Vec<f32> {
         let mut out = Vec::new();
         let mut done = 0;
@@ -645,7 +535,6 @@ mod tests {
         out
     }
 
-    /// The value a mute lane holds, as played.
     fn values(lane: &AutoLane, start: i64, frames: usize) -> Vec<f32> {
         let mut stage = Stage::new(lane.clone(), Kind::Mute);
         play(&mut stage, start, frames, 0)
@@ -704,7 +593,6 @@ mod tests {
         let l = lane(&[(1000, 0.0, Shape::Step), (2000, 1.0, Shape::Step)]);
         let v = values(&l, 900, 1300);
         assert_eq!(v[1099 - 900], 0.0);
-        // Up to the point, the old value; from it, a ramp of 48 frames.
         assert_eq!(v[2000 - 900 - 1], 0.0);
         assert_eq!(v[2000 - 900], 0.0, "the ramp starts at the point");
         let mid = v[2000 - 900 + 24];
@@ -743,9 +631,6 @@ mod tests {
         let right = play(&mut stage, 0, 1001, 1);
         assert!((left[0] - 1.0).abs() < 1e-6 && right[0].abs() < 1e-6);
         assert!(left[1000].abs() < 1e-6 && (right[1000] - 1.0).abs() < 1e-6);
-        // The balance law bends at the centre, which falls between two
-        // knots: a gain straight between them is within 0.02 of the law
-        // (0.17 dB).
         assert!((left[500] - 1.0).abs() < 0.02 && (right[500] - 1.0).abs() < 0.02);
     }
 
@@ -759,7 +644,6 @@ mod tests {
         let mut stage = Stage::new(l.clone(), Kind::Db);
         stage.render(0, 256, 48_000, true);
         assert_eq!(stage.gains(0, 256)[0], 0.0);
-        // Halfway through, −50 dB.
         let mut stage = Stage::new(l, Kind::Db);
         stage.render(24_000, 256, 48_000, true);
         let g = stage.gains(0, 256)[0];
@@ -774,7 +658,6 @@ mod tests {
         before.render(0, 128, 48_000, true);
         let mut after = Stage::new(new, Kind::Mute);
         after.carry(&before);
-        // Mute 0 gives gain 1; mute 1 gives gain 0.
         after.render(128, 256, 48_000, true);
         let g = after.gains(0, 256);
         assert!(g[0] > 0.99, "starts where it was: {}", g[0]);

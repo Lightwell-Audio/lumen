@@ -1,6 +1,3 @@
-//! Shared-memory transport between Lumen and a plugin-host process, adapted
-//! from P-ISO (`prototypes/isolation-ipc`). M6 extracts one shared crate.
-
 use std::io;
 use std::process::{Child, Command, Stdio};
 use std::ptr::{self, addr_of, addr_of_mut};
@@ -30,7 +27,6 @@ pub const CMD_PROCESS: u32 = 0;
 pub const CMD_QUIT: u32 = 1;
 pub const CMD_GET_STATE: u32 = 2;
 pub const CMD_SET_STATE: u32 = 3;
-/// Fault injection: the host process dereferences null, like a crashing plugin.
 pub const CMD_CRASH: u32 = 4;
 
 #[repr(C, align(64))]
@@ -42,10 +38,8 @@ pub struct Shared {
     pub done_seq: Line<AtomicU64>,
     pub command: Line<AtomicU32>,
     pub frames: Line<AtomicU32>,
-    /// Note for this block: 0 none, +pitch note on, -pitch note off.
     pub note: Line<AtomicI32>,
     pub ready: Line<AtomicU32>,
-    /// 0 on success, otherwise a VST3 result code or -1.
     pub status: Line<AtomicI32>,
     pub state_len: Line<AtomicU32>,
     pub output: [[f32; MAX_BLOCK * 2]; 2],
@@ -75,7 +69,6 @@ pub struct Mapping {
 impl Mapping {
     pub fn create(name: &str) -> io::Result<Self> {
         let name = wide(name);
-        // SAFETY: page-file-backed named mapping sized for `Shared`.
         let handle = unsafe {
             CreateFileMappingW(
                 INVALID_HANDLE_VALUE,
@@ -91,16 +84,13 @@ impl Mapping {
 
     pub fn open(name: &str) -> io::Result<Self> {
         let name = wide(name);
-        // SAFETY: valid NUL-terminated name.
         let handle = unsafe { OpenFileMappingW(FILE_MAP_ALL_ACCESS, 0, name.as_ptr()) };
         Self::map(check(handle, "OpenFileMappingW")?)
     }
 
     fn map(handle: HANDLE) -> io::Result<Self> {
-        // SAFETY: the mapping is at least size_of::<Shared>() bytes.
         let view = unsafe { MapViewOfFile(handle, FILE_MAP_ALL_ACCESS, 0, 0, size_of::<Shared>()) };
         if view.Value.is_null() {
-            // SAFETY: closing our own handle.
             unsafe { CloseHandle(handle) };
             return Err(io::Error::other("MapViewOfFile failed"));
         }
@@ -110,31 +100,25 @@ impl Mapping {
         })
     }
 
-    /// Atomics only; buffers go through the raw-pointer accessors.
     pub fn shared(&self) -> &Shared {
-        // SAFETY: the view stays mapped while `self` lives; zero-filled memory is a valid `Shared`.
         unsafe { &*self.view }
     }
 
     pub fn output(&self, slot: u64) -> *mut f32 {
-        // SAFETY: in-bounds projection on the live view.
         unsafe { addr_of_mut!((*self.view).output[(slot & 1) as usize]).cast() }
     }
 
     pub fn state(&self) -> *mut u8 {
-        // SAFETY: in-bounds projection on the live view.
         unsafe { addr_of_mut!((*self.view).state).cast() }
     }
 
     pub fn state_const(&self) -> *const u8 {
-        // SAFETY: in-bounds projection on the live view.
         unsafe { addr_of!((*self.view).state).cast() }
     }
 }
 
 impl Drop for Mapping {
     fn drop(&mut self) {
-        // SAFETY: unmapping and closing what `map` created, once.
         unsafe {
             UnmapViewOfFile(MEMORY_MAPPED_VIEW_ADDRESS {
                 Value: self.view.cast(),
@@ -146,13 +130,11 @@ impl Drop for Mapping {
 
 pub struct Event(HANDLE);
 
-// SAFETY: kernel event handles are usable from any thread.
 unsafe impl Send for Event {}
 
 impl Event {
     pub fn create(name: &str) -> io::Result<Self> {
         let name = wide(name);
-        // SAFETY: named auto-reset event.
         Ok(Self(check(
             unsafe { CreateEventW(ptr::null(), 0, 0, name.as_ptr()) },
             "CreateEventW",
@@ -161,7 +143,6 @@ impl Event {
 
     pub fn open(name: &str) -> io::Result<Self> {
         let name = wide(name);
-        // SAFETY: valid name.
         Ok(Self(check(
             unsafe { OpenEventW(EVENT_ALL_ACCESS, 0, name.as_ptr()) },
             "OpenEventW",
@@ -169,29 +150,24 @@ impl Event {
     }
 
     pub fn set(&self) {
-        // SAFETY: valid handle.
         unsafe { SetEvent(self.0) };
     }
 
     pub fn wait(&self) {
-        // SAFETY: valid handle.
         unsafe { WaitForSingleObject(self.0, INFINITE) };
     }
 }
 
 impl Drop for Event {
     fn drop(&mut self) {
-        // SAFETY: our own handle.
         unsafe { CloseHandle(self.0) };
     }
 }
 
-/// High-resolution manual-reset timer for pacing and deadlines.
 pub struct Timer(HANDLE);
 
 impl Timer {
     pub fn new() -> io::Result<Self> {
-        // SAFETY: unnamed timer.
         let handle = unsafe {
             CreateWaitableTimerExW(
                 ptr::null(),
@@ -205,34 +181,27 @@ impl Timer {
 
     pub fn arm(&self, after: Duration) {
         let due = -((after.as_nanos() / 100).max(1) as i64);
-        // SAFETY: valid handle and due-time pointer.
         unsafe { SetWaitableTimer(self.0, &due, 0, None, ptr::null(), 0) };
     }
 
     pub fn wait(&self) {
-        // SAFETY: valid handle.
         unsafe { WaitForSingleObject(self.0, INFINITE) };
     }
 }
 
 impl Drop for Timer {
     fn drop(&mut self) {
-        // SAFETY: our own handle.
         unsafe { CloseHandle(self.0) };
     }
 }
 
 pub struct Job(HANDLE);
 
-// SAFETY: kernel handle, thread-safe.
 unsafe impl Send for Job {}
-// SAFETY: only passed to thread-safe kernel calls.
 unsafe impl Sync for Job {}
 
 impl Job {
-    /// Kills every assigned process when Lumen exits.
     pub fn new() -> io::Result<Self> {
-        // SAFETY: unnamed job; plain-data limits struct.
         unsafe {
             let handle = check(
                 CreateJobObjectW(ptr::null(), ptr::null()),
@@ -252,12 +221,10 @@ impl Job {
 
     fn assign(&self, child: &Child) {
         use std::os::windows::io::AsRawHandle;
-        // SAFETY: both handles are valid.
         unsafe { AssignProcessToJobObject(self.0, child.as_raw_handle()) };
     }
 }
 
-/// Lumen's side of one plugin-host process.
 pub struct HostProcess {
     child: Child,
     pub mapping: Mapping,
@@ -266,11 +233,9 @@ pub struct HostProcess {
     seq: u64,
 }
 
-// SAFETY: handles and the view pointer are process-wide; one owner at a time.
 unsafe impl Send for HostProcess {}
 
 impl HostProcess {
-    /// Spawns a host for `module` and waits until the plugin is active. Not real-time safe.
     pub fn spawn(module: &str, generation: u32, job: &Job) -> io::Result<Self> {
         let base = format!("Local\\lumen-phost-{}-{generation}", std::process::id());
         let mapping = Mapping::create(&format!("{base}-shm"))?;
@@ -306,7 +271,6 @@ impl HostProcess {
         }
     }
 
-    /// Issues a command and returns its sequence number.
     pub fn submit(&mut self, command: u32, frames: usize, note: i32) -> u64 {
         self.seq += 1;
         let shared = self.mapping.shared();
@@ -322,7 +286,6 @@ impl HostProcess {
         self.mapping.shared().done_seq.0.load(Ordering::Acquire) == seq
     }
 
-    /// Blocking command with a generous timeout (non-real-time paths only).
     pub fn call(&mut self, command: u32, timeout: Duration) -> io::Result<i32> {
         let seq = self.submit(command, 0, 0);
         let started = Instant::now();
@@ -363,9 +326,7 @@ impl Drop for HostProcess {
     }
 }
 
-/// Waits until the host signals `done` or `deadline` fires. True for done.
 pub fn wait_done(host: &HostProcess, deadline: &Timer) -> bool {
     let handles = [host.done_handle(), deadline.0];
-    // SAFETY: two valid handles; wait-any.
     unsafe { WaitForMultipleObjects(2, handles.as_ptr(), 0, INFINITE) == WAIT_OBJECT_0 }
 }

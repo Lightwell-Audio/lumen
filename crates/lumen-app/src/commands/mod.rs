@@ -1,17 +1,7 @@
-//! Every command the app runs from the keyboard, the palette and menus
-//! (M3 slice 7): one table with a stable id, a name, an area and default
-//! shortcuts for each. What a command does, and whether it can run now,
-//! is `app/commands.rs`; which keys run it is `keys.rs`.
-//!
-//! A key that acts on what is selected is one command: Delete deletes the
-//! selected clips, time range, locator or tracks. So a shortcut always
-//! means one command, and clashes can be checked.
-
 pub(crate) mod keys;
 
 pub(crate) use keys::{Chord, Keymap};
 
-/// A command. Its place in [`ALL`] is its discriminant (a test checks).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) enum Command {
     PlayStop,
@@ -315,8 +305,6 @@ pub(crate) enum Command {
     StepsPreviousPage,
 }
 
-/// Where a command belongs: how the palette and the shortcut list group
-/// it, and the colour of its light on a keycap (the owner's K5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Area {
     Transport,
@@ -349,14 +337,10 @@ impl Area {
         }
     }
 
-    /// The light under a keycap's key for commands of this area (the
-    /// owner's K5): one of the track colours, so areas read apart the way
-    /// tracks do.
     pub(crate) fn light(self) -> eframe::egui::Color32 {
         crate::theme::CLIP_COLORS[self.light_index()]
     }
 
-    /// Which track colour [`Self::light`] is, from 0.
     pub(crate) fn light_index(self) -> usize {
         match self {
             Area::Edit => 0,
@@ -373,8 +357,6 @@ impl Area {
         }
     }
 
-    /// Stable, for the user docs: the area's colour and its group of pages
-    /// on the site ("transport").
     pub(crate) fn id(self) -> &'static str {
         match self {
             Area::Transport => "transport",
@@ -392,25 +374,19 @@ impl Area {
     }
 }
 
-/// What the table knows about a command.
 #[derive(Debug)]
 pub(crate) struct Info {
     pub command: Command,
-    /// Stable, for saved keymaps: never renamed once shipped.
     pub id: &'static str,
     pub name: &'static str,
     pub area: Area,
-    /// The default shortcuts; the first is the one shown.
     pub keys: &'static [Chord],
-    /// What it does, in one sentence (the palette's detail strip).
     pub about: &'static str,
 }
 
 use eframe::egui::Key;
 use keys::{alt, alt_shift, ctrl, ctrl_alt, ctrl_shift, plain, shift};
 
-/// Every command, in the order of [`Command`]. Kept as a table, one line
-/// per command, so it reads as one.
 #[rustfmt::skip]
 pub(crate) const ALL: &[Info] = &[
     info(Command::PlayStop, "transport.play_stop", "Play / Stop", Area::Transport, &[plain(Key::Space)], "Plays from the start marker, or stops where playback is."),
@@ -504,7 +480,6 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::OpenProject, "file.open", "Open…", Area::File, &[ctrl(Key::O)], "Opens a project."),
     info(Command::Save, "file.save", "Save", Area::File, &[ctrl(Key::S)], "Saves the project."),
     info(Command::SaveAs, "file.save_as", "Save as…", Area::File, &[ctrl_shift(Key::S)], "Saves the project under a new name or place."),
-    // The id stays `file.import_audio` so shortcuts saved before MIDI files (M5 slice 7) keep working.
     info(Command::Import, "file.import_audio", "Import audio or MIDI…", Area::File, &[ctrl_shift(Key::I)], "Adds audio or MIDI files at the playhead: onto the selected track when it takes them (audio on audio tracks, MIDI on MIDI tracks), or onto new tracks after the selection."),
     info(Command::ExportMidiFile, "file.export_midi", "Export MIDI file…", Area::File, &[], "Writes the project's MIDI tracks to a Standard MIDI File: a track for each, with the tempo and time signature."),
     info(Command::OpenShortcuts, "file.shortcuts", "Keyboard shortcuts", Area::File, &[], "Shows every shortcut on a keyboard, and changes them."),
@@ -733,7 +708,6 @@ const fn info(
     }
 }
 
-/// The command with saved id `id`.
 pub(crate) fn by_id(id: &str) -> Option<Command> {
     ALL.iter()
         .find(|info| info.id == id)
@@ -756,8 +730,6 @@ mod tests {
 
     use super::*;
 
-    /// What a command does fits the command palette's strip, which keeps the
-    /// room of the longest (the interface audit's P1): about four lines.
     #[test]
     fn every_command_is_said_in_a_few_lines() {
         for info in ALL {

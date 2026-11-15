@@ -1,8 +1,3 @@
-//! Delay compensation (M4 slice 6, ADR-0041), with the synthetic latent
-//! device: parallel paths line up sample for sample, sends and sidechains
-//! included, and what is heard lines up with the playhead (read ahead),
-//! across loops, jumps and latency changes.
-
 use std::sync::Arc;
 
 use lumen_core::time::Ticks;
@@ -14,7 +9,6 @@ use lumen_engine::{
 
 const RATE: u32 = 48_000;
 const MASTER: u64 = 100;
-/// Frames of the 2 ms blend that starts playback and follows each jump.
 const BLEND: usize = 96;
 
 struct Rig {
@@ -24,7 +18,6 @@ struct Rig {
     engine: Engine<Mixer<ClipPlayer>>,
 }
 
-/// Audio whose every sample differs, to catch any misplaced frame.
 fn ramp() -> Vec<f32> {
     (0..480_000)
         .map(|i| ((i % 997) as f32 - 498.0) / 1e3)
@@ -59,7 +52,6 @@ fn latent(frames: u32) -> Vec<Device> {
     }]
 }
 
-/// A device that hears the node's sidechain.
 fn listener() -> Vec<Device> {
     vec![Device::Delay {
         frames: 0,
@@ -104,7 +96,6 @@ impl Rig {
         self.transport.send(Command::Play).unwrap();
     }
 
-    /// Renders `frames` in blocks of `block`; returns the left channel.
     fn run(&mut self, frames: usize, block: usize) -> Vec<f32> {
         let mut data = vec![0.0; 2 * block];
         let mut out = Vec::with_capacity(frames);
@@ -132,12 +123,10 @@ impl Rig {
     }
 }
 
-/// The loudest sample.
 fn peak(samples: &[f32]) -> f32 {
     samples.iter().fold(0.0, |m, s| f32::max(m, s.abs()))
 }
 
-/// The largest change from one sample to the next.
 fn steepest(samples: &[f32]) -> f32 {
     samples
         .windows(2)
@@ -147,9 +136,6 @@ fn steepest(samples: &[f32]) -> f32 {
 
 #[test]
 fn what_is_heard_lines_up_with_the_playhead() {
-    // A 500-frame device on the only track: the engine renders 500 frames
-    // ahead, so the playhead waits at the start for them, then what is
-    // heard at each playhead position is the audio at that position.
     let samples = ramp();
     let mut track = to_master(1);
     track.devices = latent(500);
@@ -175,9 +161,6 @@ fn what_is_heard_lines_up_with_the_playhead() {
 
 #[test]
 fn parallel_paths_line_up_sample_for_sample() {
-    // Track 1 goes through a 37-frame device and a group; track 2 plays
-    // the same audio upside down straight into the master. Lined up, they
-    // cancel exactly.
     let samples = ramp();
     let a = audio(samples);
     let mut slow = node(1, Destination::Node(50));
@@ -193,7 +176,6 @@ fn parallel_paths_line_up_sample_for_sample() {
     let out = r.run(20_000, 100);
     assert!(peak(&out) < 1e-6, "{}", peak(&out));
 
-    // The same with the device on the group instead.
     let mut upside_down = to_master(2);
     upside_down.invert = true;
     let mut group = to_master(50);
@@ -209,8 +191,6 @@ fn parallel_paths_line_up_sample_for_sample() {
 
 #[test]
 fn sends_line_up_at_the_return() {
-    // Track 1 (50 frames) and track 2, upside down, both send to a return
-    // and nowhere else: the return hears them line up and cancel.
     let a = audio(ramp());
     let send = SendSpec {
         to: 60,
@@ -233,9 +213,6 @@ fn sends_line_up_at_the_return() {
     assert!(peak(&out) < 1e-6, "{}", peak(&out));
 }
 
-/// Track 2 plays the ramp through `source_latency` frames into the
-/// sidechain of track 3 (taken at `tap`), which plays the ramp upside down
-/// and listens to its sidechain. Returns what the master hears.
 fn keyed(tap: Tap, source_latency: u32, source_heard: bool) -> Vec<f32> {
     let a = audio(ramp());
     let mut source = node(2, Destination::None);
@@ -254,25 +231,18 @@ fn keyed(tap: Tap, source_latency: u32, source_heard: bool) -> Vec<f32> {
 
 #[test]
 fn a_sidechain_lines_up_with_the_input_it_keys() {
-    // Post-FX, the sidechain arrives 30 frames late, so the listening
-    // track's own audio waits for it: they cancel.
     let out = keyed(Tap::PostFx, 30, true);
     assert!(peak(&out) < 1e-6, "{}", peak(&out));
-    // Pre-FX, it leaves before the source's devices: no wait at all.
     let out = keyed(Tap::PreFx, 30, true);
     assert!(peak(&out) < 1e-6, "{}", peak(&out));
 }
 
 #[test]
 fn fx_taps_ignore_mute_and_the_post_mixer_tap_follows_it() {
-    // A muted source still keys the listener before its fader (the ghost
-    // kick)...
     for tap in [Tap::PreFx, Tap::PostFx] {
         let out = keyed(tap, 30, false);
         assert!(peak(&out) < 1e-6, "{tap:?}: {}", peak(&out));
     }
-    // ...but after it, mute silences the sidechain, and only the
-    // listener's own audio is heard.
     let out = keyed(Tap::PostMixer, 30, false);
     assert!(peak(&out[1_000..]) > 0.4);
     let out = keyed(Tap::PostMixer, 30, true);
@@ -281,9 +251,6 @@ fn fx_taps_ignore_mute_and_the_post_mixer_tap_follows_it() {
 
 #[test]
 fn loops_stay_in_line_with_the_playhead() {
-    // A loop one beat long (24_000 frames) and 500 frames of compensation:
-    // each wrap is rendered 500 frames early and heard when the playhead
-    // wraps.
     let samples = ramp();
     let mut track = to_master(1);
     track.devices = latent(500);
@@ -298,7 +265,6 @@ fn loops_stay_in_line_with_the_playhead() {
     assert_eq!(r.playhead(), (80_000 - 500) % 24_000);
     for (k, &heard) in out.iter().enumerate().skip(500) {
         let at = (k - 500) % 24_000;
-        // Each wrap blends over its first 2 ms.
         if at >= BLEND {
             assert_eq!(heard, samples[at], "frame {k} (beat position {at})");
         }
@@ -319,7 +285,6 @@ fn a_jump_while_latent_is_heard_when_the_playhead_jumps() {
         .unwrap();
     let after = r.run(4_096, 128);
     let target = 48_000;
-    // Until the jump is heard, the old place plays on in line.
     for (k, &heard) in before.iter().enumerate().skip(300 + BLEND) {
         assert_eq!(heard, samples[k - 300]);
     }
@@ -330,7 +295,6 @@ fn a_jump_while_latent_is_heard_when_the_playhead_jumps() {
             "frame {k} after the locate"
         );
     }
-    // Then the new place, from the playhead's jump.
     for (k, &heard) in after.iter().enumerate().skip(300 + BLEND) {
         assert_eq!(
             heard,
@@ -343,7 +307,6 @@ fn a_jump_while_latent_is_heard_when_the_playhead_jumps() {
 
 #[test]
 fn a_latency_change_while_playing_keeps_the_playhead_going_without_a_click() {
-    // Steady audio; a 200-frame device arrives while playing, then leaves.
     let level = 0.5;
     let a = audio(vec![level; 480_000]);
     let plain = routing_of(vec![to_master(1)]);
@@ -359,7 +322,6 @@ fn a_latency_change_while_playing_keeps_the_playhead_going_without_a_click() {
     r.reroute(&plain);
     out.extend(r.run(4_096, 128));
     assert_eq!(r.playhead(), 12_288);
-    // No step: the fastest change is a fade (0.5 over at least 96 frames).
     let slope = steepest(&out[1_000..]);
     assert!(slope <= level / 90.0, "{slope}");
     assert!((out.last().unwrap() - level).abs() < 1e-6);
@@ -376,8 +338,6 @@ fn after_a_latency_change_what_is_heard_lines_up_again() {
     let mut out = r.run(4_096, 128);
     r.reroute(&routing_of(vec![slow]));
     out.extend(r.run(8_192, 128));
-    // The new plan arrives in the next block and the engine follows it a
-    // block later; then the device's delay and a blend pass.
     let settled = 4_096 + 2 * 128 + 200 + BLEND;
     for (k, &heard) in out.iter().enumerate().skip(settled) {
         assert_eq!(heard, samples[k], "frame {k}");
@@ -386,9 +346,6 @@ fn after_a_latency_change_what_is_heard_lines_up_again() {
 
 #[test]
 fn scrubbing_is_not_heard_late_by_the_compensation() {
-    // A track 50 ms late makes every path wait 50 ms while playing (ADR-0041).
-    // A scrub follows the hand: what it plays comes out at once, whatever the
-    // routing's delays (M6 slice 6a, the owner's C1).
     let latent_track = NodeSpec {
         devices: latent(2_400),
         ..to_master(1)
@@ -411,8 +368,6 @@ fn scrubbing_is_not_heard_late_by_the_compensation() {
         "nothing within 25 ms of the scrub's start: {}",
         peak(&heard)
     );
-    // Playing is compensated again afterwards, exactly as it is without a
-    // scrub before it.
     rig.transport.send(Command::EndScrub).unwrap();
     rig.run(4_800, 128);
     rig.play();

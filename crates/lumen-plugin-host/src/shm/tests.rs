@@ -1,7 +1,3 @@
-//! The link with a stand-in host: a thread that plays the host's part so the
-//! protocol (hand-off, stale answers, deadlines) is tested without a plugin
-//! and without timing luck. Real hosts are in `tests/shm.rs`.
-
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -22,13 +18,10 @@ fn unique() -> String {
     )
 }
 
-/// What the stand-in host does with a block.
 type Behaviour = Box<dyn FnMut(u64, &mut Answer, &mut BlockScratch) -> Hold + Send>;
 
-/// Whether the stand-in answers, and after how long.
 enum Hold {
     Answer(Duration),
-    /// Never answers this block.
     Never,
 }
 
@@ -88,8 +81,6 @@ fn pair(layout: Layout, wake: Wake, mut behave: Behaviour) -> Pair {
     }
 }
 
-/// Output is the input at half gain; the answer carries counts of what the
-/// block held, so a test sees events and parameters arrive.
 fn halve() -> Behaviour {
     Box::new(|_, answer, scratch| {
         let (buffers, events, params) = scratch.parts();
@@ -176,7 +167,6 @@ fn blocks_round_trip_in_every_wake_mode() {
             };
             assert_eq!(answer.outcome, Outcome::Done, "{name}");
             assert_eq!((answer.seq, answer.generation), (seq, 1), "{name}");
-            // The host saw two events, one queue of three points.
             assert_eq!(
                 (answer.status, answer.latency, answer.restart),
                 (2, 1, 3),
@@ -201,7 +191,6 @@ fn polling_never_waits() {
     let mut p = pair(layout, Wake::EVENT, halve());
     assert_eq!(p.link.poll(), Poll::Idle);
     p.link.submit(1, 8, &[], &[], &[]).expect("submit");
-    // Eventually done; each poll is a single look.
     let end = Instant::now() + Duration::from_secs(1);
     loop {
         match p.link.poll() {
@@ -220,9 +209,6 @@ fn polling_never_waits() {
 fn a_late_answer_is_dropped_as_stale_and_never_taken_for_the_next_block() {
     for (name, wake) in modes() {
         let layout = Layout::new(16, 0, 1);
-        // The first block takes 300 ms (long enough that a thread kept off the
-        // CPU by a busy machine still finds it unanswered); the others are
-        // immediate and write 7.
         let behave: Behaviour = Box::new(|seq, _answer, scratch| {
             scratch.buffers.output[0].fill(if seq == 1 { 1.0 } else { 7.0 });
             Hold::Answer(if seq == 1 {
@@ -233,21 +219,17 @@ fn a_late_answer_is_dropped_as_stale_and_never_taken_for_the_next_block() {
         });
         let mut p = pair(layout, wake, behave);
         p.link.submit(1, 8, &[], &[], &[]).expect("submit");
-        // Missed the deadline: given up on.
         assert_eq!(
             p.link.wait(Instant::now() + Duration::from_millis(2)),
             Poll::Pending,
             "{name}"
         );
-        // Still on it: nothing more can be handed over.
         assert_eq!(
             p.link.submit(1, 8, &[], &[], &[]),
             Err(SubmitError::Busy),
             "{name}"
         );
         assert!(p.link.in_flight());
-        // It finishes while nobody waits: its answer is stale, and the next
-        // block goes through. Try until it does, not after a fixed time.
         let started = Instant::now();
         let seq = loop {
             match p.link.submit(1, 8, &[], &[], &[]) {
@@ -288,9 +270,6 @@ fn a_host_that_never_answers_keeps_its_block_in_flight() {
             p.link.wait(started + Duration::from_millis(5)),
             Poll::Pending
         );
-        // The deadline holds: the wait ends on time, not when the host does
-        // (it never does). The bound is far past the 5 ms asked for, so a
-        // thread a busy machine keeps off the CPU for a while does not fail it.
         assert!(started.elapsed() < Duration::from_secs(2));
         assert_eq!(p.link.submit(1, 8, &[], &[], &[]), Err(SubmitError::Busy));
     }
@@ -300,7 +279,6 @@ fn a_host_that_never_answers_keeps_its_block_in_flight() {
 
 #[test]
 fn an_answer_for_another_generation_or_block_is_invalid() {
-    // The stand-in writes a generation that is not the block's.
     let behave: Behaviour = Box::new(|_, answer, _| {
         answer.generation += 1;
         Hold::Answer(Duration::ZERO)
@@ -312,7 +290,6 @@ fn an_answer_for_another_generation_or_block_is_invalid() {
     };
     assert_eq!(answer.outcome, Outcome::Invalid);
     assert_eq!(p.link.invalid(), 1);
-    // The link is usable afterwards.
     p.link.submit(4, 8, &[], &[], &[]).expect("submit");
 }
 
@@ -340,7 +317,6 @@ fn a_block_that_does_not_fit_is_refused_and_leaves_the_link_idle() {
     );
     assert!(!p.link.in_flight());
     assert_eq!(p.link.poll(), Poll::Idle);
-    // The next honest block takes sequence number 1: nothing was consumed.
     assert_eq!(p.link.submit(1, 8, &[&[0.5; 8]], &[], &[]), Ok(1));
 }
 
@@ -350,8 +326,6 @@ fn stopping_ends_the_host_loop_in_every_mode() {
         let started = Instant::now();
         let p = pair(Layout::new(16, 0, 1), wake, halve());
         drop(p);
-        // Dropping stops and joins the thread; a loop that missed the quit
-        // flag would hang the test, so the bound is generous but real.
         assert!(started.elapsed() < Duration::from_secs(2), "{name}");
     }
 }

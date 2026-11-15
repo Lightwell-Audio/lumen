@@ -1,22 +1,13 @@
-//! The editor in its own window (M5 slice 3c, owner's C2): an egui
-//! viewport, a real OS window where the backend has them. Closing it docks
-//! the editor back into the detail panel. Both views share one
-//! [`super::NoteEditor`].
-
 use eframe::egui::{self, ViewportBuilder, ViewportClass, ViewportId};
 
 use crate::App;
 use crate::canvas::Surface;
 use crate::settings::WindowPlace;
 
-/// The window's first size, in points.
 pub(crate) const SIZE: egui::Vec2 = egui::vec2(960.0, 560.0);
-/// The smallest it goes.
 pub(crate) const MIN_SIZE: egui::Vec2 = egui::vec2(480.0, 280.0);
 
 impl App {
-    /// Shows the pop-out window while the editor is popped out. Call once
-    /// per frame.
     pub(crate) fn note_editor_window(&mut self, ctx: &egui::Context) {
         if !self.note_editor.popped || self.note_editor.clip.is_none() {
             self.note_editor.popped = false;
@@ -24,7 +15,6 @@ impl App {
             self.note_editor.window_opened_at = None;
             return;
         }
-        // Where it was last (KNOWN_ISSUES row 127), taken once as it opens.
         let opened_at = *self
             .note_editor
             .window_opened_at
@@ -46,18 +36,10 @@ impl App {
         let id = ViewportId::from_hash_of("note editor window");
         ctx.show_viewport_immediate(id, builder, |ui, class| {
             if class == ViewportClass::EmbeddedWindow {
-                // The window is as big as the editor needs to be.
                 let (area, _) = ui.allocate_exact_size(SIZE, egui::Sense::hover());
                 self.note_editor_surface(ui, area, Surface::Window);
-                // An embedded window has no focus of its own to speak of:
-                // the pointer in it is what makes its keys live.
                 self.note_editor.window_focused = false;
             } else {
-                // The window has its own keyboard: the editor's keys are
-                // read here, as the main window's are in `App::ui`, the
-                // computer keyboard's notes first so a letter plays instead
-                // of running a command, and a release or the window losing
-                // focus lets go of what sounds.
                 let ctx = ui.ctx().clone();
                 self.computer_keyboard_keys(&ctx);
                 self.steps_handle_keys(&ctx);
@@ -66,8 +48,6 @@ impl App {
                     let area = ui.max_rect();
                     self.note_editor_surface(ui, area, Surface::Window);
                 });
-                // A drag here is this window's pointer, not the main one's:
-                // the history keeps the gesture open while it is down.
                 self.popped_pointer_down |= ctx.input(|i| i.pointer.any_down());
                 let focused = ui.ctx().input(|i| i.viewport().focused.unwrap_or(false));
                 self.note_editor.window_focused = focused;
@@ -86,8 +66,6 @@ impl App {
     }
 }
 
-/// Where the window opens: its last place when there is one that is a
-/// place, else the first size where the system puts it (`x` is NaN).
 pub(crate) fn opening_place(saved: Option<WindowPlace>) -> WindowPlace {
     saved
         .filter(|p| {
@@ -105,8 +83,6 @@ pub(crate) fn opening_place(saved: Option<WindowPlace>) -> WindowPlace {
         })
 }
 
-/// The place of a window as the system reports it, unless it is minimized
-/// (a minimized window has no place worth keeping) or not known yet.
 pub(crate) fn place_of(info: &egui::ViewportInfo) -> Option<WindowPlace> {
     if info.minimized == Some(true) {
         return None;

@@ -1,5 +1,3 @@
-//! Running a plan: the node loop, the cue bus and the small in-place mixes.
-
 use super::super::auto::NodeStages;
 use super::super::builtins::{self, NO_BUILTIN};
 use super::super::delay::{Lines, NO_LINE};
@@ -11,14 +9,6 @@ use crate::source::Output;
 use super::{BUS, CHUNK, NO_DEV, NO_SIDE, Out, Pass, Plan, Ramp, TapOut};
 
 impl Plan {
-    /// Runs the nodes in order over the first `frames` of their buses,
-    /// adding what reaches the device into `out`. With `advance` false (a
-    /// tail rendered ahead of a jump), levels are read but do not move;
-    /// delay lines do move, which only matters to a latent plan's stop
-    /// (and playback clears them when it starts, unless an instrument still
-    /// rings, ADR-0124). With `tap` (the plan the
-    /// listener hears, not one fading out), every node's output is metered
-    /// and the measured node's loudness taken.
     pub(in crate::mixer) fn process(
         &mut self,
         out: &mut Output<'_>,
@@ -45,8 +35,6 @@ impl Plan {
         let keep = keep(frames, rate);
         let silent = [0.0f32; CHUNK];
         let measured = self.measured.map_or(usize::MAX, |m| m as usize);
-        // Before any node adds to another's bus, the buses hold only what
-        // the tracks played.
         for (node, bus) in self.nodes.iter().zip(self.buses.as_chunks_mut::<BUS>().0) {
             if node.input_line != NO_LINE {
                 let (left, right) = bus.split_at_mut(CHUNK);
@@ -54,9 +42,6 @@ impl Plan {
                     .run(node.input_line, &mut left[..frames], &mut right[..frames]);
             }
         }
-        // Hosts work while the rest of the mixer does: a node that nothing
-        // feeds hands its first hosted device its block now, scaled as the
-        // node loop would, and the loop collects it where it reaches it.
         if self.hosted && advance && hosting.pool.is_some() {
             for index in 0..self.nodes.len() {
                 let early = self.nodes[index].early;
@@ -93,15 +78,12 @@ impl Plan {
         for index in 0..self.nodes.len() {
             let node = &mut self.nodes[index];
             let law = node.law;
-            // Downstream nodes always come later, so the buses split here.
             let (head, tail) = self.buses.split_at_mut((index + 1) * BUS);
             let bus = &mut head[index * BUS..];
             let (left, right) = bus.split_at_mut(CHUNK);
             let (left, right) = (&mut left[..frames], &mut right[..frames]);
-            // Where node `to`'s bus starts in `tail`.
             let target = |to: u32| (to as usize - index - 1) * BUS;
 
-            // Cued: heard on the cue bus before mute and the fader.
             let lined_cue = node.cue_line != NO_LINE;
             if (lined_cue || !(node.cue.settled() && node.cue.value() == 0.0))
                 && let Some(cue) = self.cue_bus.as_chunks_mut::<BUS>().0.first_mut()
@@ -127,7 +109,6 @@ impl Plan {
                 }
             }
             if !node.lined && node.pre.settled() && node.pre.value() == 0.0 {
-                // Muted and settled: nothing leaves this node.
                 if let Some(meters) = meters {
                     meters.silence(node.meter, keep);
                 }
@@ -149,8 +130,6 @@ impl Plan {
             if node.side != NO_SIDE
                 && let Some(meters) = meters
             {
-                // What arrives to key the node's devices: every source is
-                // earlier in the order, so the bus is whole by now.
                 let side = &self.sides[node.side as usize * BUS..][..BUS];
                 meters.record(
                     node.side_meter,
@@ -173,14 +152,10 @@ impl Plan {
                     node.first_device as usize..(node.first_device + node.devices) as usize;
                 for device in &mut self.devices[devices] {
                     if device.host != NO_HOST {
-                        // A plugin that takes a sidechain hears what arrives
-                        // for the node.
                         let key = (node.side != NO_SIDE).then(|| {
                             let side = &self.sides[node.side as usize * BUS..][..BUS];
                             (&side[..frames], &side[CHUNK..CHUNK + frames])
                         });
-                        // The parameters lanes change in this block, for
-                        // a device not already handed it.
                         self.host_scratch.params.start(frames);
                         if !device.began
                             && let Some(auto) = node.auto.as_deref()
@@ -204,40 +179,23 @@ impl Plan {
                         continue;
                     }
                     if device.builtin != NO_BUILTIN {
-                        // A built-in runs where it is, with the values the
-                        // project holds and the lanes' points.
                         let key = (node.side != NO_SIDE).then(|| {
                             let side = &self.sides[node.side as usize * BUS..][..BUS];
                             (&side[..frames], &side[CHUNK..CHUNK + frames])
                         });
                         self.host_scratch.params.start(frames);
-                        // The values the project holds: only one that moved
-                        // since the device was last told opens a queue (M8
-                        // slice B0, review L6), so a still device does no
-                        // parameter work. A parameter a lane drives opens no
-                        // queue here at all: the lane's own queue carries
-                        // where it is (M8 slice B1, ADR-0146), so a device with
-                        // forty parameters and a lane on every one of them
-                        // still fits a block's room — which was one queue too
-                        // many for an eight-band EQ (B0's review N7).
                         for (index, &(id, value)) in device.values.iter().enumerate() {
                             if node
                                 .auto
                                 .as_deref()
                                 .is_some_and(|auto| auto.drives(device.builtin, id))
                             {
-                                // When the lane lets go, the value the project
-                                // holds is told again.
                                 device.values_last[index] = f32::NAN;
                                 continue;
                             }
                             if device.values_last[index] == value {
                                 continue;
                             }
-                            // Room that is not there leaves the value where it
-                            // was rather than dropping the lane under it; the
-                            // table's test keeps a device's own table inside
-                            // `MOST_QUEUES`.
                             if self.host_scratch.params.open(id) {
                                 self.host_scratch.params.point(0, f64::from(value));
                                 device.values_last[index] = value;
@@ -280,7 +238,6 @@ impl Plan {
                     right,
                     &mut self.scratch,
                 );
-                // Mute, after the devices.
                 let lane = node.auto.as_deref().is_some_and(NodeStages::has_mute);
                 if lane || !(node.heard.settled() && node.heard.value() == 1.0) {
                     node.heard.fill(gain, rate, advance);
@@ -337,7 +294,6 @@ impl Plan {
 
             if !(node.gate.settled() && node.gate.value() == 1.0) {
                 if node.gate.settled() && !node.lined {
-                    // Only the sends are heard.
                     if let Some(meters) = meters {
                         meters.silence(node.meter, keep);
                     }
@@ -365,7 +321,6 @@ impl Plan {
                 );
             }
 
-            // What the node plays on: after fader, pan and the gate.
             if let Some(meters) = meters {
                 meters.record(node.meter, [left, right], keep);
             }
@@ -406,7 +361,6 @@ impl Plan {
         self.cue_out(out, rate, ramp, advance);
     }
 
-    /// Writes the cue bus to its pair of device channels at the cue level.
     fn cue_out(&mut self, out: &mut Output<'_>, rate: u32, ramp: Ramp<'_>, advance: bool) {
         let Some(first) = self.cue_channel.map(usize::from) else {
             return;
@@ -433,8 +387,6 @@ impl Plan {
     }
 }
 
-/// Adds `left` and `right`, through their lines, to the sidechain buses
-/// of the taps taken at `which`.
 fn send_taps(
     taps: &[TapOut],
     which: Tap,

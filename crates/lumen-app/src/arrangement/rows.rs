@@ -1,6 +1,3 @@
-//! Rows and zones: where each track is drawn, heights, scrolling and
-//! revealing a track (split from `mod.rs`, M4 review M1).
-
 use std::sync::Arc;
 
 use eframe::egui;
@@ -13,18 +10,13 @@ use super::{
 use crate::motion;
 
 impl Arrangement {
-    /// The height a track is drawn at (before the glide).
     pub(super) fn target_height(&self, id: Id) -> f32 {
         self.lane_floor(id, self.unlaned_height(id))
     }
 
-    /// The height a track has before a lane shown over it asks for room.
     fn unlaned_height(&self, id: Id) -> f32 {
         if self.expanded.contains(&id) {
-            // The sends share the third row with the input (ADR-0101).
             let unfolded = if let Some(&rows) = self.senders.get(&id) {
-                // A return opens tall enough to list what sends to it
-                // (MT-MIX-4 runs 1 and 2, the owner's R2 and L4).
                 (UNFOLDED + rows.saturating_sub(1) as f32 * STEP).min(MAX_HEIGHT)
             } else {
                 UNFOLDED
@@ -35,15 +27,12 @@ impl Arrangement {
         }
     }
 
-    /// Whether track `id` is hidden in a folded group.
     pub(super) fn hidden(&self, project: &Project, id: Id) -> bool {
         !self.collapsed.is_empty()
             && lumen_project::groups::ancestors(&project.tracks, id)
                 .any(|g| self.collapsed.contains(&g))
     }
 
-    /// The tracks shown, in order: those not hidden in a folded group,
-    /// then the returns unless folded away (they are drawn at the bottom).
     pub(crate) fn visible<'p>(&self, project: &'p Project) -> impl Iterator<Item = &'p Arc<Track>> {
         let returns = |t: &&Arc<Track>| t.kind == TrackKind::Return;
         let tracks = project
@@ -54,9 +43,6 @@ impl Arrangement {
         tracks.chain(project.tracks.iter().filter(move |t| !folded && returns(t)))
     }
 
-    /// Every row with its position; heights glide to their targets. Tracks
-    /// hidden in a folded group have no row. The scrolling tracks come
-    /// first, then the pinned returns and the master.
     pub(super) fn rows(&self, ctx: &egui::Context, project: &Project, pending: usize) -> Vec<Row> {
         let mut rows = Vec::with_capacity(project.tracks.len() + pending + 1);
         let mut y = 0.0;
@@ -65,8 +51,6 @@ impl Arrangement {
             if track.kind == TrackKind::Return {
                 continue;
             }
-            // A track hidden in a folded group glides shut, then goes
-            // (M4.5, M2); unfolding, it grows back.
             let hidden = self.hidden(project, track.id);
             let target = if hidden {
                 0.0
@@ -96,8 +80,6 @@ impl Arrangement {
             });
             y += FOLDED;
         }
-        // The pinned area, placed so that `lanes' top + y − scroll` lands
-        // in it whatever the scroll.
         let zones = self.zones(ctx, project);
         let mut y = self.top + zones.returns.0 - self.returns_top;
         for (i, track) in project.tracks.iter().enumerate() {
@@ -129,15 +111,12 @@ impl Arrangement {
         rows
     }
 
-    /// The bottom of the scrolling tracks, in content coordinates.
     pub(super) fn main_bottom(rows: &[Row]) -> f32 {
         rows.iter()
             .rfind(|r| r.zone == Zone::Main)
             .map_or(0.0, |r| r.y + r.height)
     }
 
-    /// Height of everything, for scrolling: the scrolling tracks and the
-    /// pinned area under them.
     pub(super) fn content_height(
         &self,
         ctx: &egui::Context,
@@ -147,14 +126,11 @@ impl Arrangement {
         Self::main_bottom(rows) + (self.view_height - self.zones(ctx, project).main).max(0.0)
     }
 
-    /// The height left to the scrolling tracks in lanes `height` tall.
     pub(crate) fn main_height(&self, ctx: &egui::Context, project: &Project, height: f32) -> f32 {
         let pinned = (self.view_height - self.zones(ctx, project).main).max(0.0);
         (height - pinned).max(FOLDED)
     }
 
-    /// The zone a point `y` below the lanes' top falls in (`None`: the
-    /// divider or the caption).
     pub(super) fn zone_at(&self, ctx: &egui::Context, project: &Project, y: f32) -> Option<Zone> {
         let zones = self.zones(ctx, project);
         if y < zones.main {
@@ -168,7 +144,6 @@ impl Arrangement {
         }
     }
 
-    /// The span a zone covers on screen, given the lanes' top and bottom.
     pub(super) fn zone_span(
         &self,
         ctx: &egui::Context,
@@ -185,7 +160,6 @@ impl Arrangement {
         }
     }
 
-    /// Forgets selected, resized or unfolded tracks that no longer exist.
     pub(super) fn prune(&mut self, project: &Project) {
         let exists =
             |id: &Id| *id == project.master.id || project.tracks.iter().any(|t| t.id == *id);
@@ -209,7 +183,6 @@ impl Arrangement {
         }
     }
 
-    /// The track whose row is `y` points below the lanes' top edge.
     pub fn track_at(
         &self,
         ctx: &egui::Context,
@@ -229,9 +202,6 @@ impl Arrangement {
             })
     }
 
-    /// `steps` height steps taller (or shorter, if negative), as dragging
-    /// the edge does: below the unfolded height the track folds (Alt+wheel,
-    /// slice 4d).
     pub fn step_height(&mut self, id: Id, steps: i32) {
         let from = self.target_height(id);
         let wanted = snap_height((from + steps as f32 * STEP).clamp(FOLDED, MAX_HEIGHT));
@@ -244,9 +214,6 @@ impl Arrangement {
         self.fitted = None;
     }
 
-    /// H: every track as tall as fits in `visible` points, in whole steps
-    /// (folded if even the unfolded height does not fit); H again puts
-    /// heights, folding and scroll back as they were.
     pub fn toggle_fit_heights(&mut self, project: &Project, visible: f32) {
         if let Some((heights, expanded, top)) = self.fitted.take() {
             self.heights = heights;
@@ -269,8 +236,6 @@ impl Arrangement {
         self.top = 0.0;
     }
 
-    /// The scrolling tracks' area within lanes `canvas`, and the height of
-    /// what scrolls in it (for the scroll bar, M4.5).
     pub fn scroll_extent(
         &self,
         ctx: &egui::Context,
@@ -280,7 +245,6 @@ impl Arrangement {
     ) -> (egui::Rect, f32) {
         let main = self.zone_span(ctx, project, Zone::Main, canvas.y_range());
         let area = egui::Rect::from_x_y_ranges(canvas.x_range(), main);
-        // The furthest scroll leaves a folded row in view, as the wheel does.
         let content = self.height_of_content(ctx, project, pending) + FOLDED;
         (
             area,
@@ -288,20 +252,14 @@ impl Arrangement {
         )
     }
 
-    /// Scrolls to `top` points, within the content.
     pub fn scroll_to(&mut self, top: f32, content: f32, visible: f32) {
         self.top = top.clamp(0.0, max_top(content, visible));
     }
 
-    /// Scrolls vertically by `delta` points, within the content.
     pub fn scroll(&mut self, delta: f32, content: f32, visible: f32) {
         self.top = (self.top - delta).clamp(0.0, max_top(content, visible));
     }
 
-    /// Keeps the scroll within the content: after a project opens, a group
-    /// folds or tracks are deleted, it could stay past the content and hide
-    /// tracks above an empty view (the interface audit's U1). True when it
-    /// moved.
     pub(super) fn keep_in_content(&mut self, content: f32, visible: f32) -> bool {
         let top = self.top.clamp(0.0, max_top(content, visible));
         let moved = top != self.top;
@@ -309,8 +267,6 @@ impl Arrangement {
         moved
     }
 
-    /// Selects track `id` alone and scrolls just enough to show it in the
-    /// `visible` height (the palette's "Go to track").
     pub fn reveal(
         &mut self,
         ctx: &egui::Context,
@@ -329,7 +285,6 @@ impl Arrangement {
         }
     }
 
-    /// Scrolls just enough to show track `id` in the `visible` height.
     pub fn scroll_to_track(
         &mut self,
         ctx: &egui::Context,
@@ -355,13 +310,11 @@ impl Arrangement {
         }
     }
 
-    /// Height of everything, for scrolling.
     pub fn height_of_content(&self, ctx: &egui::Context, project: &Project, pending: usize) -> f32 {
         self.content_height(ctx, project, &self.rows(ctx, project, pending))
     }
 }
 
-/// The furthest the tracks scroll: the last one stays a folded row in view.
 fn max_top(content: f32, visible: f32) -> f32 {
     (content - visible + FOLDED).max(0.0)
 }

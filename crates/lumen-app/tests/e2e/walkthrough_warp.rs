@@ -1,16 +1,3 @@
-//! M9.5 S7: the milestone's exit criterion end to end (`docs/milestones/M9.5.md`,
-//! "Exit criterion"). A drum loop at 92 BPM is dropped into a song at 120 BPM
-//! and is heard in time with nothing done to it. One late hit is fixed with
-//! warp markers, a vocal phrase is transposed up two semitones, both clips are
-//! trimmed, faded and slipped in the Clip tab, and the song is exported. The
-//! file is checked against what the test device played: the same hits, the
-//! same distances between them, and the vocal at the pitch that was set.
-//!
-//! The loop is a click track (a click on each beat, one of them 80 ms late) and
-//! the phrase a steady tone, so each claim is a number that can be measured:
-//! where the hits fall and what the frequency is. What it sounds like is for
-//! the owner's ears, in MT-M9.5-1.
-
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 
@@ -26,14 +13,10 @@ use super::warp_chip::{clicks_at, close_chip, open_chip};
 use super::{Lumen, wav_at};
 
 const RATE: f64 = 48_000.0;
-/// The loop's tempo, and the song's.
 const LOOP_BPM: f64 = 92.0;
-/// Seconds into the loop of the hit that is played late, and by how much.
 const LATE_HIT: usize = 5;
 const LATE_BY: f64 = 0.08;
-/// Seconds of a beat in the loop.
 const LOOP_BEAT: f64 = 60.0 / LOOP_BPM;
-/// Frames listened to and exported: the first eight beats of the song.
 const LISTEN: usize = 4 * 48_000;
 
 fn track_clip(lumen: &Lumen, name: &str) -> Id {
@@ -47,8 +30,6 @@ fn track_clip(lumen: &Lumen, name: &str) -> Id {
         .id
 }
 
-/// Where in the left channel a hit starts: the first frame over 0.1 after at
-/// least a quarter of a second of quiet, so a click's tail is one hit.
 fn onsets(left: impl IntoIterator<Item = f32>) -> Vec<usize> {
     let mut found: Vec<usize> = Vec::new();
     for (i, s) in left.into_iter().enumerate() {
@@ -59,9 +40,6 @@ fn onsets(left: impl IntoIterator<Item = f32>) -> Vec<usize> {
     found
 }
 
-/// The seconds between each hit and the next, the first included: the test
-/// device is heard from Play on (`Lumen::listen_from`), so the first hit is
-/// heard whole.
 fn gaps(onsets: &[usize]) -> Vec<f64> {
     onsets
         .windows(2)
@@ -69,18 +47,15 @@ fn gaps(onsets: &[usize]) -> Vec<f64> {
         .collect()
 }
 
-/// Plays from the start for [`LISTEN`] frames and gives the left channel.
 fn hear(lumen: &mut Lumen) -> Vec<f32> {
     lumen.key(Modifiers::NONE, Key::Home);
     lumen.wait_for("the rewind", |app| app.playhead() == Ticks::ZERO);
-    // Everything from Play on: a hit lost at the start would be a fault.
     let heard = lumen.listen_from(|l| l.key(Modifiers::NONE, Key::Space), LISTEN);
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.frames(5);
     heard.iter().map(|f| f[0]).collect()
 }
 
-/// Exports the whole project to `path` and gives its left channel.
 fn export(lumen: &mut Lumen, path: &Path) -> Vec<f32> {
     lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::E);
     lumen.frames(5);
@@ -95,8 +70,6 @@ fn export(lumen: &mut Lumen, path: &Path) -> Vec<f32> {
     audio.channel(0).to_vec()
 }
 
-/// The loop (eight clicks a beat apart at 92 BPM, one of them late) and the
-/// phrase (three seconds of a steady tone).
 fn drum_files(dir: &Path) -> (PathBuf, PathBuf) {
     let onsets: Vec<f64> = (0..8)
         .map(|k| k as f64 * LOOP_BEAT + if k == LATE_HIT { LATE_BY } else { 0.0 })
@@ -106,7 +79,6 @@ fn drum_files(dir: &Path) -> (PathBuf, PathBuf) {
     (drums, vocal)
 }
 
-/// How often a tone crosses zero upwards in `frames`, as a frequency.
 fn frequency(frames: &[f32]) -> f64 {
     let crossings = frames
         .windows(2)
@@ -115,7 +87,6 @@ fn frequency(frames: &[f32]) -> f64 {
     crossings as f64 * RATE / frames.len() as f64
 }
 
-/// The strip's middle line, at beat `q`.
 fn on_strip(lumen: &Lumen, q: f64) -> Pos2 {
     let (rect, _) = lumen.app().audio_warp_strip().expect("the strip is drawn");
     Pos2::new(x_of(lumen, q), rect.center().y)
@@ -136,8 +107,6 @@ fn a_loop_at_another_tempo_is_in_time_one_hit_is_fixed_a_phrase_is_transposed_an
     let drums = track_clip(&lumen, "Drums 92 BPM");
     let vocal = track_clip(&lumen, "Vocal");
 
-    // 1. In time, with no extra steps: the file says 92 BPM, so it follows the
-    //    song, and its eight beats are eight beats at 120.
     let warp = clip(&lumen, drums).warp.expect("the loop follows the song");
     assert_eq!(
         (warp.mode, warp.original_bpm),
@@ -154,7 +123,6 @@ fn a_loop_at_another_tempo_is_in_time_one_hit_is_fixed_a_phrase_is_transposed_an
     );
     lumen.frames(30);
     let before = gaps(&onsets(hear(&mut lumen)));
-    // The gap into the late hit is the one before it in the list.
     let late = LATE_HIT - 1;
     assert!(
         before.len() > late,
@@ -168,9 +136,6 @@ fn a_loop_at_another_tempo_is_in_time_one_hit_is_fixed_a_phrase_is_transposed_an
         "the late hit is heard late: {before:?}"
     );
 
-    // 2. Fix the late hit: Fix this hit pins the hits either side of it and
-    //    adds a marker on it, one undo step, and the marker is dragged onto
-    //    its beat. Nothing else moves: the anchors stay where they were.
     open(&mut lumen, drums);
     lumen.wait_for("detection", |app| app.audio_detection().ready);
     let late_beat = (LATE_HIT as f64 * LOOP_BEAT + LATE_BY) * LOOP_BPM / 60.0;
@@ -197,7 +162,6 @@ fn a_loop_at_another_tempo_is_in_time_one_hit_is_fixed_a_phrase_is_transposed_an
         );
     }
 
-    // 3. The vocal: warped, Melodic, two semitones up.
     open(&mut lumen, vocal);
     lumen.wait_for("the phrase's detection", |app| {
         let found = app.audio_detection();
@@ -219,8 +183,6 @@ fn a_loop_at_another_tempo_is_in_time_one_hit_is_fixed_a_phrase_is_transposed_an
         (WarpMode::Melodic, 200)
     );
 
-    // 4. Trim, fade and slip the vocal, in the Clip tab: its end to beat 5, a
-    //    fade in of half a beat, and the audio one step earlier (a clip at the start of its file has nothing before it).
     let mid = shown(&lumen).body.center().y;
     let grip = Pos2::new(handles(&lumen).end - 2.0, mid);
     lumen.drag(
@@ -243,9 +205,6 @@ fn a_loop_at_another_tempo_is_in_time_one_hit_is_fixed_a_phrase_is_transposed_an
     assert_eq!(lumen.app().undo_label(), Some("Slip clip"));
     assert_eq!(phrase.warp.as_ref().map(|w| w.transpose_cents), Some(200));
 
-    // 5. The same for the loop: its end to beat 7.5, a fade out of a quarter
-    //    beat and a slip, which is tried and taken back: the hits stay on
-    //    the beat. Each is one undo step.
     open(&mut lumen, drums);
     let mid = shown(&lumen).body.center().y;
     let grip = Pos2::new(handles(&lumen).end - 2.0, mid);
@@ -276,7 +235,6 @@ fn a_loop_at_another_tempo_is_in_time_one_hit_is_fixed_a_phrase_is_transposed_an
     lumen.frames(3);
     assert_eq!(clip(&lumen, drums), trimmed, "one undo takes the slip back");
 
-    // 6. What is heard: every hit on the beat, the late one included.
     lumen.frames(30);
     let heard = hear(&mut lumen);
     let heard_hits = onsets(heard.iter().copied());
@@ -289,12 +247,9 @@ fn a_loop_at_another_tempo_is_in_time_one_hit_is_fixed_a_phrase_is_transposed_an
         );
     }
 
-    // 7. The export is what was heard: the same hits at the same distances,
-    //    and the phrase at the pitch that was set.
     let song = lumen.dir().join("song.wav");
     let exported = export(&mut lumen, &song);
     let exported_hits = onsets(exported.iter().copied().take(LISTEN));
-    // Every hit, the first included: the test device was heard from Play on.
     assert_eq!(
         exported_hits.len(),
         heard_hits.len(),
@@ -306,9 +261,6 @@ fn a_loop_at_another_tempo_is_in_time_one_hit_is_fixed_a_phrase_is_transposed_an
             "a gap of {heard} s heard and {exported} s exported: heard {heard_hits:?}, exported {exported_hits:?}"
         );
     }
-    // The vocal alone, between two hits (the loop's clicks have died away by
-    // then and the fade in has ended): its tone is 382 Hz, and two semitones up
-    // is 429 Hz.
     let from = (0.30 * RATE) as usize;
     let tone = frequency(&exported[from..from + (0.15 * RATE) as usize]);
     assert!(
@@ -317,13 +269,6 @@ fn a_loop_at_another_tempo_is_in_time_one_hit_is_fixed_a_phrase_is_transposed_an
     );
 }
 
-/// What the walkthrough works around, kept as a record of how the strip behaves
-/// (M9.5 S7 review, finding M2): one marker moves the audio on both sides of
-/// it. Dragging the late hit onto its beat with nothing pinned shifts every
-/// later hit 61 ms early, because the audio after the last marker keeps its
-/// speed from that marker on. "Fix this hit" is the way to fix one hit: it
-/// pins the hits either side first, as the walkthrough does with it. If plain
-/// dragging ever pins them itself, this test is the one to change.
 #[test]
 fn a_lone_marker_moves_the_hits_after_it_so_the_walkthrough_anchors_first() {
     let mut lumen = Lumen::start_with(TempDir::new("e2e-warp-lone-marker"), |l| {
@@ -346,7 +291,6 @@ fn a_lone_marker_moves_the_hits_after_it_so_the_walkthrough_anchors_first() {
     assert_eq!(map.markers.len(), 2, "the first marker and the one made");
     let late_at = LATE_HIT as f64 * LOOP_BEAT + LATE_BY;
     assert!((map.source_at(Ticks::quarters(LATE_HIT as i64)) - late_at).abs() < 0.01);
-    // At beat 6 the audio is now 80 ms past hit 6: the hit sounds early.
     let past = map.source_at(Ticks::quarters(6)) - 6.0 * LOOP_BEAT;
     assert!(
         past > 0.05,

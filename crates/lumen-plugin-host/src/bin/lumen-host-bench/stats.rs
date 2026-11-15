@@ -1,6 +1,3 @@
-//! Percentiles over a run's timings.
-
-/// A sorted copy of the samples, in nanoseconds.
 pub struct Sorted(Vec<u32>);
 
 impl Sorted {
@@ -10,7 +7,6 @@ impl Sorted {
         Self(v)
     }
 
-    /// The `p` quantile (0 to 1) in microseconds.
     pub fn at(&self, p: f64) -> f64 {
         if self.0.is_empty() {
             return 0.0;

@@ -1,10 +1,3 @@
-//! Reading folders for the browser's file tabs (M9 R7c, ADR-0116): one
-//! folder's rows for Places, and the walk under a folder that Samples,
-//! Projects and search list. A walk never follows a link or a junction (no
-//! loops), stops [`DEPTH`] folders down and at [`MOST`] files, and keeps an
-//! index of every folder's own modified time, so a walk of a tree it has
-//! seen reads again only the folders that changed.
-
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -13,17 +6,11 @@ use std::time::UNIX_EPOCH;
 
 use serde::{Deserialize, Serialize};
 
-/// Folders a walk goes down, at most.
 pub(crate) const DEPTH: usize = 32;
-/// Files one walk lists, at most.
 pub(crate) const MOST: usize = 200_000;
-/// Folder names one walk keeps, at most: a tree of millions of folders is
-/// bounded like one of millions of files.
 pub(crate) const FOLDERS: usize = MOST;
-/// Rows sent at a time.
 pub(crate) const BATCH: usize = 256;
 
-/// What a row is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub(crate) enum Kind {
     Folder,
@@ -33,8 +20,6 @@ pub(crate) enum Kind {
 }
 
 impl Kind {
-    /// The kind of a file, by its extension; `None` for one Lumen cannot
-    /// open.
     pub(crate) fn of_file(path: &Path) -> Option<Kind> {
         let extension = path.extension()?.to_str()?;
         let is = |list: &[&str]| list.iter().any(|e| extension.eq_ignore_ascii_case(e));
@@ -49,7 +34,6 @@ impl Kind {
         }
     }
 
-    /// Said after a row's name, for screen readers.
     pub(crate) fn said(self) -> &'static str {
         match self {
             Kind::Folder => "folder",
@@ -60,13 +44,9 @@ impl Kind {
     }
 }
 
-/// Which files a read or a walk lists (folders are always listed by a
-/// read, never by a walk).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Wanted {
-    /// Audio and MIDI files: Samples, and Places.
     Sounds,
-    /// Projects.
     Projects,
 }
 
@@ -79,15 +59,11 @@ impl Wanted {
     }
 }
 
-/// A row: a folder, or a file Lumen can open.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Entry {
     pub path: PathBuf,
-    /// What the row shows: a folder's name, a file's without its extension.
     pub name: String,
     pub kind: Kind,
-    /// The name in lower case, made once: what the list sorts and searches
-    /// by (a list can hold 200,000 rows).
     key: String,
 }
 
@@ -105,7 +81,6 @@ impl Entry {
         Self::named(path, name, kind)
     }
 
-    /// A row with a name of its own (a place, a drive).
     pub(crate) fn named(path: PathBuf, name: String, kind: Kind) -> Self {
         let key = name.to_lowercase();
         Self {
@@ -116,12 +91,10 @@ impl Entry {
         }
     }
 
-    /// The name in lower case.
     pub(crate) fn key(&self) -> &str {
         &self.key
     }
 
-    /// The file's whole name, with its extension.
     pub(crate) fn file_name(&self) -> String {
         self.path
             .file_name()
@@ -129,7 +102,6 @@ impl Entry {
     }
 }
 
-/// Folders first, then files, each by name without regard to case.
 pub(crate) fn order(a: &Entry, b: &Entry) -> std::cmp::Ordering {
     (a.kind != Kind::Folder)
         .cmp(&(b.kind != Kind::Folder))
@@ -137,29 +109,21 @@ pub(crate) fn order(a: &Entry, b: &Entry) -> std::cmp::Ordering {
         .then_with(|| a.path.cmp(&b.path))
 }
 
-/// Sorts rows by [`order`].
 pub(crate) fn sort(entries: &mut [Entry]) {
     entries.sort_by(order);
 }
 
-/// How a read or a walk ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Outcome {
     Done,
-    /// Cancelled: what was found is kept.
     Stopped,
-    /// It reached [`MOST`] files or [`DEPTH`] folders.
     Limited,
 }
 
-/// Whether `kind` (from a directory entry) is a link or a junction.
 fn is_link(kind: &fs::FileType) -> bool {
     kind.is_symlink()
 }
 
-/// Reads one folder: its folders and the files `wanted` takes, in batches
-/// of at most [`BATCH`]. Links are listed by what they point to only when
-/// it is a file (a linked folder could lead back up).
 pub(crate) fn read_folder(
     dir: &Path,
     wanted: Wanted,
@@ -207,45 +171,34 @@ pub(crate) fn read_folder(
     Ok(Outcome::Done)
 }
 
-/// Whether a folder is one people do not keep sounds in: dot-folders and
-/// the system's own.
 fn hidden(path: &Path) -> bool {
     path.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
         n.starts_with('.') || n.starts_with('$') || n == "System Volume Information"
     })
 }
 
-/// One folder as the index knows it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 struct Folder {
-    /// Its own modified time, in nanoseconds: it changes when something is
-    /// added to it, removed or renamed (not when something deeper does).
     modified: u128,
     folders: Vec<String>,
     files: Vec<(String, Kind)>,
 }
 
-/// What a walk saw of a tree, kept in the cache folder.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Index {
     version: u32,
     root: PathBuf,
-    /// By path relative to the root.
     folders: HashMap<PathBuf, Folder>,
-    /// The walk that made it stopped early.
     pub partial: bool,
 }
 
-/// The index file's version.
 const INDEX_VERSION: u32 = 1;
 
 impl Index {
-    /// The index's bytes, for the cache.
     pub(crate) fn to_bytes(&self) -> Vec<u8> {
         serde_json::to_vec(self).unwrap_or_default()
     }
 
-    /// An index read back, when it is one of this version for `root`.
     pub(crate) fn from_bytes(bytes: &[u8], root: &Path) -> Option<Index> {
         let index: Index = serde_json::from_slice(bytes).ok()?;
         (index.version == INDEX_VERSION && index.root == root).then_some(index)
@@ -259,26 +212,15 @@ fn modified(meta: &fs::Metadata) -> u128 {
         .map_or(0, |d| d.as_nanos())
 }
 
-/// What a walk of one root came to.
 #[derive(Debug)]
 pub(crate) struct Walked {
-    /// What the walk saw, for the next walk of the same tree.
     pub index: Index,
     pub outcome: Outcome,
-    /// Files listed.
     pub found: usize,
-    /// Folders that could not be read, and the first one's error.
     pub unreadable: usize,
     pub first_error: Option<String>,
 }
 
-/// Lists at most `room` files `wanted` takes under `root`, in batches,
-/// reading again only the folders whose own time differs from `old`'s.
-/// Returns the new index and how the walk ended; an index of a walk that did
-/// not finish is marked partial, and a folder that was not read whole (cut
-/// short, or unreadable) is left out of it, so the next walk reads it. What
-/// a walk keeps is bounded: `room` files and [`FOLDERS`] folder names, and
-/// only the files `wanted` takes.
 pub(crate) fn walk(
     root: &Path,
     wanted: Wanted,
@@ -304,9 +246,7 @@ pub(crate) fn walk(
         found: 0,
         batch,
     };
-    // Folder names kept, in the index and on the stack.
     let mut folders = 0;
-    // Depth first, so a batch holds neighbours.
     let mut stack: Vec<(PathBuf, usize)> = vec![(PathBuf::new(), 0)];
     while let Some((relative, depth)) = stack.pop() {
         if cancel.load(Ordering::Relaxed) {
@@ -327,7 +267,6 @@ pub(crate) fn walk(
         };
         let folder = match old.and_then(|o| o.folders.get(&relative)) {
             Some(seen) if seen.modified == time && time != 0 => {
-                // A folder the index knows: its files go out from there.
                 for (name, kind) in &seen.files {
                     if sink.found >= room {
                         walked.outcome = Outcome::Limited;
@@ -377,7 +316,6 @@ pub(crate) fn walk(
     walked
 }
 
-/// Where a walk's rows go: out in batches of [`BATCH`] as they are found.
 struct Sink<'a> {
     rows: Vec<Entry>,
     found: usize,
@@ -409,19 +347,12 @@ impl Walked {
     }
 }
 
-/// One folder read for the index.
 enum Read {
     Whole(Folder),
-    /// Cut short by a cancel or by the room left: what was read went out,
-    /// and the folder is not kept in the index.
     Cut(Outcome),
     Failed(String),
 }
 
-/// Reads one folder for the index: the files `wanted` takes, each sent to
-/// `found` as it is met, and the folders that are not links. Stops when
-/// cancelled, or once it holds `rooms.0` files or `rooms.1` folders (one
-/// folder can hold millions of either).
 fn read_one(
     dir: &Path,
     modified: u128,
@@ -443,8 +374,6 @@ fn read_one(
         if cancel.load(Ordering::Relaxed) {
             return Read::Cut(Outcome::Stopped);
         }
-        // An entry that fails to read is skipped; the folder still is whole
-        // as far as it can be read.
         let Ok(entry) = entry else {
             continue;
         };
@@ -478,8 +407,6 @@ fn read_one(
     Read::Whole(folder)
 }
 
-/// What Computer lists: the person's Desktop, Downloads and Music, and the
-/// drives (on Windows) or the file system's root and its volumes.
 pub(crate) fn computer() -> Vec<(String, PathBuf)> {
     let mut places = Vec::new();
     if let Some(home) = home() {
@@ -513,23 +440,18 @@ pub(crate) fn computer() -> Vec<(String, PathBuf)> {
     places
 }
 
-/// Whether the drive with `letter` is there, asked of the system rather
-/// than the drive (a network drive that is gone could block a read).
 #[cfg(windows)]
 fn drive_present(letter: u8) -> bool {
-    // SAFETY: takes no arguments and only reads the system's drive mask.
     let mask = unsafe { windows_sys::Win32::Storage::FileSystem::GetLogicalDrives() };
     mask & (1 << (letter - b'A')) != 0
 }
 
-/// The person's home folder.
 pub(crate) fn home() -> Option<PathBuf> {
     std::env::var_os("USERPROFILE")
         .or_else(|| std::env::var_os("HOME"))
         .map(PathBuf::from)
 }
 
-/// The system's Music folder: where Samples looks until a folder is chosen.
 pub(crate) fn music() -> Option<PathBuf> {
     home().map(|h| h.join("Music"))
 }
@@ -629,7 +551,6 @@ mod tests {
         let walked = walk(&dir, Wanted::Sounds, None, MOST, &cancel, &mut |_| {});
         assert_eq!(walked.outcome, Outcome::Stopped);
         assert!(walked.index.partial);
-        // Projects are walked for on their own.
         let mut projects = Vec::new();
         walk(
             &dir,
@@ -649,12 +570,10 @@ mod tests {
         let (_, index, _) = walk_all(&dir, None);
         let bytes = index.to_bytes();
         let index = Index::from_bytes(&bytes, &dir).expect("read back");
-        // A new file changes its own folder's time, which the walk checks.
         std::thread::sleep(std::time::Duration::from_millis(20));
         touch(&dir.join("one/two/three/second.wav"));
         let (all, _, _) = walk_all(&dir, Some(&index));
         assert_eq!(names(&all), ["first.wav", "second.wav"]);
-        // An index of another tree is not used.
         assert!(Index::from_bytes(&bytes, &dir.join("one")).is_none());
     }
 
@@ -669,7 +588,6 @@ mod tests {
         assert_eq!(walked.outcome, Outcome::Limited);
         assert_eq!(all.len(), BATCH + 5);
         assert_eq!(walked.found, BATCH + 5);
-        // A folder cut short is not kept: the next walk reads it whole.
         assert!(walked.index.partial);
         assert!(walked.index.folders.is_empty());
         let (all, walked) = walk_room(&dir, None, MOST);
@@ -744,15 +662,12 @@ mod tests {
         }
         touch(&dir.join("Song.lumen"));
         let no = AtomicBool::new(false);
-        // Projects keep no sounds: a folder of a million samples costs a
-        // projects walk nothing to hold.
         let mut sent = Vec::new();
         let read = read_one(&dir, 1, Wanted::Projects, (MOST, FOLDERS), &no, &mut |e| {
             sent.push(e)
         });
         assert!(matches!(read, Read::Whole(ref f) if f.files.len() == 1 && f.folders.len() == 20));
         assert_eq!(names(&sent), ["Song.lumen"]);
-        // A folder of more folders than the walk has room for is cut short.
         let read = read_one(&dir, 1, Wanted::Projects, (MOST, 5), &no, &mut |_| {});
         assert!(matches!(read, Read::Cut(Outcome::Limited)));
     }

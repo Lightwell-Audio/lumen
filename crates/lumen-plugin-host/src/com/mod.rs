@@ -1,8 +1,3 @@
-//! The COM objects a host gives a plugin: the host context, the handler that
-//! hears about edits and restarts, event lists, parameter changes and a
-//! memory stream for state. Built on the `vst3` crate's `ComWrapper`; the
-//! methods take `&self`, so what changes lives behind a lock or an atomic.
-
 use std::collections::HashMap;
 use std::ffi::{CStr, CString, c_char, c_void};
 use std::sync::Mutex;

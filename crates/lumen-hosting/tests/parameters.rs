@@ -1,8 +1,3 @@
-//! Parameters through the hosting manager and real host processes: the list
-//! a link brings, values the project holds over a plugin's saved state, values
-//! set while running, what the plugin does inside itself, its own text, and
-//! controllers carried to a plugin that maps them.
-
 mod support;
 
 use std::time::Duration;
@@ -18,7 +13,6 @@ fn manager() -> Manager {
     Manager::new(|| {})
 }
 
-/// The loudest sample a held note makes in a block.
 fn loudness(link: &mut lumen_hosting::Link, events: &[Event]) -> f32 {
     let (left, _, reply) = play(link, 64, &[], events);
     assert!(reply.is_some(), "the block was taken");
@@ -49,7 +43,6 @@ fn values_the_project_holds_are_in_place_before_the_first_block() {
     manager.want(1, start).unwrap();
     let mut linked = linked(&mut manager, 1);
     assert_eq!(loudness(&mut linked.link, &held()), 0.25);
-    // The list shows the value the saved state holds, before the project's.
     assert_eq!(linked.params[0].value, 0.5);
 }
 
@@ -60,7 +53,6 @@ fn a_value_set_while_running_is_heard_in_the_next_block() {
     let mut linked = linked(&mut manager, 1);
     assert_eq!(loudness(&mut linked.link, &held()), 0.5);
     manager.set_param(1, LEVEL, 0.75);
-    // The host thread sends it on; give it a moment, then the next block has it.
     lumen_testkit::wait_until("the block to have the new value", || {
         loudness(&mut linked.link, &held()) == 0.75
     });
@@ -148,14 +140,12 @@ fn controllers_reach_a_plugin_that_maps_them_and_the_ones_it_does_not_are_told()
     let mut manager = manager();
     manager.want(1, instrument("")).unwrap();
     let mut linked = linked(&mut manager, 1);
-    // Controller 7 (volume) is the test plugin's level; 127 is all the way up.
     let events = [
         note_on(0, 69),
         Event {
             offset: 1,
             msg: Msg::controller(0, 7, 127),
         },
-        // Controller 1 maps to nothing.
         Event {
             offset: 2,
             msg: Msg::controller(0, 1, 127),
@@ -180,7 +170,6 @@ fn the_plugins_state_is_read_on_request_and_a_reload_can_start_from_it() {
     manager.want(1, instrument("")).unwrap();
     let mut linked = linked(&mut manager, 1);
     manager.set_param(1, LEVEL, 0.25);
-    // Wait until the plugin has it, then read the state it would save.
     lumen_testkit::wait_until("the plugin to have the value", || {
         loudness(&mut linked.link, &held()) == 0.25
     });
@@ -196,15 +185,12 @@ fn the_plugins_state_is_read_on_request_and_a_reload_can_start_from_it() {
     .expect("the state was read");
     assert!(!state.component.is_empty());
 
-    // A host started from that state plays at the level that was set.
     assert!(manager.reload_from(1, Some(state), Vec::new()).unwrap());
     let mut fresh = linked_again(&mut manager, 1);
     assert_eq!(loudness(&mut fresh.link, &held()), 0.25);
-    // And a device that is not there is not reloaded.
     assert!(!manager.reload_from(99, None, Vec::new()).unwrap());
 }
 
-/// The next link `device` gets, after its host was started again.
 fn linked_again(manager: &mut Manager, device: u64) -> Box<lumen_hosting::Linked> {
     support::linked(manager, device)
 }

@@ -1,6 +1,3 @@
-//! Autosave and the recovery banner after a crash (M3 slice 3d); the
-//! autosave itself is `crate::autosave`.
-
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
 use std::time::Instant;
@@ -12,31 +9,16 @@ use crate::recording::take_notes::delete_later;
 use crate::widgets::raised;
 use crate::{App, autosave, files, trace};
 
-/// The autosaves left by other sessions, read on a worker (sweep M4a).
-///
-/// The folder is read there, with its locks and notes, and the app polls the
-/// answer each frame: neither start-up nor a click waits on the disk. Until
-/// the first answer no banner is offered, and otherwise the banner offers the
-/// newest leftover and then the next, as it always did.
 #[derive(Default)]
 pub(crate) struct Leftovers {
-    /// The worker reading the folder.
     pending: Option<Receiver<Vec<autosave::Leftover>>>,
-    /// An answer delivered without a worker (no thread could start).
     ready: Option<Vec<autosave::Leftover>>,
-    /// The start's look has been asked for.
     seen: bool,
-    /// The start recovers the newest leftover at once, instead of offering
-    /// it (`--recover-latest`).
     recover_latest: bool,
-    /// Why the last read could not start, until it is said.
     failure: Option<String>,
 }
 
 impl Leftovers {
-    /// The start's look. With `recover_latest` the newest leftover is
-    /// recovered at once; an explicit project on the command line turns that
-    /// off, as it wins over it.
     pub(crate) fn new(recover_latest: bool) -> Self {
         Self {
             recover_latest,
@@ -44,8 +26,6 @@ impl Leftovers {
         }
     }
 
-    /// Asks a worker for the autosaves in `dir` other than `session`'s own,
-    /// once: the start's look.
     pub(crate) fn start(&mut self, ctx: &egui::Context, dir: &Path, session: &str) {
         if self.seen {
             return;
@@ -65,9 +45,6 @@ impl Leftovers {
         }
     }
 
-    /// Deletes `leftover` and reads the folder again, on one worker: the
-    /// deletion must finish before the read, or the same autosave would be
-    /// offered all over again.
     pub(crate) fn discard(
         &mut self,
         ctx: &egui::Context,
@@ -90,10 +67,6 @@ impl Leftovers {
         match spawned {
             Ok(_) => self.pending = Some(rx),
             Err(error) => {
-                // No thread to delete on: the click does it here, which is
-                // the one place the interface waits on the disk, so that
-                // Discard always discards. Logged rather than said: what the
-                // person asked for happened.
                 trace::log(|| {
                     format!(
                         "recovery: {}",
@@ -106,7 +79,6 @@ impl Leftovers {
         }
     }
 
-    /// The worker's answer, once it is in.
     pub(crate) fn poll(&mut self) -> Option<Vec<autosave::Leftover>> {
         if let Some(found) = self.ready.take() {
             self.pending = None;
@@ -117,35 +89,25 @@ impl Leftovers {
         Some(found)
     }
 
-    /// Whether a read is under way (tests wait for it).
     #[cfg(test)]
     pub(crate) fn busy(&self) -> bool {
         self.pending.is_some()
     }
 
-    /// Whether the start's look is still to be made.
     pub(crate) fn unseen(&self) -> bool {
         !self.seen
     }
 
-    /// Whether the start's answer recovers the newest leftover at once; true
-    /// once, for the first answer.
     pub(crate) fn take_recover_latest(&mut self) -> bool {
         std::mem::take(&mut self.recover_latest)
     }
 
-    /// Why a read could not start, once.
     pub(crate) fn take_failure(&mut self) -> Option<String> {
         self.failure.take()
     }
 }
 
 impl App {
-    /// Writes an autosave a minute after unsaved changes, and removes it
-    /// once they are saved. While a take is recorded, or a placed take is in
-    /// no finished save yet, it autosaves a project with no unsaved changes
-    /// too, so a crash always leaves recovery something to start from (M9
-    /// review H3, H4).
     pub(crate) fn autosave(&mut self, ctx: &egui::Context) {
         let Some(mut autosave) = self.autosave.take() else {
             return;
@@ -169,8 +131,6 @@ impl App {
                     copy_imported: false,
                     renders: Some(self.renders_dir()),
                     recordings: Some(self.recordings_dir()),
-                    // An autosave refers to a template's audio where it is, as it
-                    // does to imported audio.
                     templates: None,
                     keep_backups: 0,
                     state: self.document.change_mark(),
@@ -188,16 +148,12 @@ impl App {
                 written: autosave::now_seconds(),
             },
         );
-        // The write that ended first, then the one that began: in this order,
-        // a take placed after the earlier write began is not let go with it.
         if let Some(written) = autosave.take_finished() {
             delete_later(self.record.audio.notes.autosave_done(written));
         }
         if started {
             self.record.audio.notes.autosave_started();
         }
-        // Crash protection is off if its worker cannot start: say so, and say
-        // what is still safe (the project in memory).
         if let Some(why) = autosave.take_failure() {
             self.file_notice = Some(format!(
                 "Autosave could not start: {why}. Save your work yourself until this is fixed, \
@@ -210,7 +166,6 @@ impl App {
         self.autosave = Some(autosave);
     }
 
-    /// After a crash: offer the autosave that was left behind.
     pub(crate) fn recovery_banner(&mut self, ui: &mut egui::Ui) {
         let Some(leftover) = self.leftover.clone() else {
             return;
@@ -225,8 +180,6 @@ impl App {
                     leftover.note.name,
                     autosave::ago(leftover.note.written)
                 ));
-                // Recovering replaces the open project: never over unsaved
-                // changes, a recording or an export (M9 R8, ADR-0117).
                 let wait = match self.busy_for_open() {
                     Some(busy) => Some(format!(
                         "Recovering replaces the open project, so it waits{}.",
@@ -264,8 +217,6 @@ impl App {
                 self.leftover = None;
             }
             Some(false) => {
-                // Deleted and the folder read again on a worker: the banner
-                // is hidden until its answer comes (sweep M4a).
                 if let Some((dir, session)) = self.autosave_place() {
                     self.leftovers.discard(ui.ctx(), &dir, &session, &leftover);
                 } else {
@@ -277,10 +228,6 @@ impl App {
         }
     }
 
-    /// The leftover scan's answers, and its first look. Call every frame,
-    /// before the banners draw: the scan runs on a worker, so start-up never
-    /// waits on the disk and the banner is offered once its answer is in
-    /// (sweep M4a).
     pub(crate) fn poll_leftovers(&mut self, ctx: &egui::Context) {
         if self.leftovers.unseen()
             && let Some((dir, session)) = self.autosave_place()
@@ -288,8 +235,6 @@ impl App {
             self.leftovers.start(ctx, &dir, &session);
         }
         if let Some(found) = self.leftovers.poll() {
-            // `--recover-latest`: the newest one is opened at once, as a
-            // start with it did before the scan moved to a worker.
             if self.leftovers.take_recover_latest()
                 && let Some(first) = found.first()
             {
@@ -305,15 +250,11 @@ impl App {
         }
     }
 
-    /// Where this session's autosaves go, and the session's own name: what
-    /// a leftover scan leaves out.
     fn autosave_place(&self) -> Option<(PathBuf, String)> {
         let autosave = self.autosave.as_ref()?;
         Some((autosave.dir()?.to_path_buf(), autosave.session().to_owned()))
     }
 
-    /// A crash report from an earlier run: offered once, to show or
-    /// dismiss (owner, M3 slice 6c).
     pub(crate) fn crash_banner(&mut self, ui: &mut egui::Ui) {
         let Some(report) = self.crash_report.clone() else {
             return;
@@ -350,7 +291,6 @@ mod tests {
     use super::*;
     use lumen_project::testing::TempDir;
 
-    /// An autosave `session` left behind by a session that ended badly.
     fn crashed(dir: &Path, session: &str, written: u64) {
         let file = dir.join(format!("{session}.{}", files::EXTENSION));
         std::fs::write(&file, "{}").unwrap();
@@ -364,7 +304,6 @@ mod tests {
         std::fs::write(dir.join(format!("{session}.json")), text).unwrap();
     }
 
-    /// The scan's answer, waiting on the worker with a hang guard.
     fn answered(scan: &mut Leftovers) -> Vec<autosave::Leftover> {
         lumen_testkit::wait_for("the leftover scan's answer", || scan.poll())
     }
@@ -374,17 +313,12 @@ mod tests {
         let tmp = TempDir::new("recovery-scan");
         crashed(tmp.path(), "old", 100);
         crashed(tmp.path(), "new", 300);
-        // This session's own autosave is never offered to itself.
         crashed(tmp.path(), "mine", 200);
         let ctx = egui::Context::default();
         let mut scan = Leftovers::default();
         scan.start(&ctx, tmp.path(), "mine");
-        // Nothing was read where the start is: the folder is read on the
-        // worker, and only `poll` collects its answer.
         assert!(scan.busy(), "the worker is looking");
         assert!(!scan.take_recover_latest(), "no flag: it is offered");
-        // The answer comes through `poll`, waiting on the worker with the
-        // testkit's hang guard (never a count of frames).
         let mut answer = None;
         lumen_testkit::wait_until("the leftover scan's answer", || {
             answer = scan.poll();
@@ -394,7 +328,6 @@ mod tests {
         assert!(!scan.busy(), "the answer is in");
         let names: Vec<&str> = found.iter().map(|l| l.note.name.as_str()).collect();
         assert_eq!(names, ["new", "old"], "newest first, this session left out");
-        // Asked once: a second start adds no look.
         scan.start(&ctx, tmp.path(), "mine");
         assert!(!scan.busy());
     }

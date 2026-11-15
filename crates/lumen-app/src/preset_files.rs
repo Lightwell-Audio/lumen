@@ -1,16 +1,3 @@
-//! Preset files on disk (M6 slice 5f; built-ins M8 slice B0): where a plugin's
-//! `.vstpreset` files are kept, finding them, reading one and writing one, all
-//! off the UI thread. The bytes are turned into a sound by
-//! `lumen_hosting::Preset`; a built-in's preset is Lumen's own JSON file
-//! (`.lumenpreset`) holding the device's name and its parameter values. This
-//! module only moves them to and from the disk and back to the frame loop,
-//! which polls each frame.
-//!
-//! The standard says where a plugin's presets live: a folder per vendor and
-//! plugin in the user's presets folder and in the system's. Saving writes to
-//! the user's. The app's own devices keep theirs in a folder of the documents
-//! folder named after the product (`product_name!`), one folder per device.
-
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -19,49 +6,30 @@ use eframe::egui;
 use lumen_hosting::{MAX_FILE, Preset};
 use lumen_project::model::Id;
 
-/// The extension of a plugin's preset file.
 pub const EXTENSION: &str = "vstpreset";
-/// The extension of a built-in device's preset file.
 pub const BUILTIN_EXTENSION: &str = "lumenpreset";
-/// The only `version` a built-in device's preset file may say (M8 slice B0,
-/// review L4): a file a newer build wrote is refused with what it says, never
-/// half-read.
 pub const BUILTIN_VERSION: u64 = 1;
 
-/// The folder of the documents folder where the app's own devices keep their
-/// presets: its name is the product's, from `lumen_core`.
 fn builtin_root() -> String {
     format!("{} Presets", lumen_core::product::PRODUCT_NAME)
 }
-/// The deepest a plugin's folder is searched, and the most files listed.
 const DEPTH: usize = 4;
 const MOST_FILES: usize = 2000;
-/// The longest name Lumen gives a preset it saves, in characters: a name that
-/// fits the card's field and a file list.
 pub const NAME_LIMIT: usize = 30;
-/// The longest a file or folder name is made (a plugin's own name may be long).
 const LONGEST_NAME: usize = 80;
 
-/// Where preset files are kept: the user's folder (saving writes here) and
-/// the system's, which are only read, and Lumen's own devices' root.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Places {
     pub user: Option<PathBuf>,
     pub system: Vec<PathBuf>,
-    /// Where the built-in devices' presets are kept (M8 slice B0).
     pub builtin: Option<PathBuf>,
-    /// Chosen by the caller (tests): no window is opened on these.
     pub fixed: bool,
 }
 
 impl Places {
-    /// This machine's standard folders.
     pub fn standard() -> Self {
         let var = |name: &str| std::env::var_os(name).map(PathBuf::from);
         if cfg!(windows) {
-            // The Documents folder where Windows keeps it, which a person may
-            // have moved (KNOWN_ISSUES row 175); the profile's own Documents
-            // when it cannot say.
             let documents =
                 documents_folder().or_else(|| var("USERPROFILE").map(|p| p.join("Documents")));
             let profile = documents.as_ref().map(|p| p.join("VST3 Presets"));
@@ -69,8 +37,6 @@ impl Places {
                 .as_ref()
                 .map(|d| d.join("VST3 Presets"))
                 .or(profile.clone());
-            // Presets an earlier Lumen saved under the profile's Documents,
-            // when that is not the user's folder, are still listed.
             let earlier = profile.filter(|p| Some(p) != user.as_ref() && p.is_dir());
             Self {
                 user,
@@ -102,7 +68,6 @@ impl Places {
         }
     }
 
-    /// Folders chosen by the caller (tests).
     pub fn fixed(user: PathBuf, system: Vec<PathBuf>) -> Self {
         Self {
             builtin: Some(user.join(builtin_root())),
@@ -112,15 +77,12 @@ impl Places {
         }
     }
 
-    /// The folder where `vendor`'s `plugin` keeps its presets in the user's
-    /// place, if there is one.
     pub fn user_folder(&self, vendor: &str, plugin: &str) -> Option<PathBuf> {
         self.user
             .as_ref()
             .map(|root| plugin_folder(root, vendor, plugin))
     }
 
-    /// Every folder that may hold the plugin's presets, the user's first.
     pub fn folders(&self, vendor: &str, plugin: &str) -> Vec<(PathBuf, bool)> {
         let mut out = Vec::new();
         if let Some(user) = &self.user {
@@ -132,15 +94,12 @@ impl Places {
         out
     }
 
-    /// Where a built-in device called `device` keeps its presets: Lumen's own
-    /// folder, one folder per device.
     pub fn builtin_folder(&self, device: &str) -> Option<PathBuf> {
         self.builtin
             .as_ref()
             .map(|root| root.join(safe_name(device, "Device")))
     }
 
-    /// As [`Places::folders`], for a built-in device.
     pub fn builtin_folders(&self, device: &str) -> Vec<(PathBuf, bool)> {
         self.builtin_folder(device)
             .map(|folder| vec![(folder, true)])
@@ -148,8 +107,6 @@ impl Places {
     }
 }
 
-/// The user's Documents folder as Windows knows it (`FOLDERID_Documents`),
-/// which follows a folder the person moved or had redirected.
 #[cfg(windows)]
 fn documents_folder() -> Option<PathBuf> {
     use std::os::windows::ffi::OsStringExt;
@@ -158,9 +115,6 @@ fn documents_folder() -> Option<PathBuf> {
         FOLDERID_Documents, KF_FLAG_DEFAULT, SHGetKnownFolderPath,
     };
     let mut wide: windows_sys::core::PWSTR = std::ptr::null_mut();
-    // SAFETY: the GUID is a static, the token is null (the current user),
-    // and `wide` receives a string the shell allocates, freed below on
-    // every path.
     let result = unsafe {
         SHGetKnownFolderPath(
             &FOLDERID_Documents,
@@ -170,13 +124,10 @@ fn documents_folder() -> Option<PathBuf> {
         )
     };
     let path = (result >= 0 && !wide.is_null()).then(|| {
-        // SAFETY: on success the shell returns a NUL-terminated string.
         let len = (0..).take_while(|&i| unsafe { *wide.add(i) } != 0).count();
-        // SAFETY: `len` characters were just read from it.
         let chars = unsafe { std::slice::from_raw_parts(wide, len) };
         PathBuf::from(std::ffi::OsString::from_wide(chars))
     });
-    // SAFETY: the string (or null) came from SHGetKnownFolderPath.
     unsafe { CoTaskMemFree(wide as *const core::ffi::c_void) };
     path.filter(|p| p.is_absolute())
 }
@@ -191,9 +142,6 @@ fn plugin_folder(root: &Path, vendor: &str, plugin: &str) -> PathBuf {
         .join(safe_name(plugin, "Plugin"))
 }
 
-/// A name fit to be a file or folder name on any system: no separators or
-/// reserved characters, no dots or spaces at the ends, not too long;
-/// `fallback` when nothing is left.
 pub fn safe_name(name: &str, fallback: &str) -> String {
     let cleaned: String = name
         .chars()
@@ -220,32 +168,23 @@ pub fn safe_name(name: &str, fallback: &str) -> String {
     }
 }
 
-/// A preset file found in a plugin's folder.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry {
-    /// The file's name without its extension.
     pub name: String,
-    /// The folder inside the plugin's folder it was found in, when it was in
-    /// one ("Bass" for `Bass/Warm.vstpreset`).
     pub group: Option<String>,
     pub path: PathBuf,
-    /// In the user's folder (so Save can write over it), not the system's.
     pub user: bool,
 }
 
-/// A sound read from a file: a plugin's state, or a built-in's values.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Sound {
     Vst3(Preset),
     Builtin {
-        /// The device it was saved for, by its stable name.
         device: String,
         values: BTreeMap<u32, f64>,
     },
 }
 
-/// A built-in device's preset file: its name and what its parameters hold,
-/// as JSON, so a person can read and edit one.
 pub fn builtin_bytes(device: &str, values: &BTreeMap<u32, f64>) -> Vec<u8> {
     let values: BTreeMap<String, f64> = values
         .iter()
@@ -262,16 +201,12 @@ pub fn builtin_bytes(device: &str, values: &BTreeMap<u32, f64>) -> Vec<u8> {
     bytes
 }
 
-/// [`builtin_bytes`] read back, or why it cannot be.
 pub fn parse_builtin(bytes: &[u8]) -> Result<(String, BTreeMap<u32, f64>), String> {
     let json: serde_json::Value =
         serde_json::from_slice(bytes).map_err(|e| format!("the file is not readable ({e})"))?;
     if json["format"] != "lumen_builtin" {
         return Err("the file is not a built-in device's preset".to_owned());
     }
-    // A file a newer build wrote may mean something else by its values: it is
-    // refused, in full, rather than half-read (review L4). A file with no
-    // version is one a person wrote by hand, and is read as this version.
     let version = json["version"].as_u64().unwrap_or(BUILTIN_VERSION);
     if version != BUILTIN_VERSION {
         return Err(format!(
@@ -301,8 +236,6 @@ pub fn parse_builtin(bytes: &[u8]) -> Result<(String, BTreeMap<u32, f64>), Strin
     Ok((device, values))
 }
 
-/// The preset files under `folder`, sorted by group then name; none when the
-/// folder is not there. Stops at [`MOST_FILES`].
 pub fn list_folder(folder: &Path, user: bool) -> Vec<Entry> {
     let mut out = Vec::new();
     walk(folder, folder, user, 0, &mut out);
@@ -349,9 +282,6 @@ fn walk(root: &Path, dir: &Path, user: bool, depth: usize, out: &mut Vec<Entry>)
     }
 }
 
-/// A path in `folder` for a preset called `name` that no file has yet:
-/// "Name.vstpreset", then "Name 2.vstpreset" and on. `extension` picks the
-/// kind (a built-in's is `.lumenpreset`). Saving as never writes over a file.
 pub fn unused_path(folder: &Path, name: &str, extension: &str) -> PathBuf {
     let base = safe_name(name, "Preset");
     let first = folder.join(format!("{base}.{extension}"));
@@ -364,19 +294,14 @@ pub fn unused_path(folder: &Path, name: &str, extension: &str) -> PathBuf {
         .expect("an unused name exists")
 }
 
-/// A preset file to write (M8 slice B0: a plugin's `.vstpreset` or a
-/// built-in's `.lumenpreset`).
 pub struct Written {
     pub folder: PathBuf,
-    /// `Some` writes over this file (Save); `None` finds an unused name.
     pub over: Option<PathBuf>,
     pub name: String,
     pub bytes: Vec<u8>,
-    /// The extension a new file gets.
     pub extension: &'static str,
 }
 
-/// Work for the thread.
 enum Job {
     List {
         device: Id,
@@ -386,42 +311,34 @@ enum Job {
         device: Id,
         path: PathBuf,
     },
-    /// Whether a folder is there.
     Folder {
         folder: PathBuf,
     },
     Write {
         device: Id,
         folder: PathBuf,
-        /// `Some` writes over this file (Save); `None` finds an unused name
-        /// for `name` (Save as).
         over: Option<PathBuf>,
         name: String,
         bytes: Vec<u8>,
-        /// The extension a new file gets: a plugin's or a built-in's.
         extension: &'static str,
     },
 }
 
-/// What the thread found.
 #[derive(Debug)]
 pub enum Done {
     Listed {
         device: Id,
         entries: Vec<Entry>,
     },
-    /// A file read: the sound, or why it cannot be used.
     Read {
         device: Id,
         name: String,
         result: Result<Sound, String>,
     },
-    /// Whether the folder asked about exists.
     Folder {
         folder: PathBuf,
         exists: bool,
     },
-    /// A file written: where, or why not.
     Wrote {
         device: Id,
         name: String,
@@ -429,11 +346,9 @@ pub enum Done {
     },
 }
 
-/// The thread that lists, reads and writes preset files; made on first use.
 #[derive(Default)]
 pub struct Files {
     worker: Option<(Sender<Job>, Receiver<Done>)>,
-    /// Why the thread could not start; said once by the interface.
     failure: Option<String>,
 }
 
@@ -443,9 +358,6 @@ impl Files {
             match Self::start(ctx) {
                 Ok(worker) => self.worker = Some(worker),
                 Err(error) => {
-                    // The save or load the person asked for did not start:
-                    // say why rather than wait for an answer that is never
-                    // coming.
                     let why = crate::spawn::start_failed("the preset files", &error);
                     crate::trace::log(|| format!("presets: {why}"));
                     self.failure = Some(why);
@@ -473,29 +385,22 @@ impl Files {
         Ok((jobs_tx, done_rx))
     }
 
-    /// Why a preset action could not start, once.
     pub fn take_failure(&mut self) -> Option<String> {
         self.failure.take()
     }
 
-    /// Looks for `device`'s presets in `folders`.
     pub fn list(&mut self, ctx: &egui::Context, device: Id, folders: Vec<(PathBuf, bool)>) {
         self.send(ctx, Job::List { device, folders });
     }
 
-    /// Asks whether `folder` exists (a stat can be slow on a network drive).
     pub fn folder(&mut self, ctx: &egui::Context, folder: PathBuf) {
         self.send(ctx, Job::Folder { folder });
     }
 
-    /// Reads the preset file at `path` for `device`.
     pub fn read(&mut self, ctx: &egui::Context, device: Id, path: PathBuf) {
         self.send(ctx, Job::Read { device, path });
     }
 
-    /// Writes a preset file for `device` into `folder`: over `over` when it
-    /// is given, otherwise under an unused name made from `name`, with
-    /// `extension` for a new file (a plugin's or a built-in's).
     pub fn write(&mut self, ctx: &egui::Context, device: Id, job: Written) {
         self.send(
             ctx,
@@ -510,7 +415,6 @@ impl Files {
         );
     }
 
-    /// What the thread has finished since the last call, in order.
     pub fn poll(&mut self) -> Vec<Done> {
         self.worker
             .as_ref()
@@ -565,9 +469,6 @@ fn run(job: Job) -> Done {
     }
 }
 
-/// Reads and checks one preset file: a plugin's state, or a built-in's
-/// values, by the file's extension. A file too large is refused before it is
-/// read.
 fn read_file(path: &Path) -> Result<Sound, String> {
     let meta = std::fs::metadata(path).map_err(|e| e.to_string())?;
     if meta.len() > MAX_FILE as u64 {
@@ -665,7 +566,6 @@ mod tests {
             unused_path(root, "Lead", EXTENSION),
             root.join("Lead 3.vstpreset")
         );
-        // A built-in's own file never takes a plugin's name either.
         assert_eq!(
             unused_path(root, "Lead", BUILTIN_EXTENSION),
             root.join("Lead.lumenpreset")
@@ -682,7 +582,6 @@ mod tests {
         let (device, back) = parse_builtin(&bytes).expect("reads back");
         assert_eq!(device, "utility");
         assert_eq!(back, values);
-        // What is not one is refused, and so is a value out of range.
         assert!(parse_builtin(b"nope").is_err());
         assert!(parse_builtin(br#"{"format":"other"}"#).is_err());
         let bad = br#"{"format":"lumen_builtin","device":"utility","params":{"x":0.5}}"#;
@@ -691,8 +590,6 @@ mod tests {
         assert_eq!(parse_builtin(wild).unwrap().1[&1], 1.0, "brought in");
     }
 
-    /// L4: a file a newer build wrote is refused with the whole reason, never
-    /// half-read; the version this build writes is the one it reads.
     #[test]
     fn a_preset_a_newer_build_wrote_is_refused_in_full() {
         let values: BTreeMap<u32, f64> = [(1, 0.5)].into_iter().collect();
@@ -705,9 +602,7 @@ mod tests {
             "{why}"
         );
         assert!(why.ends_with('.'), "a full sentence: {why}");
-        // What this build writes reads back.
         assert!(parse_builtin(&builtin_bytes("utility", &values)).is_ok());
-        // A hand-written file with no version is this version.
         let bare = br#"{"format":"lumen_builtin","device":"utility","params":{"1":0.5}}"#;
         assert_eq!(parse_builtin(bare).unwrap().1, values);
     }

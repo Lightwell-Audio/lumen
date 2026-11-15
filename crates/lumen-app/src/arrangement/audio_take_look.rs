@@ -1,12 +1,3 @@
-//! What the arrangement shows of audio being recorded (M9 slice R2): a clip
-//! in record red that grows with the take, with its waveform drawn from the
-//! peaks the take worker keeps as it writes (`take_worker::Live`). The clip
-//! is the project's only once recording ends, so this is drawn on top of the
-//! lane and nothing about it is stored.
-//!
-//! Only what is in view is drawn: one line per pixel column of the visible
-//! part, however long the take is.
-
 use std::sync::{Arc, Mutex};
 
 use eframe::egui::{Mesh, Painter, Rect, Shape, pos2};
@@ -19,26 +10,18 @@ use crate::recording::take_worker::Live;
 use crate::theme;
 use crate::timeview::TimeView;
 
-/// The take's name while it is being recorded.
 const NAME: &str = "Recording";
 
-/// How strongly the pass before a loop's new pass is drawn behind it.
 const BEHIND: f32 = 0.45;
 
-/// An audio track being recorded, lent by the app each frame.
 #[derive(Debug, Clone)]
 pub(crate) struct AudioTakeLook {
     pub track: Id,
-    /// Where the take begins and where it has reached on the timeline.
     pub from: Ticks,
     pub to: Ticks,
-    /// What the worker has written so far.
     pub live: Arc<Mutex<Live>>,
 }
 
-/// The extent of a wave column, in physical pixels down the screen: `lo` to
-/// `hi` as fractions of full scale around `middle`, as the finished
-/// waveform's shader places them, and never thinner than a pixel.
 pub(super) fn column(middle: f32, amp: f32, lo: f32, hi: f32) -> (f32, f32) {
     let (mut top, mut bottom) = (middle - hi * amp, middle - lo * amp);
     if bottom - top < 1.0 {
@@ -48,7 +31,6 @@ pub(super) fn column(middle: f32, amp: f32, lo: f32, hi: f32) -> (f32, f32) {
     (top, bottom)
 }
 
-/// One run of pixel rows of a column and how much of each is covered.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct Rows {
     pub first: i32,
@@ -56,12 +38,6 @@ pub(super) struct Rows {
     pub coverage: f32,
 }
 
-/// The rows a column from `top` to `bottom` (physical pixels) paints: the
-/// pixel rows it fills whole, and the partly covered ones at its ends by
-/// the share they are covered, which is how the finished waveform's shader
-/// shades them. Whole pixel rows only, so nothing is feathered or dimmed by
-/// where the column happens to sit (a thin rect at a fractional position is,
-/// which made a quiet take flicker as the track height changed).
 pub(super) fn rows(top: f32, bottom: f32) -> ([Rows; 3], usize) {
     let (first, end) = (top.floor() as i32, bottom.ceil() as i32);
     let mut runs = [Rows {
@@ -90,7 +66,6 @@ pub(super) fn rows(top: f32, bottom: f32) -> ([Rows; 3], usize) {
     (runs, n)
 }
 
-/// Draws the takes recording on the track of `row`, inside `lane`.
 pub(super) fn draw(
     painter: &Painter,
     takes: &[AudioTakeLook],
@@ -123,13 +98,7 @@ pub(super) fn draw(
         if (live.peaks.frames() == 0 && live.previous.is_none()) || x1 <= x0 {
             continue;
         }
-        // Everything below is in physical pixels, as the finished clip's
-        // waveform is drawn: a column is a pixel wide, anchored to where the
-        // take starts, and holds the frames that fall in it.
         let (top, height) = (body.top() * ppp, body.height() * ppp);
-        // What the finished clip's waveform does: a take of two channels
-        // draws the left above the right once the clip is tall enough, and
-        // otherwise both on one centre line.
         let split = live.peaks.channels == 2 && body.height() >= SPLIT_BELOW;
         let halves: &[(f32, f32)] = if split {
             let half = height / 2.0;
@@ -141,8 +110,6 @@ pub(super) fn draw(
             &[(top + height * 0.5, 0.5 * height - 0.5)]
         };
         let origin = (f64::from(x0) * f64::from(ppp)).floor();
-        // The pass before, in a loop recording, fills what this pass has not
-        // reached and the clip is the loop long.
         let before = live.previous.as_ref();
         let extent = live.frames.max(before.map_or(0, |(f, _)| *f));
         let per_pixel = extent as f64 / ((f64::from(x1) - f64::from(x0)) * f64::from(ppp));
@@ -167,7 +134,6 @@ pub(super) fn draw(
             let [l_min, l_max, r_min, r_max] = peaks.extent(a, a + per_pixel);
             for (n, &(middle, amp)) in halves.iter().enumerate() {
                 let (lo, hi) = if !split {
-                    // One line: both channels together, as the shader joins them.
                     (scale(l_min.min(r_min)), scale(l_max.max(r_max)))
                 } else if n == 0 {
                     (scale(l_min), scale(l_max))
@@ -231,8 +197,6 @@ mod tests {
 
     #[test]
     fn a_column_between_pixel_rows_shares_its_coverage_between_them() {
-        // A one-pixel line half a pixel down covers half of each row, so it
-        // keeps its weight instead of dimming.
         assert_eq!(painted(10.5, 11.5), vec![(10, 11, 0.5), (11, 12, 0.5)]);
         let total: f32 = painted(10.25, 13.75)
             .iter()

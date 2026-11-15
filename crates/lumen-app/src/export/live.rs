@@ -1,8 +1,3 @@
-//! Device-callback driven export. The prepared, immutable render source is
-//! installed by a worker; the audio callback renders it alongside normal
-//! playback and substitutes its stereo output for the device's main pair.
-//! File access, queue draining and WAV encoding stay on the worker.
-
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -17,7 +12,6 @@ use lumen_media::wav::{Sample, Spec, Writer};
 
 const AUDIO_QUEUE_FRAMES: usize = 1 << 15;
 const DEVICE_STALL_LIMIT: Duration = Duration::from_secs(5);
-/// How often the worker looks for the device's next callback.
 const STEP: Duration = Duration::from_millis(1);
 const LEAD_IN_MS: u64 = 100;
 const ERROR_NONE: u8 = 0;
@@ -26,7 +20,6 @@ const ERROR_RATE: u8 = 2;
 const ERROR_HOST: u8 = 3;
 const ERROR_DISCONTINUITY: u8 = 4;
 
-/// A callback to return the in-flight render source to the worker.
 #[derive(Clone)]
 pub struct Handle {
     worker: Arc<Mutex<Worker>>,
@@ -41,8 +34,6 @@ struct Worker {
     audio: rtrb::Consumer<[f32; 2]>,
 }
 
-/// The device callback side. Keep this in the callback closure and call
-/// [`Tap::process`] after the normal engine callback.
 pub struct Tap {
     pending: rtrb::Consumer<Session>,
     retired: rtrb::Producer<Session>,
@@ -52,15 +43,12 @@ pub struct Tap {
     heartbeat: Arc<AtomicU64>,
 }
 
-/// One completed device-driven export.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rendered {
     pub file: PathBuf,
     pub frames: u64,
 }
 
-/// Everything needed to render a stable export snapshot. Build this on a
-/// worker (typically from `Prepared`) before calling [`Handle::capture`].
 pub struct Request {
     pub source: Box<dyn Source>,
     pub timeline: Timeline,
@@ -69,11 +57,7 @@ pub struct Request {
     pub frames: u64,
     pub most_tail: u64,
     pub file: PathBuf,
-    /// Plugin statuses belonging to the prepared source. A failed host ends
-    /// capture with an error rather than silently exporting bypassed audio.
     pub statuses: Vec<(String, Arc<Status>)>,
-    /// Keeps plugin processes and their state alive if a callback is delayed.
-    /// It crosses back to the worker with the source before being dropped.
     pub keepalive: Box<dyn Send>,
 }
 
@@ -98,8 +82,6 @@ struct Session {
     expected_position: Option<u64>,
 }
 
-/// Creates the lock-free worker/callback bridge. The returned callback side
-/// contains no render object until a worker installs one.
 pub fn channel() -> (Handle, Tap) {
     let (pending_tx, pending_rx) = rtrb::RingBuffer::new(1);
     let (retired_tx, retired_rx) = rtrb::RingBuffer::new(1);
@@ -130,11 +112,6 @@ pub fn channel() -> (Handle, Tap) {
 }
 
 impl Handle {
-    /// Runs a callback-driven export on the calling worker thread. It waits
-    /// for actual device callbacks, drains their preallocated stereo queue,
-    /// trims quiet tail frames and atomically writes a 32-bit float WAV.
-    /// Returns `Ok(None)` when cancelled. A device rate change, failed host,
-    /// queue overflow, or five seconds without callbacks returns an error.
     pub fn capture(
         &self,
         request: Request,
@@ -156,8 +133,6 @@ impl Handle {
             retired,
             audio,
         } = &mut *worker;
-        // Reclaim an abandoned session after the device resumes. The source
-        // and its plugin manager are freed here, never in process().
         while let Ok(session) = retired.pop() {
             drop(session);
             self.active.store(false, Ordering::Release);
@@ -226,8 +201,6 @@ impl Handle {
             }
             if cancel.load(Ordering::Relaxed) {
                 cancelled.store(true, Ordering::Release);
-                // A lost device may never call back to retire the source.
-                // Its keepalive travels with it, so returning is safe.
                 return Ok(None);
             }
             let status_error = self.error.swap(ERROR_NONE, Ordering::AcqRel);
@@ -279,14 +252,10 @@ impl Handle {
             }
             if let Ok(retired) = retired.pop() {
                 finished = Some(retired.complete);
-                // Drop the source and all plugin-owned render state here,
-                // after ownership has crossed back to the worker.
                 drop(retired);
                 self.active.store(false, Ordering::Release);
             }
             if finished.is_some() && audio.is_empty() {
-                // A callback may have published its error after this loop's
-                // first read, immediately before retiring the source.
                 let final_error = self.error.swap(ERROR_NONE, Ordering::AcqRel);
                 if final_error != ERROR_NONE {
                     failure = Some(match final_error {
@@ -347,9 +316,6 @@ impl Handle {
 }
 
 impl Tap {
-    /// Renders export audio for this actual device block after the normal
-    /// engine pass. Only output channels 0 and 1 are replaced; other outputs
-    /// remain the engine's usual output. This function is real-time safe.
     pub fn process(&mut self, block: &mut lumen_audio::Block<'_>) {
         self.heartbeat.fetch_add(1, Ordering::Relaxed);
         if self.active.is_none() {
@@ -508,8 +474,6 @@ impl Tap {
             && !self.retired.is_full()
             && let Some(session) = self.active.take()
         {
-            // Ownership moves to the worker; no render object is dropped
-            // or freed in the callback.
             if let Err(error) = self.retired.push(session) {
                 match error {
                     rtrb::PushError::Full(session) => self.active = Some(session),

@@ -1,11 +1,7 @@
-//! The bar and what fits in it: the three wells, the dividers between them, and
-//! the optional pieces in the order they give way.
-
 use super::controls::solo_piece;
 use super::*;
 
 impl Transport {
-    /// The widths of the optional pieces, for `fit` (see its order).
     fn wants(&self, ui: &Ui) -> fit::Wants {
         let keyboard = self.keyboard_readout.as_ref().map_or(0.0, |readout| {
             fit::text_width(ui, readout, keyboard_font())
@@ -29,16 +25,12 @@ impl Transport {
         keymap: &Keymap,
         record: RecordSettings,
     ) {
-        // What fits: the optional pieces give way in `fit`'s order, then
-        // the bar tightens.
         let wants = self.wants(ui);
         let plan = self.fit.begin(ui, wants);
         if plan.compact {
             ui.spacing_mut().item_spacing.x = fit::COMPACT_GAP;
         }
         let state = self.state();
-        // The count-in's beats, in the meter the song plays at (the engine
-        // counts the same beats).
         let beats = record
             .count_in
             .beats(self.timeline.meter.meter_at(state.marker).numerator);
@@ -46,9 +38,6 @@ impl Transport {
         let no_audio = "No audio device is running";
         let (start, play) = (keymap.keys(Run::GoToStart), keymap.keys(Run::PlayStop));
 
-        // Three groups (the interface audit's TB1): the transport in one
-        // well, the modes in another, then tempo, meter and position in one
-        // numeric well.
         widgets::well::row(ui, |ui| {
             if icons::button(
                 ui,
@@ -84,9 +73,6 @@ impl Transport {
             {
                 self.send(Command::Stop);
             }
-            // Play starts from the start marker, as Space does; while playing
-            // the button stops in place. Shift+Space continues from the
-            // playhead.
             let continues = keymap
                 .text(Run::PauseContinue)
                 .map(|k| format!("{k} continues from the playhead"));
@@ -176,7 +162,6 @@ impl Transport {
             .show(|ui| self.metronome_menu(ui, record));
         fit::divider(ui);
         self.numbers(ui, doc, keymap, state, plan);
-        // Compact, the dot follows the position without a divider.
         if !plan.compact {
             fit::divider(ui);
         }

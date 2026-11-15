@@ -1,6 +1,3 @@
-//! Clip commands of M7b slice E1: join, crop, unloop and nudge. Each is one
-//! undo step; one that changes nothing adds none.
-
 use std::sync::Arc;
 
 use lumen_core::time::Ticks;
@@ -11,9 +8,6 @@ use super::clips::{CLIP_GAIN, fresh_ids};
 use super::{ClipMove, Document, plural};
 
 impl Document {
-    /// Joins the selected clips of each track that follow one another (see
-    /// `lumen_project::edit::clip_ops`): MIDI clips merge, audio clips only
-    /// where they continue one another in their source.
     pub fn join_clips(&mut self, ids: &[Id]) -> clip_ops::Joined {
         let mut out = clip_ops::Joined::default();
         self.history.apply("Join clips", None, |project| {
@@ -22,8 +16,6 @@ impl Document {
         out
     }
 
-    /// Keeps the time range `[a, b)` of `tracks` and removes the rest of
-    /// their clips (Crop to selection).
     pub fn crop_clips(&mut self, tracks: &[Id], a: Ticks, b: Ticks) {
         let next = &mut self.next_id;
         self.history.apply("Crop to selection", None, |project| {
@@ -31,9 +23,6 @@ impl Document {
         });
     }
 
-    /// Turns looping clips into real clips, one for each repeat. Returns
-    /// the ids that stand for the selection afterwards and whether a clip
-    /// had too many repeats to unloop.
     pub fn unloop_clips(&mut self, ids: &[Id]) -> (Vec<Id>, bool) {
         let mut out = (Vec::new(), false);
         let next = &mut self.next_id;
@@ -43,9 +32,6 @@ impl Document {
         out
     }
 
-    /// Plays the selected audio clips backwards, or forwards again: each
-    /// keeps its place on the timeline and plays the same stretch of the
-    /// file the other way round (see `lumen_project::edit::reverse`).
     pub fn reverse_clips(&mut self, ids: &[Id]) -> reverse::Flipped {
         let mut out = reverse::Flipped::default();
         self.history.apply("Reverse clips", None, |project| {
@@ -54,9 +40,6 @@ impl Document {
         out
     }
 
-    /// Sets the gain of audio clips to the values in `gains` (clip, decibels
-    /// within [`CLIP_GAIN`]) as one step: Normalize. Returns how many
-    /// clips were asked for a gain beyond the range and got its end.
     pub fn normalize_clips(&mut self, gains: &[(Id, f32)]) -> usize {
         let mut limited = 0;
         self.history.apply("Normalize", None, |project| {
@@ -83,7 +66,6 @@ impl Document {
         limited
     }
 
-    /// Inverts the polarity of the selected audio clips, or puts it back.
     pub fn invert_clips(&mut self, ids: &[Id]) -> usize {
         let mut out = 0;
         self.history.apply("Invert polarity", None, |project| {
@@ -92,9 +74,6 @@ impl Document {
         out
     }
 
-    /// Moves the unlocked clips among `ids` by `by` (earlier when negative),
-    /// never before the start of the song. The moved clips cut away what
-    /// they land on, as a drag does.
     pub fn nudge_clips(&mut self, ids: &[Id], by: Ticks) {
         let base = self.project().clone();
         let moves: Vec<ClipMove> = base

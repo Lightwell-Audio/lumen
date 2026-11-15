@@ -1,85 +1,37 @@
-//! Transient and tempo detection (M9.5 S5a): where an audio file's sounds
-//! start, and the tempo it was most likely played at.
-//!
-//! The audio is fed in blocks ([`Detector::add`]), so a file is never held
-//! whole; the work is for a background thread. Three steps:
-//!
-//! 1. **Rise.** The file is cut into hops of 5 ms. For each, the level of
-//!    the first difference of the signal (which favours the sharp start of a
-//!    sound over a held note) in dB. A hop's *rise* is how far its level
-//!    stands above the two hops before it.
-//! 2. **Transients.** A hop whose rise is the largest within 30 ms either way
-//!    (and at least [`FLOOR`] dB) is a transient. Its place is found to the
-//!    sample inside the hop, and its *strength* is its rise in dB over
-//!    [`SPAN`], from 0 to 1. Every one is kept: [`Analysis::transients_at`]
-//!    chooses by a sensitivity afterwards, so a change of sensitivity never
-//!    asks for a new scan (D5).
-//! 3. **Tempo.** The autocorrelation of the rise, summed with its multiples
-//!    (a beat repeats at two and four beats too), peaks at the beat's period.
-//!    When the file lasts a whole number of beats at that tempo, the tempo is
-//!    set to the one that makes it exact, since loops are cut to bars.
-//!
-//! Tempo detection is wrong by a factor of two now and then; the editor shows
-//! the tempo and offers ×2 and ÷2 (plan §6, risk 6).
-
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::MediaError;
 
-/// The shortest hop, in seconds, a transient's place is found within.
 const HOP_SECONDS: f64 = 0.005;
-/// Hops either side of a transient in which no other has a larger rise: 30 ms.
 const SPACING: usize = 6;
-/// The smallest rise, in dB, that is a transient at all.
 pub const FLOOR: f32 = 3.0;
-/// The rise, in dB, that is strength 1.
 pub const SPAN: f32 = 30.0;
-/// The level, in dB, of silence.
 const SILENCE_DB: f32 = -90.0;
-/// A transient is sharper than this many dB to count towards a tempo.
 const COUNTED_DB: f32 = 6.0;
-/// Transients a file needs before a tempo is guessed from them.
 const MOST_NEEDED: usize = 4;
-/// The slowest and fastest tempo detection looks for.
 const SLOWEST: f64 = 60.0;
 const FASTEST: f64 = 200.0;
-/// The seconds of the file the tempo is worked out from.
 const TEMPO_SECONDS: f64 = 120.0;
-/// A tempo guess is kept above this confidence.
 const WEAKEST: f32 = 0.15;
-/// A tempo guess at least this confident is one to act on without asking
-/// (a recorded take or a loop that lasts whole bars).
 pub const CONFIDENT: f32 = 0.4;
-/// How far, as a fraction, the tempo may be moved to make the file last a
-/// whole number of beats.
 const SNAP: f64 = 0.012;
-/// Beats in a bar, for the "whole bars" test of a loop.
 const BEATS_PER_BAR: u32 = 4;
-/// The most bars a loop is taken to be.
 const MOST_BARS: u32 = 32;
 
-/// A moment a sound starts.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Transient {
-    /// Seconds from the start of the file.
     pub seconds: f64,
-    /// From 0 (barely a change) to 1 (a sharp start out of near silence).
     pub strength: f32,
 }
 
-/// The tempo a file seems to have.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Tempo {
     pub bpm: f64,
-    /// From 0 to 1: how regular the file's rhythm is. Not a probability.
     pub confidence: f32,
-    /// The beats the file lasts at `bpm`, when it lasts a whole number of
-    /// them (so `bpm` is the one that makes it exact).
     pub beats: Option<u32>,
 }
 
 impl Tempo {
-    /// Whether the file is a loop of whole bars (1 to 32) at this tempo.
     pub fn is_loop(&self) -> bool {
         self.beats.is_some_and(|b| {
             b % BEATS_PER_BAR == 0 && (1..=MOST_BARS).contains(&(b / BEATS_PER_BAR))
@@ -87,32 +39,24 @@ impl Tempo {
     }
 }
 
-/// What detection found in one file.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Analysis {
-    /// How long the file lasts.
     pub seconds: f64,
-    /// Every transient, in time order, whatever its strength.
     pub transients: Vec<Transient>,
     pub tempo: Option<Tempo>,
 }
 
-/// The strength a transient needs at `sensitivity` (0 to 100): all of them
-/// at 100, only the sharpest at 0. 50 asks for 15 dB.
 pub fn threshold(sensitivity: u8) -> f32 {
     let s = f32::from(sensitivity.min(100)) / 100.0;
     FLOOR / SPAN + (0.9 - FLOOR / SPAN) * (1.0 - s)
 }
 
 impl Analysis {
-    /// The transients to offer at `sensitivity` (0 to 100).
     pub fn transients_at(&self, sensitivity: u8) -> impl Iterator<Item = &Transient> {
         let least = threshold(sensitivity);
         self.transients.iter().filter(move |t| t.strength >= least)
     }
 
-    /// The transient nearest `seconds` that [`Analysis::transients_at`]
-    /// offers, within `within` seconds.
     pub fn nearest(&self, seconds: f64, sensitivity: u8, within: f64) -> Option<Transient> {
         self.transients_at(sensitivity)
             .copied()
@@ -125,12 +69,10 @@ impl Analysis {
     }
 }
 
-/// The marker that begins a stored analysis.
 const MAGIC: &[u8; 4] = b"LMNB";
 const VERSION: u8 = 1;
 
 impl Analysis {
-    /// The analysis as the cache keeps it.
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(32 + self.transients.len() * 12);
         out.extend_from_slice(MAGIC);
@@ -153,8 +95,6 @@ impl Analysis {
         out
     }
 
-    /// The analysis [`Analysis::to_bytes`] wrote, or `None` for anything else
-    /// (a cut-off file, another version).
     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
         let mut at = Cursor { bytes, at: 0 };
         if at.take(4)? != MAGIC || at.take(1)? != [VERSION] {
@@ -162,7 +102,6 @@ impl Analysis {
         }
         let seconds = at.f64()?;
         let count = at.u32()? as usize;
-        // A count the bytes cannot hold is a damaged file, not an allocation.
         if count > bytes.len() / 12 {
             return None;
         }
@@ -220,19 +159,12 @@ impl<'a> Cursor<'a> {
     }
 }
 
-/// Detection in progress: audio goes in with [`Detector::add`], and
-/// [`Detector::finish`] returns the analysis.
 #[derive(Debug)]
 pub struct Detector {
     rate: u32,
-    /// Frames in a hop.
     hop: usize,
-    /// The previous sample, for the first difference.
     last: f32,
-    /// The first differences of the hop being filled.
     diffs: Vec<f32>,
-    /// Each finished hop's level in dB and where, in the hop, its sound
-    /// starts.
     level: Vec<f32>,
     start: Vec<u16>,
     frames: u64,
@@ -252,8 +184,6 @@ impl Detector {
         }
     }
 
-    /// Adds the next frames of the file: the left channel, and the right when
-    /// there is one (the two are averaged).
     pub fn add(&mut self, left: &[f32], right: Option<&[f32]>) {
         for (i, &l) in left.iter().enumerate() {
             let x = match right {
@@ -284,9 +214,6 @@ impl Detector {
         self.diffs.clear();
     }
 
-    /// The analysis of everything added. A last hop that did not fill is
-    /// read as it stands, so a sound in the file's final milliseconds is not
-    /// lost.
     pub fn finish(mut self) -> Analysis {
         if !self.diffs.is_empty() {
             self.close_hop();
@@ -317,7 +244,6 @@ impl Detector {
     }
 }
 
-/// How far each hop's level stands above the two hops before it, in dB.
 fn rise(level: &[f32]) -> Vec<f32> {
     (0..level.len())
         .map(|n| {
@@ -331,17 +257,11 @@ fn rise(level: &[f32]) -> Vec<f32> {
         .collect()
 }
 
-/// A hop chosen as holding a transient.
 struct Picked {
-    /// The hop the sound starts in.
     hop: usize,
     rise: f32,
 }
 
-/// The hops with the largest rise within [`SPACING`] hops either way (the
-/// earlier of equals), at least [`FLOOR`]. A sound that starts at the end of
-/// a hop rises most in the next one, so the hop before is taken when it holds
-/// a good part of the rise.
 fn pick(rise: &[f32]) -> Vec<Picked> {
     let mut out = Vec::new();
     for n in 0..rise.len() {
@@ -368,17 +288,11 @@ fn pick(rise: &[f32]) -> Vec<Picked> {
     out
 }
 
-/// The tempo of a file from its rise (one value per hop of `hop_seconds`),
-/// lasting `seconds`.
 fn tempo(rise: &[f32], hop_seconds: f64, seconds: f64) -> Option<Tempo> {
     let take = ((TEMPO_SECONDS / hop_seconds) as usize).min(rise.len());
     let rise = &rise[..take];
     let n = rise.len();
     let shortest = (60.0 / FASTEST / hop_seconds).floor() as usize;
-    // A beat is looked for no longer than half the file (two periods of it
-    // are needed for anything to repeat), so a one-bar loop of under two
-    // seconds still has its tempo found; the slowest tempo stays the limit
-    // for a longer file.
     let longest = ((60.0 / SLOWEST / hop_seconds).ceil() as usize).min(n / 2);
     if shortest < 2 || n < shortest * 4 || longest <= shortest + 1 {
         return None;
@@ -389,9 +303,6 @@ fn tempo(rise: &[f32], hop_seconds: f64, seconds: f64) -> Option<Tempo> {
     if variance < 1e-9 {
         return None;
     }
-    // The correlation at a lag, from 0 to about 1 for a perfectly regular
-    // file: terms are averaged, so a lag near the file's length is not
-    // favoured or penalised for having fewer.
     let correlation = |lag: usize| -> f64 {
         let terms = n - lag;
         let sum: f64 = (0..terms).map(|i| centred[i] * centred[i + lag]).sum();
@@ -408,7 +319,6 @@ fn tempo(rise: &[f32], hop_seconds: f64, seconds: f64) -> Option<Tempo> {
         let mut weights = 0.0;
         for (multiple, weight) in [(1, 1.0), (2, 0.5), (4, 0.25)] {
             let at = lag * multiple;
-            // Half the file at least must overlap.
             if at * 2 <= n {
                 sum += weight * correlation(at);
                 weights += weight;
@@ -416,8 +326,6 @@ fn tempo(rise: &[f32], hop_seconds: f64, seconds: f64) -> Option<Tempo> {
         }
         *slot = if weights > 0.0 { sum / weights } else { 0.0 };
     }
-    // A mild preference for the middle of the range settles a tie between a
-    // tempo and its double.
     let prior = |lag: usize| {
         let bpm = 60.0 / (lag as f64 * hop_seconds);
         let octaves = (bpm / 120.0).ln() / std::f64::consts::LN_2;
@@ -430,7 +338,6 @@ fn tempo(rise: &[f32], hop_seconds: f64, seconds: f64) -> Option<Tempo> {
     if peak <= 0.0 {
         return None;
     }
-    // Between hops: the parabola through the neighbours.
     let (a, b, c) = (scores[best - 1], scores[best], scores[best + 1]);
     let denominator = a - 2.0 * b + c;
     let shift = if denominator.abs() > 1e-12 {
@@ -440,8 +347,6 @@ fn tempo(rise: &[f32], hop_seconds: f64, seconds: f64) -> Option<Tempo> {
     };
     let mut bpm = 60.0 / ((best as f64 + shift) * hop_seconds);
     let mut confidence = (peak as f32).clamp(0.0, 1.0);
-    // A file that lasts a whole number of beats at about this tempo was cut
-    // to them: the tempo that makes it exact is the file's.
     let mut beats = None;
     let count = (seconds * bpm / 60.0).round();
     if count >= 2.0 {
@@ -457,7 +362,6 @@ fn tempo(rise: &[f32], hop_seconds: f64, seconds: f64) -> Option<Tempo> {
         beats,
     };
     if found.is_loop() {
-        // Whole bars from a loop's own length are evidence of their own.
         confidence = (confidence + 0.2).min(1.0);
     }
     (confidence >= WEAKEST).then_some(Tempo {
@@ -466,8 +370,6 @@ fn tempo(rise: &[f32], hop_seconds: f64, seconds: f64) -> Option<Tempo> {
     })
 }
 
-/// Detects over a whole stream file read in blocks. `progress` gets 0 to 1;
-/// `None` if `cancel` was set.
 pub fn analyse(
     mut read: impl FnMut(u64, &mut [&mut [f32]]) -> Result<usize, MediaError>,
     rate: u32,
