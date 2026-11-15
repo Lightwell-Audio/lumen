@@ -141,6 +141,10 @@ impl Arrangement {
             self.selected = targets.clone();
             self.track_command = Some(Command::AddLimiter);
         }
+        if item(ui, "Add Shutter (sampler)", Command::AddSampler) {
+            self.selected = targets.clone();
+            self.track_command = Some(Command::AddSampler);
+        }
         ui.separator();
 
         if item(ui, "Import audio or MIDI\u{2026}", Command::Import) {

@@ -8,6 +8,7 @@ pub mod instrument;
 mod line;
 pub mod params;
 pub mod reverb;
+pub mod sampler;
 pub mod synth;
 pub mod utility;
 
@@ -22,8 +23,21 @@ pub use hosted::{
 };
 pub use instrument::Instrument;
 pub use params::ParamInfo;
+pub use sampler::Sampler;
 pub use synth::{Preset, Synth};
 pub use utility::Utility;
+
+pub static INSTRUMENTS: &[(&str, &[ParamInfo])] = &[
+    ("synth", synth::params::TABLE),
+    (sampler::NAME, sampler::TABLE),
+];
+
+pub fn instrument_params(name: &str) -> Option<&'static [ParamInfo]> {
+    INSTRUMENTS
+        .iter()
+        .find(|(known, _)| *known == name)
+        .map(|(_, table)| *table)
+}
 
 pub static EFFECTS: &[&Description] = &[
     &utility::DESCRIPTION,
@@ -153,6 +167,7 @@ mod tests {
             assert_eq!(meter.take().reduction_db, 0.0);
             drop(effect);
         }
+
         assert!(takes_sidechain(dynamics::compressor::NAME));
         assert!(!takes_sidechain(dynamics::limiter::NAME));
         assert!(!takes_sidechain(utility::NAME));
@@ -168,11 +183,13 @@ mod tests {
             let name = description.name;
             assert_eq!(effect_description(name).map(|d| d.name), Some(name));
             assert_eq!(description.table.len(), effect_params(name).unwrap().len());
+
             let defaults: Vec<(u32, f32)> = description
                 .table
                 .iter()
                 .map(|p| (p.id, p.normalised(p.default)))
                 .collect();
+
             let fresh = effect(name).unwrap();
             assert_eq!(effect_latency(name, &defaults), Some(fresh.latency()));
             assert_eq!(effect_tail(name, &defaults), Some(fresh.tail()));

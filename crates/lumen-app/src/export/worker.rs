@@ -30,6 +30,8 @@ pub struct Job {
     pub protected: Vec<PathBuf>,
     pub unread: Unread,
     pub _warps: Option<Arc<crate::media::warped::WarpedStreams>>,
+
+    pub samples: Vec<(Id, crate::builtin::samples::Source)>,
 }
 
 fn safe_name(name: &str) -> String {
@@ -240,6 +242,7 @@ pub(super) fn run(
         }
         let scratch = stage.0.join(format!("render-{index}.wav"));
         let render_job = export_render::Job {
+            samples: job.samples.clone(),
             project: job.project.clone(),
             clips: job.clips.clone(),
             plugins: job

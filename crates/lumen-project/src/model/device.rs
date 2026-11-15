@@ -6,6 +6,7 @@ pub const SYNTH: &str = "synth";
 #[serde(rename_all = "snake_case")]
 pub enum DeviceKind {
     Instrument,
+
     #[default]
     Effect,
 }
@@ -23,7 +24,9 @@ pub const INFINITE_TAIL: u32 = u32::MAX;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Reported {
     pub latency: u32,
+
     pub tail: u32,
+
     pub rate: u32,
 }
 
@@ -40,8 +43,10 @@ impl Reported {
 #[serde(rename_all = "snake_case")]
 pub enum SidechainTap {
     PreFx,
+
     #[default]
     PostFx,
+
     PostMixer,
 }
 
@@ -58,20 +63,30 @@ pub struct Device {
     pub plugin: PluginRef,
     #[serde(default)]
     pub bypass: bool,
+
     #[serde(with = "base64_bytes", default, skip_serializing_if = "Vec::is_empty")]
     pub state: Vec<u8>,
+
     #[serde(with = "base64_bytes", default, skip_serializing_if = "Vec::is_empty")]
     pub controller_state: Vec<u8>,
+
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub plugin_version: String,
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reported: Option<Reported>,
+
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub params: BTreeMap<u32, f64>,
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sidechain: Option<Sidechain>,
+
     #[serde(skip)]
     pub state_rev: u32,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sampler: Option<Sampler>,
 }
 
 impl Device {
@@ -87,6 +102,7 @@ impl Device {
             params: BTreeMap::new(),
             sidechain: None,
             state_rev: 0,
+            sampler: None,
         }
     }
 
@@ -129,6 +145,14 @@ impl Device {
         matches!(&self.plugin, PluginRef::Builtin { name } if name == SYNTH)
     }
 
+    pub fn is_sampler(&self) -> bool {
+        matches!(&self.plugin, PluginRef::Builtin { name } if name == SAMPLER)
+    }
+
+    pub fn sampler(&self) -> Option<&Sampler> {
+        self.sampler.as_ref().filter(|_| self.is_sampler())
+    }
+
     pub fn preset(&self) -> Option<&str> {
         self.is_synth()
             .then(|| std::str::from_utf8(&self.state).ok())
@@ -140,7 +164,9 @@ impl PluginRef {
     pub fn kind(&self) -> DeviceKind {
         match self {
             PluginRef::Vst3 { kind, .. } => *kind,
-            PluginRef::Builtin { name } if name == SYNTH => DeviceKind::Instrument,
+            PluginRef::Builtin { name } if name == SYNTH || name == SAMPLER => {
+                DeviceKind::Instrument
+            }
             PluginRef::Builtin { .. } => DeviceKind::Effect,
         }
     }
@@ -153,6 +179,7 @@ pub enum PluginRef {
         class_id: String,
         name: String,
         vendor: String,
+
         #[serde(default, skip_serializing_if = "DeviceKind::is_default")]
         kind: DeviceKind,
     },
