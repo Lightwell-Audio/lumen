@@ -15023,7 +15023,7 @@ Steps. Cost: a frame draws one page; its cells are gathered once per clip,
 step and page (bench `drum_lanes_bench`, release build, 100,000 hits: lanes p95
 0.98 ms, step grid 0.43 ms, roll 0.91 ms). The audio thread is not touched.
 
-## ADR-XXXX — The curve and the analyser Iris draws from (M8, the owner's review OR-7)
+## ADR-0156 — The curve and the analyser Iris draws from (M8, the owner's review OR-7)
 
 **Status.** Proposed (M8; the parent assigns the number). The owner's first
 review of M8, OR-7: Iris's curve "feels jittery and jagged" and should be as
