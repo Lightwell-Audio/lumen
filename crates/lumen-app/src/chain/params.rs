@@ -268,7 +268,12 @@ impl App {
             .as_ref()
             .filter(|(id, _)| *id == d.id)
             .map(|(_, db)| db.clone())
-            .or_else(|| self.chain.analyzers.get(&d.id).cloned());
+            .or_else(|| {
+                self.chain
+                    .analyzers
+                    .get(&d.id)
+                    .map(|shown| shown.bins().to_vec())
+            });
         Some(super::view::DrawingRow {
             drawing,
             parts,

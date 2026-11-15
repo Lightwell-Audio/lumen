@@ -14958,3 +14958,193 @@ was within the 2 % threshold; the run also refreshed two that had become much
 cheaper since an earlier change (`engine_streamed_64` −24.97 %,
 `stream_plan_64` −30.70 %), so the gate measures against today's code and not
 a stale one. The macOS cross-target clippy still cannot run here.
+
+## ADR-XXXX — The curve and the analyser Iris draws from (M8, the owner's review OR-7)
+
+**Status.** Proposed (M8; the parent assigns the number). The owner's first
+review of M8, OR-7: Iris's curve "feels jittery and jagged" and should be as
+smooth and precise as a professional equaliser's display. This is the data the
+face draws from; the face's own look and its rays are another agent's (round
+4). Brief: `docs/milestones/M8.md` §10 OR-7 on `docs/m8-owner-review-1`,
+B1's ADR-0146 (choices 4 and 8), and the shared brief
+`m8-briefs/common-ds.md`.
+
+**Context.** B1 shipped a curve and an analyser that were right in what they
+said and wrong in how they were sampled.
+
+*The curve.* The face worked the response out at 96 points spread evenly on
+the log axis (`POINTS = 96`, `chain/face/eq.rs`) and joined them with straight
+lines. The response *at a point* was the filter's own — the cookbook sections
+evaluated at `z = e^{jw}` — so the picture never disagreed with the sound at
+the points it drew; there were simply far too few of them. A 352 pt screen
+(the shot's card) gave 3.71 pt a point at 100 % and 7.41 device pixels at
+200 %; the brief's 270 to 350 pt cards are 2.84 to 3.71 pt. Neighbouring
+points are 7.54 % apart in frequency, and a bell's peak is far narrower than
+that: at Q 8 the -3 dB width is 1.1 % of an octave. Measured against the
+sections added up directly, a Q 8, 24 dB bell at 8 kHz drawn on that grid read
+up to 7.65 dB low, and a Q 20, 12 dB bell *dragged across one grid step*
+drew its crest between 4.09 dB and 12.00 dB — 7.9 dB of bob while the hand
+moves. The corner between two segments reached 154° at 352 pt, and the chord
+between two points stood 4.84 pt (Q 4, 12 dB) or 13.26 pt (Q 8, 24 dB) off
+the curve it stood for. The engine's coefficients glide on knots for
+smoothness of *sound*; the face never read them (`Values::plain` is the value
+the project holds, committed by the drag each frame with a merge key), so
+nothing lagged and nothing flickered between two states — the jitter was
+entirely the sampling.
+
+*The analyser.* A 2048-frame Hann window (42.7 ms, 23.4 Hz a bin) is copied
+out of the lock-free ring when a new window has arrived — the audio thread
+publishes every block (2.67 ms at 128 frames), the interface reads every frame
+(8.3 to 16.7 ms at 60 to 120 fps), and consecutive windows overlap by 61 %.
+`Reader::points` then made 96 points, each "the loudest bin under it". A
+transform's bins are even in hertz and the axis is even in octaves, so the two
+do not line up: the 24 bins under 700 Hz each held 10 to 76 of the points
+(stair-steps, and the first seven points all read bin 0 or 1), while each of
+the top ten points took the loudest of 32 to 60 bins (a comb that flickers).
+There was no fractional-octave smoothing and no ballistics at all, so every
+frame showed one window's own estimate: pink noise moved 3.35 dB a frame
+(median bin) and 10.25 dB at its worst, and read 2.00 dB rough from bin to bin
+(16.59 dB at the worst step). A steady tone happened to be still (0.06 dB),
+which is why the problem showed on music rather than on a test tone.
+
+**Options.**
+
+- **The curve's points.** (A) Keep 96. (B) A uniform grid every half a device
+  pixel. (C) A uniform grid plus extra points where each band's own shape
+  turns — eight times closer inside the stretch where the band bends.
+- **What a point costs.** (A) The sections' own response per point (a sine and
+  three cosines a section). (B) The same response as two quadratics in
+  `cos w` a section, so a point is one cosine however many bands are on.
+- **The analyser's picture.** (A) The loudest bin under each point. (B) A fixed
+  set of log-spaced bins, each the band's power over a sixth of an octave,
+  integrated across the transform's own bins.
+- **How the picture moves.** (A) Not at all (a new window each frame). (B) A
+  fixed share of the distance a frame. (C) A rise and a fall in milliseconds,
+  worked out from the time the frame took.
+
+**Choices.**
+
+1. **The path is dense where the curve bends and straight where it does not**
+   (option 1C). `lumen_devices::eq::Curve::path(width_px, out)` fills a path
+   half a device pixel apart, and eight times closer across each band's own
+   turn: two octaves either side of a shelf or a cut's corner, about `2/Q`
+   octaves for a bell or a notch, clamped to a hundredth of an octave so a
+   needle cannot ask for the world. It answers the count it wrote and covers
+   the axis exactly (first share 0, last 1). The buffer is `eq::curve::MOST`
+   (2048) points, and the base grid is coarsened *only* when the turns' extra
+   points would not fit: `curve.coverage()` is the share of the axis inside
+   some turn, and the base is chosen so that `base × (1 + 7 × coverage)` fits
+   the buffer. A four-band patch takes 1 810 points at every width measured
+   (176, 352 and 704 device pixels), which is 0.10, 0.19 and 0.39 px a point,
+   with 0.35 px inside a turn and 2.76 px between them at the widest.
+2. **A point is one cosine** (option 2B). `bands::Section::ratio` returns
+   `|H|²` as two quadratics in `cos w` — a section's coefficients are real, so
+   the numerator is `(b0² + b1² + b2² − 2 b0 b2) + 2(b0 b1 + b1 b2) c + 4 b0 b2 c²`
+   and the denominator the same with `(1, a1, a2)`. `Section::db` is now that
+   answer, and a test holds it to the direct evaluation within a thousandth of
+   a decibel in a 48 dB stopband. `Curve::db_at_hz` multiplies the bands'
+   ratios together, so the cost of one point is one cosine, ten products a
+   section and one logarithm — 0.25 ms a frame for 1 810 points with four bands
+   in a **debug** build, which is what the numbers below were taken in; the
+   release build is a small multiple faster.
+3. **The picture is a fixed set of log-spaced bins, smoothed across
+   frequency** (option 3B). `analyzer::Display` holds 479 bins from 20 Hz to
+   20 kHz — 1/48 of an octave — and each is the mean power over a **1/6
+   octave** band (the default the brief asks for; there is no setting yet, and
+   X2's analyser will share this). The band's power is integrated across the
+   transform's bins with the power read straight between bin centres, so a
+   band narrower than a bin (everything under 200 Hz) is interpolated rather
+   than stepped, and a band of many bins is averaged rather than sampled. The
+   result is the band's energy over a Hann window's own width (ENBW 1.5), so a
+   tone reads its own amplitude at any frequency: a half-scale 997 Hz tone
+   reads −6.03 dB. Under the first bin (23.4 Hz at 48 kHz) the picture is the
+   first bin's own level — a straight line, because a 2048-frame transform
+   cannot see below 23 Hz.
+4. **The ballistics are time constants, not a share a frame** (option 4C):
+   **10 ms to rise and 300 ms to fall**, exponential in decibels on the
+   frame's own `dt` (`analyzer::follow`), clamped at half a second so a window
+   that stalled jumps rather than crawls. A constant direction is *exactly*
+   frame-rate independent — iterating `1 − k = e^{−dt/τ}` gives `e^{−T/τ}` for
+   any number of steps — which is what `the_ballistics_keep_their_time…`
+   holds. A rise of 10 ms is a meter's, and a fall of 300 ms is long enough
+   that pink noise's frame-to-frame wobble is halved without the picture
+   lagging behind a stop.
+5. **The picture is kept between frames, on the interface side.** `App`'s
+   `chain.analyzers` holds an `analyzer::Display` a device instead of a
+   `Vec<f32>`; `pump_spectra` folds a new window into it when `Reader::read`
+   says a whole one arrived, and otherwise only advances the ballistics, so a
+   device that stops writing falls back rather than freezing. `Display` is
+   made on the interface side (it allocates three small `Vec`s), nothing
+   allocates on the audio thread, and the guard tests are untouched.
+6. **The old shapes that had to go.** `Reader::points` is deleted: it *was* the
+   stair-step and the comb, and the tests that used it are rewritten around
+   `Display`. `eq::response` stays (uniform points, for the tests that compare
+   the drawn curve with a render), and `Scene::spectrum` is unchanged — still
+   a slice of decibels low to high — so no other drawing sees this work.
+7. **The face's only change** (the brief allows the smallest call-site one):
+   `response(scene, &mut [f32; 96])` became `response(scene) -> eq::Curve`,
+   and `draw` calls `path(width_in_device_pixels)` where the width is
+   `rect.width() × pixels_per_point`. The path's points are not evenly spaced,
+   so the sweep's colour is now read from each point's own place across the
+   screen (the wash and `ribbon` take the closure that does it) instead of from
+   its index; on an even path the two are the same. Nothing about the look
+   changed.
+
+**Measured.** All in a debug build on this machine (the tests as they run),
+except where a release number is named.
+
+| | before | after |
+|---|---|---|
+| curve points across a 352 pt screen at 200 % | 96 (7.41 device px a point) | 1 810 (0.39 px a point; 0.35 inside a turn) |
+| chord off the curve, Q 4 / 12 dB | 4.84 pt | 0.0011 pt |
+| chord off the curve, Q 8 / 24 dB | 13.26 pt | 0.0091 pt |
+| chord off the curve, Q 2 / −9 dB | 1.13 pt | 0.0004 pt |
+| a Q 20 / 12 dB bell's crest while dragged | 4.09 to 12.00 dB (7.9 dB of bob) | within 0.01 dB of the peak |
+| steady 997 Hz tone, frame-to-frame (worst bin) | 0.06 dB | 0.011 dB |
+| pink noise, frame-to-frame (median / worst bin) | 3.35 / 10.25 dB | 0.93 / 2.27 dB |
+| pink noise, bin-to-bin roughness (mean / worst) | 2.00 / 16.59 dB | 0.18 / 1.29 dB |
+| a window folded into the picture (479 bins) | 96 points, a maximum a point | 0.17 ms a window in debug |
+| the path (1 810 points, four bands) | — | 0.25 ms a frame in debug |
+
+The worst pink bin after the change is one of the bins under the transform's
+first bin, where a whole 1/6-octave band is a fraction of one FFT bin.
+
+**Tests.** `lumen-devices`: a section's polynomial ratio against its own
+direct evaluation; the curve within 0.01 dB of the bands added up over 400
+frequencies from 20 Hz to 20 kHz (`the_curve_is_the_sections_added_up`); the
+path denser inside a band's turn than outside it, in order, covering the axis
+(`the_path_is_denser_where_a_band_turns`); **a corner-free path** — every
+chord's distance from the curve under a quarter of a point for Q 2 to Q 8 at
+± 24 dB, with the ninety-six-point picture measured beside it and asserted to
+be an order worse (`the_path_has_no_corner_a_pen_could_show`); **a bounded
+second difference near a peak** (under 0.05 dB a point on a 2 048-point
+uniform grid, where 96 points bent by more than 1 dB —
+`the_second_difference_near_a_peak_is_bounded`); a flat patch drawn as a
+straight line; a path that still covers the axis in a narrow screen or a small
+buffer. `analyzer`: **a steady tone is a still picture** (no bin moves more
+than a quarter of a decibel once settled); **pink noise is flat and smooth**
+(a bin every 100 Hz to 2 kHz to 10 kHz within 4 dB of each other, neighbouring
+bins 1 dB apart on average and under 4 dB at the worst, and no bin moving more
+than 3 dB a frame); **the low end is interpolated, not stepped** (a spectrum
+that climbs 6 dB an octave climbs in the picture, and the bins under the first
+transform bin are straight); **the ballistics keep their time at 30, 60, 144
+and 240 frames a second**; the rise and the fall are the ten and three hundred
+milliseconds named; the picture is a bin every forty-eighth of an octave
+across the face's axis (479 of them); and silence is the floor while a tone
+stands where it is, at −6 dB for half scale. Two measurements, ignored like
+B1's card cost: `the_cost_of_a_path` and `the_cost_of_a_picture`.
+
+**Consequences.** `eq::curve` is a new module (`Curve`, `Sample`, `path`),
+`eq::settings_of` is the one place the values become bands (the face's points
+still read `Values` themselves), `bands::Ratio` is new and `Section::db` is
+built on it, and `analyzer::Picture` is private beside `Display`. `App`'s
+`chain.analyzers` holds `Display`s, `pump_spectra` passes the frame's `dt`,
+and `pretend_spectrum` still takes any length (the shots give it 479). No
+`.lumen` change and no settings change. Not done here: the face's look (round
+4 — the rays that hang off the node are drawn, not sampled); the lowest
+transform bin, 23 Hz at 48 kHz, is a straight line in the picture unless the
+window grows to 4096 frames, which would also halve that bin's noise (not
+needed: it is three pixels at 200 % and the mist is a sixteenth of the
+screen's alpha). The WSL performance gate and the macOS cross-target clippy
+cannot run here; nothing on the audio thread changed, so the gate should not
+move (the fold runs on the interface side, once a window, per card).

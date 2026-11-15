@@ -12,6 +12,7 @@
 //! lock-free window ([`crate::analyzer`]) that the face reads.
 
 pub mod bands;
+pub mod curve;
 mod device;
 mod table;
 mod words;
@@ -21,6 +22,7 @@ use crate::effect::{Description, Values};
 use crate::params;
 
 pub use bands::{Kind, Section, band_db};
+pub use curve::{Curve, Sample};
 pub use device::Eq;
 pub use table::TABLE;
 pub use words::{db_text, hz_parse, hz_text, q_text, slope_text};
@@ -127,6 +129,29 @@ pub fn axis_hz(share: f32) -> f32 {
 /// what the face draws. Worked out from each band's own settings, so it is the
 /// same answer the running filter gives.
 pub fn response(values: Values<'_>, rate: u32, out: &mut [f32], (low, high): (f32, f32)) {
+    let (settings, output_db) = settings_of(values);
+    let points = out.len();
+    for (i, point) in out.iter_mut().enumerate() {
+        let share = if points > 1 {
+            i as f32 / (points - 1) as f32
+        } else {
+            0.0
+        };
+        let hz = low * (high / low).powf(share);
+        let mut db = output_db;
+        for (setting, on) in settings {
+            if on {
+                db += band_db(&setting, rate, hz);
+            }
+        }
+        *point = db;
+    }
+}
+
+/// Every band's settings as the values hold them, and whether it is on (more
+/// than half way, which is where the running filter has mixed it in), and the
+/// output gain in decibels.
+pub fn settings_of(values: Values<'_>) -> ([(bands::Setting, bool); BANDS], f32) {
     let mut settings: [(bands::Setting, bool); BANDS] = [(flat_setting(), false); BANDS];
     for (index, band) in settings.iter_mut().enumerate() {
         let number = index + 1;
@@ -150,26 +175,11 @@ pub fn response(values: Values<'_>, rate: u32, out: &mut [f32], (low, high): (f3
             setting.gain = value(gain_of(number));
             setting.q = value(q_of(number));
         }
-        *band = (setting, read(on_of(number)) > 0.0);
+        *band = (setting, read(on_of(number)) >= 0.5);
     }
     let output = params::normalised_of(TABLE, OUTPUT, values);
     let output_db = params::find(TABLE, OUTPUT).map_or(0.0, |info| info.value(output));
-    let points = out.len();
-    for (i, point) in out.iter_mut().enumerate() {
-        let share = if points > 1 {
-            i as f32 / (points - 1) as f32
-        } else {
-            0.0
-        };
-        let hz = low * (high / low).powf(share);
-        let mut db = output_db;
-        for (setting, on) in settings {
-            if on {
-                db += band_db(&setting, rate, hz);
-            }
-        }
-        *point = db;
-    }
+    (settings, output_db)
 }
 
 /// A settings row nothing has set: a bell that does nothing.

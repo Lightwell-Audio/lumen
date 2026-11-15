@@ -29,11 +29,12 @@ use crate::chain::geometry::Step;
 use crate::theme::personality as p;
 use crate::theme::personality::card;
 
-/// The span of frequencies the picture shows (20 Hz to 20 kHz) and how many
-/// points the curve and the mist are worked out at.
+/// The span of frequencies the picture shows (20 Hz to 20 kHz).
 pub(crate) const LOW: f32 = eq::LOW_HZ;
 pub(crate) const HIGH: f32 = eq::HIGH_HZ;
-pub(crate) const POINTS: usize = 96;
+/// The most points the curve takes: half a device pixel apart, and eight times
+/// closer across a band's own turn (`eq::curve`).
+const MOST: usize = eq::curve::MOST;
 
 /// The decibels from the middle line to the screen's top and bottom, as the
 /// specimen scales them (176 pt tall, 5.5 pt a decibel).
@@ -501,33 +502,30 @@ fn flat() -> eq::bands::Setting {
     }
 }
 
-/// The summed response at each of the curve's points, in decibels.
-fn response(scene: &Scene<'_>, out: &mut [f32; POINTS]) {
+/// The summed response of every band the device holds, ready to be drawn: a
+/// path half a device pixel apart, eight times closer across each band's own
+/// turn (`eq::curve`, the owner's review OR-7).
+fn response(scene: &Scene<'_>) -> eq::Curve {
     let values = &scene.values;
     let mut settings = [(flat(), false); eq::BANDS];
     for (index, slot) in settings.iter_mut().enumerate() {
         let band = band(values, index);
         *slot = (band.setting(), band.on);
     }
-    let output = values.plain(eq::OUTPUT);
-    let rate = scene.rate.max(1);
-    for (i, point) in out.iter_mut().enumerate() {
-        let hz = LOW * (HIGH / LOW).powf(i as f32 / (POINTS - 1) as f32);
-        let mut db = output;
-        for (setting, on) in &settings {
-            if *on {
-                db += eq::band_db(setting, rate, hz);
-            }
-        }
-        *point = db;
-    }
+    eq::Curve::new(settings, values.plain(eq::OUTPUT), scene.rate.max(1))
 }
 
 /// Adds a ribbon along `line` to `mesh`: at each point, one vertex for every
 /// `(distance from the line, strength)` of `profile`, so a glow is a soft
-/// profile and a line a sharp one. `colour` is the colour at a share of the
-/// way along.
-fn ribbon(mesh: &mut Mesh, line: &[Pos2], profile: &[(f32, f32)], colour: impl Fn(f32) -> Color32) {
+/// profile and a line a sharp one. `colour` is the colour at each point (the
+/// sweep's own place across the screen, so a path whose points are dense at a
+/// band's peak keeps its colours where they belong).
+fn ribbon(
+    mesh: &mut Mesh,
+    line: &[Pos2],
+    profile: &[(f32, f32)],
+    colour: impl Fn(Pos2) -> Color32,
+) {
     let count = line.len();
     let width = profile.len() as u32;
     for (i, point) in line.iter().enumerate() {
@@ -539,8 +537,7 @@ fn ribbon(mesh: &mut Mesh, line: &[Pos2], profile: &[(f32, f32)], colour: impl F
         } else {
             vec2(0.0, 1.0)
         };
-        let share = i as f32 / (count - 1).max(1) as f32;
-        let ink = colour(share);
+        let ink = colour(*point);
         let first = mesh.vertices.len() as u32;
         for (distance, strength) in profile {
             mesh.colored_vertex(*point + normal * *distance, ink.gamma_multiply(*strength));
@@ -564,16 +561,17 @@ fn draw(scene: &Scene<'_>) {
         grid(scene, rect);
         mist(scene, rect);
     }
-    let mut db = [0.0; POINTS];
-    response(scene, &mut db);
-    let mut line = [Pos2::ZERO; POINTS];
-    for (i, point) in line.iter_mut().enumerate() {
-        *point = pos2(
-            rect.left() + rect.width() * i as f32 / (POINTS - 1) as f32,
-            y_free(rect, db[i]),
+    let mut path = [eq::Sample::default(); MOST];
+    let mut line = [Pos2::ZERO; MOST];
+    let width = rect.width() * scene.painter.ctx().pixels_per_point();
+    let count = response(scene).path(width, &mut path);
+    for (i, sample) in path[..count].iter().enumerate() {
+        line[i] = pos2(
+            rect.left() + rect.width() * sample.share,
+            y_free(rect, sample.db),
         );
     }
-    curve(scene, rect, &line, scale, band_only);
+    curve(scene, rect, &line[..count], scale, band_only);
     let picked = scene.picked.min(eq::BANDS - 1);
     // Every point, the picked one last so it is over the others.
     for index in (0..eq::BANDS)
@@ -674,16 +672,16 @@ fn mist(scene: &Scene<'_>, rect: Rect) {
 /// The summed response: a wash down to the middle line, a glow along it, and
 /// the line, all in the sweep's colours.
 fn curve(scene: &Scene<'_>, rect: Rect, line: &[Pos2], scale: f32, thin: bool) {
-    let sweep = |share: f32| scene.ink(sweep_at(share));
+    let share_of = |point: Pos2| ((point.x - rect.left()) / rect.width().max(1.0)).clamp(0.0, 1.0);
+    let sweep = |point: Pos2| scene.ink(sweep_at(share_of(point)));
     let mut mesh = Mesh::default();
-    mesh.reserve_vertices(POINTS * 7);
-    mesh.reserve_triangles(POINTS * 12);
+    mesh.reserve_vertices(line.len() * 7);
+    mesh.reserve_triangles(line.len() * 12);
     if !thin {
         // The wash: each point to the middle line.
         let middle = rect.center().y;
-        for (i, point) in line.iter().enumerate() {
-            let share = i as f32 / (POINTS - 1) as f32;
-            let ink = sweep(share).gamma_multiply(WASH_ALPHA);
+        for point in line {
+            let ink = sweep(*point).gamma_multiply(WASH_ALPHA);
             let first = mesh.vertices.len() as u32;
             mesh.colored_vertex(*point, ink);
             mesh.colored_vertex(pos2(point.x, middle), ink);

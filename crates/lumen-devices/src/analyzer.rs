@@ -1,4 +1,5 @@
-//! A spectrum analyser's shared window (M8 slice B1, ADR-0146).
+//! A spectrum analyser's shared window (M8 slice B1, ADR-0146), and the
+//! picture a face draws from it (the owner's review OR-7).
 //!
 //! The audio thread writes the last [`SIZE`] frames it hears into a ring of
 //! atomics and publishes how many it has written; the interface copies the
@@ -17,6 +18,20 @@
 //! An analyser may show an older window, never a wrong one that a person could
 //! read as a peak that is not there, so when every try is lapped the reader
 //! keeps the whole window it held and says [`Read::Stale`].
+//!
+//! # The picture ([`Display`])
+//!
+//! A transform's bins are evenly spaced in hertz and a face's axis is even in
+//! octaves, so the two do not line up: at 20 Hz a whole octave is under one
+//! bin, and at 10 kHz one bin is a fortieth of a pixel. A picture made of "the
+//! loudest bin under this point" therefore stair-steps at the bottom and
+//! flickers at the top, which is what the owner saw. [`Display`] turns the
+//! spectrum into a fixed set of log-spaced bins instead: each bin is the mean
+//! power over a sixth of an octave, integrated across the transform's own bins
+//! with the power read straight between them, so the bottom is interpolated
+//! rather than stepped and the top is averaged rather than sampled. Each bin
+//! then follows its target with a time-based rise and fall, so the picture
+//! moves at the same speed whatever the interface's frame rate is.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
@@ -28,6 +43,31 @@ pub const BINS: usize = SIZE / 2;
 /// How often a copy across a lap is tried before the reader keeps what it has
 /// and says the window is old.
 pub const TRIES: usize = 4;
+
+/// The bins of a picture across the axis a face draws (20 Hz to 20 kHz):
+/// [`PER_OCTAVE`] of them to an octave.
+pub const POINTS: usize = 479;
+/// The picture's bins to an octave: a forty-eighth, three times finer than the
+/// sixth of an octave each one is smoothed over.
+pub const PER_OCTAVE: f32 = 48.0;
+/// How wide a bin's own band is, in octaves.
+pub const SMOOTH: f32 = 1.0 / 6.0;
+/// How long a bin takes to reach a level above it, and one below it: a rise of
+/// ten milliseconds and a fall of three hundred, the ballistic an analyser is
+/// read at. Both are time constants, so a frame that took twice as long moves
+/// twice as far and the picture keeps its speed at any frame rate.
+pub const RISE: f32 = 0.010;
+pub const FALL: f32 = 0.300;
+/// How much wider than one bin a Hann window's own response is: a tone's power
+/// spread over its neighbours, which a band's level is measured against.
+const ENBW: f32 = 1.5;
+/// The longest frame the ballistics will take in one step: a window that
+/// stalled for longer than this jumps rather than crawling.
+const LONGEST_STEP: f32 = 0.5;
+
+/// `2^-SMOOTH/2` and `2^SMOOTH/2`: a bin's band's ends, from its centre.
+const BELOW: f32 = 0.943_874_3;
+const ABOVE: f32 = 1.059_463_1;
 
 const MASK: u64 = SIZE as u64 - 1;
 
@@ -250,30 +290,184 @@ impl Reader {
         }
         &self.spectrum
     }
+}
 
-    /// The spectrum gathered into `out` points spread evenly on a log
-    /// frequency axis from `low` to `high` Hz at `rate`: each point is the
-    /// loudest bin under it, so a narrow peak is never lost between points.
-    pub fn points(&mut self, rate: u32, (low, high): (f32, f32), out: &mut [f32]) {
-        let bins = self.spectrum();
-        let nyquist = rate as f32 / 2.0;
-        let count = bins.len().max(1) as f32;
-        let points = out.len().max(1);
-        for (i, point) in out.iter_mut().enumerate() {
-            let at = |share: f32| low * (high / low).powf(share);
-            let from = (at(i as f32 / points as f32) / nyquist * count).floor() as usize;
-            let to = ((at((i + 1) as f32 / points as f32) / nyquist * count).ceil() as usize)
-                .clamp(from + 1, bins.len());
-            let mut loudest = MIN_DB;
-            if let Some(slice) = bins.get(from.min(bins.len())..to) {
-                for db in slice {
-                    if *db > loudest {
-                        loudest = *db;
-                    }
-                }
-            }
-            *point = loudest;
+/// One window's spectrum as power a bin, read as a fixed set of log-spaced
+/// bands: what [`Display`] folds its target from.
+struct Picture<'a> {
+    power: &'a [f32],
+    rate: u32,
+}
+
+impl Picture<'_> {
+    /// The mean power over a [`SMOOTH`]-octave band centred at `centre`, in
+    /// decibels: the transform's bins added up with the power read straight
+    /// between them, so a band narrower than a bin is interpolated rather than
+    /// stepped and a band of many bins is averaged rather than sampled.
+    ///
+    /// The level is the band's energy over a Hann window's own width, which
+    /// makes a tone read its own amplitude whatever the band's width is.
+    fn band(&self, centre: f32) -> f32 {
+        let bins = self.power.len();
+        if bins < 3 {
+            return MIN_DB;
         }
+        let bin_hz = self.rate as f32 / 2.0 / bins as f32;
+        let low = centre * BELOW;
+        let high = centre * ABOVE;
+        let width = (high - low) / bin_hz;
+        if low >= bin_hz * (bins - 1) as f32 {
+            return level(
+                f64::from(self.at(bins - 1)) * f64::from(width.max(1.0)) / f64::from(ENBW),
+            );
+        }
+        if high <= bin_hz {
+            // Under the transform's own first bin: the lowest bin's level, so
+            // the deepest octave is a straight line rather than a stair.
+            return level(f64::from(self.at(1)) * f64::from(width.max(1.0)) / f64::from(ENBW));
+        }
+        let first = ((low / bin_hz).floor() as usize).clamp(1, bins - 2);
+        let last = ((high / bin_hz).ceil() as usize).clamp(first, bins - 1);
+        let mut integral = 0.0f64;
+        let mut weighed = 0.0f64;
+        for k in first..last {
+            let start = k as f32 * bin_hz;
+            let end = (k + 1) as f32 * bin_hz;
+            let (from, to) = (start.max(low), end.min(high));
+            if to <= from {
+                continue;
+            }
+            let slope = (self.at(k + 1) - self.at(k)) / bin_hz;
+            let (a, b) = (
+                self.at(k) + slope * (from - start),
+                self.at(k) + slope * (to - start),
+            );
+            integral += 0.5 * f64::from(a + b) * f64::from(to - from);
+            weighed += f64::from(to - from);
+        }
+        let mean = if weighed > 0.0 {
+            integral / weighed
+        } else {
+            f64::from(self.at(first))
+        };
+        level(mean * f64::from(width.max(1.0)) / f64::from(ENBW))
+    }
+
+    /// A bin's power.
+    fn at(&self, bin: usize) -> f32 {
+        self.power[bin.min(self.power.len() - 1)]
+    }
+}
+
+/// Power as decibels, floored at [`MIN_DB`].
+fn level(power: f64) -> f32 {
+    if power <= 0.0 {
+        MIN_DB
+    } else {
+        ((10.0 * power.log10()) as f32).max(MIN_DB)
+    }
+}
+
+/// One shown level following its target: a step of `dt` seconds, rising in
+/// [`RISE`] and falling in [`FALL`]. The coefficient is worked out from the
+/// time the frame took, so the same wall-clock time covers the same share of
+/// the distance at any frame rate — 60 fps, 120, or a frame that stalled.
+pub fn follow(shown: f32, target: f32, dt: f32) -> f32 {
+    let tau = if target > shown { RISE } else { FALL };
+    let step = f64::from(dt.clamp(0.0, LONGEST_STEP)) / f64::from(tau);
+    let share = 1.0 - (-step).exp();
+    shown + (target - shown) * share as f32
+}
+
+/// The picture a face draws: [`POINTS`] log-spaced bins across the axis it is
+/// made for, smoothed across frequency and in time (see the module's own
+/// note). Allocates in [`Display::new`]: make it on the interface side.
+pub struct Display {
+    low: f32,
+    high: f32,
+    /// Each bin's centre frequency, low to high.
+    centres: Vec<f32>,
+    /// The last window's transform, as power a bin: the box the bands are
+    /// folded out of, so a decibel is turned into a power once.
+    power: Vec<f32>,
+    /// The level a bin is heading for this window, in decibels.
+    target: Vec<f32>,
+    /// The level a bin is at now: what the face draws.
+    shown: Vec<f32>,
+}
+
+impl Display {
+    /// A picture across `low` to `high` hertz: [`POINTS`] bins at the face's
+    /// own axis, and three times that for an axis more than three decades wide.
+    pub fn new((low, high): (f32, f32)) -> Self {
+        let low = low.max(1.0);
+        let high = high.max(low * 2.0);
+        let count = (((high / low).log2() * PER_OCTAVE).round() as usize + 1).max(2);
+        let centres = (0..count)
+            .map(|i| low * (high / low).powf(i as f32 / (count - 1) as f32))
+            .collect();
+        Self {
+            low,
+            high,
+            centres,
+            power: vec![0.0; BINS],
+            target: vec![MIN_DB; count],
+            shown: vec![MIN_DB; count],
+        }
+    }
+
+    /// The bins, low to high, in decibels: what a face draws.
+    pub fn bins(&self) -> &[f32] {
+        &self.shown
+    }
+
+    /// How many bins there are.
+    pub fn len(&self) -> usize {
+        self.shown.len()
+    }
+
+    /// Whether nothing has been heard yet.
+    pub fn is_empty(&self) -> bool {
+        self.shown.is_empty()
+    }
+
+    /// Takes a window's spectrum and moves the picture `dt` seconds on.
+    pub fn update(&mut self, spectrum: &[f32], rate: u32, dt: f32) {
+        self.power.resize(spectrum.len(), 0.0);
+        for (power, db) in self.power.iter_mut().zip(spectrum) {
+            *power = if *db > MIN_DB {
+                10f32.powf(*db * 0.1)
+            } else {
+                0.0
+            };
+        }
+        let Self {
+            power,
+            target,
+            centres,
+            ..
+        } = self;
+        let picture = Picture {
+            power,
+            rate: rate.max(2),
+        };
+        for (target, &centre) in target.iter_mut().zip(centres.iter()) {
+            *target = picture.band(centre);
+        }
+        self.advance(dt);
+    }
+
+    /// Moves the picture `dt` seconds towards the levels it last heard: what a
+    /// stalled analyser does, so a picture falls back rather than freezing.
+    pub fn advance(&mut self, dt: f32) {
+        for (shown, &target) in self.shown.iter_mut().zip(&self.target) {
+            *shown = follow(*shown, target, dt);
+        }
+    }
+
+    /// The axis the picture is drawn across.
+    pub fn axis(&self) -> (f32, f32) {
+        (self.low, self.high)
     }
 }
 
@@ -327,152 +521,4 @@ fn transform(re: &mut [f32], im: &mut [f32]) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn sine(hz: f32, rate: f32, frames: usize, amplitude: f32) -> Vec<f32> {
-        (0..frames)
-            .map(|i| amplitude * (std::f32::consts::TAU * hz * i as f32 / rate).sin())
-            .collect()
-    }
-
-    /// A sine on a bin's own frequency reads its amplitude there, and
-    /// nothing anywhere else (the transform and its scale are right).
-    #[test]
-    fn a_sine_on_a_bin_reads_its_amplitude_in_that_bin() {
-        let rate = 48_000.0;
-        // Bin 40 of 1024 over 24 kHz is 937.5 Hz.
-        let bin = 40;
-        let hz = bin as f32 * rate / 2.0 / BINS as f32;
-        let samples = sine(hz, rate, SIZE, 0.5);
-        let (mut tap, mut reader) = pair();
-        reader.set_on(true);
-        tap.write(&samples, &samples);
-        assert_eq!(reader.read(), Read::Window);
-        let spectrum = reader.spectrum();
-        // 0.5 of full scale is −6 dB.
-        assert!(
-            (spectrum[bin] - (-6.02)).abs() < 0.2,
-            "{} dB at its bin",
-            spectrum[bin]
-        );
-        // A Hann window's main lobe is three bins wide, so its neighbours sit
-        // 6 dB down and 31 dB down; nothing further away is anything at all.
-        assert!(
-            (spectrum[bin - 1] - (-12.0)).abs() < 1.0,
-            "{}",
-            spectrum[bin - 1]
-        );
-        for (other, db) in spectrum.iter().enumerate() {
-            if other.abs_diff(bin) > 2 {
-                assert!(*db < -25.0, "{other} reads {db}");
-            }
-        }
-    }
-
-    /// The transform is the one a direct sum gives: every bin to 1e-3.
-    #[test]
-    fn the_transform_is_the_one_a_direct_sum_gives() {
-        let n = 64;
-        let signal: Vec<f32> = (0..n)
-            .map(|i| (i as f32 * 0.31).sin() + 0.4 * (i as f32 * 1.7).cos())
-            .collect();
-        let mut re = signal.clone();
-        let mut im = vec![0.0; n];
-        transform(&mut re, &mut im);
-        for k in 0..n {
-            let (mut want_re, mut want_im) = (0.0f32, 0.0f32);
-            for (i, sample) in signal.iter().enumerate() {
-                let angle = -std::f32::consts::TAU * (k * i) as f32 / n as f32;
-                want_re += sample * angle.cos();
-                want_im += sample * angle.sin();
-            }
-            assert!((re[k] - want_re).abs() < 1e-3, "bin {k} re: {}", re[k]);
-            assert!((im[k] - want_im).abs() < 1e-3, "bin {k} im: {}", im[k]);
-        }
-    }
-
-    /// A tap that nothing listens to writes nothing at all.
-    #[test]
-    fn a_tap_nothing_reads_writes_nothing() {
-        let (mut tap, mut reader) = pair();
-        assert!(!tap.is_on());
-        tap.write(&[1.0; 64], &[1.0; 64]);
-        assert_eq!(reader.read(), Read::Nothing, "nothing was written");
-        reader.set_on(true);
-        assert!(tap.is_on());
-        tap.write(&[1.0; SIZE], &[1.0; SIZE]);
-        assert_eq!(reader.read(), Read::Window);
-        assert!(reader.window().iter().all(|x| *x == 1.0));
-        // A second read of a still writer finds nothing new.
-        assert_eq!(reader.read(), Read::Nothing, "the window has not moved");
-    }
-
-    /// The reader gets the newest window, not the first one.
-    #[test]
-    fn the_reader_gets_the_newest_window() {
-        let (mut tap, mut reader) = pair();
-        reader.set_on(true);
-        tap.write(&vec![1.0; SIZE], &vec![1.0; SIZE]);
-        tap.write(&vec![2.0; SIZE], &vec![2.0; SIZE]);
-        assert_eq!(reader.read(), Read::Window);
-        assert!(reader.window().iter().all(|x| *x == 2.0));
-    }
-
-    /// L1: a reader lapped on every try keeps the whole window it held and
-    /// says it is stale, never a copy that is two windows joined — the promise
-    /// the module makes is the one the code keeps.
-    #[test]
-    fn a_reader_lapped_on_every_try_keeps_the_window_before() {
-        let (mut tap, mut reader) = pair();
-        reader.set_on(true);
-        tap.write(&vec![1.0; SIZE], &vec![1.0; SIZE]);
-        assert_eq!(reader.read(), Read::Window);
-        assert!(reader.window().iter().all(|x| *x == 1.0));
-        let spectrum_before = reader.spectrum().to_vec();
-
-        // The writer moves on, and every try of the next read is lapped.
-        tap.write(&vec![2.0; SIZE], &vec![2.0; SIZE]);
-        reader.pretend_laps(TRIES);
-        assert_eq!(reader.read(), Read::Stale);
-        assert!(
-            reader.window().iter().all(|x| *x == 1.0),
-            "the window before is kept, not a torn one"
-        );
-        assert_eq!(
-            reader.spectrum(),
-            spectrum_before,
-            "and its spectrum is not worked out again"
-        );
-
-        // The next read, with no lap, takes the new window.
-        assert_eq!(reader.read(), Read::Window);
-        assert!(reader.window().iter().all(|x| *x == 2.0));
-    }
-
-    /// The spectrum of silence is the floor, and its points are its floor.
-    #[test]
-    fn silence_reads_the_floor_and_the_points_follow_a_peak() {
-        let rate = 48_000;
-        let (mut tap, mut reader) = pair();
-        reader.set_on(true);
-        tap.write(&vec![0.0; SIZE], &vec![0.0; SIZE]);
-        assert_eq!(reader.read(), Read::Window);
-        assert!(reader.spectrum().iter().all(|db| *db == MIN_DB));
-
-        let samples = sine(1_000.0, rate as f32, SIZE, 0.5);
-        tap.write(&samples, &samples);
-        assert_eq!(reader.read(), Read::Window);
-        let mut points = [MIN_DB; 40];
-        reader.points(rate, (20.0, 20_000.0), &mut points);
-        let loudest = points
-            .iter()
-            .enumerate()
-            .max_by(|a, b| a.1.total_cmp(b.1))
-            .map(|(at, _)| at)
-            .unwrap();
-        // 1 kHz of 20 Hz to 20 kHz over 40 points is the 22nd or 23rd.
-        assert!((22..=23).contains(&loudest), "{loudest}: {points:?}");
-        assert!(points[loudest] > -8.0, "{}", points[loudest]);
-    }
-}
+mod tests;

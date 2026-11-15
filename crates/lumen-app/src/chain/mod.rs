@@ -78,10 +78,11 @@ pub(crate) struct Chain {
     /// Iris's band): a view setting, kept for the session like a fold.
     pub bands: HashMap<Id, usize>,
     /// The analyser's picture for each built-in device whose card shows one,
-    /// by device, this frame: filled before the cards are built and read by the
-    /// drawing. A device that is gone or folded is not in it, and its analyser
-    /// is told to stop.
-    pub analyzers: BTreeMap<Id, Vec<f32>>,
+    /// by device, kept between frames so its ballistics move at the same speed
+    /// whatever the frame rate is: filled before the cards are built and read
+    /// by the drawing. A device that is gone or folded is not in it, and its
+    /// analyser is told to stop.
+    pub analyzers: BTreeMap<Id, lumen_devices::analyzer::Display>,
     /// A picture a shot harness put in an analyser's place, for a screenshot
     /// of a card with a signal: a shot's project does not play, so nothing
     /// writes a real one (`testing::pretend_spectrum`).
