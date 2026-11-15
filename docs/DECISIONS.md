@@ -15022,7 +15022,7 @@ Steps. Cost: a frame draws one page; its cells are gathered once per clip,
 step and page (bench `drum_lanes_bench`, release build, 100,000 hits: lanes p95
 0.98 ms, step grid 0.43 ms, roll 0.91 ms). The audio thread is not touched.
 
-## ADR-XXXX — The shared face motion vocabulary and the repaint cadence (M8 round 4, F0)
+## ADR-0155 — The shared face motion vocabulary and the repaint cadence (M8 round 4, F0)
 
 **Context.** The owner found every face weak and lifeless (round 4,
 `docs/milestones/M8.md` §10). The notes

@@ -452,7 +452,7 @@ not travel.
 ### Face motion (M8 round 4, F0)
 
 The built-in faces share one vocabulary (`design/motion.rs`; the helpers are
-`chain/face/ballistics.rs`, `cadence.rs` and `paint.rs`; ADR-XXXX). Every
+`chain/face/ballistics.rs`, `cadence.rs` and `paint.rs`; ADR-0155). Every
 follower is driven by the seconds a frame took, never by the frames, and a
 frame's step is at most `DT_MAX`.
 
