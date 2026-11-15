@@ -65,6 +65,8 @@ rust_2018_idioms = { level = "warn", priority = -1 }
 
 [workspace.lints.clippy]
 undocumented_unsafe_blocks = "allow"
+missing_safety_doc = "allow"
+collapsible_if = "allow"
 dbg_macro = "warn"
 
 [profile.release]
