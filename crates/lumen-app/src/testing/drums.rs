@@ -10,6 +10,7 @@ impl App {
         let clip = self.editor_open_clip()?;
         match self.open_drum_view(clip)? {
             crate::drum_editor::View::Lanes => Some("lanes"),
+            crate::drum_editor::View::Steps => Some("steps"),
             crate::drum_editor::View::Keys => Some("keys"),
         }
     }
@@ -43,12 +44,9 @@ impl App {
     pub fn drum_hit_point(&self, local: Ticks, input: u8) -> Option<Pos2> {
         let view = self.note_editor.last_view?;
         let row = self.drum_lane_row(input)?;
-        let clip = self.editor_open_clip()?;
-        let (open, _) = self.editor_clip(clip)?;
-        let cell = self.grid_cell_at_zoom(open.start, view.time.zoom);
-        let radius = geometry::hit_radius(&view, cell.1 - cell.0);
+        self.editor_open_clip()?;
         let top = view.body.top() + row as f32 * view.row_height - view.scroll;
-        Some(pos2(view.x_of(local) + radius, top + view.row_height / 2.0))
+        Some(pos2(view.x_of(local), top + view.row_height / 2.0))
     }
 
     pub fn drum_name_point(&self, input: u8) -> Option<Pos2> {
@@ -117,6 +115,7 @@ impl App {
     pub fn drum_view_of_track(&self, track: Id) -> &'static str {
         match self.note_editor.drum.view(track) {
             crate::drum_editor::View::Lanes => "lanes",
+            crate::drum_editor::View::Steps => "steps",
             crate::drum_editor::View::Keys => "keys",
         }
     }
@@ -127,6 +126,14 @@ impl App {
 
     pub fn show_the_keys_view(&mut self) {
         self.set_drum_view(crate::drum_editor::View::Keys);
+    }
+
+    pub fn show_the_lanes_view(&mut self) {
+        self.set_drum_view(crate::drum_editor::View::Lanes);
+    }
+
+    pub fn show_the_steps_view(&mut self) {
+        self.set_drum_view(crate::drum_editor::View::Steps);
     }
 
     pub fn set_lane_quantize(

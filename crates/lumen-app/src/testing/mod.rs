@@ -20,6 +20,7 @@ mod drums;
 mod editor;
 mod instance;
 mod launch;
+mod steps;
 pub use instance::{HandOver, not_answering_window};
 
 pub use crate::builtin::samples::{Library as SamplerLibrary, Source as SampleSource};

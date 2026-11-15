@@ -306,6 +306,9 @@ pub(crate) enum Command {
     SamplerNextFace,
     SamplerToggleLoop,
     SamplerToggleReverse,
+    DrumStepsView,
+    StepsNextPage,
+    StepsPreviousPage,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -676,7 +679,7 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::DrumMapExport, "track.drum_map_export", "Export the drum map…", Area::Track, &[], "Writes the drum map the editor shows, or the selected track's, to a .lumendrums file you choose. The map in the project is not changed."),
     info(Command::HideUnmappedKeys, "view.hide_unmapped_keys", "Hide unmapped keys", Area::View, &[], "In the clip editor of a track with a drum map, shows only the map's sounds in the key column, so a kit's rows sit together; again shows every key. It changes the view only, never the clip."),
     info(Command::AddUtility, "devices.add_utility", "Add Prism (utility)", Area::Devices, &[], "Puts Prism, the utility device, on the selected track (after the chosen card), or on a new audio track when no track fits. Gain, pan, width, mono below a frequency, polarity, a swap of the sides and a DC block: automation, MIDI learn and presets work as for any device."),
-    info(Command::DrumLanesView, "view.drum_lanes", "Show the drum lanes", Area::View, &[], "Shows the opened clip as the drum editor's lanes: one lane a sound of its track's drum map, in the map's order, with each hit a diamond filled to its velocity. A clip on a track with a drum map opens in Lanes already; this switches back from the piano roll."),
+    info(Command::DrumLanesView, "view.drum_lanes", "Show the drum lanes", Area::View, &[], "Shows the opened clip as the drum editor's lanes: one lane a sound of its track's drum map, in the map's order, with each hit a diamond filled to its velocity. A clip too long for the step grid opens in Lanes; this switches to it from Steps or the piano roll."),
     info(Command::DrumKeysView, "view.drum_keys", "Show the piano roll (Keys)", Area::View, &[], "Shows the opened drum clip as the piano roll, with the kit's sounds instead of the keyboard in the key column. It is the same notes, edited as notes; the lanes are where a drum part is played in."),
     info(Command::HideUnusedLanes, "view.hide_unused_lanes", "Hide unused lanes", Area::View, &[], "In the drum editor's lanes, shows only the sounds the opened clip plays; again shows the map's every sound. A view only: no note and no map changes."),
     info(Command::DrumMuteLane, "midi.mute_lane", "Mute the picked lane", Area::Midi, &[], "Mutes the drum map's sound of the lane the picked hits are in, or unmutes it when all are muted. The map editor's M is the same switch; one undo step."),
@@ -694,6 +697,9 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::SamplerNextFace, "devices.sampler_face", "Shutter's face: one shot, zones, pads", Area::Devices, &[], "Switches the chosen Shutter to its next face: One shot plays one sample, Zones plays the zone whose key and velocity range holds the note, and Pads plays one pad per sound of the track's drum map (sixteen when it names none). It is what the drawn face does at its top."),
     info(Command::SamplerToggleLoop, "devices.sampler_loop", "Loop Shutter's sample", Area::Devices, &[], "Plays the One shot face's region over and over until the note ends, or stops looping it. One undo step; the switch is also a control on the device's card."),
     info(Command::SamplerToggleReverse, "devices.sampler_reverse", "Reverse Shutter's sample", Area::Devices, &[], "Plays the One shot face's region backwards, or forwards again. It changes nothing in the file: the region is read the other way round. One undo step."),
+    info(Command::DrumStepsView, "view.drum_steps", "Show the step sequencer (Steps)", Area::View, &[], "Shows the opened drum clip as a step grid: a row a sound of its track's drum map, a cell a step. Click a cell to turn it on or off, drag it up or down to set its velocity, Shift-click for an accent. The same notes as the lanes and the piano roll; a clip that fits the grid opens here."),
+    info(Command::StepsNextPage, "view.steps_next_page", "Steps: next page", Area::View, &[], "In the step sequencer, shows the next page of steps of a clip longer than one page. Page Down does the same while the grid has the keyboard."),
+    info(Command::StepsPreviousPage, "view.steps_previous_page", "Steps: previous page", Area::View, &[], "In the step sequencer, shows the previous page of steps of a clip longer than one page. Page Up does the same while the grid has the keyboard."),
 ];
 
 const fn info(
@@ -754,7 +760,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::SamplerToggleReverse as usize + 1,
+            Command::StepsPreviousPage as usize + 1,
             ALL.len(),
             "a command is missing"
         );

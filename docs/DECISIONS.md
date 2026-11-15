@@ -13818,7 +13818,9 @@ of them (E5: a fork is a review finding).
    column and P's lane card, the same column in both views — and a lane is 28
    pt, `2 × space::M + space::XS`, D1's table row. The hit's half-width is the
    row's third at most and half the grid step at most (so neighbours part), at
-   least 1.5 pt; its left tip is the onset.
+   least 1.5 pt. Its middle is the onset, so the grid line runs through it
+   (owner, 2026-11-14; it was the left tip, as the specimen drew it, which
+   read as half a diamond late against the grid and the velocity stems).
 5. **Only the hits in view are drawn, gathered per picture column.** A lane
    gathers the hits that share a pixel column (2 pt, widened until the frame's
    cells fit `MAX_CELLS`), keeping the leftmost onset and the loudest velocity,
@@ -14958,7 +14960,6 @@ was within the 2 % threshold; the run also refreshed two that had become much
 cheaper since an earlier change (`engine_streamed_64` −24.97 %,
 `stream_plan_64` −30.70 %), so the gate measures against today's code and not
 a stale one. The macOS cross-target clippy still cannot run here.
-
 ## ADR-0152 — Shutter, the built-in sampler (M8 slice B5)
 
 **Status.** Proposed (M8 slice B5). Brief:
@@ -15170,3 +15171,65 @@ so a sound can be replaced under a sounding note.
 **Not run here.** The WSL performance gate and the macOS cross-target clippy
 cannot run on this machine; the device has no drawn face, so there are no
 screenshots at 100, 150 and 200 % in both themes.
+
+## ADR-0153 — The drum editor's steps (M8 slice D3)
+
+**Status.** Proposed (M8 D3, `docs/milestones/M8.md` §5; the owner's SQ A and
+DV A, 2026-11-12). The parent numbers it.
+
+**Context.** D2 gave a drum clip lanes. A drum pattern is also written as a row
+of steps for each sound: switch a step on, drag it louder, mark an accent. It
+must be the same clip, not a converted one: toggling steps off and on again
+may not change what a player recorded.
+
+**Choices.**
+
+1. **Steps is a view of the note editor, not a second editor.** The state, the
+   selection, the history, the snapping and the commands are the editor's.
+   Steps draws its own surface (`drum_editor/steps/`, `app/clip/clip_steps/`)
+   but every edit is one named `Document` method, `edit_steps`, over the pure
+   model `lumen_project::edit::steps`, which uses the editor's own note
+   functions (`notes::add`, `mute`, `delete`). The selection after an edit is
+   the step's live notes, through the editor's `select_notes`.
+2. **A step owns the notes whose start falls inside it.** Toggling an off step
+   makes the *plain* hit a click always makes (the step's start, the step's
+   length cut at the clip's end, velocity 100). Toggling an on step deletes a
+   single plain hit; anything else (an off-grid or a player's hit, a different
+   length or velocity, two hits) is **muted**, and the step shows off with a
+   faint outline; toggling it on again unmutes them as they were. So off and
+   on returns the clip's notes exactly (a property test, as D2's parity test),
+   and viewing never moves a note: an off-grid hit shows at its step with a
+   mark. A drag sets the first live hit's velocity (or makes a plain hit).
+3. **The accent is a velocity the clip's notes hold, not a field.** The accent
+   rim is "velocity at or above the accent value", the value being chosen in
+   the strip (127 by default) and kept while the app runs like the rest of the
+   grid's setup. No persisted field was needed, so there is no format change
+   (v38, reserved for it, is unused).
+4. **The gesture is raw input, committed once.** A press makes a gesture; the
+   live velocity is drawn over the stored cell and the document changes only
+   at the release, so a drag is one undo step and Esc leaves nothing behind.
+5. **Keys are taken before the commands, only while the grid has the
+   keyboard** (`steps_handle_keys`, as the audio editor's `audio_handle_keys`),
+   after the usual guards (`text_edit_focused`, `App::typing`, a rebind, a
+   window, an open popup). Delete and Backspace are not taken, so the editor's
+   Delete acts on the picked notes. The grid does not surrender focus on a
+   click (the roll does), so a click then Space toggles.
+6. **A page fills the body**: the editor's `TimeView` is forced to the page, so
+   `x_of`, `local_at` and the rest agree with the cells and no gesture code
+   forks. Rows are 34 pt and scroll vertically only.
+7. **The view choice.** A clip opens in Steps when its content is whole 1/16
+   steps and at most 64 of them, else in Lanes, unless the user chose a view
+   for the track (`State::chosen`). The header, the editor's menu and the
+   palette switch by the same code (`set_drum_view_in`).
+8. **Count presets are 8, 16, 32 and 64**; resolutions are the grid list's
+   straight and triplet sizes from 1/4 to 1/32 (seven).
+9. **Switch order.** The brief wrote Lanes · Keys · Steps; the specimen and
+   ADR-0147 write Lanes · Steps · Keys. The specimen's order is built.
+
+**Consequences.** `View` gained `Steps`; three commands at the end of `ALL`
+(`view.drum_steps`, `view.steps_next_page`, `view.steps_previous_page`, tagged
+`@m8`); the lanes' drum surface takes an optional grid look and a `steps` flag;
+the D2 end-to-end tests ask for Lanes first, as a fitting clip now opens in
+Steps. Cost: a frame draws one page; its cells are gathered once per clip,
+step and page (bench `drum_lanes_bench`, release build, 100,000 hits: lanes p95
+0.98 ms, step grid 0.43 ms, roll 0.91 ms). The audio thread is not touched.

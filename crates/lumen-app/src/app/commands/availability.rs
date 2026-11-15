@@ -57,6 +57,7 @@ impl App {
         let tracks = !self.arrangement.selected.is_empty();
         let locator = self.locators.selected.is_some();
         let clip = !self.arrangement.clips.is_empty();
+
         let notes = self.note_keys_picked();
         let need = |ok: bool, why| if ok { Ok(()) } else { Err(why) };
         match command {
@@ -66,6 +67,7 @@ impl App {
             Command::Undo | Command::Redo if self.is_recording() => Err(wait::RECORDING),
             Command::Undo => need(self.document.history().can_undo(), "Nothing to undo"),
             Command::Redo => need(self.document.history().can_redo(), "Nothing to redo"),
+
             Command::Copy
             | Command::Duplicate
             | Command::NudgeEarlierFine
@@ -191,6 +193,7 @@ impl App {
                 self.copy_unavailable()
             }
             Command::Revert => self.revert_unavailable(),
+
             Command::LocateMedia => need(
                 self.selected_missing_media().is_some(),
                 "Choose a missing file in the Project media tab first",
@@ -210,6 +213,7 @@ impl App {
             )
             .and(self.media_pool_unavailable())
             .and(need(!self.is_working_in_files(), wait::RENDER)),
+
             Command::ExportMidiFile => need(
                 self.document
                     .project()
@@ -229,6 +233,7 @@ impl App {
                 "Select a MIDI clip first",
             )
             .and(self.midi_export_unavailable()),
+
             Command::Deselect => need(
                 (clips
                     || self.arrangement.tool != crate::app::tools::ArrangementTool::Pointer
@@ -358,6 +363,7 @@ impl App {
             Command::WarpClips | Command::WarpFromHere => self.warp_unavailable(),
             Command::AddWarpMarker | Command::ClearWarpMarkers => self.markers_unavailable(),
             Command::FixWarpHit => self.fix_warp_hit_unavailable(),
+
             Command::AddUtility
             | Command::AddEq
             | Command::AddDelay
@@ -510,22 +516,38 @@ impl App {
                         .is_some_and(|c| self.drum_view(c) == Some(crate::drum_editor::View::Keys)),
                 "Open a MIDI clip on a track with a drum map in the Keys view first",
             ),
-            Command::DrumLanesView | Command::DrumKeysView | Command::HideUnusedLanes => {
+
+            Command::DrumLanesView
+            | Command::DrumKeysView
+            | Command::DrumStepsView
+            | Command::HideUnusedLanes => {
+                use crate::drum_editor::View;
                 let drum = self.note_editor.clip.and_then(|clip| self.drum_view(clip));
                 match (command, drum) {
                     (_, None) => Err("Open a clip on a track with a drum map first"),
-                    (Command::DrumLanesView, Some(crate::drum_editor::View::Keys)) => Ok(()),
-                    (Command::DrumLanesView, Some(_)) => Err("The drum lanes are the view already"),
-                    (Command::DrumKeysView, Some(crate::drum_editor::View::Lanes)) => Ok(()),
-                    (Command::DrumKeysView, Some(_)) => Err("The piano roll is the view already"),
-                    (_, Some(crate::drum_editor::View::Lanes)) => Ok(()),
-                    (_, Some(_)) => Err("Show the drum lanes first"),
+                    (Command::DrumLanesView, Some(View::Lanes)) => {
+                        Err("The drum lanes are the view already")
+                    }
+                    (Command::DrumKeysView, Some(View::Keys)) => {
+                        Err("The piano roll is the view already")
+                    }
+                    (Command::DrumStepsView, Some(View::Steps)) => {
+                        Err("The step sequencer is the view already")
+                    }
+                    (Command::HideUnusedLanes, Some(View::Keys)) => {
+                        Err("Show the drum lanes or the steps first")
+                    }
+                    _ => Ok(()),
                 }
+            }
+            Command::StepsNextPage | Command::StepsPreviousPage => {
+                self.steps_page_available(command == Command::StepsNextPage)
             }
             Command::DrumMuteLane | Command::DrumSoloLane => need(
                 self.drum_picked_lane().is_some(),
                 "Pick hits in one lane of a drum clip first",
             ),
+
             Command::DrumRouteAll => match self.drum_routing_track() {
                 None => Err("Select a MIDI track with a drum map first"),
                 Some((track, _)) if self.sound_output_pairs(track).is_empty() => {

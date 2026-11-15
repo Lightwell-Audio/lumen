@@ -19,47 +19,74 @@ pub struct Palette {
     pub text_secondary: Color32,
     pub text_hint: Color32,
     pub text_disabled: Color32,
+
     pub accent: Color32,
     pub accent_muted: Color32,
+
     pub record: Color32,
+
     pub record_note: Color32,
+
     pub warning: Color32,
     pub grid_bar: Color32,
     pub grid_beat: Color32,
+
     pub grid_sub: Color32,
+
     pub clip_grid_bar: Color32,
     pub clip_grid_beat: Color32,
     pub clip_grid_sub: Color32,
+
     pub start_marker: Color32,
+
     pub lane: Color32,
+
     pub header: Color32,
+
     pub selected_row: Color32,
+
     pub selected_control: Color32,
+
     pub clip_body: Color32,
+
     pub well: Color32,
     pub shadow: Color32,
+
     pub key_white: Color32,
     pub key_black: Color32,
     pub key_text: Color32,
     pub lane_black: Color32,
     pub lane_split: Color32,
+
     pub core: Color32,
+
     pub sun: Color32,
     pub sun_core: Color32,
+
     pub ground: Color32,
+
     pub control_hi: Color32,
+
     pub thumb_hi: Color32,
     pub thumb: Color32,
+
     pub edge_light: Color32,
+
     pub sheen: Color32,
+
     pub key_edge: Color32,
+
     pub shade: Color32,
+
     pub ember: Color32,
+
     pub accent_hi: Color32,
     pub accent_lo: Color32,
     pub on_accent: Color32,
+
     pub mute: Color32,
     pub on_mute: Color32,
+
     pub budget: [Color32; 5],
 }
 
@@ -205,12 +232,16 @@ pub const CLIP_COLORS: [Color32; 12] = {
     }
     colors
 };
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Controls {
     pub fill: Color32,
+
     pub fill_hi: Color32,
     pub hover: Color32,
+
     pub press: Color32,
+
     pub text: Color32,
 }
 
@@ -239,8 +270,11 @@ pub fn controls(selected: bool) -> Controls {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tone {
     On,
+
     Accent,
+
     Mute,
+
     Record,
 }
 
@@ -254,8 +288,11 @@ pub struct LitFill {
 }
 
 pub const EDGE_ON_FILL: Color32 = Color32::from_rgba_unmultiplied_const(0xFF, 0xFF, 0xFF, 0x59);
+
 pub const ON_HAIRLINE: f32 = 0.38;
+
 const RECORD_HAIRLINE: f32 = 0.45;
+
 const RECORD_TINT: f32 = 0.18;
 
 impl Tone {
@@ -324,55 +361,104 @@ pub fn wave_on(light: bool, track: Color32) -> Color32 {
 }
 
 pub const METER_WARN_DB: f32 = -6.0;
+
 pub const METER_PEAK_ALPHA: f32 = 0.4;
+
 pub const DIMMED: f32 = 0.45;
+
 pub const CLIP_DIMMED: f32 = 0.42;
+
 pub const UNDER_LANE: f32 = 0.45;
+
 pub const CLIP_EDGE: f32 = 0.6;
+
 pub const WAVE_OUTSIDE: f32 = 0.55;
 pub const OUTSIDE_WASH: f32 = 0.7;
+
 pub const WARP_POLE: f32 = 0.45;
 pub const WARP_POLE_LIT: f32 = 0.8;
 pub const WARP_GHOST_FILL: f32 = 0.15;
 pub const WARP_GHOST_FREE: f32 = 0.6;
 pub const WARP_TICK_BASE: f32 = 0.45;
 pub const WARP_TICK_GAIN: f32 = 0.4;
+
 pub const HANDLE_QUIET: f32 = 0.55;
+
 pub const GRIP_QUIET: f32 = 0.7;
 
 pub mod alpha {
+
     pub const NONE: f32 = 0.0;
+
     pub const WASH_FAINT: f32 = 0.05;
+
     pub const WASH_LANE: f32 = 0.06;
+
     pub const WASH_DROP: f32 = 0.08;
+
     pub const WASH_WRITE: f32 = 0.09;
+
     pub const WASH: f32 = 0.10;
+
     pub const WARN_FILL: f32 = 0.10;
+
     pub const HALO_FAINT: f32 = 0.10;
+
     pub const WASH_SELECTED: f32 = 0.12;
+
     pub const WASH_BAND: f32 = 0.14;
+
     pub const GLOW: f32 = 0.15;
+
     pub const WASH_RANGE: f32 = 0.16;
+
     pub const WASH_OUTLINE: f32 = 0.18;
+
     pub const HALO: f32 = 0.20;
+
     pub const WASH_SPAN: f32 = 0.22;
+
     pub const HALO_WIDE: f32 = 0.22;
+
     pub const WASH_BODY: f32 = 0.25;
+
     pub const INK_TRACE: f32 = 0.30;
+
     pub const WASH_BRACE: f32 = 0.35;
+
     pub const HOVER_STEP: f32 = 0.35;
+
     pub const WARN_EDGE: f32 = 0.35;
+
     pub const EDGE_FAINT: f32 = 0.35;
+
     pub const EDGE_SOFT: f32 = 0.45;
+
     pub const EDGE: f32 = 0.50;
+
     pub const INK_QUIET: f32 = 0.55;
+
     pub const EDGE_DIM: f32 = 0.60;
+
     pub const WASH_CELL: f32 = 0.60;
+
     pub const INK_DIM: f32 = 0.70;
+
     pub const EDGE_BRACE: f32 = 0.75;
+
     pub const EDGE_LIT: f32 = 0.80;
+
     pub const WARN_INK: f32 = 0.88;
+
     pub const TEXT_BRIGHT: f32 = 0.90;
+
+    pub const STEP_WELL_DARK: [f32; 2] = [1.0, 0.75];
+    pub const STEP_WELL_LIGHT: [f32; 2] = [0.5, 0.3];
+    pub const STEP_EDGE_ON: f32 = 0.85;
+    pub const STEP_FILL_SILENT: f32 = 0.35;
+    pub const STEP_EDGE_SILENT: f32 = 0.40;
+
+    pub const STEP_PAST_END: f32 = 0.35;
 }
 
 pub fn meter(db: f32, base: Color32) -> Color32 {
@@ -416,8 +502,10 @@ pub mod personality {
     pub const UTILITY: Color32 = Color32::from_rgb(0x9A, 0xA0, 0xAC);
 
     pub const SYNTH: Color32 = Color32::from_rgb(0xFF, 0xC2, 0x3D);
+
     #[allow(dead_code)]
     pub const SYNTH_DEEP: Color32 = Color32::from_rgb(0x11, 0x0D, 0x05);
+
     pub const EQ: Color32 = Color32::from_rgb(0x7C, 0x8C, 0xFF);
 
     pub const EQ_SWEEP: [Color32; 5] = [
@@ -479,9 +567,11 @@ pub mod personality {
     pub const HORIZON_LIGHT: Color32 = Color32::from_rgb(0xFF, 0xE3, 0xA8);
 
     pub const SCREEN: Color32 = Color32::from_rgb(0x0C, 0x0E, 0x12);
+
     pub const SCREEN_TINT: f32 = 0.20;
 
     pub const PRISM_FAN: f32 = 0.12;
+
     pub const READOUT_SIZE: f32 = 9.0;
     pub const READOUT_INSET: f32 = 10.0;
 
@@ -489,45 +579,55 @@ pub mod personality {
         use eframe::egui::Color32;
 
         pub const RADIUS: f32 = 14.0;
+
         pub const HEADER_HEIGHT: f32 = 53.0;
         pub const HEADER_TINT: f32 = 0.30;
+
         pub const POWER_X: f32 = 22.0;
         pub const POWER_Y: f32 = 27.0;
         pub const POWER_RADIUS: f32 = 9.0;
         pub const POWER_FILL: f32 = 0.22;
         pub const POWER_RING: f32 = 0.8;
+
         pub const NAME_SIZE: f32 = 15.0;
         pub const NAME_X: f32 = 40.0;
         pub const NAME_BASELINE: f32 = 27.0;
         pub const NAME_SPACING: f32 = 0.4;
         pub const SUBTITLE_SIZE: f32 = 11.0;
         pub const SUBTITLE_BASELINE: f32 = 43.0;
+
         pub const PRESET_SIZE_PT: (f32, f32) = (54.0, 20.0);
         pub const PRESET_INSET: f32 = 12.0;
         pub const PRESET_TOP: f32 = 16.0;
         pub const PRESET_FILL: f32 = 0.16;
         pub const PRESET_RING: f32 = 0.40;
         pub const PRESET_TEXT: f32 = 11.0;
+
         pub const SCREEN_INSET: f32 = 14.0;
         pub const SCREEN_TOP: f32 = 60.0;
         pub const SCREEN_RADIUS: f32 = 10.0;
         pub const SCREEN_RING: f32 = 0.35;
+
         pub const SCREEN_GLOW: f32 = 0.20;
         pub const SCREEN_REACH: f32 = 1.1;
+
         pub const DIAL_RADIUS: f32 = 14.0;
         pub const DIAL_TRACK: f32 = 3.0;
         pub const DIAL_TRACK_ALPHA: f32 = 0.22;
         pub const DIAL_LIT: f32 = 2.5;
         pub const DIAL_GLOW: [(f32, f32); 2] = [(8.0, 0.12), (5.5, 0.26)];
+
         pub const DIAL_HELD_GROWTH: f32 = 0.6;
         pub const DIAL_HEAD: f32 = 3.0;
         pub const DIAL_POINTER: f32 = 2.0;
         pub const DIAL_POINTER_INSET: f32 = 9.0;
         pub const DIAL_DISC_INSET: f32 = 4.0;
+
         pub const DIAL_NAME_BASELINE: f32 = 14.0;
         pub const DIAL_VALUE_BASELINE: f32 = 26.0;
         pub const DIAL_NAME_SIZE: f32 = 10.5;
         pub const DIAL_VALUE_SIZE: f32 = 9.0;
+
         pub const DIAL_DISC_DARK: (Color32, Color32) = (
             Color32::from_rgb(0x3A, 0x3F, 0x4A),
             Color32::from_rgb(0x22, 0x25, 0x2B),
@@ -538,11 +638,14 @@ pub mod personality {
         );
         pub const DIAL_POINTER_DARK: Color32 = Color32::from_rgb(0xE6, 0xE8, 0xEC);
         pub const DIAL_POINTER_LIGHT: Color32 = Color32::from_rgb(0x3A, 0x3F, 0x4A);
+
         pub const PILL_ON_FILL: f32 = 0.18;
         pub const PILL_OFF_FILL: f32 = 0.08;
         pub const PILL_OFF_RING: f32 = 0.40;
         pub const PILL_TEXT: f32 = 10.0;
+
         pub const SCREEN_NAME_ALPHA: f32 = 0.62;
+
         pub const ALL_TEXT: f32 = 10.0;
         pub const ALL_INSET: f32 = 14.0;
         pub const ALL_FROM_BOTTOM: f32 = 12.0;
@@ -550,11 +653,14 @@ pub mod personality {
         pub const SHORT_BOTTOM: f32 = 26.0;
         pub const SHORT_DIALS_BAND: f32 = 84.0;
         pub const SHORT_DIAL_FROM_FOOT: f32 = 56.0;
+
         pub const SHORT_PRESET_TOP: f32 = 13.0;
+
         pub const SHORT_NAME_SIZE: f32 = 9.5;
         pub const SHORT_VALUE_SIZE: f32 = 8.5;
         pub const SHORT_NAME_BASELINE: f32 = 12.0;
         pub const SHORT_VALUE_BASELINE: f32 = 23.0;
+
         pub const COMPACT_HEADER: f32 = 38.0;
         pub const COMPACT_POWER_Y: f32 = 19.0;
         pub const COMPACT_NAME_SIZE: f32 = 13.0;
@@ -577,8 +683,11 @@ pub mod personality {
         pub const RAIL_BAR_REST: f32 = 0.55;
 
         pub const LEVEL_FLOOR_DB: f32 = -60.0;
+
         pub const HANDLE_RING: f32 = 6.0;
+
         pub const HANDLE_RING_ALPHA: f32 = 0.6;
+
         pub const CHIP_HEIGHT: f32 = 18.0;
         pub const CHIP_TEXT: f32 = 9.0;
 
@@ -611,20 +720,29 @@ pub mod personality {
 }
 
 pub mod space {
+
     pub const XXS: f32 = 2.0;
     pub const XS: f32 = 4.0;
     pub const S: f32 = 8.0;
     pub const M: f32 = 12.0;
+
     pub const L: f32 = 16.0;
+
     pub const XL: f32 = 24.0;
 }
 
 pub mod radius {
+
     pub const MARK: u8 = 1;
+
     pub const SMALL: u8 = 4;
+
     pub const MEDIUM: u8 = 6;
+
     pub const LARGE: u8 = 8;
+
     pub const XL: u8 = 12;
+
     pub const FULL: u8 = 255;
 
     pub fn for_height(height: f32) -> u8 {
@@ -647,16 +765,27 @@ pub fn grey_of(colour: Color32) -> Color32 {
 }
 
 pub mod stroke {
+
     pub const HAIRLINE: f32 = 1.0;
+
     pub const RING: f32 = 1.2;
+
     pub const GLYPH: f32 = 1.25;
+
     pub const GLYPH_WIDE: f32 = 1.4;
+
     pub const LIT: f32 = 1.5;
+
     pub const FOCUS: f32 = 2.0;
+
     pub const UNDERLINE: f32 = 2.0;
+
     pub const EDGE: f32 = 2.0;
+
     pub const HALO: f32 = 3.0;
+
     pub const GLOW_WIDE: f32 = 6.0;
+
     pub const ICON: f32 = 1.6;
     pub const ICON_FINE: f32 = 1.3;
     pub const ICON_BOLD: f32 = 2.4;
@@ -665,58 +794,93 @@ pub mod stroke {
 }
 
 pub mod size {
+
     pub const SCALE: f32 = 10.0;
+
     pub const MONO_SMALL: f32 = 10.0;
+
     pub const UNIT: f32 = 9.0;
     pub const CAPTION: f32 = 11.0;
+
     pub const KEYCAP: f32 = CAPTION;
     pub const BODY: f32 = 13.0;
     pub const TITLE: f32 = 15.0;
     pub const HEADING: f32 = 16.0;
+
     pub const DISPLAY: f32 = 24.0;
+
     pub const READOUT: f32 = 20.0;
+
     pub const WORDMARK: f32 = 14.0;
+
     pub const INFO_LINE: f32 = 32.0;
+
     pub const CONTROL: f32 = 24.0;
+
     pub const CONTROL_SMALL: f32 = 20.0;
+
     pub const CONTROL_LARGE: f32 = 30.0;
+
     pub const TRANSPORT_ICON: f32 = 28.0;
+
     pub const TRANSPORT_BAR: f32 = 44.0;
+
     pub const TRACK_STEP: f32 = 22.0;
+
     pub const HEADER_COLUMN: f32 = 204.0;
+
     pub const BADGE_W: f32 = 16.0;
     pub const BADGE_H: f32 = 14.0;
+
     pub const HEADER_SIDE: f32 = 60.0;
+
     pub const WELL_PIECE_W: f32 = 18.0;
+
     pub const STRIP_PIECE_W: f32 = 22.0;
+
     pub const WELL_CELL: f32 = CONTROL_LARGE - 2.0 * super::space::XXS;
+
     pub const CORNER_ICON: f32 = CAPTION + 3.0;
+
     pub const TIP_WIDTH: f32 = 280.0;
+
     pub const LEVEL_STRIP: f32 = 5.0;
+
     pub const SEND_SLOT: f32 = 18.0;
     pub const SEND_SLOT_LETTER: f32 = 12.0;
+
     pub const KNOB: f32 = 24.0;
+
     pub const KNOB_SMALL: f32 = 18.0;
+
     pub const LABEL_COLUMN: f32 = 96.0;
+
     pub const LABEL_COLUMN_NARROW: f32 = 72.0;
+
     pub const PREFERENCES: f32 = 640.0;
     pub const PREFERENCES_FOLD: f32 = 560.0;
     pub const PREFERENCES_LEAST: f32 = 280.0;
     pub const PAGE_LIST: f32 = 172.0;
+
     pub const PREFERENCES_TOP: f32 = 72.0;
     pub const PREFERENCES_BELOW: f32 = 40.0;
     pub const PREFERENCES_LEAST_PAGE: f32 = 80.0;
     pub const PREFERENCES_SLIDER: f32 = 160.0;
+
     pub const WELCOME: f32 = 560.0;
     pub const WELCOME_NARROW: f32 = 480.0;
     pub const LUMI: f32 = 84.0;
     pub const SPEAKER_LIGHT: f32 = 20.0;
     pub const PROGRESS_BAR: f32 = 3.0;
     pub const WRAP_LEAST: f32 = 120.0;
+
     pub const TAB_DIVIDER: f32 = 14.0;
+
     pub const SUBJECT_NAME: f32 = 160.0;
     pub const SUBJECT_BAR: f32 = 3.0;
+
     pub const TAB_NOTE: f32 = 140.0;
+
     pub const LANE_ROW: f32 = 2.0 * super::space::M + super::space::XS;
     pub const LANE_NAME: f32 = 176.0;
     pub const LANE_BAR: f32 = 3.0;
@@ -730,51 +894,80 @@ pub mod size {
     pub const LANE_PICKED_RING: f32 = 2.0;
     pub const LANE_HIT_ROW: f32 = 0.34;
     pub const LANE_HIT_STEP: f32 = 0.46;
+
     pub const DRUM_ROW_MIN: f32 = 6.0;
+
+    pub const STEP_ROW: f32 = 34.0;
+    pub const STEP_INSET: f32 = 3.0;
+    pub const STEP_STRIP: f32 = 34.0;
+    pub const STEP_RIM: f32 = 1.5;
+    pub const STEP_FILL_LEAST: f32 = 6.0;
+    pub const STEP_LIGHT: f32 = 3.0;
+    pub const STEP_MARK: f32 = 9.0;
+
     pub const WARP_MODE: f32 = 120.0;
     pub const WARP_FIELD: f32 = 88.0;
     pub const WARP_SLIDER: f32 = 112.0;
+
     pub const EDITOR_RULER: f32 = 37.0;
     pub const BRACE_BAND: f32 = 10.0;
     pub const BRACE_GRAB: f32 = 6.0;
     pub const BRACE_FLAG: f32 = 5.0;
     pub const CURSOR_CAP: f32 = 4.0;
+
     pub const WARP_STRIP: f32 = 18.0;
     pub const WARP_GRAB: f32 = 6.0;
     pub const WARP_NEAR: f32 = 12.0;
     pub const WARP_NOTCH_W: f32 = 9.0;
     pub const WARP_NOTCH_H: f32 = 12.0;
+
     pub const WARP_NOTCH_INSET: f32 = 2.0;
     pub const WARP_NOTCH_RADIUS: f32 = 2.5;
     pub const WARP_NOTCH_TAPER: f32 = 4.5;
     pub const WARP_TICK_W: f32 = 6.0;
     pub const WARP_TICK_H: f32 = 5.0;
+
     pub const WARP_TICK_FLOOR: f32 = 3.0;
+
     pub const BAR_NUMBER_ROOM: f32 = 32.0;
+
     pub const TIME_LABEL_ROOM: f32 = 64.0;
+
     pub const WAVE_SPLIT: f32 = 96.0;
+
     pub const RULER_BAND: f32 = 3.0;
     pub const BEAT_TICK: f32 = 5.0;
     pub const TIME_TICK: f32 = 6.0;
     pub const SAMPLE_DOT: f32 = 2.0;
+
     pub const EDITOR_STRIP: f32 = 32.0;
     pub const STRIP_GAIN_LEAST: f32 = 56.0;
     pub const STRIP_GAIN: f32 = 104.0;
     pub const STRIP_FADE: f32 = 76.0;
     pub const STRIP_SHAPE: f32 = 70.0;
     pub const STRIP_FILE: f32 = 150.0;
+
     pub const GRIP_WIDTH: f32 = 4.0;
     pub const GRIP_HEIGHT: f32 = 22.0;
+
     pub const EDGE_SCROLL: f32 = 36.0;
+
     pub const SHADOW_ROOM: f32 = 24.0;
+
     pub const CARD_INSET: f32 = 6.0;
+
     pub const CAPTION_LINE: f32 = 14.0;
+
     pub const KNOB_NAME_LINE: f32 = 13.0;
     pub const KNOB_NAME_GAP: f32 = 3.0;
+
     pub const MENU_ROW: f32 = 32.0;
+
     pub const MENU_ICON: f32 = 16.0;
+
     pub const BUTTON_ICON: f32 = 16.0;
     pub const BUTTON_ICON_SMALL: f32 = 14.0;
+
     pub fn button_icon(height: f32) -> f32 {
         if height < CONTROL {
             BUTTON_ICON_SMALL
@@ -782,23 +975,34 @@ pub mod size {
             BUTTON_ICON
         }
     }
+
     pub const MENU_LIST: f32 = 320.0;
+
     pub const BUDGET_BAR: f32 = 18.0;
     pub const BUDGET_SWATCH: f32 = 10.0;
     pub const BUDGET_LIST: f32 = 216.0;
+
     pub const AUTO_POINT: f32 = 4.0;
+
     pub const AUTO_BEND: f32 = 3.5;
     pub const AUTO_GRAB: f32 = 9.0;
     pub const AUTO_PAD: f32 = 8.0;
     pub const AUTO_STEP: f32 = 6.0;
+
     pub const AUTO_SNAP: f32 = 4.0;
+
     pub const AUTO_CHIP_PAD: f32 = 28.0;
     pub const AUTO_CHIP_MIN: f32 = 64.0;
     pub const AUTO_CHIP_MAX: f32 = 200.0;
+
     pub const AUTO_REENABLE: f32 = 84.0;
+
     pub const AUTO_REC_DOT: f32 = 3.5;
+
     pub const STATUS_DOT: f32 = 4.0;
+
     pub const AUTO_MENU: f32 = 220.0;
+
     pub const SONG_TEMPO: f32 = 44.0;
     pub const SONG_METER: f32 = 20.0;
     pub const SONG_CHIP_PAD: f32 = 6.0;
@@ -810,6 +1014,7 @@ pub enum Appearance {
     #[default]
     Dark,
     Light,
+
     System,
 }
 
@@ -896,6 +1101,7 @@ fn build_style(style: &mut egui::Style, c: &Palette, light: bool, animation_time
     .into();
 
     let spacing = &mut style.spacing;
+
     spacing.item_spacing = vec2(space::S, space::XS);
     spacing.button_padding = vec2(space::S, space::XS);
     spacing.interact_size.y = size::CONTROL;
@@ -912,6 +1118,7 @@ fn build_style(style: &mut egui::Style, c: &Palette, light: bool, animation_time
     v.window_fill = c.overlay;
     v.window_stroke = Stroke::new(stroke::HAIRLINE, c.border_strong);
     v.window_corner_radius = CornerRadius::same(radius::XL);
+
     v.window_highlight_topmost = false;
     v.menu_corner_radius = CornerRadius::same(radius::LARGE);
     let shadow = Shadow {
@@ -923,6 +1130,7 @@ fn build_style(style: &mut egui::Style, c: &Palette, light: bool, animation_time
     v.window_shadow = shadow;
     v.popup_shadow = shadow;
     v.extreme_bg_color = c.raised;
+
     v.text_edit_bg_color = Some(c.well);
     v.faint_bg_color = c.raised;
     v.code_bg_color = c.raised;
@@ -936,28 +1144,34 @@ fn build_style(style: &mut egui::Style, c: &Palette, light: bool, animation_time
 
     let radius = CornerRadius::same(radius::MEDIUM);
     let w = &mut v.widgets;
+
     w.noninteractive.bg_fill = c.app;
     w.noninteractive.weak_bg_fill = c.app;
     w.noninteractive.bg_stroke = Stroke::new(stroke::HAIRLINE, c.border);
     w.noninteractive.fg_stroke = Stroke::new(stroke::HAIRLINE, c.text);
     w.noninteractive.corner_radius = radius;
+
     w.inactive.bg_fill = c.control_press;
     w.inactive.weak_bg_fill = c.control;
+
     w.inactive.bg_stroke = Stroke::new(stroke::HAIRLINE, c.border);
     w.inactive.fg_stroke = Stroke::new(stroke::HAIRLINE, c.text);
     w.inactive.corner_radius = radius;
+
     w.hovered.bg_fill = c.control_press.blend(c.ember);
     w.hovered.weak_bg_fill = c.control.blend(c.ember);
     w.hovered.bg_stroke = Stroke::new(stroke::HAIRLINE, c.border_strong);
     w.hovered.fg_stroke = Stroke::new(stroke::HAIRLINE, c.text);
     w.hovered.corner_radius = radius;
     w.hovered.expansion = 0.0;
+
     w.active.bg_fill = c.control_press;
     w.active.weak_bg_fill = c.control_press;
     w.active.bg_stroke = Stroke::new(stroke::FOCUS, c.accent);
     w.active.fg_stroke = Stroke::new(stroke::HAIRLINE, c.text);
     w.active.corner_radius = radius;
     w.active.expansion = 0.0;
+
     w.open.bg_fill = c.control_press;
     w.open.weak_bg_fill = c.control_press;
     w.open.bg_stroke = Stroke::new(stroke::HAIRLINE, c.border_strong);
@@ -1044,6 +1258,7 @@ mod tests {
                     "{name}: well above {surface:?}"
                 );
             }
+
             if name == "light" {
                 assert!(contrast(c.well, c.header) >= 1.15, "light well on header");
             }
@@ -1088,10 +1303,12 @@ mod tests {
         }
         for (name, c) in [("dark", DARK), ("light", LIGHT)] {
             assert!(luma(c.record_note) > luma(c.record), "{name} note red");
+
             assert!(
                 c.record_note.r() > c.record_note.g() && c.record_note.r() > c.record_note.b(),
                 "{name} note red hue"
             );
+
             assert!(contrast(c.record_note, c.clip_body) >= 2.0, "{name} notes");
         }
     }
@@ -1106,10 +1323,13 @@ mod tests {
                     assert!(ratio >= 4.5, "{name} {tone:?} {end:?}: {ratio}");
                 }
             }
+
             let on = lit_in(&c, Tone::On);
             assert!(contrast(on.text, on.top) >= 3.5, "{name} on");
+
             let rec = lit_in(&c, Tone::Record);
             assert!(contrast(rec.text, rec.top) >= 2.5, "{name} record");
+
             for thumb in [c.thumb_hi, c.thumb] {
                 assert!(contrast(thumb, c.well) >= 1.2, "{name} thumb");
                 assert!(contrast(c.text, thumb) >= 4.5, "{name} thumb text");
@@ -1128,6 +1348,7 @@ mod tests {
             assert!(luma(c.accent_hi) > luma(c.accent_lo), "{name} accent");
             assert!(luma(c.thumb_hi) >= luma(c.thumb), "{name} thumb");
             assert!(contrast(c.text_secondary, c.control) >= 4.5, "{name}");
+
             assert!(contrast(c.text_secondary, c.control_hi) >= 4.0, "{name}");
         }
         assert!(luma(DARK.ground) < luma(DARK.well));
@@ -1171,6 +1392,7 @@ mod tests {
         ] {
             assert_eq!(level, drawn);
         }
+
         for c in [DARK, LIGHT] {
             assert_eq!(c.sheen, Color32::WHITE.gamma_multiply(0.18));
             assert_eq!(c.key_edge, Color32::from_black_alpha(48));

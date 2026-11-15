@@ -21,6 +21,7 @@ use crate::widgets;
 use crate::{App, theme};
 
 const TOOLBAR: f32 = crate::app::clip_header::HEADER;
+
 const MIN_BODY: f32 = 24.0;
 
 #[derive(Debug, Clone, Copy)]
@@ -29,7 +30,9 @@ pub(crate) struct DrumMenu {
     pub map: Id,
     pub view: crate::drum_editor::View,
     pub hiding: bool,
+
     pub length: Option<(u8, bool)>,
+
     pub picked_lane: Option<u8>,
 }
 
@@ -50,8 +53,21 @@ pub(crate) fn picked_lane(ed: &NoteEditor, notes: &[Note], map: &DrumMap) -> Opt
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct MenuTarget {
     pub over_body: Option<Pos2>,
+
     pub hover: Option<(usize, Zone)>,
+
     pub drum: Option<DrumMenu>,
+}
+
+struct StepsSurface<'a> {
+    area: Rect,
+    toolbar: Rect,
+    key_width: f32,
+    lanes: &'a [crate::drum_editor::Lane],
+    map: (Id, &'a str, usize),
+    track: Option<Id>,
+    editable: bool,
+    surface: Surface,
 }
 
 impl App {
@@ -76,13 +92,17 @@ impl App {
             return;
         };
         let editable = self.document.notes_editable(clip.id);
+
         let drums = self.clip_key_sounds(clip.id);
         let track = self.track_of_clip(clip.id);
         let view = track.map(|track| ed.drum.view(track));
         let (map, lanes) = match self.clip_drum_map(clip.id) {
             Some(map) => {
                 let hide = track.is_some_and(|track| ed.drum.hides_unused(track));
-                let lanes = if view == Some(crate::drum_editor::View::Lanes) {
+                let lanes = if matches!(
+                    view,
+                    Some(crate::drum_editor::View::Lanes | crate::drum_editor::View::Steps)
+                ) {
                     Some(ed.drum.lanes_for(
                         map,
                         &clip,
@@ -121,6 +141,7 @@ impl App {
         } else {
             ed.row_height
         };
+
         let lane_height = lane::reserved(area.height() - TOOLBAR - RULER_HEIGHT, &ed.lane);
         let roll = Rect::from_min_max(area.min, pos2(area.right(), area.bottom() - lane_height));
         let lane_area = Rect::from_min_max(pos2(area.left(), roll.bottom()), area.max);
@@ -134,10 +155,18 @@ impl App {
             pos2(area.left() + key_width, roll.bottom()),
         );
         let body = Rect::from_min_max(pos2(keys.right(), ruler.bottom()), roll.max);
+
+        let stepping = drum.is_some() && view == Some(crate::drum_editor::View::Steps);
+
         if ed.framed_for != Some(clip.id) {
-            self.frame_editor(ed, &clip, body, rows);
-            if drum.is_some() {
+            if stepping {
+                ed.framed_for = Some(clip.id);
                 ed.scroll = 0.0;
+            } else {
+                self.frame_editor(ed, &clip, body, rows);
+                if drum.is_some() {
+                    ed.scroll = 0.0;
+                }
             }
         }
         self.editor_toolbar(
@@ -152,6 +181,26 @@ impl App {
                 drum: map.as_ref().and(view),
             },
         );
+        if stepping {
+            if let Some((map_id, map_name, sounds)) = map.as_ref() {
+                self.steps_surface(
+                    ui,
+                    ed,
+                    &clip,
+                    StepsSurface {
+                        area,
+                        toolbar,
+                        key_width,
+                        lanes,
+                        map: (*map_id, map_name.as_str(), *sounds),
+                        track,
+                        editable,
+                        surface,
+                    },
+                );
+            }
+            return;
+        }
         if body.height() < MIN_BODY || body.width() < MIN_BODY {
             return;
         }
@@ -170,6 +219,7 @@ impl App {
         let layer = ui.layer_id();
         let on_top = |p: Pos2| ctx.layer_id_at(p) == Some(layer);
         let over_area = pointer.filter(|p| area.contains(*p) && on_top(*p));
+
         let over_roll = over_area.filter(|p| roll.contains(*p));
         let over_lane = over_area.filter(|p| lane_area.contains(*p));
         if let Some(p) = over_roll.or(over_lane) {
@@ -221,6 +271,7 @@ impl App {
         let free = modifiers.alt;
         let cell = self.grid_cell_at_zoom(clip.start, view.time.zoom);
         let step = cell.1 - cell.0;
+
         let options_open = ed
             .quantize
             .button
@@ -256,6 +307,7 @@ impl App {
                 self.audition_moved(clip.id, &tones_of(&preview.ghosts));
             }
         }
+
         let cells = if drum.is_some() {
             let picks = ed.picked().to_vec();
             Some(
@@ -293,7 +345,7 @@ impl App {
                 ui,
                 &ctx,
                 surface,
-                &look,
+                Some(&look),
                 crate::app::clip::clip_drum::DrumFrame {
                     ed,
                     view: &view,
@@ -303,6 +355,7 @@ impl App {
                     map_name,
                     sounds: *sounds,
                     keys,
+                    steps: false,
                 },
             );
             if ed.gesture.is_none() {
@@ -395,29 +448,9 @@ impl App {
         {
             self.editor_info(ed, hover, &view, p, drum.is_some(), &clip);
         }
-        let drum_menu = map.as_ref().and_then(|(map_id, _, _)| {
-            let track = track?;
-            let view = ed.drum.view(track);
-            let hiding = ed.drum.hides_unused(track);
-            let length = hover.and_then(|(i, _)| notes.get(i)).and_then(|note| {
-                let map = self.clip_drum_map(clip.id)?;
-                let sound = map.sound(note.pitch())?;
-                sound
-                    .length
-                    .is_none()
-                    .then(|| (note.pitch(), ed.drum.shows_length(*map_id, note.pitch())))
-            });
-            Some(DrumMenu {
-                track,
-                map: *map_id,
-                view,
-                hiding,
-                length,
-                picked_lane: self
-                    .clip_drum_map(clip.id)
-                    .and_then(|map| picked_lane(ed, notes, map)),
-            })
-        });
+        let drum_menu = map
+            .as_ref()
+            .and_then(|(map_id, _, _)| self.drum_menu_for(ed, &clip, *map_id, track, notes, hover));
         self.editor_menu(
             ui,
             &notes_response,
@@ -432,6 +465,102 @@ impl App {
         if ed.gesture.is_some() {
             ctx.request_repaint();
         }
+    }
+
+    fn drum_menu_for(
+        &self,
+        ed: &NoteEditor,
+        clip: &Clip,
+        map_id: Id,
+        track: Option<Id>,
+        notes: &[Note],
+        hover: Option<(usize, Zone)>,
+    ) -> Option<DrumMenu> {
+        let track = track?;
+        let view = ed.drum.view(track);
+        let hiding = ed.drum.hides_unused(track);
+        let length = hover.and_then(|(i, _)| notes.get(i)).and_then(|note| {
+            let map = self.clip_drum_map(clip.id)?;
+            let sound = map.sound(note.pitch())?;
+            sound
+                .length
+                .is_none()
+                .then(|| (note.pitch(), ed.drum.shows_length(map_id, note.pitch())))
+        });
+        Some(DrumMenu {
+            track,
+            map: map_id,
+            view,
+            hiding,
+            length,
+            picked_lane: self
+                .clip_drum_map(clip.id)
+                .and_then(|map| picked_lane(ed, notes, map)),
+        })
+    }
+
+    fn steps_surface(
+        &mut self,
+        ui: &mut Ui,
+        ed: &mut NoteEditor,
+        clip: &Arc<Clip>,
+        input: StepsSurface<'_>,
+    ) {
+        let StepsSurface {
+            area,
+            toolbar,
+            key_width,
+            lanes,
+            map: (map_id, map_name, sounds),
+            track,
+            editable,
+            surface,
+        } = input;
+        let strip = Rect::from_min_max(
+            pos2(area.left() + key_width, toolbar.bottom()),
+            pos2(
+                area.right(),
+                toolbar.bottom() + crate::drum_editor::steps::geometry::STRIP,
+            ),
+        );
+        let keys = Rect::from_min_max(
+            pos2(area.left(), strip.bottom()),
+            pos2(area.left() + key_width, area.bottom()),
+        );
+        let body = Rect::from_min_max(pos2(keys.right(), strip.bottom()), area.max);
+        if body.height() < MIN_BODY || body.width() < MIN_BODY {
+            return;
+        }
+        let out = self.draw_steps(
+            ui,
+            crate::app::clip::clip_steps::StepsFrame {
+                ed,
+                clip,
+                lanes,
+                map_id,
+                map_name,
+                sounds,
+                editable,
+                area,
+                strip,
+                keys,
+                body,
+                surface,
+            },
+        );
+        let notes = notes_of(clip);
+        let drum = self.drum_menu_for(ed, clip, map_id, track, notes, out.hover);
+        self.editor_menu(
+            ui,
+            &out.response,
+            ed,
+            clip,
+            MenuTarget {
+                over_body: out.over_body,
+                hover: out.hover,
+                drum,
+            },
+        );
     }
 
     fn editor_wheel(&self, ctx: &egui::Context, pointer: Pos2, pitch: bool, view: &mut EditorView) {
@@ -505,6 +634,7 @@ impl App {
                 q.x += dx;
             }
         }
+
         self.transport.follow_paused = true;
         ctx.request_repaint();
     }
@@ -772,7 +902,9 @@ impl App {
             ed.menu_at = ed.pointer_at.map(|(t, _)| t);
         }
         let picked = !ed.picked().is_empty();
+
         let split_at = ed.menu_at.filter(|t| *t >= Ticks::ZERO && *t < clip.length);
+
         let mut later: Option<Command> = None;
         widgets::Menu::context(response).show(|ui| {
             let keys = |s: &Self, c| s.keymap.keys(c);
@@ -858,6 +990,7 @@ impl App {
                 let label = format!("Grid: {}", self.grid_label_at(ed.time.left, ed.time.zoom));
                 widgets::submenu(ui, label, |ui| self.grid_menu(ui));
             }
+
             if let Some(drum) = drum {
                 ui.separator();
                 if let Some((input, shown)) = drum.length
@@ -865,7 +998,7 @@ impl App {
                 {
                     ed.drum.toggle_length(drum.map, input);
                 }
-                if drum.view == crate::drum_editor::View::Lanes {
+                if drum.view != crate::drum_editor::View::Keys {
                     if drum.picked_lane.is_some() {
                         let mute = keys(self, Command::DrumMuteLane);
                         if widgets::menu_item(ui, "Mute the picked lane", mute.as_ref(), true)
@@ -887,18 +1020,28 @@ impl App {
                     {
                         ed.drum.toggle_unused(drum.track);
                     }
-                    let keys_row = keys(self, Command::DrumKeysView);
-                    if widgets::menu_item(ui, "Show the piano roll (Keys)", keys_row.as_ref(), true)
-                        .clicked()
-                    {
-                        self.set_drum_view_in(ed, crate::drum_editor::View::Keys);
+                }
+
+                use crate::drum_editor::View;
+                for (view, label, command) in [
+                    (View::Lanes, "Show the drum lanes", Command::DrumLanesView),
+                    (
+                        View::Steps,
+                        "Show the step sequencer (Steps)",
+                        Command::DrumStepsView,
+                    ),
+                    (
+                        View::Keys,
+                        "Show the piano roll (Keys)",
+                        Command::DrumKeysView,
+                    ),
+                ] {
+                    if drum.view == view {
+                        continue;
                     }
-                } else {
-                    let lanes_row = keys(self, Command::DrumLanesView);
-                    if widgets::menu_item(ui, "Show the drum lanes", lanes_row.as_ref(), true)
-                        .clicked()
-                    {
-                        self.set_drum_view_in(ed, crate::drum_editor::View::Lanes);
+                    let row_keys = keys(self, command);
+                    if widgets::menu_item(ui, label, row_keys.as_ref(), true).clicked() {
+                        self.set_drum_view_in(ed, view);
                     }
                 }
             }
@@ -908,7 +1051,7 @@ impl App {
         }
     }
 
-    pub(in crate::note_editor) fn select_notes(&self, ed: &mut NoteEditor, indices: Vec<usize>) {
+    pub(crate) fn select_notes(&self, ed: &mut NoteEditor, indices: Vec<usize>) {
         let project = self.document.project();
         match &mut ed.selection {
             Some(selection) => {

@@ -27,10 +27,14 @@ pub(crate) struct DrumFrame<'a> {
     pub view: &'a EditorView,
     pub clip: &'a Arc<Clip>,
     pub lanes: &'a [Lane],
+
     pub map_id: Id,
     pub map_name: &'a str,
     pub sounds: usize,
+
     pub keys: Rect,
+
+    pub steps: bool,
 }
 
 impl App {
@@ -74,7 +78,11 @@ impl App {
             return false;
         }
         ed.drum.set_view(track, view);
+
         ed.framed_for = None;
+        ed.gesture = None;
+        ed.drum.reorder = None;
+        ed.drum.steps.gesture = None;
         true
     }
 
@@ -104,7 +112,7 @@ impl App {
     pub(crate) fn drum_picked_lane(&self) -> Option<(Id, u8)> {
         let clip = self.note_editor.clip?;
         let track = self.track_of_clip(clip)?;
-        if self.note_editor.drum.view(track) != View::Lanes {
+        if self.note_editor.drum.view(track) == View::Keys {
             return None;
         }
         let map = self.clip_drum_map(clip)?;
@@ -119,25 +127,28 @@ impl App {
         ui: &mut Ui,
         ctx: &egui::Context,
         surface: Surface,
-        look: &GridLook,
+        look: Option<&GridLook>,
         mut frame: DrumFrame<'_>,
     ) {
         let map_id = frame.map_id;
         let sounds = frame.sounds;
+        let banded = !frame.steps;
         let DrumFrame {
             ed, view, lanes, ..
         } = &mut frame;
         ed.drum.open_map(map_id);
         let picked = self.picked_rows(ed, lanes);
         let painter = ui.painter().clone();
-        crate::drum_editor::paint::background(&painter, view, lanes, &picked);
-        painter.add(canvas::roll_grid_shape(
-            surface,
-            view.body,
-            ui.pixels_per_point(),
-            view.time,
-            look,
-        ));
+        crate::drum_editor::paint::background(&painter, view, lanes, &picked, banded);
+        if let Some(look) = look {
+            painter.add(canvas::roll_grid_shape(
+                surface,
+                view.body,
+                ui.pixels_per_point(),
+                view.time,
+                look,
+            ));
+        }
         if lanes.is_empty() {
             let (state, can_show) = crate::drum_editor::paint::empty_state(sounds);
             if widgets::empty_state(ui, view.body, &state) && can_show {
@@ -172,16 +183,21 @@ impl App {
             map_id,
             map_name,
             keys,
+            steps,
             ..
         } = frame;
         let painter = ui.painter().clone();
         let p = theme::p();
+
         painter.rect_filled(keys, 0.0, p.header);
+
+        let ruler_h = if steps {
+            crate::drum_editor::steps::geometry::STRIP
+        } else {
+            crate::note_editor::view::RULER_HEIGHT
+        };
         let ruler_slot = Rect::from_min_max(
-            pos2(
-                keys.left(),
-                keys.top() - crate::note_editor::view::RULER_HEIGHT,
-            ),
+            pos2(keys.left(), keys.top() - ruler_h),
             pos2(keys.right(), keys.top()),
         );
         painter.rect_filled(ruler_slot, 0.0, p.header);
@@ -206,6 +222,7 @@ impl App {
                 p.text_hint,
             );
         }
+
         painter.vline(
             keys.right() - 0.5,
             keys.y_range(),
@@ -238,6 +255,7 @@ impl App {
             );
             let (mute, solo) = geometry::buttons(rect);
             let icon = geometry::icon_rect(rect);
+
             let name_rect = Rect::from_min_max(
                 pos2(rect.left() + geometry::NAME_X, rect.top() + 2.0),
                 pos2(mute.left() - theme::space::XS, rect.bottom() - 2.0),
@@ -268,6 +286,7 @@ impl App {
                     ui.label("The sound's length is set in the map editor");
                 }
             });
+
             let handle = ui.interact(icon, id.with(("move", row)), Sense::click_and_drag());
             handle.widget_info(|| {
                 egui::WidgetInfo::labeled(
@@ -306,6 +325,7 @@ impl App {
                 action = Some(Action::Solo(row));
             }
         }
+
         if let Some(reorder) = dragging {
             let at = ctx.input(|i| i.pointer.latest_pos());
             if let Some(at) = at
@@ -396,7 +416,7 @@ impl App {
         clip: Id,
     ) -> Option<Vec<(u8, Ticks)>> {
         let track = self.track_of_clip(clip)?;
-        if editor.drum.view(track) != View::Lanes {
+        if editor.drum.view(track) == View::Keys {
             return None;
         }
         let map = self.clip_drum_map(clip)?;

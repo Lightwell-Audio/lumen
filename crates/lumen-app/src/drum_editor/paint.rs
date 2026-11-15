@@ -11,20 +11,30 @@ use crate::widgets;
 use crate::{fonts, theme};
 
 const MAX_DRAWN: usize = 4000;
+
 const PICKED: f32 = theme::size::LANE_PICKED_RING;
+
 const LEAST_CELL: f32 = 2.5;
+
 const CELL_FILL: f32 = 0.9;
+
 const SMALL_HIT: f32 = 2.0;
 
 pub(crate) struct Scene<'a> {
     pub lanes: &'a [Lane],
+
     pub notes: &'a [Note],
+
     pub cells: &'a [Cell],
+
     pub hover: Option<usize>,
     pub preview: &'a Preview,
+
     pub boxed: &'a [usize],
     pub clip_length: Ticks,
+
     pub step: Ticks,
+
     pub shows_length: &'a dyn Fn(u8) -> bool,
 }
 
@@ -33,6 +43,7 @@ pub(crate) fn background(
     view: &EditorView,
     lanes: &[Lane],
     picked_rows: &[bool],
+    banded: bool,
 ) {
     let p = theme::p();
     let painter = painter.with_clip_rect(view.body.intersect(painter.clip_rect()));
@@ -45,7 +56,7 @@ pub(crate) fn background(
         let picked = picked_rows.get(row).copied().unwrap_or(false);
         let wash = if picked {
             p.accent.gamma_multiply(theme::alpha::WASH_FAINT)
-        } else if row % 2 == 1 {
+        } else if banded && row % 2 == 1 {
             p.lane_black
         } else {
             Color32::TRANSPARENT
@@ -70,8 +81,9 @@ pub(crate) fn hits(painter: &Painter, view: &EditorView, scene: &Scene<'_>) {
             continue;
         };
         let top = view.body.top() + cell.row as f32 * view.row_height - view.scroll;
+
         let r = geometry::hit_radius(view, scene.step).min(column.max(LEAST_CELL));
-        let centre = pos2(cell.x + r, top + view.row_height / 2.0);
+        let centre = pos2(cell.x, top + view.row_height / 2.0);
         let colour = if cell.muted {
             p.text_secondary.gamma_multiply(theme::alpha::EDGE)
         } else {
@@ -99,6 +111,7 @@ pub(crate) fn hits(painter: &Painter, view: &EditorView, scene: &Scene<'_>) {
             diamond_outline(&painter, centre, r + PICKED, theme::stroke::LIT, p.accent);
         }
     }
+
     let mut barred = 0;
     for cell in scene.cells {
         if barred >= MAX_DRAWN {
@@ -155,6 +168,7 @@ pub(crate) fn overlay(painter: &Painter, view: &EditorView, scene: &Scene<'_>) {
             dim,
         );
     }
+
     for &i in &scene.preview.hidden {
         if let Some(note) = scene.notes.get(i)
             && view.shows(*note)
@@ -194,6 +208,7 @@ pub(crate) fn overlay(painter: &Painter, view: &EditorView, scene: &Scene<'_>) {
             );
         }
     }
+
     for (n, ghost) in scene.preview.ghosts.iter().enumerate() {
         if n >= MAX_DRAWN {
             break;
@@ -420,11 +435,15 @@ mod tests {
         assert_eq!(points[1], pos2(110.0, 100.0));
         assert_eq!(points[2], pos2(100.0, 110.0));
         assert_eq!(points[3], pos2(90.0, 100.0));
+
         assert!(clip_below(&points, 111.0).is_empty());
+
         assert_eq!(clip_below(&points, 89.0).len(), 4);
+
         let half = clip_below(&points, 100.0);
         assert_eq!(half.len(), 3);
         assert!(half.iter().all(|p| p.y >= 100.0));
+
         let quarter = clip_below(&points, 105.0);
         assert_eq!(quarter.len(), 3);
         let waist = quarter.iter().filter(|p| p.y == 105.0).count();

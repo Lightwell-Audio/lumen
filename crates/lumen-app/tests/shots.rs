@@ -43,6 +43,7 @@ fn drum_icons() {
                     if !ready {
                         lumen_app::testing::prepare_look(ui.ctx(), &look);
                         ready = true;
+
                         return;
                     }
                     lumen_app::testing::drum_icon_sheet(ui);
@@ -212,6 +213,7 @@ fn clip_handles() {
     let a = clip(&h, 0);
     h.hover_at(Pos2::new(a.right() - 2.0, a.center().y));
     save(&mut h, "handle-edge");
+
     let from = Pos2::new(a.right() - 2.0, a.center().y);
     h.event(Event::ModifiersChanged(Modifiers::SHIFT));
     h.hover_at(from);
@@ -244,11 +246,13 @@ fn drag(h: &mut Harness<'static, App>, from: Pos2, to: Pos2) {
 fn clip_fades_and_gain() {
     let dir = TempDir::new("shots-fades");
     let mut h = lumen(&dir);
+
     for _ in 0..2 {
         h.key_press(Key::Equals);
         h.run_steps(2);
     }
     h.run_steps(20);
+
     let a = clip(&h, 0);
     drag(
         &mut h,
@@ -266,6 +270,7 @@ fn clip_fades_and_gain() {
     drag(&mut h, fade_in, fade_in + vec2(a.width() * 0.3, 0.0));
     let fade_out = at(&h).fade_out;
     drag(&mut h, fade_out, fade_out - vec2(a.width() * 0.25, 0.0));
+
     let bend = at(&h).bend_out.expect("a bend dot");
     drag(&mut h, bend, bend - vec2(0.0, 12.0));
     let gain = at(&h).gain;
@@ -276,10 +281,12 @@ fn clip_fades_and_gain() {
     h.hover_at(bend);
     h.drag_at(bend);
     h.run_steps(2);
+
     h.hover_at(bend + vec2(-25.0, -20.0));
     save(&mut h, "fade-bending");
     h.drop_at(bend + vec2(-25.0, -20.0));
     h.run_steps(2);
+
     let bend = at(&h).bend_out.expect("a bend dot");
     h.event(Event::ModifiersChanged(Modifiers::ALT));
     drag(&mut h, bend, bend - vec2(0.0, 30.0));
@@ -312,6 +319,7 @@ fn crossfades() {
             h.run_steps(4);
             let right = h.state().project().tracks[0].clips[1].id;
             h.state_mut().select_clip(right);
+
             let at = h
                 .state()
                 .clip_handles(&h.ctx, left)
@@ -334,6 +342,7 @@ fn crossfades() {
                 &mut h,
                 &format!("crossfade-menu-{appearance}-{}", (scale * 100.0) as u32),
             );
+
             assert_ne!(left, right);
             drop(h);
             let mut minimum = lumen_looking_sized(&dir, appearance, scale, vec2(960.0, 540.0));
@@ -397,6 +406,7 @@ fn crossfade_split() {
                 &mut h,
                 &format!("crossfade-split-hover-{appearance}-{name}"),
             );
+
             h.state_mut().select_clip(right);
             h.hover_at(Pos2::new(before.right() + 300.0, before.bottom() + 120.0));
             h.run_steps(5);
@@ -431,6 +441,7 @@ fn clip_properties_looking(appearance: &str, scale: f32) {
         h.run_steps(2);
     }
     h.run_steps(20);
+
     let a = clip(&h, 0);
     click(&mut h, pos(a, 0.5, 0.3));
     h.run_steps(2);
@@ -449,6 +460,7 @@ fn clip_properties_looking(appearance: &str, scale: f32) {
     save(&mut h, "props-card");
     h.key_press(Key::Escape);
     h.run_steps(4);
+
     let c = clip(&h, 2);
     click(&mut h, pos(c, 0.5, 0.3));
     h.run_steps(2);
@@ -554,6 +566,7 @@ fn command_palette_looking(appearance: &str, scale: f32) {
             &format!("{name}-{appearance}-{}", (scale * 100.0) as u32),
         );
     };
+
     let a = clip(&h, 0);
     click(&mut h, pos(a, 0.5, 0.3));
     let b = clip(&h, 1);
@@ -561,6 +574,7 @@ fn command_palette_looking(appearance: &str, scale: f32) {
     click(&mut h, pos(b, 0.5, 0.3));
     h.event(Event::ModifiersChanged(Modifiers::NONE));
     h.run_steps(2);
+
     h.key_press_modifiers(Modifiers::COMMAND, Key::K);
     h.run_steps(3);
     h.event(Event::Text("mute".into()));
@@ -633,6 +647,7 @@ fn keyboard_shortcuts_looking(appearance: &str, scale: f32) {
     h.run_steps(3);
     h.key_press(Key::Escape);
     h.run_steps(3);
+
     h.key_press_modifiers(Modifiers::COMMAND, Key::K);
     h.run_steps(3);
     h.event(Event::Text("fit song".into()));
@@ -676,41 +691,49 @@ fn menus_and_tips_looking(appearance: &str, scale: f32) {
         }
         h.run_steps(3);
     };
+
     let a = clip(&h, 0);
     click(&mut h, pos(a, 0.5, 0.3));
     right(&mut h, pos(a, 0.5, 0.3));
     save(&mut h, "menu-clip");
+
     let copy = h.get_by_label_contains("Copy").rect().center();
     h.hover_at(copy);
     save(&mut h, "menu-clip-hover");
     h.key_press(Key::Escape);
     h.run_steps(3);
+
     right(&mut h, pos(a, 4.0, 0.5));
     let snap = h.get_by_label("Snap to grid Ctrl+4").rect().center();
     h.hover_at(snap);
     save(&mut h, "menu-lanes-hover");
     h.key_press(Key::Escape);
     h.run_steps(3);
+
     let ruler = h.get_by_label("Ruler: click to move the playhead").rect();
     right(&mut h, ruler.center());
     save(&mut h, "menu-ruler");
     h.key_press(Key::Escape);
     h.run_steps(3);
+
     let header = h.get_by_label("kick: double-click to rename").rect();
     right(&mut h, header.center());
     save(&mut h, "menu-track");
     h.key_press(Key::Escape);
     h.run_steps(3);
+
     let play = h.get_by_label("Play from the start marker").rect();
     h.hover_at(play.center());
     h.run_steps(60);
     save(&mut h, "tip-play");
     h.hover_at(pos2(600.0, 400.0));
     h.run_steps(3);
+
     let lumen = h.get_by_label("Lumen").rect();
     click(&mut h, lumen.center());
     h.run_steps(30);
     save(&mut h, "menu-app");
+
     let more = h.get_by_label("More ways to save").rect();
     click(&mut h, more.center());
     h.run_steps(20);
@@ -722,6 +745,7 @@ fn menus_and_tips_looking(appearance: &str, scale: f32) {
     let mixing = h.get_by_label("Mixing").rect();
     click(&mut h, mixing.center());
     h.run_steps(20);
+
     let additive = h.get_by_label("Additive solo").rect();
     click(&mut h, additive.center());
     h.run_steps(20);
@@ -730,6 +754,7 @@ fn menus_and_tips_looking(appearance: &str, scale: f32) {
     h.run_steps(24 + 4);
     save(&mut h, "menu-app-fading");
     h.run_steps(30);
+
     let metronome = h.get_by_label("Metronome").rect();
     right(&mut h, metronome.center());
     h.run_steps(30);
@@ -1018,6 +1043,7 @@ fn preferences_midi_and_plugins() {
         }
         h.run_steps(30);
         save(&mut h, &format!("prefs-plugins-{tag}"));
+
         h.get_by_label("Editing page").click();
         h.run_steps(30);
         save(&mut h, &format!("prefs-editing-{tag}"));
@@ -1152,6 +1178,7 @@ fn sends() {
             h.key_press(Key::Enter);
             h.run_steps(2);
         }
+
         h.get_by_label("Fold returns").click();
         h.run_steps(10);
         for n in 0..11 {
@@ -1183,6 +1210,7 @@ fn sends() {
         h.run_steps(10);
         h.get_by_label("Fold Return 1").click();
         h.run_steps(30);
+
         for _ in 0..16 {
             h.key_press(Key::ArrowUp);
             h.run_steps(1);
@@ -1190,6 +1218,7 @@ fn sends() {
         h.hover_at(Pos2::new(900.0, 650.0));
         h.run_steps(10);
         save(&mut h, &format!("sends-{appearance}-{scale}"));
+
         let knob = h.get_by_label_contains("Send kick to A ").rect();
         h.hover_at(knob.center());
         h.drag_at(knob.center());
@@ -1263,6 +1292,7 @@ fn track_headers() {
             h.run_steps(5);
             h.get_by_label("Mute bass").click();
             h.run_steps(5);
+
             for name in ["Return 1", "Master"] {
                 h.get_by_label(&format!("Fold {name}")).click();
                 h.run_steps(30);
@@ -1270,10 +1300,12 @@ fn track_headers() {
             h.hover_at(Pos2::new(900.0, 1250.0));
             h.run_steps(30);
             save(&mut h, &format!("track-headers-{appearance}-{scale}"));
+
             let slot = h.get_by_label_contains("Send kick to A ").rect();
             h.hover_at(slot.center());
             h.run_steps(20);
             save(&mut h, &format!("track-headers-flag-{appearance}-{scale}"));
+
             h.hover_at(Pos2::new(900.0, 1250.0));
             h.run_steps(10);
             for _ in 0..9 {
@@ -1308,6 +1340,7 @@ fn mixer_strips_and_header_levels() {
         h.hover_at(Pos2::new(900.0, 650.0));
         h.run_steps(5);
         save(&mut h, &format!("headers-{appearance}-{scale}"));
+
         h.get_by_label_contains("kick volume in the mixer").click();
         h.run_steps(2);
         h.key_press_modifiers(Modifiers::COMMAND, Key::A);
@@ -1376,11 +1409,13 @@ fn polish_sweep() {
         for scale in [1.0, 1.5, 2.0] {
             let name =
                 |view: &str| format!("polish-{view}-{appearance}-{}", (scale * 100.0) as u32);
+
             let dir = TempDir::new("shots-polish-empty");
             let mut h = bare_scaled(&dir, appearance, scale, vec2(1280.0, 760.0));
             h.run_steps(40);
             save(&mut h, &name("empty"));
             drop(h);
+
             let dir = TempDir::new("shots-polish");
             let mut h = lumen_looking_sized(&dir, appearance, scale, vec2(1280.0, 760.0));
             h.run_steps(40);
@@ -1389,6 +1424,7 @@ fn polish_sweep() {
             h.hover_at(pos2(640.0, 700.0));
             h.run_steps(30);
             save(&mut h, &name("tracks"));
+
             let lumen = h.get_by_label("Lumen").rect();
             click(&mut h, lumen.center());
             h.run_steps(30);
@@ -1399,13 +1435,16 @@ fn polish_sweep() {
             save(&mut h, &name("menu-app-appearance"));
             h.key_press(Key::Escape);
             h.run_steps(30);
+
             h.key_press_modifiers(Modifiers::ALT, Key::Enter);
             h.run_steps(30);
             save(&mut h, &name("card"));
+
             h.key_press(Key::Escape);
             h.run_steps(30);
             h.key_press(Key::Escape);
             h.run_steps(30);
+
             let lumen = h.get_by_label("Lumen").rect();
             click(&mut h, lumen.center());
             h.run_steps(30);
@@ -1567,6 +1606,7 @@ fn live_sweep() {
             h.run_steps(1);
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
+
         h.get_by_label("MIDI: 0 inputs, 0 outputs").click();
         h.run_steps(30);
         h.get_by_label("Track Arturia KeyStep 37 input in the MIDI panel")
@@ -1578,11 +1618,13 @@ fn live_sweep() {
             std::thread::sleep(std::time::Duration::from_millis(10));
             h.run_steps(1);
         }
+
         fake.send_to_input("Arturia KeyStep 37", 1, &[0x90, 60, 100]);
         h.run_steps(6);
         save(&mut h, &format!("live-popover-{tag}"));
         h.key_press(Key::Escape);
         h.run_steps(40);
+
         h.key_press_modifiers(Modifiers::COMMAND | Modifiers::SHIFT, Key::K);
         h.run_steps(30);
         h.get_by_label_contains("Track Keys,").click();
@@ -1605,6 +1647,7 @@ fn live_sweep() {
             modifiers: Modifiers::NONE,
         });
         h.run_steps(60);
+
         let keys = h.get_by_label_contains("Track Keys,").rect();
         right_click(&mut h, pos(keys, 0.5, 0.2));
         h.run_steps(30);
@@ -1615,6 +1658,7 @@ fn live_sweep() {
         h.run_steps(5);
         h.key_press(Key::Escape);
         h.run_steps(30);
+
         h.state_mut().set_detail_size(size.y * 0.55);
         h.run_steps(60);
         save(&mut h, &format!("live-mixer-{tag}"));
@@ -1681,6 +1725,7 @@ fn project_windows() {
             command(&mut h, "Revert to saved");
             save(&mut h, &format!("revert-{tag}"));
         }
+
         let dir = TempDir::new("shots-project-windows-small");
         let mut h = lumen_looking_sized(&dir, appearance, 1.0, vec2(960.0, 540.0));
         command(&mut h, "Project settings");
@@ -1795,16 +1840,19 @@ fn monitor_sweep() {
         }
         h.run_steps(30);
         save(&mut h, &format!("monitor-rest-{tag}"));
+
         let r = h.get_by_label_contains("Track Lead,").rect();
         left_click(&mut h, pos(r, 0.3, 0.5));
         h.run_steps(40);
         save(&mut h, &format!("monitor-in-selected-{tag}"));
+
         if let Some(pad) = h.query_by_label_contains("Track Pad,") {
             let r = pad.rect();
             left_click(&mut h, pos(r, 0.3, 0.5));
             h.run_steps(40);
             save(&mut h, &format!("monitor-off-selected-{tag}"));
         }
+
         let badge = h.get_by_label("Monitor Lead: In").rect();
         h.hover_at(badge.center());
         h.run_steps(30);
@@ -1893,6 +1941,7 @@ fn mini_notes() {
             });
         h.run_steps(60);
         save(&mut h, &format!("mini-notes-{appearance}"));
+
         let dir = TempDir::new("shots-mini-tall");
         let copy = dir.path().join("midi-demo.lumen");
         let text = std::fs::read_to_string(&fixture).expect("the MIDI demo project");
@@ -2118,6 +2167,7 @@ fn clip_lane() {
             h.hover_at(pos2(1000.0, 400.0));
             h.run_steps(10);
             let r = h.state().clip_rect(&h.ctx, id).expect("in view");
+
             let at = pos(r, 0.1, 0.1);
             click(&mut h, at);
             click(&mut h, at);
@@ -2127,6 +2177,7 @@ fn clip_lane() {
                     .lane_point(Ticks((beat * lumen_core::time::PPQ as f64) as i64), value)
                     .expect("the lane drew")
             };
+
             let (a, b) = (lane(&h, 4.0, 40), lane(&h, 12.0, 110));
             drag(&mut h, a, b);
             h.hover_at(lane(&h, 9.0, 60));
@@ -2135,6 +2186,7 @@ fn clip_lane() {
                 &mut h,
                 &format!("lane-velocity-{appearance}-{}", (scale * 100.0) as u32),
             );
+
             h.get_by_label("Mod wheel tab").click();
             h.run_steps(5);
             h.get_by_label("Lane curve tool").click();
@@ -2158,6 +2210,7 @@ fn quantize_popover() {
     use lumen_core::time::{PPQ, Ticks};
     use lumen_project::model::Note;
     use lumen_project::testing::{midi_track, project_of};
+
     let beats = [
         (0.04, 60),
         (0.55, 64),
@@ -2242,11 +2295,13 @@ fn mini_notes_octaves() {
         };
         Arc::new(clip)
     };
+
     let mut octave = midi_track(1, "Octave", "poly", (0, 6), None, Vec::new(), vec![]);
     octave.clips = vec![
         clip_of(&octave, 10, 0, vec![Note::new(q(0), q(5), 60, 100)]),
         clip_of(&octave, 11, 8, vec![Note::new(q(0), q(5), 72, 100)]),
     ];
+
     let melody = |pitches: &[u8]| {
         pitches
             .iter()
@@ -2321,6 +2376,7 @@ fn builtin_card() {
             cases.push((appearance, scale, vec2(960.0, 540.0), "small", 0.0));
         }
     }
+
     type Values = &'static [(u32, f64)];
     let devices: [(&str, &str, usize, Values); 4] = [
         (
@@ -2353,6 +2409,7 @@ fn builtin_card() {
             ],
         ),
     ];
+
     let only = std::env::var("SHOT_FILTER").unwrap_or_default();
     for (device_name, tag_name, parameters, values) in devices {
         for &(appearance, scale, size, tag, detail) in &cases {
@@ -2362,6 +2419,7 @@ fn builtin_card() {
             let dir = TempDir::new(&format!("shots-{tag_name}-{appearance}-{scale}-{tag}"));
             let track = Track::new(Id(1), "Keys".to_owned(), TrackKind::Audio, Color(0x5E8C6A));
             let mut track = track;
+
             let mut device = Device::new(
                 Id(10),
                 PluginRef::Builtin {
@@ -2370,6 +2428,7 @@ fn builtin_card() {
                 false,
                 Vec::new(),
             );
+
             let table = lumen_devices::effect_params(device_name).expect("a built-in");
             for &(id, value) in values {
                 let own_units = device_name == lumen_devices::reverb::NAME
@@ -2408,22 +2467,26 @@ fn builtin_card() {
             h.run_steps(30);
             h.state_mut().select_tracks(&[Id(1)]);
             h.run_steps(4);
+
             h.get_all_by_label("Devices tab")
                 .last()
                 .expect("the tabs")
                 .click();
             h.run_steps(4);
+
             if tag != "small" {
                 h.state_mut().set_detail_size(detail);
                 h.run_steps(30);
             }
             let tag = format!("{tag}-{appearance}-{}", (scale * 100.0) as u32);
             save(&mut h, &format!("{tag_name}-{tag}"));
+
             h.state_mut().fold_device(Id(10));
             h.run_steps(10);
             save(&mut h, &format!("{tag_name}-folded-{tag}"));
             h.state_mut().fold_device(Id(10));
             h.run_steps(10);
+
             let all = format!("All parameters ({parameters})");
             if h.query_by_label(&all).is_some() {
                 h.get_by_label(&all).click();
@@ -2453,6 +2516,7 @@ fn builtin_card_playing() {
                 let first = h.state().project().tracks[0].id;
                 h.state_mut().select_tracks(&[first]);
                 h.run_steps(4);
+
                 h.key_press_modifiers(Modifiers::COMMAND, Key::K);
                 h.run_steps(4);
                 h.event(Event::Text(command.into()));
@@ -2496,6 +2560,7 @@ fn builtin_eq() {
             cases.push((appearance, scale, vec2(960.0, 540.0), "small", 0.0));
         }
     }
+
     let only = std::env::var("SHOT_FILTER").unwrap_or_default();
     for (appearance, scale, size, tag, detail) in cases {
         if !format!("{appearance}-{scale}-{tag}").contains(&only) {
@@ -2559,6 +2624,7 @@ fn builtin_eq() {
         h.run_steps(30);
         h.state_mut().select_tracks(&[Id(1)]);
         h.run_steps(4);
+
         h.get_all_by_label("Devices tab")
             .last()
             .expect("the tabs")
@@ -2568,10 +2634,12 @@ fn builtin_eq() {
             h.state_mut().set_detail_size(detail);
             h.run_steps(30);
         }
+
         h.state_mut().pick_band(Id(10), 1);
         h.run_steps(10);
         let tag = format!("{tag}-{appearance}-{}", (scale * 100.0) as u32);
         save(&mut h, &format!("iris-{tag}"));
+
         let spectrum: Vec<f32> = (0..96)
             .map(|i| {
                 let t = i as f32 / 95.0;
@@ -2582,11 +2650,13 @@ fn builtin_eq() {
         h.state_mut().pretend_spectrum(Id(10), &spectrum);
         h.run_steps(40);
         save(&mut h, &format!("iris-playing-{tag}"));
+
         h.state_mut().fold_device(Id(10));
         h.run_steps(10);
         save(&mut h, &format!("iris-folded-{tag}"));
         h.state_mut().fold_device(Id(10));
         h.run_steps(10);
+
         if h.query_by_label("All parameters (38)").is_some() {
             h.get_by_label("All parameters (38)").click();
             h.run_steps(10);
@@ -2672,18 +2742,22 @@ fn dynamics_card() {
                 h.run_steps(30);
             }
             let at = format!("{tag}-{appearance}-{}", (scale * 100.0) as u32);
+
             save(&mut h, &format!("{short}-rest-{at}"));
+
             h.state_mut().pretend_reduction(Id(10), 4.1, -8.0);
             h.run_steps(120);
             save(&mut h, &format!("{short}-{at}"));
             if tag != "whole" {
                 continue;
             }
+
             h.state_mut().fold_device(Id(10));
             h.run_steps(10);
             save(&mut h, &format!("{short}-folded-{at}"));
             h.state_mut().fold_device(Id(10));
             h.run_steps(10);
+
             let count = if short == "gravity" { 10 } else { 4 };
             let label = format!("All parameters ({count})");
             if h.query_by_label(&label).is_some() {
@@ -2793,11 +2867,13 @@ fn device_chain() {
         h.run_steps(30);
         h.state_mut().select_tracks(&[Id(1)]);
         h.run_steps(4);
+
         h.get_all_by_label("Devices tab")
             .last()
             .expect("the tabs")
             .click();
         h.run_steps(30);
+
         let ctx = h.ctx.clone();
         for (device, hue) in [(Id(11), [40u8, 90, 70]), (Id(13), [90, 60, 40])] {
             h.state_mut()
@@ -2822,6 +2898,7 @@ fn device_chain() {
         h.state_mut().pretend_device_state(Id(12), "ready");
         h.state_mut().pretend_device_state(Id(13), "loading");
         h.state_mut().pretend_device_state(Id(14), "failed");
+
         h.state_mut().give_device_parameters(
             Id(11),
             &[
@@ -2837,6 +2914,7 @@ fn device_chain() {
             Id(12),
             &[("Time", 0.4, "310 ms"), ("Feedback", 0.55, "42 %")],
         );
+
         h.state_mut().give_device_editor(Id(11), "open", true);
         h.state_mut().give_device_editor(Id(12), "stuck", false);
         h.run_steps(4);
@@ -3879,6 +3957,7 @@ fn automation_lanes() {
             h.run_steps(4);
             h.key_press(Key::A);
             h.run_steps(60);
+
             let p = h
                 .state()
                 .automation_point_pos(&h.ctx, tracks[0], 2)
@@ -3903,6 +3982,7 @@ fn clip_envelope() {
             let track = h.state().project().tracks[0].id;
             let clip = h.state().project().tracks[0].clips[0].id;
             let q = Ticks::quarters;
+
             h.state_mut().trim_clip_end_to(clip, q(11), true);
             h.state_mut().select_clip(clip);
             h.run_steps(4);
@@ -3970,6 +4050,7 @@ fn automation_editing() {
             h.run_steps(4);
             h.key_press(Key::A);
             h.run_steps(60);
+
             let p = h
                 .state()
                 .automation_point_pos(&h.ctx, tracks[0], 1)
@@ -3977,6 +4058,7 @@ fn automation_editing() {
             click(&mut h, p);
             h.run_steps(10);
             save(&mut h, &format!("lane-edit-bend-{appearance}-{scale}"));
+
             let from = h
                 .state()
                 .automation_spot(&h.ctx, tracks[0], 4.0, 6.0)
@@ -3996,6 +4078,7 @@ fn automation_editing() {
             h.run_steps(3);
             h.event(Event::ModifiersChanged(Modifiers::NONE));
             h.run_steps(2);
+
             h.get_by_label(&format!("Automation shape tool of {name}"))
                 .click();
             h.run_steps(5);
@@ -4061,6 +4144,7 @@ fn automation_override() {
             }
             h.key_press(Key::A);
             h.run_steps(60);
+
             h.state_mut().set_track_volume(tracks[0], -2.0);
             h.run_steps(20);
             save(&mut h, &format!("override-{appearance}-{scale}"));
@@ -4176,6 +4260,7 @@ fn automation_override_parameters() {
             h.state_mut().give_device_parameters(Id(11), &list);
             h.state_mut().select_tracks(&[Id(1)]);
             h.run_steps(4);
+
             let q = Ticks::quarters;
             for (param, from, to) in [(1, 0.2, 0.8), (2, 0.7, 0.3)] {
                 let lane = Lane::new(vec![Point::new(q(0), from), Point::new(q(8), to)]).unwrap();
@@ -4364,6 +4449,7 @@ fn controller_mappings() {
             h.run_steps(30);
             h.get_by_label("Fold Drums").click();
             h.run_steps(40);
+
             let slider = h.get_by_label_contains("Volume Drums:").rect();
             h.hover_at(slider.center());
             h.run_steps(2);
@@ -4380,6 +4466,7 @@ fn controller_mappings() {
             save(&mut h, &format!("mappings-menu-{appearance}-{scale}"));
             h.key_press(Key::Escape);
             h.run_steps(15);
+
             h.state_mut().begin_learning(Id(2), Target::Volume);
             h.run_steps(5);
             h.key_press_modifiers(Modifiers::COMMAND, Key::K);
@@ -4402,15 +4489,18 @@ fn song_lanes() {
             let mut h = lumen_looking_sized(&dir, appearance, scale, vec2(1280.0, 760.0));
             h.state_mut()
                 .give_song_maps(&[(8, 96.5), (20, 140.0)], &[(8, 7, 8), (15, 3, 4)]);
+
             h.run_steps(30);
             save(&mut h, &format!("song-lanes-hidden-{appearance}-{scale}"));
             h.state_mut().ramp_song_tempo(1);
             h.state_mut().show_song_lanes(true);
             h.run_steps(60);
+
             let p = h.state().song_tempo_spot(8.0, 96.5).expect("drawn");
             click(&mut h, p);
             h.run_steps(10);
             save(&mut h, &format!("song-lanes-{appearance}-{scale}"));
+
             h.event(Event::PointerButton {
                 pos: p,
                 button: eframe::egui::PointerButton::Primary,
@@ -4737,6 +4827,7 @@ fn record_loop_passes() {
         h.run_steps(5);
         h.key_press(Key::F9);
         wait(&mut h, "recording", &|a| a.recording() && a.is_playing());
+
         wait(&mut h, "frames", &|a| {
             a.audio_take_frames(vox).is_some_and(|f| f >= 250_000)
         });
@@ -4796,6 +4887,7 @@ fn measure_latency_card() {
     use lumen_audio::fake::{Cable, Pace};
 
     let turn = lumen_app::testing::input_device_turn();
+
     let mut runs: Vec<(&str, f32, eframe::egui::Vec2, &str)> = Vec::new();
     for appearance in ["dark", "light"] {
         for scale in [1.0_f32, 1.5, 2.0] {
@@ -5281,6 +5373,7 @@ fn drum_map_key_column() {
             let clip = h.state().project().tracks[0].clips[0].id;
             h.state_mut().open_clip_editor(clip);
             h.run_steps(30);
+
             h.state_mut().show_the_keys_view();
             h.run_steps(30);
             save(&mut h, &format!("drum-keys-{appearance}-{scale}"));
@@ -5356,7 +5449,10 @@ fn drum_lanes() {
             h.state_mut().set_detail_size(560.0);
             let clip = h.state().project().tracks[0].clips[0].id;
             h.state_mut().open_clip_editor(clip);
+
+            h.state_mut().show_the_lanes_view();
             h.run_steps(30);
+
             let hit = h
                 .state()
                 .drum_hit_point(lumen_core::time::Ticks::quarters(1), 38)
@@ -5373,10 +5469,12 @@ fn drum_lanes() {
             h.hover_at(hit);
             h.run_steps(10);
             save(&mut h, &format!("drum-lanes-{tag}"));
+
             let keys = h.get_by_label("Keys view").rect();
             h.hover_at(keys.center());
             h.run_steps(60);
             save(&mut h, &format!("drum-lanes-switch-{tag}"));
+
             h.state_mut().hide_the_unused_lanes();
             h.run_steps(30);
             h.hover_at(Pos2::new(700.0, 600.0));
@@ -5474,6 +5572,124 @@ fn drum_lanes_project() -> lumen_project::model::Project {
 
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn drum_steps() {
+    use egui_kittest::kittest::Queryable;
+    use lumen_project::model::ClipContent;
+
+    type Change = fn(&mut Vec<lumen_project::model::Note>);
+
+    #[allow(
+        clippy::ptr_arg,
+        reason = "the same type as every other state's change"
+    )]
+    fn accents(notes: &mut Vec<lumen_project::model::Note>) {
+        let sixteenth = lumen_core::time::PPQ / 4;
+        for note in notes.iter_mut() {
+            let step = note.0.0 / sixteenth;
+            if matches!((note.2, step), (36, 0) | (38, 12) | (42, 8)) {
+                note.3 = 127;
+            }
+        }
+    }
+    let states: [(&str, f32, Change); 5] = [
+        ("kit", 560.0, accents),
+        ("empty", 560.0, |notes| notes.clear()),
+        ("accent", 560.0, accents),
+        ("off-grid", 560.0, |notes| {
+            for (i, note) in notes.iter_mut().enumerate() {
+                if i % 3 == 0 {
+                    note.0 = note.0 + lumen_core::time::Ticks(lumen_core::time::PPQ / 12);
+                } else if i % 5 == 0 && note.0 > lumen_core::time::Ticks::ZERO {
+                    note.0 = note.0 - lumen_core::time::Ticks(lumen_core::time::PPQ / 20);
+                }
+            }
+            notes.sort_by_key(|n| (n.start(), n.pitch()));
+        }),
+        ("smallest", 230.0, |_| {}),
+    ];
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            for (name, panel, change) in states {
+                let tag = format!("{appearance}-{}", (scale * 100.0) as u32);
+                let dir = TempDir::new(&format!("shots-steps-{name}-{tag}"));
+                let path = dir.path().join("beat.lumen");
+                let mut project = drum_lanes_project();
+                {
+                    let track = std::sync::Arc::make_mut(&mut project.tracks[0]);
+                    let clip = std::sync::Arc::make_mut(&mut track.clips[0]);
+                    if let ClipContent::Midi { notes, .. } = &mut clip.content {
+                        change(notes);
+                    }
+                }
+                lumen_project::save(&project, &path, &Default::default()).expect("save");
+                let launch = Launch::for_test(dir.path())
+                    .appearing(appearance)
+                    .opening(path);
+                let mut h = Harness::builder()
+                    .with_size(vec2(1280.0, 820.0))
+                    .with_pixels_per_point(scale)
+                    .with_theme(if appearance == "light" {
+                        eframe::egui::Theme::Light
+                    } else {
+                        eframe::egui::Theme::Dark
+                    })
+                    .with_step_dt(1.0 / 60.0)
+                    .wgpu()
+                    .build_eframe(|cc| {
+                        lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                        App::new(cc, launch)
+                    });
+                h.run_steps(30);
+                h.state_mut().set_detail_size(panel);
+                let clip = h.state().project().tracks[0].clips[0].id;
+                h.state_mut().open_clip_editor(clip);
+                h.run_steps(30);
+                assert_eq!(h.state().drum_view_shown(), Some("steps"));
+                if name == "accent" {
+                    let at = h.state().steps_cell_point(36, 3).expect("a step");
+
+                    h.event(Event::ModifiersChanged(Modifiers::SHIFT));
+                    h.hover_at(at);
+                    h.run_steps(1);
+                    for pressed in [true, false] {
+                        h.event(Event::PointerButton {
+                            pos: at,
+                            button: eframe::egui::PointerButton::Primary,
+                            pressed,
+                            modifiers: Modifiers::SHIFT,
+                        });
+                        h.run_steps(1);
+                    }
+                    h.event(Event::ModifiersChanged(Modifiers::NONE));
+                    h.hover_at(at);
+                    h.run_steps(10);
+                    assert_eq!(
+                        h.state().steps_cell(36, 3).map(|cell| cell.velocity),
+                        Some(127),
+                        "the Shift-click made an accent"
+                    );
+                } else if name == "kit" {
+                    let at = h.state().steps_cell_point(38, 4).expect("a step");
+                    h.hover_at(at);
+                    h.run_steps(10);
+                }
+                if name != "accent" && name != "kit" {
+                    h.hover_at(Pos2::new(10.0, 10.0));
+                    h.run_steps(10);
+                }
+                save(&mut h, &format!("drum-steps-{name}-{tag}"));
+                if name == "kit" {
+                    h.get_by_label("1/16").click();
+                    h.run_steps(10);
+                    save(&mut h, &format!("drum-steps-menu-{tag}"));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn arrangement_drum_rows() {
     for appearance in ["dark", "light"] {
         for scale in [1.0_f32, 1.5, 2.0] {
@@ -5481,6 +5697,7 @@ fn arrangement_drum_rows() {
             let dir = TempDir::new(&format!("shots-rows-{tag}"));
             let path = dir.path().join("rows.lumen");
             let mut project = drum_lanes_project();
+
             let mut second = (*project.tracks[0]).clone();
             second.id = lumen_project::model::Id(20);
             second.name = "Percussion".into();
@@ -5517,6 +5734,7 @@ fn arrangement_drum_rows() {
                     App::new(cc, launch)
                 });
             h.run_steps(30);
+
             let a = clip(&h, 0);
             drag(
                 &mut h,

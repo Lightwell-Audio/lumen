@@ -226,6 +226,10 @@ impl App {
         if !same {
             self.note_editor.gesture = None;
             self.note_editor.framed_for = None;
+            self.note_editor.drum.steps.gesture = None;
+            self.note_editor.drum.steps.cursor = None;
+
+            self.pick_drum_view_for(clip);
         }
         self.note_editor.clip = Some(clip);
         self.opened_in_note_editor(clip);
@@ -244,6 +248,7 @@ impl App {
         ed.selection = None;
         ed.gesture = None;
         ed.drum.reorder = None;
+        ed.drum.steps.gesture = None;
         ed.popped = false;
     }
 

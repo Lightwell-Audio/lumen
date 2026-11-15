@@ -1,6 +1,7 @@
 pub(crate) mod arrangement;
 pub(crate) mod geometry;
 pub(crate) mod paint;
+pub(crate) mod steps;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -19,6 +20,7 @@ use geometry::Cell;
 pub(crate) enum View {
     #[default]
     Lanes,
+    Steps,
     Keys,
 }
 
@@ -28,13 +30,21 @@ pub(crate) struct Lane {
     pub name: String,
     pub icon: DrumGlyph,
     pub color: Color32,
+
     pub mute: bool,
+
     pub solo: bool,
+
     pub silent: bool,
+
     pub used: bool,
+
     pub length: Option<Ticks>,
+
     pub quantize: Option<Quantize>,
+
     pub index: usize,
+
     pub hits: usize,
 }
 
@@ -78,11 +88,18 @@ pub(crate) struct Reorder {
 #[derive(Debug, Default)]
 pub(crate) struct State {
     views: BTreeMap<Id, View>,
+
+    chosen: BTreeSet<Id>,
+
+    pub steps: steps::State,
     hiding: BTreeSet<Id>,
+
     lengths: BTreeSet<u8>,
     lengths_map: Option<Id>,
     pub reorder: Option<Reorder>,
+
     lanes: Option<LanesCache>,
+
     cells: Option<CellsCache>,
 }
 
@@ -91,6 +108,7 @@ struct LanesCache {
     map: DrumMap,
     clip: Arc<Clip>,
     hide: bool,
+
     light: bool,
     lanes: Arc<Vec<Lane>>,
 }
@@ -105,6 +123,7 @@ struct CellsCache {
     time: TimeView,
     scroll: f32,
     cells: Arc<Vec<Cell>>,
+
     seen: Vec<Option<Cell>>,
     scratch: Vec<Cell>,
 }
@@ -196,11 +215,22 @@ impl State {
     }
 
     pub fn set_view(&mut self, track: Id, view: View) {
-        if view == View::Lanes {
+        self.views.insert(track, view);
+        self.chosen.insert(track);
+    }
+
+    pub fn open_view(&mut self, track: Id, fits: bool) -> bool {
+        if self.chosen.contains(&track) {
+            return false;
+        }
+        let want = if fits { View::Steps } else { View::Lanes };
+        let before = self.view(track);
+        if want == View::Lanes {
             self.views.remove(&track);
         } else {
-            self.views.insert(track, view);
+            self.views.insert(track, want);
         }
+        before != want
     }
 
     pub fn hides_unused(&self, track: Id) -> bool {
@@ -277,8 +307,10 @@ mod tests {
         let few = lanes(&map, &notes, true, false);
         assert_eq!(few.len(), 2);
         assert_eq!(few.iter().map(|l| l.input).collect::<Vec<_>>(), [kick, hat]);
+
         let outside = vec![Note::new(Ticks(90_000), Ticks(60), kick, 100)];
         assert_eq!(lanes(&map, &outside, true, false).len(), 1);
+
         assert!(lanes(&map, &[], true, false).is_empty());
     }
 
@@ -472,6 +504,7 @@ mod tests {
         assert!(state.toggle_unused(a));
         assert!(state.hides_unused(a) && !state.hides_unused(b));
         assert!(!state.toggle_unused(a));
+
         assert!(!state.shows_length(Id(1), 36));
         assert!(state.toggle_length(Id(1), 36));
         assert!(state.shows_length(Id(1), 36));
@@ -479,5 +512,26 @@ mod tests {
         state.toggle_length(Id(2), 38);
         assert!(!state.shows_length(Id(1), 36), "the new map took over");
         assert!(state.shows_length(Id(2), 38));
+    }
+
+    #[test]
+    fn a_clip_opens_by_its_fit_until_the_user_chooses_a_view_for_the_track() {
+        let mut state = State::default();
+        let (a, b) = (Id(10), Id(11));
+        assert!(state.open_view(a, true), "a fitting clip opens in Steps");
+        assert_eq!(state.view(a), View::Steps);
+        assert!(!state.open_view(a, true), "nothing changed the second time");
+        assert!(state.open_view(a, false), "a long clip goes back to Lanes");
+        assert_eq!(state.view(a), View::Lanes);
+
+        state.set_view(a, View::Lanes);
+        assert!(!state.open_view(a, true));
+        assert_eq!(state.view(a), View::Lanes);
+        state.set_view(a, View::Keys);
+        assert!(!state.open_view(a, true));
+        assert_eq!(state.view(a), View::Keys);
+
+        assert!(state.open_view(b, true));
+        assert_eq!(state.view(b), View::Steps);
     }
 }

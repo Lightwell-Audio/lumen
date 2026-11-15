@@ -13,10 +13,15 @@ use crate::widgets::{self, Choice, raised};
 use crate::{App, fonts, motion, theme};
 
 pub(crate) const HEADER: f32 = 40.0;
+
 const BAR: egui::Vec2 = vec2(8.0, 22.0);
+
 const CHIP_ICON: f32 = 13.0;
+
 const TITLE_WIDTH: f32 = 220.0;
+
 const TITLE_SHORT: f32 = 64.0;
+
 const CHIP_ARROW: f32 = 9.0;
 
 const RULE: f32 = 1.0;
@@ -24,7 +29,9 @@ const RULE: f32 = 1.0;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum GridChip {
     Full,
+
     Value,
+
     Icon,
 }
 
@@ -86,6 +93,7 @@ impl HeaderStrip {
             FontId::monospace(theme::size::SCALE),
             palette.text_hint,
         );
+
         let width = name_galley
             .size()
             .x
@@ -185,6 +193,9 @@ impl HeaderStrip {
             Choice::new(View::Lanes, "Lanes")
                 .named("Lanes view")
                 .tip("One lane a sound: draw, move and set the velocity of each hit"),
+            Choice::new(View::Steps, "Steps")
+                .named("Steps view")
+                .tip("A grid of steps a sound: click to toggle, drag for velocity, Shift-click for an accent"),
             Choice::new(View::Keys, "Keys")
                 .named("Keys view")
                 .tip("The piano roll, with the kit's sounds in the key column"),
@@ -305,6 +316,7 @@ impl App {
                     palette.text,
                 );
                 x += value.size().x + gap;
+
                 let c = pos2((x + CHIP_ARROW / 2.0).round(), mid);
                 let stroke = egui::Stroke::new(theme::stroke::LIT, palette.text_hint);
                 painter.line_segment([c + vec2(-3.0, -1.5), c + vec2(0.0, 1.5)], stroke);
