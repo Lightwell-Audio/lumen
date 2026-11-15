@@ -15128,8 +15128,21 @@ the devices that publish none. `lumen-app`'s
 `a_delay_s_repeat_clock_is_read_once_a_frame` (the device's block reaches
 `Builtins::since` exactly, and the latency is taken off and floored) and
 `the_heard_latency_is_the_device_s_plus_the_project_s_at_its_rate`.
-`lumen-engine/tests/time_builtins.rs` re-runs unchanged and its Parallax golden
-holds, which is the bit-identical claim at Ping 0.
+`lumen-engine/tests/time_builtins.rs` gained
+`ping_pong_bounces_a_centred_clip_between_the_sides` — the same impulse through
+the mixer, at values in the routing (not a lane), 1.0 L, 0.5 R, 0.25 L — and its
+Parallax golden re-runs unchanged, which is the bit-identical claim at Ping 0.
+
+An app-level scenario (the owner's own case: Parallax on the app's tone, Ping
+on, listened to) was written and taken out again. It cannot be made to say
+anything reliable yet: the test device's tap writes one output channel twice
+while the device opens one (so a side-by-side comparison reads the left twice),
+a device's values reach it as the plan is applied and a fresh instance glides
+from its defaults for the first 20 ms, and a 30 % mix glide plus a 375-to-97 ms
+time glide put the first repeat's exact frame a few milliseconds either way.
+Both findings are in KNOWN_ISSUES; the per-side claim is the engine test's and
+the device tests' to hold, and an app scenario can follow once the tap always
+opens two channels.
 
 **Consequences.** `lumen_devices::effect_built` returns `(Box<dyn Effect>,
 Published)` instead of a tuple of options (one call site in `lumen-app`), and
