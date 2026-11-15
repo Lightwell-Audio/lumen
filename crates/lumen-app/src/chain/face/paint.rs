@@ -144,7 +144,31 @@ pub(super) fn glow_ladder(
     painter.add(Shape::mesh(mesh));
 }
 
-#[allow(dead_code)]
+pub(super) fn dashed_line(
+    painter: &Painter,
+    from: Pos2,
+    to: Pos2,
+    stroke: Stroke,
+    (dash, gap): (f32, f32),
+) {
+    let along = to - from;
+    let length = along.length();
+    if length < dash || dash <= 0.0 {
+        return;
+    }
+    let unit = along / length;
+    let count = (((length + gap) / (dash + gap)).floor() as usize).max(1);
+    let pitch = if count > 1 {
+        (length - dash) / (count - 1) as f32
+    } else {
+        0.0
+    };
+    for k in 0..count {
+        let start = from + unit * (k as f32 * pitch);
+        painter.line_segment([start, start + unit * dash], stroke);
+    }
+}
+
 pub(super) fn smooth_path(points: &[Pos2], steps: usize) -> Vec<Pos2> {
     let n = points.len();
     if n < 3 || steps == 0 {

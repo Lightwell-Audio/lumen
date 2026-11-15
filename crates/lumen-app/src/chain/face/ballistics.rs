@@ -1,6 +1,7 @@
 use crate::motion::{self, SpringKind};
 use crate::theme::personality::card as c;
 
+#[allow(dead_code)]
 const SPRING_SETTLED: f32 = 0.001;
 const ASLEEP_BELOW: f32 = 0.005;
 
@@ -9,12 +10,14 @@ pub(crate) fn step_of(dt: f32) -> f32 {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[allow(dead_code)]
 pub(crate) struct Spring {
     kind: SpringKind,
     at: f32,
     speed: f32,
 }
 
+#[allow(dead_code)]
 impl Spring {
     pub(crate) fn new(kind: SpringKind, at: f32) -> Self {
         Self {
@@ -96,10 +99,12 @@ impl Ballistic {
         self.value
     }
 
+    #[allow(dead_code)]
     pub(crate) fn peak(&self) -> f32 {
         self.peak
     }
 
+    #[allow(dead_code)]
     pub(crate) fn rests_at(&self, floor: f32) -> bool {
         self.value <= floor && self.peak <= floor
     }
@@ -141,6 +146,7 @@ impl Default for Rest {
 }
 
 impl Rest {
+    #[allow(dead_code)]
     pub(crate) fn awake(&self) -> f32 {
         self.awake
     }
@@ -181,6 +187,7 @@ pub(crate) fn db_of_level(level: f32) -> f32 {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn glow_share(awake: f32, energy: f32, hit: f32) -> f32 {
     let live = motion::GLOW_LIVE + motion::GLOW_ENERGY * energy.clamp(0.0, 1.0);
     let held = motion::GLOW_REST + (live - motion::GLOW_REST) * awake.clamp(0.0, 1.0);

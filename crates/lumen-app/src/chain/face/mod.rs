@@ -5,7 +5,6 @@ use super::geometry::Step;
 use super::strip::Slot;
 
 pub(crate) mod afterglow;
-#[allow(dead_code)]
 pub(crate) mod ballistics;
 pub(crate) mod cadence;
 pub(crate) mod eq;
@@ -246,6 +245,7 @@ pub(crate) struct Scene<'a> {
     pub values: Values<'a>,
     pub power: f32,
     pub level: f32,
+    pub awake: f32,
     pub still: bool,
     pub handle_lit: [f32; MAX_HANDLES],
     pub settle: f32,

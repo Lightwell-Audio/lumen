@@ -834,7 +834,59 @@ fn the_limiter_s_meter_says_how_much_it_took_away() {
         reading.reduction_db
     );
     assert!(reading.input_db > 5.0, "{}", reading.input_db);
-    assert_eq!(meter.take().reduction_db, 0.0);
+    let mut left = vec![2.0f32; 4_800];
+    let mut right = left.clone();
+    run(
+        &mut device,
+        &mut left,
+        &mut right,
+        limiter::TABLE,
+        256,
+        &[(limiter::CEILING, at(limiter::TABLE, limiter::CEILING, -6.0))],
+        &[],
+        None,
+    );
+    let settled = meter.take();
+    assert!(
+        settled.output_db < -5.5 && settled.output_db > -6.5,
+        "the output holds at the ceiling: {}",
+        settled.output_db
+    );
+    assert!(
+        settled.input_db > settled.output_db + 11.0,
+        "the input is the loud signal, not the limited one: {settled:?}"
+    );
+    let after = meter.take();
+    assert_eq!(after.reduction_db, 0.0);
+    assert!(
+        after.input_db < -100.0 && after.output_db < -100.0,
+        "a read starts the levels afresh: {after:?}"
+    );
+}
+
+#[test]
+fn the_limiter_s_meter_keeps_the_loudest_block_between_two_reads() {
+    let mut device = Limiter::new();
+    let meter = device.meter();
+    for level in [1.0f32, 0.01, 0.01] {
+        let (mut left, mut right) = (vec![level; 64], vec![level; 64]);
+        run(
+            &mut device,
+            &mut left,
+            &mut right,
+            limiter::TABLE,
+            64,
+            &[(limiter::LOOK, 0.0)],
+            &[],
+            None,
+        );
+    }
+    let reading = meter.take();
+    assert!(
+        reading.input_db > -0.5,
+        "the loud block is still the level read: {}",
+        reading.input_db
+    );
 }
 
 #[test]

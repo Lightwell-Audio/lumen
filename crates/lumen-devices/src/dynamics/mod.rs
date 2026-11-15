@@ -74,6 +74,7 @@ pub(super) fn held_at_rest(events: &ParamBlock, id: u32) -> Option<f32> {
 pub struct Reading {
     pub reduction_db: f32,
     pub input_db: f32,
+    pub output_db: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -83,6 +84,18 @@ pub struct Reduction(Arc<Inner>);
 struct Inner {
     reduction: AtomicU32,
     input: AtomicU32,
+    output: AtomicU32,
+}
+
+const LEVEL_SCALE: f32 = 1000.0;
+const LEVEL_MOST_DB: f32 = 48.0;
+
+fn level_code(db: f32) -> u32 {
+    ((db.clamp(FLOOR_DB, LEVEL_MOST_DB) - FLOOR_DB) * LEVEL_SCALE) as u32
+}
+
+fn level_of_code(code: u32) -> f32 {
+    code as f32 / LEVEL_SCALE + FLOOR_DB
 }
 
 impl Default for Reduction {
@@ -95,7 +108,8 @@ impl Reduction {
     pub fn new() -> Self {
         Self(Arc::new(Inner {
             reduction: AtomicU32::new(0),
-            input: AtomicU32::new(FLOOR_DB.to_bits()),
+            input: AtomicU32::new(0),
+            output: AtomicU32::new(0),
         }))
     }
 
@@ -111,21 +125,33 @@ impl Reduction {
                 .fetch_max(reduction.to_bits(), Ordering::Relaxed);
         }
         if input_db.is_finite() {
-            self.0.input.store(input_db.to_bits(), Ordering::Relaxed);
+            self.0
+                .input
+                .fetch_max(level_code(input_db), Ordering::Relaxed);
+        }
+    }
+
+    pub fn record_output(&self, output_db: f32) {
+        if output_db.is_finite() {
+            self.0
+                .output
+                .fetch_max(level_code(output_db), Ordering::Relaxed);
         }
     }
 
     pub fn take(&self) -> Reading {
         Reading {
             reduction_db: f32::from_bits(self.0.reduction.swap(0, Ordering::Relaxed)),
-            input_db: f32::from_bits(self.0.input.load(Ordering::Relaxed)),
+            input_db: level_of_code(self.0.input.swap(0, Ordering::Relaxed)),
+            output_db: level_of_code(self.0.output.swap(0, Ordering::Relaxed)),
         }
     }
 
     pub fn peek(&self) -> Reading {
         Reading {
             reduction_db: f32::from_bits(self.0.reduction.load(Ordering::Relaxed)),
-            input_db: f32::from_bits(self.0.input.load(Ordering::Relaxed)),
+            input_db: level_of_code(self.0.input.load(Ordering::Relaxed)),
+            output_db: level_of_code(self.0.output.load(Ordering::Relaxed)),
         }
     }
 }
@@ -190,11 +216,33 @@ mod tests {
         meter.record(1.0, -12.0);
         let reading = meter.take();
         assert_eq!(reading.reduction_db, 4.5);
-        assert_eq!(reading.input_db, -12.0, "the level is the last one");
-        assert_eq!(meter.take().reduction_db, 0.0);
+        assert!(
+            (reading.input_db + 3.0).abs() < 0.01,
+            "the level is the loudest since the last read: {}",
+            reading.input_db
+        );
+        let again = meter.take();
+        assert_eq!(again.reduction_db, 0.0);
+        assert_eq!(again.input_db, FLOOR_DB, "a read starts the level afresh");
         meter.record(f32::NAN, f32::NAN);
         meter.record(-3.0, -20.0);
         assert_eq!(meter.take().reduction_db, 0.0);
+    }
+
+    #[test]
+    fn the_output_level_is_the_loudest_since_the_last_read_and_peek_does_not_clear_it() {
+        let meter = Reduction::new();
+        assert_eq!(meter.peek().output_db, FLOOR_DB);
+        meter.record_output(-9.0);
+        meter.record_output(-2.5);
+        meter.record_output(-30.0);
+        meter.record_output(f32::NAN);
+        assert!((meter.peek().output_db + 2.5).abs() < 0.01);
+        assert!((meter.take().output_db + 2.5).abs() < 0.01);
+        assert_eq!(meter.take().output_db, FLOOR_DB);
+        meter.record_output(f32::NEG_INFINITY);
+        meter.record_output(400.0);
+        assert!(meter.take().output_db <= LEVEL_MOST_DB + 0.01);
     }
 
     #[test]

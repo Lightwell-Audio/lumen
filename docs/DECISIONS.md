@@ -15512,6 +15512,108 @@ run (no WSL distribution on this machine); the delay's per-frame work gains two
 multiplies and two adds when Ping is off, and the clock's is one compare a frame
 and one store a block. No hardware: the latency numbers are the devices' own
 reports and the test device's, not a measured round trip.
+
+## ADR-0157 — Horizon's Skyline face (M8 round 4, F1)
+
+**Context.** The owner found Horizon's graph always on, even with nothing
+reaching the track, and the sun boring (OR-2). Round 4 chose **A, Skyline**
+(`docs/specimens/m8/round4.html`, `HorizonA`, which is the specification;
+`round4-notes.md` for the rest picture and Reduce motion). F0 (ADR-0155) built
+the motion vocabulary and the repaint cadence; this slice is the first face to
+use them.
+
+**Decision.**
+1. **The face** is the specimen's, measured: a screen of 272 x 176 pt with a
+   scale from +4 dB (top) to −36 dB (foot); a dark wall above the ceiling and a
+   dusk wash under it (78 pt, `GLOW_REST` + 0.3 x flash + 0.1 x awake); a grid at
+   −6, −12 and −24 (words on the whole card only); 137 columns of history, one
+   every 33 ms, scrolled by a fraction of a column; the output as an area (alpha
+   0.62 to 0.03) under a 1.5 pt peach outline of the `smooth_path` of the
+   columns; the pressed gap between input and output as a pale band; the ceiling
+   line at 1.5 pt with `theme::glow`'s ladder, widened and whitened by a flash
+   (`max(flash x exp(−dt / FLASH_TAU), min(1, reduction / 5))`); the plate with
+   the hero ("−4.1", "−0.0" when clear; strength 0.45 to 1 with the reduction),
+   "dB limiting" or "dB · clear". Dials at 56, 123.33 and 190.67 pt, the True
+   pill 44 x 20 at 236, 268. Files: `chain/face/horizon/` (`geometry.rs` the
+   maps, `history.rs` the state and `advance`, `picture.rs` the drawing,
+   `mod.rs` the controls). The old sky, sun, land and their tokens
+   (`HORIZON_SKY`, `HORIZON_GLOW`, `HORIZON_GROUND`, `HORIZON_LAND`,
+   `HORIZON_LIGHT`) are gone; the face's tokens are `HORIZON_DEEP`, `LINE`,
+   `WORDS`, `GAP`, `GAP_ALPHA`, `PLATE` and `PLATE_ALPHA`.
+2. **The data was missing and is now the device's.** The limiter published the
+   last block's input peak and no output at all, so the pressed gap could not be
+   drawn truthfully. `Reduction` now holds the loudest input and the loudest
+   output since the last read (wait-free `fetch_max` on a millidecibel code, the
+   same discipline as the reduction), `MeterReading` gained `output_db`, and the
+   limiter measures the peak of what it writes. The reads happen once a frame in
+   `Builtins::read_meters` as before; nothing is added to the audio thread
+   beyond a max over the block's samples and one atomic. `lumen-devices` tests
+   cover the held output and the loudest block kept between two reads.
+3. **Rest and wake.** `Scene` gained `awake` (0 to 1) from `cadence::wake`, and
+   `Scene.reading` is no longer filtered by Reduce motion: the face decides
+   whether the device is hearing something from the reading itself
+   (`Heard::sounding`, input above `SILENCE_DB`), because the card zeroes
+   `level` when motion is reduced. Awake fades the history in and the rest
+   picture out; at rest there is no history, only the dashed line, "waiting for
+   signal" and a dash in the plate. The history state is dropped when the face
+   is asleep (`advance`).
+4. **Reduce motion** (as the notes say): the same picture, no history, no flash,
+   no scroll; while the device hears something, the live level is a still bar
+   (output, with the pressed part above it) at the right edge. The hero follows
+   the reading with the ballistics set to land at once.
+5. **Frame rate independence.** The flash, the readout ballistics and the 33 ms
+   takes are all driven by the seconds the frame took, clamped to `DT_MAX` (unit
+   test: the same time gives the same flash at 16 ms and 8 ms frames).
+6. **Where the card framework conflicts with the specimen.** (a) The card's
+   screen background (`glass::screen`) is darker than the specimen's: the
+   specimen interpolates a non-premultiplied canvas gradient from 20 % hue to
+   the deep colour, which stays warm to the foot (about 76, 42, 32 at the bottom
+   of the screen), while the card mixes the card colour towards the hue and then
+   to the deep colour (about 22, 14, 20 there). Every round-4 face will meet
+   this. Horizon paints the specimen's wash itself (`picture::wash`, through
+   `gradient_panel`, the same rounded mesh) so it matches; whether the card's
+   screen should change for all faces is the parent's call. (b) The specimen
+   draws "−0.0" for a reduction of zero; the face does too. (c) The Short step
+   hides the grid words and the rest words, and puts the ceiling words below the
+   line when it is within 14 pt of the top (the line sits 11 pt down at the
+   default ceiling in the Short screen), where the history can cross them; the
+   specimen has no Short or Compact. (d) The specimen's history is a canvas
+   path; here it is a mesh of about 270 smoothed points (two quadratic steps per
+   column) with a feathered outline like the other faces.
+7. **Tokens and helpers.** Used: `FLASH_TAU`, `GLOW_REST`, `METER_ATTACK`,
+   `DT_MAX`, `SILENCE_DB`, `theme::glow`, `Ballistic`, `step_of`,
+   `cadence::wake`, `smooth_path`. New: `paint::dashed_line` beside
+   `dashed_ellipse`. The specimen geometry stays as constants in `horizon/`. The
+   F0 helpers Horizon does not use (`Spring`, `glow_share`, the peak and rest
+   accessors, `GLOW_LIVE/ENERGY/HIT`) now carry item-level
+   `#[allow(dead_code)]` instead of a module-wide one.
+8. **Testing hook.** `testing::pretend_track_level` stands in for the track's
+   meter in the Devices tab (`ChainState::pretend_level`), so the shots and the
+   E2E can show a card hearing a signal without playing audio. The shots'
+   `dynamics_card` drives Horizon with a drum-like history (`SHOT_DEVICE`
+   filters its device).
+
+**Consequences.**
+- **Measured** (release, 300 frames): the face's own draw plus tessellation with
+  a full 137-column history is mean 0.102 ms, p95 0.117 ms, worst 0.385 ms live
+  and mean 0.018 ms at rest (`horizon::tests`, ignored). A whole frame in the
+  E2E bench (`face_bench`, two runs after, one before): Horizon rest mean 0.236
+  and 0.237 ms (before 0.235), live mean 0.254 and 0.254 ms (before 0.248), p95
+  0.286 and 0.294 ms (before 0.277), worst 0.396 and 0.554 ms (before 0.463).
+  The difference is inside the run-to-run noise of that bench, and its steps run
+  back to back so its history is short; the 0.102 ms figure is the
+  full-history cost. The notes' estimate of about 700 vertices is exceeded
+  (about 2,000: 274 for the gap, about 540 for the area, about 1,100 for the
+  feathered outline, then the glow ladder and the wash); it is still a tenth of
+  a millisecond.
+- A rest Horizon asks for no frame and a live one asks 16 ms (`face_cadence`,
+  with real playback and with a pretended level).
+- The format and the host protocol are unchanged. `MeterReading` gained a
+  field, which only the app reads.
+- Not done: no hand check on the Focusrite or of the motion by eye on a 120 Hz
+  display; the smoke test `a_failed_allocation_leaves_a_crash_report` fails in a
+  build with `CARGO_PROFILE_DEV_DEBUG=0` (known, KNOWN_ISSUES), the other twelve
+  smoke tests passed.
 ## ADR-0158 - The browser's built-ins, the data side (M8 OR-1)
 
 **Status.** Proposed (M8 OR-1's data side; the parent numbers it). Brief:
