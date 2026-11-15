@@ -651,7 +651,8 @@ mod tests {
                 "Horizon",
                 "Iris",
                 "Parallax",
-                "Prism"
+                "Prism",
+                "Shutter"
             ]
         );
         assert_eq!(find("vendor compressor"), ["Bus Compressor"]);
