@@ -23,10 +23,7 @@ const FALL: f32 = 9.0;
 
 pub(super) enum Source {
     None,
-    Track {
-        name: String,
-        colour: Color32,
-    },
+    Track { name: String, colour: Color32 },
     Gone,
 }
 

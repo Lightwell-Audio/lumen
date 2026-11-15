@@ -70,10 +70,8 @@ pub(super) fn switch(ui: &mut Ui, area: Rect, id: EguiId, slot: &Slot) -> (Respo
                     egui::Direction::LeftToRight,
                 )),
             |ui| {
-                ui.push_id(id, |ui| {
-                    widgets::switch(ui, &mut on, "", true)
-                })
-                .inner
+                ui.push_id(id, |ui| widgets::switch(ui, &mut on, "", true))
+                    .inner
             },
         )
         .inner;

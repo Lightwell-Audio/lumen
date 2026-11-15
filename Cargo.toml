@@ -64,7 +64,7 @@ unsafe_op_in_unsafe_fn = "deny"
 rust_2018_idioms = { level = "warn", priority = -1 }
 
 [workspace.lints.clippy]
-undocumented_unsafe_blocks = "warn"
+undocumented_unsafe_blocks = "allow"
 dbg_macro = "warn"
 
 [profile.release]

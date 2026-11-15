@@ -8,14 +8,8 @@ use crate::model::{Clip, Project};
 pub enum MarkerEdit {
     Add(Ticks),
     AddOn(f64),
-    Move {
-        index: usize,
-        to: Ticks,
-    },
-    Slide {
-        index: usize,
-        source: f64,
-    },
+    Move { index: usize, to: Ticks },
+    Slide { index: usize, source: f64 },
     Remove(usize),
     Clear,
 }

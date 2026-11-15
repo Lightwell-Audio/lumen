@@ -181,7 +181,6 @@ impl App {
             hint(ui, &line);
         }
     }
-
 }
 
 fn speaker_light(ui: &mut Ui, letter: &str, side: &str, lit: bool, level: f32) {

@@ -2,29 +2,12 @@ use super::plan::{CHUNK, Tap};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(super) enum LineKey {
-    Input {
-        node: u64,
-    },
-    Device {
-        node: u64,
-        index: u32,
-    },
-    Output {
-        from: u64,
-    },
-    Send {
-        from: u64,
-        to: u64,
-        pre_fader: bool,
-    },
-    Sidechain {
-        from: u64,
-        to: u64,
-        tap: Tap,
-    },
-    Cue {
-        from: u64,
-    },
+    Input { node: u64 },
+    Device { node: u64, index: u32 },
+    Output { from: u64 },
+    Send { from: u64, to: u64, pre_fader: bool },
+    Sidechain { from: u64, to: u64, tap: Tap },
+    Cue { from: u64 },
 }
 
 #[derive(Debug, Clone, Copy)]

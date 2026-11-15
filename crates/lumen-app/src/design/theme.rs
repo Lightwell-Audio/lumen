@@ -1056,9 +1056,8 @@ mod tests {
     fn the_grid_over_a_clip_body_shows_in_both_themes() {
         fn over(wash: Color32, body: Color32) -> Color32 {
             let a = f32::from(wash.a()) / 255.0;
-            let mix = |w: u8, b: u8| {
-                (f32::from(w) + f32::from(b) * (1.0 - a)).round().min(255.0) as u8
-            };
+            let mix =
+                |w: u8, b: u8| (f32::from(w) + f32::from(b) * (1.0 - a)).round().min(255.0) as u8;
             Color32::from_rgb(
                 mix(wash.r(), body.r()),
                 mix(wash.g(), body.g()),

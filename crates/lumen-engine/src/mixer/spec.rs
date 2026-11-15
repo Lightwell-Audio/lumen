@@ -32,8 +32,14 @@ pub struct SidechainSpec {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Device {
-    Delay { frames: u32, listen: bool },
-    Hosted { host: u64, latency: u32 },
+    Delay {
+        frames: u32,
+        listen: bool,
+    },
+    Hosted {
+        host: u64,
+        latency: u32,
+    },
     Builtin {
         device: u64,
         latency: u32,

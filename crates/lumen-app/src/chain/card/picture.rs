@@ -89,21 +89,19 @@ pub(super) fn paint_picture(
             }
             glyph(&clipped, area, Icon::PlugOff, palette.text_hint);
         }
-        _ => {
-            match crate::builtin::identity(look.identity) {
-                Some(personality) => paint_idea(&clipped, area, personality, muted),
-                None => {
-                    clipped.text(
-                        pos2(area.left() + 14.0, area.bottom() - 6.0),
-                        Align2::LEFT_BOTTOM,
-                        art::monogram(look.name),
-                        fonts::display((look.band * 0.62).clamp(18.0, 64.0)),
-                        ink,
-                    );
-                    paint_kind(&clipped, area, look, ink);
-                }
+        _ => match crate::builtin::identity(look.identity) {
+            Some(personality) => paint_idea(&clipped, area, personality, muted),
+            None => {
+                clipped.text(
+                    pos2(area.left() + 14.0, area.bottom() - 6.0),
+                    Align2::LEFT_BOTTOM,
+                    art::monogram(look.name),
+                    fonts::display((look.band * 0.62).clamp(18.0, 64.0)),
+                    ink,
+                );
+                paint_kind(&clipped, area, look, ink);
             }
-        }
+        },
     }
 }
 

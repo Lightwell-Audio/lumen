@@ -38,10 +38,7 @@ pub use editor::{AudioEditorShown, AudioHandlesShown, DetectionShown, PianoRollD
 
 #[derive(Debug, Clone, Copy)]
 pub enum NoteEdit {
-    Move {
-        time: Ticks,
-        pitch: i32,
-    },
+    Move { time: Ticks, pitch: i32 },
     Delete,
     Mute(bool),
     Lengthen(Ticks),

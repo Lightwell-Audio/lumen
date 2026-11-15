@@ -125,12 +125,10 @@ pub(crate) fn record(
                 };
                 let _ = doc.set_device_params(device, &[(edit.id, edit.value)], &label, Some(&key));
             }
-            EditKind::Perform => {
-                match loose.iter_mut().find(|(id, _)| *id == edit.id) {
-                    Some(slot) => slot.1 = edit.value,
-                    None => loose.push((edit.id, edit.value)),
-                }
-            }
+            EditKind::Perform => match loose.iter_mut().find(|(id, _)| *id == edit.id) {
+                Some(slot) => slot.1 = edit.value,
+                None => loose.push((edit.id, edit.value)),
+            },
             EditKind::End => {
                 flush(doc, &mut loose);
                 if loading.is_none() {

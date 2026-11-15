@@ -16,10 +16,7 @@ pub(crate) enum NoteOp {
     Glue,
     Legato,
     Transpose(i32),
-    Nudge {
-        direction: i32,
-        fine: bool,
-    },
+    Nudge { direction: i32, fine: bool },
     Velocity(i32),
     Quantize,
     Humanize,

@@ -32,9 +32,17 @@ pub(crate) struct Env<'a> {
 pub(crate) enum Kind {
     Pencil,
     Line,
-    Move { grabbed: usize, picked: Vec<usize> },
-    Box { base: Vec<usize> },
-    Heads { grabbed: usize, group: Vec<usize> },
+    Move {
+        grabbed: usize,
+        picked: Vec<usize>,
+    },
+    Box {
+        base: Vec<usize>,
+    },
+    Heads {
+        grabbed: usize,
+        group: Vec<usize>,
+    },
     Bend {
         from: (Ticks, i32),
         to: (Ticks, i32),
@@ -65,7 +73,10 @@ pub(crate) enum Resolved {
         notes: Vec<usize>,
         curve: Curve,
     },
-    Shift { time: Ticks, value: i32 },
+    Shift {
+        time: Ticks,
+        value: i32,
+    },
     Box(Rect),
 }
 

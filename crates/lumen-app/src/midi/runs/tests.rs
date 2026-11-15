@@ -597,11 +597,7 @@ fn a_map_plays_its_sounds_notes_channels_and_lengths_and_leaves_a_stranger_alone
     let members = voiced(&clips, &map);
     assert_eq!(
         heard(&members),
-        vec![
-            (0, 4, 60, None),
-            (2, 1, 64, Some(9)),
-            (3, 1, 70, None),
-        ]
+        vec![(0, 4, 60, None), (2, 1, 64, Some(9)), (3, 1, 70, None),]
     );
 }
 

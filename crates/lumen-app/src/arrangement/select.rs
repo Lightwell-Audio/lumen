@@ -144,8 +144,14 @@ pub enum Gesture {
         track: usize,
         copies: Option<Vec<Id>>,
     },
-    Marquee { from: Pos2, kept: BTreeSet<Id> },
-    Range { at: Ticks, track: usize },
+    Marquee {
+        from: Pos2,
+        kept: BTreeSet<Id>,
+    },
+    Range {
+        at: Ticks,
+        track: usize,
+    },
     Trim {
         base: Arc<Project>,
         clip: Id,
@@ -182,8 +188,15 @@ pub enum Gesture {
         to: Ticks,
         clips: Vec<Id>,
     },
-    Zoom { from: Ticks, to: Ticks },
-    Draw { track: Id, from: Ticks, to: Ticks },
+    Zoom {
+        from: Ticks,
+        to: Ticks,
+    },
+    Draw {
+        track: Id,
+        from: Ticks,
+        to: Ticks,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

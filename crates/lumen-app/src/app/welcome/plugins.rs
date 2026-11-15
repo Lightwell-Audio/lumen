@@ -163,7 +163,6 @@ impl App {
             }
         }
     }
-
 }
 
 fn progress(ui: &mut Ui, fraction: f32) {

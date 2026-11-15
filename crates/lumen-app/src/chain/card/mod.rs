@@ -17,12 +17,8 @@ pub(super) enum Face<'a> {
     Ready,
     Loading,
     Failed(Failure<'a>),
-    Missing {
-        saved: usize,
-    },
-    Safe {
-        saved: usize,
-    },
+    Missing { saved: usize },
+    Safe { saved: usize },
 }
 
 pub(super) struct Failure<'a> {

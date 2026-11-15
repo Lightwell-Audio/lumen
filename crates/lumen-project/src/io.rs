@@ -352,9 +352,7 @@ pub fn media_path_for(project_dir: &Path, file: &Path) -> String {
 #[derive(Debug, PartialEq, Eq)]
 pub enum MediaLocation {
     Found(PathBuf),
-    Missing {
-        tried: Vec<PathBuf>,
-    },
+    Missing { tried: Vec<PathBuf> },
 }
 
 pub fn locate_media(project_dir: &Path, media: &Media) -> MediaLocation {

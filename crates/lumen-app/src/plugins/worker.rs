@@ -9,8 +9,13 @@ use lumen_plugin_catalog::cache::{Cache, Entry};
 use lumen_plugin_catalog::scan::{Event, Mode, Scanner, Summary};
 
 pub(super) enum Message {
-    Loaded { cache: Cache, note: Option<String> },
-    Planned { total: usize },
+    Loaded {
+        cache: Cache,
+        note: Option<String>,
+    },
+    Planned {
+        total: usize,
+    },
     Scanned {
         done: usize,
         total: usize,

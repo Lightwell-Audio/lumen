@@ -41,7 +41,10 @@ pub(crate) struct LanePoint {
 pub(crate) enum LaneHover {
     #[default]
     None,
-    Head { stem: usize, note: usize },
+    Head {
+        stem: usize,
+        note: usize,
+    },
     Point(usize),
 }
 

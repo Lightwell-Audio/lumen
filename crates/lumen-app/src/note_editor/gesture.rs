@@ -23,9 +23,15 @@ pub(crate) fn tones_of(notes: &[Note]) -> Vec<Tone> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Kind {
-    Move { copy: bool },
-    Resize { end: End },
-    Marquee { base: Vec<usize> },
+    Move {
+        copy: bool,
+    },
+    Resize {
+        end: End,
+    },
+    Marquee {
+        base: Vec<usize>,
+    },
     Draw {
         start: Ticks,
         end: Ticks,
