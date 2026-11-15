@@ -52,6 +52,7 @@ pub(crate) struct Chain {
     pub bands: HashMap<Id, usize>,
     pub analyzers: BTreeMap<Id, lumen_devices::analyzer::Display>,
     pub pretend_spectrum: Option<(Id, Vec<f32>)>,
+    pub pretend_level: Option<f32>,
     pub least: f32,
     pub folded: HashSet<Id>,
     pub clipboard: Option<Device>,

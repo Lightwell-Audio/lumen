@@ -191,6 +191,7 @@ fn set_piece_cost() {
                             reading: (level > 0.0).then_some(lumen_devices::MeterReading {
                                 reduction_db: 4.1,
                                 input_db: -6.0,
+                                output_db: -10.1,
                             }),
                         });
                         let rect = eframe::egui::Rect::from_min_size(pos2(10.0, 10.0), size);

@@ -351,6 +351,10 @@ impl App {
         self.chain.pretend_spectrum = Some((device, db.to_vec()));
     }
 
+    pub fn pretend_track_level(&mut self, peak_db: Option<f32>) {
+        self.chain.pretend_level = peak_db;
+    }
+
     pub fn pick_band(&mut self, device: Id, index: usize) {
         self.chain.bands.insert(device, index);
     }
@@ -361,6 +365,7 @@ impl App {
             lumen_devices::MeterReading {
                 reduction_db: decibels,
                 input_db: level_db,
+                output_db: level_db - decibels,
             },
         );
     }

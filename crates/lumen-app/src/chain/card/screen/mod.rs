@@ -20,7 +20,6 @@ mod parts;
 mod plan;
 
 use controls::live;
-pub(in crate::chain) use glass::glass as gradient_panel;
 use plan::Plan;
 
 pub(in crate::chain) struct Personal<'a> {
@@ -37,6 +36,8 @@ pub(in crate::chain) struct Personal<'a> {
     pub bpm: f32,
     pub reading: Option<lumen_devices::MeterReading>,
 }
+
+pub(in crate::chain) use glass::glass as gradient_panel;
 
 pub(in crate::chain) fn level_of(peak: [f32; 2]) -> f32 {
     let db = peak[0].max(peak[1]);
@@ -128,7 +129,7 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body
         parts::points(ui, &plan, drawing, p, &values, picked, id, &mut asked)
     });
     let still = motion::reduced();
-    cadence::wake(&ctx, id, personal.level, still);
+    let awake = cadence::wake(&ctx, id, personal.level, still);
     let mist = motion::fade(&ctx, id.with("mist"), personal.spectrum.is_some() && !still);
     let picture = painter.with_clip_rect(plan.picture);
     (drawing.draw)(&Scene {
@@ -139,6 +140,7 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body
         values,
         power,
         level: seen(personal.level, still),
+        awake,
         still,
         handle_lit: hot.lit,
         settle: settle(&ctx, id, look),
@@ -148,7 +150,7 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body
         mist,
         rate: personal.rate,
         bpm: personal.bpm,
-        reading: personal.reading.filter(|_| !still),
+        reading: personal.reading,
         id,
     });
 
