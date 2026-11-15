@@ -3,6 +3,17 @@
 //! sides, freeze, and a time in notes that follows the song's tempo or in
 //! milliseconds.
 //!
+//! Ping is a real ping-pong (OR-8): with it up, the sound enters the lines
+//! summed to mono on the left one, and each repeat crosses to the other side,
+//! so a centred sound bounces left, right, left. It blends from plain stereo
+//! feedback at 0 to that at 1, so it moves under a hand or a lane without a
+//! click, and at 0 it does exactly what it always did.
+//!
+//! The device also keeps the clock the card's picture draws its echoes by: how
+//! long it is since sound last entered the lines, published lock-free through
+//! an [`Onset`] handle the interface holds (OR-8: the picture is in step with
+//! the repeats, not with the app's clock).
+//!
 //! Everything it does to the audio is smooth by construction: a time the
 //! interface moved glides over 20 ms (a tempo change is one), so the read
 //! point slides rather than jumps, and no change of a setting steps the
@@ -15,34 +26,32 @@
 //! samples is that number, so at 120 BPM an eighth note is exactly 9000 frames
 //! and the echo lands on the beat.
 
+mod onset;
+mod table;
+
+pub use onset::Onset;
+pub use table::{FEEDBACK, FREEZE, HIGH_CUT, LOW_CUT, MIX, NOTE, PING, TABLE, TIME};
+
 use crate::effect::{Block, Description, Effect, Key, Stereo, Values};
-use crate::params::{self, Glide, ParamInfo, Taper};
+use crate::params::{self, Glide};
+use onset::NOTHING_YET;
+use table::{NOTES, curve_note, curve_value, note_index, value};
 
 /// The device's stable name in `PluginRef::Builtin`, as a project saves it.
 /// Never the product name, and never changed.
 pub const NAME: &str = "delay";
 
-/// The time in milliseconds, when the note is Free.
-pub const TIME: u32 = 1;
-/// The time in notes: Free, or a note the song's tempo places.
-pub const NOTE: u32 = 2;
-/// How much of each echo returns to the loop, 0 to 99 %.
-pub const FEEDBACK: u32 = 3;
-/// Cross the feedback to the other side: the echoes alternate.
-pub const PING: u32 = 4;
-/// A highpass in the loop, in Hz; 0 is off.
-pub const LOW_CUT: u32 = 5;
-/// A lowpass in the loop, in Hz; 20 kHz is off.
-pub const HIGH_CUT: u32 = 6;
-/// Dry to wet, 0 to 100 %.
-pub const MIX: u32 = 7;
-/// Hold what the loop carries and stop taking new input.
-pub const FREEZE: u32 = 8;
-
 /// The longest a setting can ask for: 4 s. A whole note at 20 BPM would be
 /// 12 s, so a note longer than this at a slow tempo is held here; the card's
 /// tooltip says the time a synced note comes to.
 pub const MOST_SECONDS: f32 = 4.0;
+
+/// The level a sound has to reach to count as entering the lines, and the
+/// share of it a whole block must stay under before another entrance counts:
+/// −60 dBFS, then a quarter of that, so a block of near-silence between two
+/// sounds is a new entrance and a sound crossing zero is not.
+const ONSET_GATE: f32 = 0.001;
+const ONSET_HYSTERESIS: f32 = 0.25;
 
 /// The least: under a millisecond the loop is a click, not an echo.
 const LEAST_SECONDS: f32 = 0.001;
@@ -59,156 +68,6 @@ const KNOT: i64 = 32;
 /// How long a change of time takes to glide: as long as a level the interface
 /// moves, so a tempo change slides rather than clicks.
 const GLIDE_SECONDS: f32 = 0.02;
-
-/// The note choices, in order: Free first, then the note the tempo places.
-const NOTES: [(&str, f32); 7] = [
-    ("Free", 0.0),
-    ("1/32", 0.125),
-    ("1/16", 0.25),
-    ("1/8", 0.5),
-    ("1/4", 1.0),
-    ("1/2", 2.0),
-    ("1/1", 4.0),
-];
-
-/// What the columns of the table are for, so a reader sees the shape of a row.
-#[allow(clippy::too_many_arguments)]
-const fn param(
-    id: u32,
-    name: &'static str,
-    unit: &'static str,
-    low: f32,
-    high: f32,
-    taper: Taper,
-    default: f32,
-    steps: i32,
-    choices: &'static [&'static str],
-    text: fn(f32) -> String,
-    parse: fn(&str) -> Option<f32>,
-) -> ParamInfo {
-    ParamInfo {
-        id,
-        name,
-        unit,
-        low,
-        high,
-        taper,
-        default,
-        steps,
-        choices,
-        text,
-        parse,
-    }
-}
-
-/// Parallax's parameters, in the order the card shows them: the eight on the
-/// strip. Ids are stable and never reused.
-pub static TABLE: &[ParamInfo] = &[
-    param(
-        TIME,
-        "Time",
-        "ms",
-        1.0,
-        4000.0,
-        Taper::Power(2.0),
-        375.0,
-        0,
-        &[],
-        time_text,
-        time_parse,
-    ),
-    param(
-        NOTE,
-        "Note",
-        "",
-        0.0,
-        1.0,
-        Taper::Linear,
-        4.0 / 6.0,
-        6,
-        &["Free", "1/32", "1/16", "1/8", "1/4", "1/2", "1/1"],
-        note_text,
-        note_parse,
-    ),
-    param(
-        FEEDBACK,
-        "Repeats",
-        "%",
-        0.0,
-        100.0,
-        Taper::Linear,
-        35.0,
-        0,
-        &[],
-        percent_text,
-        percent_parse,
-    ),
-    param(
-        PING,
-        "Ping",
-        "",
-        0.0,
-        1.0,
-        Taper::Linear,
-        0.0,
-        1,
-        &["Off", "On"],
-        on_off_text,
-        on_off_parse,
-    ),
-    param(
-        LOW_CUT,
-        "Low cut",
-        "Hz",
-        0.0,
-        2000.0,
-        Taper::Power(2.0),
-        0.0,
-        0,
-        &[],
-        low_cut_text,
-        low_cut_parse,
-    ),
-    param(
-        HIGH_CUT,
-        "High cut",
-        "Hz",
-        200.0,
-        20_000.0,
-        Taper::Power(2.0),
-        20_000.0,
-        0,
-        &[],
-        high_cut_text,
-        high_cut_parse,
-    ),
-    param(
-        MIX,
-        "Mix",
-        "%",
-        0.0,
-        100.0,
-        Taper::Linear,
-        30.0,
-        0,
-        &[],
-        percent_text,
-        percent_parse,
-    ),
-    param(
-        FREEZE,
-        "Freeze",
-        "",
-        0.0,
-        1.0,
-        Taper::Linear,
-        0.0,
-        1,
-        &["Off", "On"],
-        on_off_text,
-        on_off_parse,
-    ),
-];
 
 /// Parallax's description: its table, and a tail that follows its time, its
 /// feedback, its freeze and its mix (a pure function of its values, M8 slice
@@ -289,141 +148,6 @@ pub fn seconds_of(values: Values<'_>, bpm: f32) -> f32 {
         quarters * 60.0 / bpm
     };
     seconds.clamp(LEAST_SECONDS, MOST_SECONDS)
-}
-
-/// The note index (0 is Free) the values hold.
-fn note_index(values: Values<'_>) -> usize {
-    let x = params::normalised_of(TABLE, NOTE, values);
-    (x * (NOTES.len() - 1) as f32).round().clamp(0.0, 6.0) as usize
-}
-
-/// The value of parameter `id` in its own units.
-fn value(values: Values<'_>, id: u32) -> f32 {
-    let x = params::normalised_of(TABLE, id, values);
-    params::find(TABLE, id).map_or(0.0, |info| info.value(x))
-}
-
-/// "375 ms", "1.20 s".
-fn time_text(ms: f32) -> String {
-    if ms < 999.5 {
-        format!("{ms:.0} ms")
-    } else {
-        format!("{:.2} s", ms / 1000.0)
-    }
-}
-
-/// "375", "375 ms", "1.2 s", "1200".
-fn time_parse(text: &str) -> Option<f32> {
-    let t = text.trim().replace('\u{2212}', "-").to_lowercase();
-    if let Some(rest) = t.strip_suffix(" ms").or_else(|| t.strip_suffix("ms")) {
-        return rest.trim().parse::<f32>().ok().filter(|v| v.is_finite());
-    }
-    if let Some(rest) = t.strip_suffix(" s").or_else(|| t.strip_suffix('s')) {
-        return rest
-            .trim()
-            .parse::<f32>()
-            .ok()
-            .filter(|v| v.is_finite())
-            .map(|s| s * 1000.0);
-    }
-    t.parse::<f32>().ok().filter(|v| v.is_finite())
-}
-
-/// "1/4", "Free".
-fn note_text(x: f32) -> String {
-    let index = (x * (NOTES.len() - 1) as f32).round().clamp(0.0, 6.0) as usize;
-    NOTES[index].0.to_owned()
-}
-
-/// "1/4", "free", "quarter": the note's word, or the note it spells.
-fn note_parse(text: &str) -> Option<f32> {
-    let t = text.trim().to_lowercase();
-    let index = match t.as_str() {
-        "free" | "off" | "ms" => 0,
-        "1/32" | "thirty-second" | "32nd" => 1,
-        "1/16" | "sixteenth" | "16th" => 2,
-        "1/8" | "eighth" | "8th" => 3,
-        "1/4" | "quarter" | "4th" => 4,
-        "1/2" | "half" => 5,
-        "1/1" | "whole" => 6,
-        _ => return None,
-    };
-    Some(index as f32 / (NOTES.len() - 1) as f32)
-}
-
-/// "35 %".
-fn percent_text(percent: f32) -> String {
-    format!("{percent:.0} %")
-}
-
-/// "35", "35 %".
-fn percent_parse(text: &str) -> Option<f32> {
-    let t = text.trim().trim_end_matches('%').trim();
-    t.parse::<f32>().ok().filter(|v| v.is_finite())
-}
-
-/// "Off", "120 Hz".
-fn low_cut_text(hz: f32) -> String {
-    if hz < 0.5 {
-        "Off".to_owned()
-    } else if hz < 999.5 {
-        format!("{hz:.0} Hz")
-    } else {
-        format!("{:.2} kHz", hz / 1000.0)
-    }
-}
-
-/// "off", "120", "120 Hz".
-fn low_cut_parse(text: &str) -> Option<f32> {
-    let t = text.trim().to_lowercase();
-    if t.starts_with("off") {
-        return Some(0.0);
-    }
-    hertz(&t)
-}
-
-/// "Off" at the top of the range, else "8.0 kHz".
-fn high_cut_text(hz: f32) -> String {
-    if hz >= 19_999.5 {
-        "Off".to_owned()
-    } else if hz < 999.5 {
-        format!("{hz:.0} Hz")
-    } else {
-        format!("{:.1} kHz", hz / 1000.0)
-    }
-}
-
-/// "off", "8000", "8 kHz".
-fn high_cut_parse(text: &str) -> Option<f32> {
-    let t = text.trim().to_lowercase();
-    if t.starts_with("off") {
-        return Some(20_000.0);
-    }
-    hertz(&t)
-}
-
-/// A frequency with or without its unit.
-fn hertz(text: &str) -> Option<f32> {
-    let t = text.trim();
-    if let Some(rest) = t.strip_suffix("khz") {
-        return rest.trim().parse::<f32>().ok().map(|k| k * 1000.0);
-    }
-    if let Some(rest) = t.strip_suffix("hz") {
-        return rest.trim().parse::<f32>().ok();
-    }
-    t.parse::<f32>().ok().filter(|v| v.is_finite())
-}
-
-fn on_off_text(value: f32) -> String {
-    if value >= 0.5 { "On" } else { "Off" }.to_owned()
-}
-
-fn on_off_parse(text: &str) -> Option<f32> {
-    match text.trim().to_lowercase().as_str() {
-        "on" | "1" => Some(1.0),
-        "off" | "0" => Some(0.0),
-        _ => None,
-    }
 }
 
 /// A one-pole's coefficient for a corner at `hz`, at `rate`.
@@ -520,6 +244,17 @@ pub struct Delay {
     /// Stop is the one the song's tempo gives.
     bpm: f32,
     rate: u32,
+    /// Frames since sound last entered the lines (OR-8): the clock the card's
+    /// picture draws its echoes by.
+    since: f32,
+    /// Whether the lines have been fed near-silence since the last entrance
+    /// (one block of it is enough to make the next sound a new one).
+    quiet: bool,
+    /// Whether any sound has entered since the device was made or reset: a
+    /// device that has heard nothing has no clock to give.
+    entered: bool,
+    /// The interface's end of that clock.
+    onset: Onset,
 }
 
 impl Delay {
@@ -563,7 +298,25 @@ impl Delay {
             held,
             bpm: REFERENCE_BPM,
             rate: REFERENCE_RATE,
+            since: 0.0,
+            quiet: true,
+            entered: false,
+            onset: Onset::new(),
         }
+    }
+
+    /// The clock the card's picture reads the repeat's phase through (OR-8): a
+    /// copy of the one the audio thread writes.
+    pub fn onset(&self) -> Onset {
+        self.onset.clone()
+    }
+
+    /// Parallax with its repeat clock, so the interface builds one and keeps
+    /// the clock in one step.
+    pub fn build() -> (Self, Onset) {
+        let device = Self::new();
+        let onset = device.onset();
+        (device, onset)
     }
 
     /// The frame `behind` frames before the write point, read between the two
@@ -669,6 +422,9 @@ impl Effect for Delay {
         let one_pole_rate = rate;
         let capacity = CAPACITY as f32 - 2.0;
         let len0 = self.lines[0].len();
+        // The loudest frame this block fed the lines: at its end, a block of
+        // near-silence opens the gate for the next sound to be a new entrance.
+        let mut block_peak = 0.0f32;
 
         for frame in 0..frames {
             // The corners are read at knots of the song's clock, so the same
@@ -713,12 +469,41 @@ impl Effect for Delay {
             // Freeze holds the loop and takes no new sound; its feedback is
             // one, so the repeats neither grow nor die.
             let gain = (feedback * (1.0 - freeze) + freeze).clamp(0.0, 1.0);
+            let dry = 1.0 - freeze;
+            // What enters the lines: both sides as they come, blended toward
+            // one side carrying their sum as Ping rises. A centred sound then
+            // starts on the left and bounces, where crossing the feedback
+            // alone would cross it back onto itself (OR-8).
+            let in_left = left[frame] * dry;
+            let in_right = right[frame] * dry;
+            let (enter_left, enter_right) = if ping > 0.0 {
+                let mono = 0.5 * (in_left + in_right);
+                (
+                    in_left * (1.0 - ping) + mono * ping,
+                    in_right * (1.0 - ping),
+                )
+            } else {
+                (in_left, in_right)
+            };
+            // The feedback crosses by the same amount, so at Ping every repeat
+            // is the other side's and at none each stays home.
             let into_left = looped_left * (1.0 - ping) + looped_right * ping;
             let into_right = looped_right * (1.0 - ping) + looped_left * ping;
-            let dry = 1.0 - freeze;
+            // The repeat clock: an entrance is sound arriving after the lines
+            // were fed near-silence, which is where the card's trail starts.
+            let here = enter_left.abs().max(enter_right.abs());
+            block_peak = block_peak.max(here);
+            if self.quiet && here > ONSET_GATE {
+                self.since = 0.0;
+                self.entered = true;
+                self.quiet = false;
+            }
+            if self.entered {
+                self.since += 1.0;
+            }
             let at = self.write;
-            self.lines[0][at] = flush(left[frame] * dry + into_left * gain);
-            self.lines[1][at] = flush(right[frame] * dry + into_right * gain);
+            self.lines[0][at] = flush(enter_left + into_left * gain);
+            self.lines[1][at] = flush(enter_right + into_right * gain);
             // The output: dry to wet, both glided.
 
             let dry_gain = 1.0 - mix;
@@ -743,6 +528,17 @@ impl Effect for Delay {
             (MIX, curves.mix[last]),
             (FREEZE, curves.freeze[last]),
         ];
+        // The repeat clock: the time from the last entrance to this block's
+        // last frame, or nothing before any sound has entered.
+        let clock = if self.entered {
+            self.since / rate as f32
+        } else {
+            NOTHING_YET
+        };
+        self.onset.record(clock);
+        if block_peak < ONSET_GATE * ONSET_HYSTERESIS {
+            self.quiet = true;
+        }
     }
 
     fn tail(&self) -> u32 {
@@ -772,15 +568,11 @@ impl Effect for Delay {
         self.now = seconds_of(&self.held, self.bpm) * self.rate as f32;
         self.target = f32::NAN;
         self.step = 0.0;
+        // Playback jumped: whatever was ringing is gone, and so is the clock
+        // the picture started its trail from.
+        self.since = 0.0;
+        self.quiet = true;
+        self.entered = false;
+        self.onset.record(NOTHING_YET);
     }
-}
-
-/// The value (in its own units) of the normalised `x` of parameter `id`.
-fn curve_value(id: u32, x: f32) -> f32 {
-    params::find(TABLE, id).map_or(0.0, |info| info.value(x))
-}
-
-/// The note index a normalised value picks.
-fn curve_note(x: f32) -> usize {
-    (x * (NOTES.len() - 1) as f32).round().clamp(0.0, 6.0) as usize
 }

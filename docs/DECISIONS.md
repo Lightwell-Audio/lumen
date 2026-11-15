@@ -14958,3 +14958,191 @@ was within the 2 % threshold; the run also refreshed two that had become much
 cheaper since an earlier change (`engine_streamed_64` −24.97 %,
 `stream_plan_64` −30.70 %), so the gate measures against today's code and not
 a stale one. The macOS cross-target clippy still cannot run here.
+
+## ADR-0152 — Parallax's ping-pong, and the clock its picture keeps (OR-8)
+
+**Status.** Proposed (the owner's M8 review, round 1, OR-8; the next free
+number — 0148 to 0151 are taken). Branch `fix/parallax-ping-pong`, from
+`origin/main`. Brief: `docs/milestones/M8.md` §10 OR-8; the device is
+ADR-0148's.
+
+**Context.** The owner used Parallax by hand: "ping-pong does not work, and the
+picture is out of step with the audio". The first read was right, and a test
+proves it. Ping crossed the two feedback lines only —
+`into_left = looped_left*(1-p) + looped_right*p`, and the mirror image for the
+right — while the input entered each line as it came. A signal that differs
+between the sides did alternate under the old code (a hard-left hit crossed to
+the right), but a **centred** source — a mono synth, a vocal, a drum bus, most
+of what a delay is put on — arrives at both lines as the same samples, so
+crossing the two lines is crossing a line with itself: the swap changed
+nothing, and every repeat stood on both sides. The card's picture, meanwhile,
+drew its travelling light from the app's clock, not from the audio.
+
+**Options.**
+
+- **Ping-pong.** (A) Keep the feedback crossfeed and add a second delay line
+  per side so the two crossings differ by one time (the four-line topology).
+  (B) Sum the input to mono and feed one side, and cross the feedback as now:
+  the repeats then alternate by construction, on two lines, with no extra
+  memory or taps. (C) Pan the input across the sides by Ping without touching
+  the feedback (which bounces the input, not the repeats).
+- **The blend.** Ping is one parameter from 0 to 1, automatable, so the design
+  has to be continuous: at 0 it must be the device as shipped, at 1 the
+  ping-pong, and in between a crossfade with no click.
+- **The picture's clock.** (A) What the face does now: the interface's own
+  elapsed time (`ctx.input.time`), divided by the delay time and taken modulo
+  the trail's length. (B) The transport position, divided the same way: better
+  (a loop restarts the picture with the music) but still says nothing about
+  when sound actually entered the line, so a hit that is not on the beat, or a
+  clip that starts mid-bar, is still wrong. (C) The device publishes the time
+  since sound last entered its lines through a lock-free handle, and the
+  interface reads it once a frame.
+- **Where a repeat starts.** The device could publish the loop's circulation
+  phase instead of an onset time, but a phase anchored at nothing is what the
+  face already has, so it would still be wrong for the first hit and for any
+  hit that starts a phrase.
+
+**Choices.**
+
+1. **Option B, the two-line ping-pong.** With Ping up, the input is summed to
+   mono (`0.5 * (L + R)`, so a centred sound keeps its level) and enters the
+   left line only; the feedback crosses fully, so each repeat is the other
+   side's. The first repeat is therefore on the left, then right, left, and
+   the levels are 1, g, g², ... Summing to mono halves each side of an
+   uncorrelated stereo source and leaves a centred one at its own level, which
+   is what summing to mono means: a centred sound's wet energy is unchanged,
+   and an uncorrelated one's is unchanged in sum. A second line pair (option
+   A) would sound the same and cost 12.4 MB more an instance (ADR-0148's
+   `MOST_SECONDS`), for nothing the standard design needs.
+2. **The blend is a crossfade on both the input and the loop.** With `p` the
+   Ping value: `enter_left = in_left*(1-p) + mono*p`, `enter_right =
+   in_right*(1-p)`, and the loop crosses by `p` as it always did. Both are
+   linear in `p`, so a hand and a lane move it without a step, and the
+   parameter's own 20 ms glide (`params::values`, ADR-0148) makes the change
+   smooth: measured, a step from 0 to 1 on a 311 Hz tone steps 0.027 between
+   frames, where the same step without the glide steps 0.170 (−15 dBFS).
+3. **At Ping 0 the arithmetic is the shipped one, term for term**
+   (`left*dry + into_left*gain`), and the `if p > 0.0` branch means the mono
+   sum is not even worked out. The engine's golden render of Parallax
+   (`time_builtins::a_golden_render_of_parallax_is_pinned_to_its_samples`)
+   therefore did not move and was **not** re-pinned: its settings leave Ping at
+   its default of 0, so it renders the same frames. Freeze and the synced times
+   are untouched: the input blend sits behind the same `dry` (freeze zeroes
+   it), and the feedback crossing is the one it already had.
+4. **The device publishes the time since sound last entered its lines**
+   (option C). `delay::Onset` is an `Arc<AtomicU32>` of `f32` bits, `NAN` until
+   anything has entered and after a `reset`; the audio side stores it once a
+   block, the interface loads it once a frame. No lock, no queue, no allocation
+   after the handle is made — the shape B2's `Reduction` uses. An entrance is a
+   frame above −60 dBFS while the lines have been fed a whole block below
+   −72 dBFS: a block of near-silence between two sounds is a new entrance, a
+   sound crossing its own zero is not, and a sustained note or pad does not
+   restart the clock (its trailing silence does). The onset's own frame is
+   exact; the value is published once a block, so it is at most one block
+   (5.3 ms at 256 frames) old.
+5. **The interface takes the output latency and the compensation off it.**
+   `lumen_devices::effect_built` now returns the handles a device publishes in
+   one `Published` struct (the meter, the clock); `builtin::Builtins` reads the
+   clock with the meters once a frame and answers `since(device, latency)` =
+   `clock - latency`, floored at 0, where the latency is
+   `crate::audio::heard_latency(output_latency, compensation, rate)` — the
+   audio device's output latency and the delay compensation the project's
+   longest path asks for. That is the number the recorder already takes off a
+   take and the MIDI sender adds to a message, so a picture that uses it agrees
+   with what the ear and the recordings say.
+
+**Why the picture was out of step, measured.** Three things, in order of size:
+
+1. **The phase was the app's clock, so it was arbitrary: 0 to one full trail.**
+   The light's place is `(now / time) % (echoes + 1.5)` with `now` = seconds
+   since the app started. At Parallax's defaults (a quarter note at 120 BPM,
+   0.5 s, 35 % feedback, 5 echoes) a trail is 6.5 echoes = **3.25 s**, so the
+   light was behind or ahead of the repeats by a uniformly random amount: mean
+   **0.81 s**, worst **3.25 s**. At the card specimen's settings (375 ms, 45 %,
+   7 echoes) it is 8.5 echoes = **3.19 s**. Changing Feedback changes the echo
+   count and so jumps the phase; dragging Time rescales it.
+2. **One delay time of the mapping.** Echo 0 (the nearest, the first repeat) is
+   lit at `along = 0`, but the first repeat is heard one delay time after the
+   sound enters the line, so a correct clock still needs `along =
+   since/time - 1`: **500 ms** at the default note, **375 ms** at the
+   specimen's, up to 4 s at the longest time.
+3. **The engine's lead over the ear: 5 to 15 ms**, plus the compensation. The
+   card reads values the engine has already rendered, which the device plays
+   `output_latency` later: 256 frames = 5.3 ms, 512 = 10.7 ms, and the test
+   device reports `frames + 64` (320 frames = **6.7 ms** at 48 kHz). A Horizon
+   in the path adds its lookahead to the project's compensation: 1.5 ms by
+   default (72 frames), up to 10 ms at 480. Parallax's own latency is 0, so
+   delay compensation adds nothing for a delay-only project.
+
+The frame clock is not an offset: the drawn place is computed from the frame's
+own timestamp, so it is right at the moment it is drawn; `METER_FRAME` (33 ms)
+only means the light holds still for up to 33 ms between frames while audio
+flows, which is jitter, not drift. The transport position was not read at all,
+which is why two passes of the same loop showed two different phases, and why a
+hit off the beat was drawn as if it were on it. `Scene::bpm` *is* read, so the
+echoes were always the right distance apart — only their phase was wrong — and
+`Scene::level` (the track's meter) only decides whether the picture is alive.
+
+**The picture's side of this (not in this branch: the UI agent's or the
+parent's — which is why `Scene` is not wired here).** The data is ready:
+`Builtins::since(device, latency)` answers the number and `App::heard_latency()`
+is what to take off it. The face change is:
+
+1. `DrawingRow` gains `since: Option<f32>` =
+   `self.builtin.since(d.id, self.heard_latency())`; `personal_of` and
+   `Card::Personal` pass it on, and `Scene` gains `since: Option<f32>` (one
+   field, additive; the six `Scene` literals in the tests take `since: None`).
+2. In `chain/face/parallax.rs`, `pulse()` replaces `let now =
+   ctx.input(|i| i.time) as f32; (now / time.max(LEAST_BEAT)) % (count as f32 +
+   PULSE_REST)` with the device's clock: `let since = scene.since.unwrap_or(0.0);
+   let along = since / time.max(LEAST_BEAT) - 1.0;` and, while `along < 0.0`
+   (before the first repeat), no light at all; otherwise `along % (count as f32
+   + PULSE_REST)`. Nothing else in `pulse` changes: the light still moves one
+   echo per delay time, and its brightness is still the feedback's share. The
+   `- 1.0` is choice 2 above and matters as much as the phase does.
+3. The face's lanes are already right: `side = if index % 2 == 0 { -1.0 } else
+   { 1.0 } * ping` puts echo 0 (the first repeat) on the left, which is exactly
+   where the device now puts it, so once Ping works the picture's echoes
+   alternate L, R, L, R with the audio. One refinement while that file is open:
+   the lanes fade on a *switch* (`norm(PING) > 0.5`) where the sound blends
+   continuously, so at 0.25 the picture shows fully overlapping lanes and the
+   sound is a quarter of the way; `motion::fade`'s target could be
+   `norm(PING)` instead, giving the 0 to 1 blend a 0 to 1 picture.
+4. While there is no clock (a device that has heard nothing), `since` is `None`
+   and the face should fall back to its present stillness rather than to the
+   wall clock.
+
+**Tests.** `lumen-devices/tests/delay_reverb.rs` (4 new, 17 in the file):
+`ping_pong_alternates_the_repeats_between_the_sides` (a centred impulse, 100 ms,
+50 % feedback: 1.0 L, 0.5 R, 0.25 L, 0.125 R one time apart, the other side
+below 1e-4; it fails on the old code with 0.9995 on the wrong side, and the same
+audio comes at 64, 97 and 256 frames); `ping_off_keeps_the_two_sides_the_same`
+(the two sides frame for frame identical, repeats 1.0/0.5/0.25 on both);
+`a_step_of_ping_does_not_click` (a 311 Hz tone with Ping stepped 0→1→0: no frame
+steps more than 0.05; 0.027 measured, 0.170 without the glide);
+`the_repeat_clock_says_how_long_ago_sound_entered` (nothing before sound, the
+exact frame of the first entrance, no restart inside a sustained burst, a new
+entrance after a block of silence, `None` after a reset). `lumen-devices`' unit
+test `a_device_with_a_meter_hands_out_its_handle` gained the delay's clock and
+the devices that publish none. `lumen-app`'s
+`a_delay_s_repeat_clock_is_read_once_a_frame` (the device's block reaches
+`Builtins::since` exactly, and the latency is taken off and floored) and
+`the_heard_latency_is_the_device_s_plus_the_project_s_at_its_rate`.
+`lumen-engine/tests/time_builtins.rs` re-runs unchanged and its Parallax golden
+holds, which is the bit-identical claim at Ping 0.
+
+**Consequences.** `lumen_devices::effect_built` returns `(Box<dyn Effect>,
+Published)` instead of a tuple of options (one call site in `lumen-app`), and
+`effect_with_meter` keeps its shape; `delay::Delay::build()` and `Delay::onset()`
+are new beside `Compressor::build()`; `lumen_devices::delay::Onset` is new.
+`Builtins` keeps one more map, and `App::heard_latency()` is new. No project or
+settings format change: Ping is a parameter that already existed, and the clock
+is interface state. The golden renders did not move.
+
+**Not verified here.** Nothing in this branch was listened to (the numbers are
+from the tests above), and MT-FX-4's listening does not yet include the
+ping-pong. The WSL performance gate and the macOS cross-target clippy were not
+run (no WSL distribution on this machine); the delay's per-frame work gains two
+multiplies and two adds when Ping is off, and the clock's is one compare a frame
+and one store a block. No hardware: the latency numbers are the devices' own
+reports and the test device's, not a measured round trip.

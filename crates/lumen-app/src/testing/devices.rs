@@ -470,6 +470,15 @@ impl App {
             .map_or(0.0, |reading| reading.reduction_db)
     }
 
+    /// How long ago, in seconds, the person heard sound enter a built-in
+    /// device's line (OR-8), with the audio device's latency and the project's
+    /// delay compensation taken off: what a card's picture starts its echoes
+    /// from. `None` for a device with no such clock, and before any sound has
+    /// entered it.
+    pub fn builtin_since(&self, device: Id) -> Option<f32> {
+        self.builtin.since(device, self.heard_latency())
+    }
+
     /// Puts exactly these parameters on the device's strip, as a person does
     /// from the panel.
     pub fn show_on_strip(&mut self, device: Id, ids: &[u32]) {

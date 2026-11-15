@@ -484,6 +484,196 @@ fn the_feedback_decays_the_repeats_by_its_percent() {
 }
 
 #[test]
+fn ping_pong_alternates_the_repeats_between_the_sides() {
+    // A centred impulse, 100 ms a repeat, half the feedback: the first repeat
+    // is the left's, the next the right's, each half the one before. Before
+    // OR-8 Ping only crossed the two feedback lines, and a centred sound is
+    // the same on both of them, so crossing it back onto itself changed
+    // nothing: every repeat stood on both sides.
+    let lead = 2_000;
+    let mut signal = vec![0.0; 40_000];
+    signal[0] = 1.0;
+    let set = [
+        (delay::TIME, at(delay::TABLE, delay::TIME, 100.0)),
+        (delay::NOTE, 0.0),
+        (delay::FEEDBACK, at(delay::TABLE, delay::FEEDBACK, 50.0)),
+        (delay::PING, at(delay::TABLE, delay::PING, 1.0)),
+        (delay::MIX, at(delay::TABLE, delay::MIX, 100.0)),
+    ];
+    let mut device = Delay::new();
+    let lanes = move |_: usize, n: usize| table_block(delay::TABLE, n, &set);
+    let (left, right) = run_device(&mut device, lead, &signal, 128, &steady_120, &lanes);
+    for (step, want, first) in [
+        (1usize, 1.0f32, 0usize),
+        (2, 0.5, 1),
+        (3, 0.25, 0),
+        (4, 0.125, 1),
+    ] {
+        let at_frame = lead + step * 4_800;
+        let (near, far) = if first == 0 {
+            (&left, &right)
+        } else {
+            (&right, &left)
+        };
+        assert!(
+            (near[at_frame] - want).abs() < 1e-3,
+            "repeat {step} on its own side: {} (wanted {want})",
+            near[at_frame]
+        );
+        assert!(
+            far[at_frame].abs() < 1e-4,
+            "repeat {step} on the other side: {}",
+            far[at_frame]
+        );
+    }
+    // And the same audio at every block size: nothing in the bounce depends on
+    // where the blocks fall.
+    for block in [64usize, 97, 256] {
+        let mut device = Delay::new();
+        let lanes = move |_: usize, n: usize| table_block(delay::TABLE, n, &set);
+        let (a, b) = run_device(&mut device, lead, &signal, block, &steady_120, &lanes);
+        for (frame, ((l, r), (x, y))) in left.iter().zip(&right).zip(a.iter().zip(&b)).enumerate() {
+            assert!(
+                (l - x).abs() < 1e-5 && (r - y).abs() < 1e-5,
+                "block {block}, frame {frame}: {l} {r} against {x} {y}"
+            );
+        }
+    }
+}
+
+#[test]
+fn ping_off_keeps_the_two_sides_the_same() {
+    // With Ping down the device is what it always was: a sound on both sides
+    // repeats on both, and nothing crosses to the other side.
+    let lead = 2_000;
+    let mut signal = vec![0.0; 40_000];
+    signal[0] = 1.0;
+    let set = [
+        (delay::TIME, at(delay::TABLE, delay::TIME, 100.0)),
+        (delay::NOTE, 0.0),
+        (delay::FEEDBACK, at(delay::TABLE, delay::FEEDBACK, 50.0)),
+        (delay::PING, at(delay::TABLE, delay::PING, 0.0)),
+        (delay::MIX, at(delay::TABLE, delay::MIX, 100.0)),
+    ];
+    let mut device = Delay::new();
+    let lanes = move |_: usize, n: usize| table_block(delay::TABLE, n, &set);
+    let (left, right) = run_device(&mut device, lead, &signal, 128, &steady_120, &lanes);
+    assert!(
+        left.iter().zip(&right).all(|(l, r)| l == r),
+        "the two sides are the same frame for frame"
+    );
+    for (step, want) in [(1usize, 1.0f32), (2, 0.5), (3, 0.25)] {
+        let heard = left[lead + step * 4_800];
+        assert!(
+            (heard - want).abs() < 1e-3,
+            "repeat {step} on both sides: {heard} (wanted {want})"
+        );
+    }
+}
+
+#[test]
+fn a_step_of_ping_does_not_click() {
+    // A centred 311 Hz tone (a 100 ms repeat lands a third of a cycle away
+    // from it, so the two sides' repeats are never in phase) with Ping stepped
+    // from off to on and back mid-stream. The parameter glides, so no frame
+    // steps further than the tone's own one and a half times.
+    let tone: Vec<f32> = (0..24_000)
+        .map(|k| (std::f32::consts::TAU * 311.0 * k as f32 / RATE as f32).sin() * 0.4)
+        .collect();
+    let points = [
+        (0u32, 0.0f32),
+        (6_000, 0.0),
+        (6_001, 1.0),
+        (12_000, 1.0),
+        (12_001, 0.0),
+    ];
+    let set = [
+        (delay::TIME, at(delay::TABLE, delay::TIME, 100.0)),
+        (delay::NOTE, 0.0),
+        (delay::FEEDBACK, at(delay::TABLE, delay::FEEDBACK, 50.0)),
+        (delay::MIX, at(delay::TABLE, delay::MIX, 100.0)),
+    ];
+    let mut device = Delay::new();
+    let lanes = move |done: usize, n: usize| {
+        table_block(delay::TABLE, n, &set).lane(delay::PING, &window(&points, done, n))
+    };
+    let (heard, _) = run_device(&mut device, 0, &tone, 128, &steady_120, &lanes);
+    let worst = heard
+        .windows(2)
+        .map(|w| (w[1] - w[0]).abs())
+        .fold(0.0f32, f32::max);
+    assert!(worst < 0.05, "a step of {worst}");
+}
+
+#[test]
+fn the_repeat_clock_says_how_long_ago_sound_entered() {
+    // The card's picture draws its echoes by this (OR-8): a burst after
+    // silence starts the clock at its first loud frame, a sustained sound does
+    // not restart it, and a new burst after a gap does.
+    let (mut device, clock) = Delay::build();
+    assert_eq!(
+        clock.seconds(),
+        None,
+        "a device no sound has reached has no clock"
+    );
+    let frames = 20_096;
+    let mut left = vec![0.0; frames];
+    let mut right = left.clone();
+    for k in [1_000..1_400, 8_000..8_400] {
+        left[k.clone()].fill(0.5);
+        right[k].fill(0.5);
+    }
+    let block = 128;
+    let events = table_block(delay::TABLE, block, &[]).build();
+    let mut clocks = Vec::new();
+    for start in (0..frames).step_by(block) {
+        let n = block.min(frames - start);
+        let block = Block {
+            rate: RATE,
+            start: start as i64,
+            bpm: 120.0,
+            law: lumen_core::pan::PanLaw::Balance,
+            events: &events,
+        };
+        device.process(
+            &block,
+            Stereo {
+                left: &mut left[start..start + n],
+                right: &mut right[start..start + n],
+            },
+            None,
+        );
+        clocks.push((start + n, clock.seconds()));
+    }
+    let at = |end: usize| clocks[end / 128 - 1].1;
+    assert_eq!(at(896), None, "nothing has entered the lines yet");
+    // The burst starts at frame 1000, inside the block ending at 1024: the
+    // clock counts from that frame to the block's last one.
+    let first = at(1_024).expect("the entrance is seen");
+    assert!(
+        (first - 24.0 / RATE as f32).abs() < 1e-9,
+        "the clock starts at the entrance's frame: {first}"
+    );
+    let next = at(1_152).expect("and keeps running");
+    assert!(
+        (next - first - 128.0 / RATE as f32).abs() < 1e-9,
+        "a sound still entering does not restart it: {first} then {next}"
+    );
+    // By the second burst the clock has run to nearly a sixth of a second and
+    // starts again at its first loud frame.
+    let before = at(7_936).expect("the clock runs on through silence");
+    assert!(before > 0.14, "the clock runs on: {before}");
+    let second = at(8_064).expect("the second entrance is seen");
+    assert!(
+        (second - 64.0 / RATE as f32).abs() < 1e-9,
+        "a gap is a new entrance: {second}"
+    );
+    // A jump in playback clears it: what was ringing is gone.
+    device.reset();
+    assert_eq!(clock.seconds(), None, "a reset forgets the entrance");
+}
+
+#[test]
 fn the_loop_s_high_cut_darkens_the_repeats() {
     // An impulse, 100 ms a repeat, a strong feedback: the tenth echo has been
     // through the loop's high cut nine times, so at 500 Hz it is gone where an

@@ -771,6 +771,14 @@ impl Audio {
     }
 }
 
+/// Seconds a block the engine renders is heard after it is rendered: the audio
+/// device's own output latency plus the frames the project's longest path is
+/// compensated by, at `rate`. A card whose picture keeps time with the audio
+/// takes this off what its device publishes (OR-8); 0 when no device runs.
+pub fn heard_latency(output: u32, compensation: u32, rate: u32) -> f32 {
+    (u64::from(output) + u64::from(compensation)) as f32 / rate.max(1) as f32
+}
+
 impl Drop for Audio {
     /// Quitting never waits on a driver that has not answered: an audio
     /// system still opening is dropped on a thread of its own, which the
@@ -820,6 +828,17 @@ mod tests {
             other => panic!("expected Off, got {other:?}"),
         }
         assert!(audio.settings().is_none());
+    }
+
+    #[test]
+    fn the_heard_latency_is_the_device_s_plus_the_project_s_at_its_rate() {
+        // A device reporting 256 frames at 48 kHz is heard 5.33 ms after the
+        // block is rendered; a project compensated by 480 frames adds 10 ms.
+        assert!((heard_latency(256, 0, 48_000) - 5.333_333e-3).abs() < 1e-7);
+        assert!((heard_latency(256, 480, 48_000) - 15.333_333e-3).abs() < 1e-7);
+        assert_eq!(heard_latency(0, 0, 48_000), 0.0);
+        // A rate of nothing does not divide by zero.
+        assert_eq!(heard_latency(64, 0, 0), 64.0);
     }
 
     #[test]

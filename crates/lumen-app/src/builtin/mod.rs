@@ -19,6 +19,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use eframe::egui::Color32;
 use lumen_devices::analyzer;
+use lumen_devices::delay::Onset;
 use lumen_devices::dynamics::{compressor, limiter};
 use lumen_devices::params::{self, ParamInfo as Info};
 use lumen_devices::{Description, MeterReading, Reduction, eq, utility};
@@ -529,6 +530,12 @@ pub struct Builtins {
     /// What each meter said the frame it was last read: the card's face reads
     /// this, so one frame is one reading.
     readings: BTreeMap<Id, MeterReading>,
+    /// The repeat clock of each built-in device that publishes one (OR-8): the
+    /// time since sound last entered its line, written by the audio thread and
+    /// read by its card once a frame.
+    clocks: BTreeMap<Id, Onset>,
+    /// What each clock said the frame it was last read.
+    onsets: BTreeMap<Id, Option<f32>>,
     /// A reading a test or a screenshot set by hand, which the meter's own is
     /// not allowed to overwrite (as the sidechain light's `pretend` does).
     pretend: BTreeMap<Id, MeterReading>,
@@ -591,6 +598,22 @@ impl Builtins {
         for (&device, &reading) in &self.pretend {
             self.readings.insert(device, reading);
         }
+        for (&device, clock) in &self.clocks {
+            self.onsets.insert(device, clock.seconds());
+        }
+    }
+
+    /// Seconds from sound last entering `device`'s line to the frame it was
+    /// read at, less `latency` — the time the engine's render leads the ear by
+    /// (`crate::audio::heard_latency`) — so it is how long ago the person heard
+    /// it enter. `None` for a device with no such clock, and before any sound
+    /// has entered it (OR-8: Parallax's card starts its echoes from this).
+    pub fn since(&self, device: Id, latency: f32) -> Option<f32> {
+        self.onsets
+            .get(&device)
+            .copied()
+            .flatten()
+            .map(|since| (since - latency).max(0.0))
     }
 
     /// Sets what the meter of `device` reads, until it is cleared: for a
@@ -658,12 +681,15 @@ impl Builtins {
                     self.spectrums.insert(id, reader);
                     tap = Some(writer);
                 }
-                let Some((effect, meter)) = lumen_devices::effect_built(name, tap) else {
+                let Some((effect, published)) = lumen_devices::effect_built(name, tap) else {
                     continue;
                 };
                 self.attached.insert(id, name.to_owned());
-                if let Some(meter) = meter {
+                if let Some(meter) = published.meter {
                     self.meters.insert(id, meter);
+                }
+                if let Some(clock) = published.onset {
+                    self.clocks.insert(id, clock);
                 }
                 // A device the pool refused is tried again when the project
                 // changes; if the pool refuses it again, `take_refused` says
@@ -714,6 +740,8 @@ impl Builtins {
             self.params.remove(&id);
             self.latency.remove(&id);
             self.meters.remove(&id);
+            self.clocks.remove(&id);
+            self.onsets.remove(&id);
             self.spectrums.remove(&id);
             // A queue with no room leaves the device playing for a block
             // more, which is the fallback's silence until the plan drops it.
@@ -822,6 +850,23 @@ pub fn attach_all(
     Ok(())
 }
 
+impl crate::App {
+    /// Seconds the sound the engine renders reaches the ear after it is
+    /// rendered: the audio device's output latency and the delay compensation
+    /// the project's longest path asks for. A card whose picture keeps time
+    /// with the audio takes it off what its device publishes (OR-8).
+    pub(crate) fn heard_latency(&self) -> f32 {
+        let Some(info) = self.transport.audio.info.as_ref() else {
+            return 0.0;
+        };
+        crate::audio::heard_latency(
+            info.output_latency,
+            self.transport.audio.mixer.compensation().frames,
+            info.sample_rate,
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -902,6 +947,56 @@ mod tests {
         );
         assert!(text(&plugin, 1, 0.5).is_none());
         assert!(choices(&plugin, 1).is_empty());
+    }
+
+    #[test]
+    fn a_delay_s_repeat_clock_is_read_once_a_frame() {
+        use lumen_devices::Effect as _;
+        // OR-8: what the device publishes reaches the card's data, with the
+        // latency between the engine's render and the ear taken off.
+        let mut builtins = Builtins::default();
+        let id = Id(9);
+        let (mut device, clock) = lumen_devices::delay::Delay::build();
+        builtins.clocks.insert(id, clock);
+        builtins.read_meters();
+        assert_eq!(builtins.since(id, 0.0), None, "nothing has entered it");
+        assert_eq!(builtins.since(Id(10), 0.0), None, "a device with no clock");
+        // A block of sound: the clock starts at its frame 64 and runs to the
+        // block's last one.
+        let mut left = vec![0.0; 128];
+        let mut right = vec![0.0; 128];
+        left[64] = 0.5;
+        right[64] = 0.5;
+        let mut events = lumen_devices::ParamBlock::new();
+        events.start(128);
+        let block = lumen_devices::Block {
+            rate: 48_000,
+            start: 0,
+            bpm: 120.0,
+            law: lumen_core::pan::PanLaw::Balance,
+            events: &events,
+        };
+        device.process(
+            &block,
+            lumen_devices::Stereo {
+                left: &mut left,
+                right: &mut right,
+            },
+            None,
+        );
+        builtins.read_meters();
+        let since = builtins.since(id, 0.0).expect("the entrance is seen");
+        assert!(
+            (since - 64.0 / 48_000.0).abs() < 1e-9,
+            "the clock reaches the card: {since}"
+        );
+        // The ear hears it later: the latency comes off, and never below zero.
+        let later = builtins.since(id, 0.000_5).expect("still seen");
+        assert!(
+            (later - (64.0 / 48_000.0 - 0.000_5)).abs() < 1e-9,
+            "{later}"
+        );
+        assert_eq!(builtins.since(id, 1.0), Some(0.0));
     }
 
     #[test]
