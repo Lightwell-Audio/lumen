@@ -73,145 +73,263 @@ use transport::Transport;
 
 pub struct App {
     document: document::Document,
+
     synced: Option<u64>,
+
     show_history: bool,
+
     popped_pointer_down: bool,
+
     tap: app::tap_tempo::TapRun,
+
     arrangement: arrangement::Arrangement,
+
     controllers: app::controllers::Controllers,
+
     recorder: recording::auto_record::Recorder,
+
     lane_commits: app::auto_recording::Commits,
+
     gestures_open:
         std::collections::BTreeSet<(lumen_project::model::Id, lumen_project::automation::Target)>,
+
     toast: Option<(String, Instant)>,
+
     dialog: Option<std::sync::mpsc::Receiver<FileDialog>>,
+
     dialog_answers: Option<std::collections::VecDeque<Vec<PathBuf>>>,
     saving: Option<std::sync::mpsc::Receiver<Result<files::Saved, String>>>,
     opening: Option<std::sync::mpsc::Receiver<Result<files::Opened, String>>>,
+
     opening_mark: u64,
+
     checks: Option<(
         std::sync::mpsc::Sender<app::handover::Checked>,
         std::sync::mpsc::Receiver<app::handover::Checked>,
     )>,
+
     prompt: Option<Next>,
+
     prompt_enter: bool,
+
     after_save: Option<Next>,
+
     save_waiting: Option<app::copies::Waiting>,
+
     save_dialog: bool,
+
     collecting: Option<app::copies::Running>,
+
     templates: app::templates::Templates,
+
     revert: app::revert::Revert,
+
     drum_choice: Option<app::drum_choice::Choice>,
+
     drum_map: app::drum_map_window::State,
+
     project_settings: app::project_settings::ProjectSettings,
     export: app::audio_export::Export,
+
     instance: Option<instance::Instance>,
+
     holding: Option<app::handover::Holding>,
+
     association: association::Association,
+
     association_status: app::association::Reported,
+
     left_out: Option<(PathBuf, usize)>,
+
     file_notice: Option<String>,
+
     quitting: bool,
+
     owner: Option<owner::Owner>,
+
     autosave: Option<autosave::Autosave>,
+
     leftover: Option<autosave::Leftover>,
+
     leftovers: app::recovery::Leftovers,
+
     crash_report: Option<PathBuf>,
     crash_test: Option<crash::Test>,
+
     crash_dir: Option<PathBuf>,
+
     recovering: Option<autosave::Leftover>,
     transport: Transport,
+
     midi: midi::Midi,
+
     midi_out: Option<midi::out::Output>,
+
     live_keys: Option<live::LiveKeys>,
+
     record: app::record::Record,
+
     audition: audition::Audition,
+
     midi_ports_seen: u64,
+
     keyboard: app::keyboard::ComputerKeyboard,
     midi_checked: Option<(u64, u64, u64)>,
+
     lanes: lanes::Lanes,
+
     drop_target: Ticks,
+
     drop_into: document::Places,
+
     file_drop: Option<Vec<PathBuf>>,
+
     midi_reader: midi::files::Reader,
+
     browser: browser::Browser,
+
     media_pool: app::media_pool::MediaPool,
+
     plugins: plugins::Plugins,
+
     hosting: hosting::Hosting,
+
     builtin: builtin::Builtins,
+
+    sampler_load: builtin::samples::Loading,
+
     safe: app::safe_mode::SafeMode,
+
     chain: chain::Chain,
+
     midi_exporting: Option<std::sync::mpsc::Receiver<Result<midi::files::Exported, String>>>,
+
     normalizing: Option<app::clip_normalize::Running>,
     consolidating: Option<app::clip_consolidate::Running>,
+
     bounce_waiting: Option<app::clip_bounce::Waiting>,
     bouncing: Option<app::clip_bounce::Running>,
     show_bounce: bool,
+
     freeze_waiting: Option<app::track_freeze::Waiting>,
     freezing: Option<app::track_freeze::Running>,
+
     midi_writing: Option<std::sync::mpsc::Receiver<Result<PathBuf, String>>>,
+
     tempo_offer: Option<app::midi_files::TempoOffer>,
+
     song: song_lanes::SongLanes,
+
     drag_pointer: Option<egui::Pos2>,
+
     system_cursor: Option<egui::Pos2>,
     settings: settings::Settings,
     settings_path: Option<PathBuf>,
+
     user_dir: Option<PathBuf>,
+
     settings_changed: Option<Instant>,
+
     disk_scene: Option<app::streaming::SceneKey>,
+
     slow_disk: Option<std::time::Duration>,
+
     cache: app::cache_folder::CacheFolder,
+
     settings_writer: settings::Writer,
     show_browser: bool,
     show_detail: bool,
+
     detail_tab: app::detail::DetailTab,
+
     detail: app::detail::DetailState,
+
     note_editor: note_editor::NoteEditor,
+
     drum_sounding: std::cell::RefCell<app::drum_routing::Sounding>,
+
     audio_editor: audio_editor::AudioEditor,
+
     follow_jobs: app::follow_detect::Jobs,
+
     browser_size: f32,
     detail_size: f32,
+
     toggle_detail_requested: bool,
+
     keymap: commands::Keymap,
+
     palette: app::palette::Palette,
+
     shortcuts: app::shortcuts::Shortcuts,
+
     preferences: preferences::Window,
+
     welcome: welcome::Welcome,
+
     rebind: Option<app::shortcuts::Rebind>,
+
     panes: app::panes::Panes,
+
     nav: app::navigate::Nav,
+
     grid: lumen_core::grid::Grid,
+
     locators: app::locators::Locators,
+
     hint: Option<String>,
+
     info: Option<app::info::Info>,
     info_shown: Option<app::info::Info>,
+
     canvas: egui::Rect,
+
     clipboard: Option<lumen_project::edit::Clipboard>,
+
     typing: bool,
+
     clipboard_keys: app::clipboard_keys::Pending,
+
     meters_at: Option<f64>,
+
     inputs: app::audio_inputs::InputSync,
+
     mark: widgets::mark::Look,
+
     menu_for: app::editing::MenuFor,
+
     clip_props: app::clip_card::ClipProps,
     smoke_test_frames: Option<u32>,
+
     quit_at: Option<Instant>,
+
     screenshot: Option<PathBuf>,
     started: Instant,
+
     autoplay: Option<Duration>,
     autoplay_count: u32,
+
     test_latency: Option<f64>,
+
     save_as: Option<PathBuf>,
+
     traced: Option<bool>,
+
     appearance_override: bool,
     saved_appearance: settings::Appearance,
+
     min_window: Option<egui::Vec2>,
+
     min_window_monitor: Option<egui::Vec2>,
+
     min_window_ppp: Option<f32>,
+
     system_theme: Option<egui::Theme>,
+
     banner: Option<(String, bool)>,
+
     bench: Option<bench::Bench>,
+
     callback_bench: Option<callback_bench::Callback>,
     callback_report: Option<Result<callback_bench::Report, String>>,
 }
@@ -228,6 +346,7 @@ pub(crate) fn empty_project() -> Project {
         }],
         meter: lumen_project::model::constant_meter(TimeSignature::FOUR_FOUR),
         tracks: Vec::new(),
+
         master: std::sync::Arc::new(lumen_project::model::Track::master(
             lumen_project::model::Id(0),
         )),
@@ -259,6 +378,7 @@ impl eframe::App for App {
         if let Some(autosave) = &mut self.autosave {
             autosave.clear();
         }
+
         self.close_take_notes();
         self.safe.closing();
         self.hosting.shutdown();
@@ -283,6 +403,7 @@ impl eframe::App for App {
                 trace::log(|| format!("input: key {key:?}"));
             }
         }
+
         if self.rebind.is_some() {
             return;
         }
@@ -308,6 +429,7 @@ impl eframe::App for App {
                 return true;
             }
             toggle |= pressed;
+
             false
         });
         self.toggle_detail_requested |= toggle;
@@ -318,6 +440,7 @@ impl eframe::App for App {
             self.owner = owner::Owner::of(frame);
         }
         let ctx = ui.ctx().clone();
+
         widgets::wheel::route(&ctx);
         self.transport.advance_playhead(ctx.input(|i| i.time));
         self.follow_file_drag(&ctx);
@@ -374,6 +497,7 @@ impl eframe::App for App {
                     self.drop_into
                 )
             });
+
             if let Some(project) = dropped.iter().position(|p| files::is_project(p)) {
                 let left = dropped.len() - 1;
                 let project = dropped.swap_remove(project);
@@ -395,6 +519,7 @@ impl eframe::App for App {
         self.poll_audio_export(&ctx);
         self.poll_freeze(&ctx);
         self.poll_media_pool(&ctx);
+        self.poll_sampler(&ctx);
         self.poll_browser_files(&ctx);
         self.say_frozen_refusals();
         self.plugins.poll(&self.settings.plugins, &ctx);
@@ -407,6 +532,7 @@ impl eframe::App for App {
             .info
             .as_ref()
             .map_or(0, |info| info.buffer_frames);
+
         self.arrangement.auto.at = self.transport.position();
         self.document
             .set_lock_envelopes(self.settings.editing.lock_envelopes);
@@ -428,6 +554,7 @@ impl eframe::App for App {
             &mut self.transport.audio.mixer,
             &mut self.lanes.devices.hosted,
         );
+
         if self
             .builtin
             .update(self.document.project(), &mut self.transport.audio.mixer)
@@ -456,6 +583,7 @@ impl eframe::App for App {
                 latent.insert(first.id, frames);
             }
         }
+
         self.update_streaming();
         let cue = self.cue();
         let inputs = self.listen_inputs();
@@ -489,6 +617,7 @@ impl eframe::App for App {
         if ctx.system_theme() != self.system_theme {
             self.apply_appearance(&ctx);
         }
+
         if self.window_minimum_stale(&ctx) {
             self.apply_window_minimum(&ctx);
         }
@@ -561,7 +690,9 @@ impl eframe::App for App {
                 }
             });
         }
+
         self.draw_info_line(ui);
+
         let mut browser_size = self.browser_size;
         panels::sliding(
             ui,
@@ -577,6 +708,7 @@ impl eframe::App for App {
             },
         );
         self.browser_size = browser_size;
+
         if std::mem::take(&mut self.chain.grow)
             && let Some(height) = self.chain.height
         {
@@ -584,12 +716,14 @@ impl eframe::App for App {
         }
         let mut detail_size = self.detail_size;
         let mut detail_content = None;
+
         let devices = self.detail_tab == app::detail::DetailTab::Devices;
         let detail_min = if devices {
             self.chain.least_panel()
         } else {
             arrangement::strips::min_height() + DETAIL_CHROME
         };
+
         let detail_max = ui.available_rect_before_wrap().height() - ARRANGEMENT_MIN;
         panels::sliding(
             ui,
@@ -603,7 +737,9 @@ impl eframe::App for App {
             |ui| {
                 let rect = ui.max_rect();
                 self.panes.anchor(ui, app::panes::Pane::Detail, rect);
+
                 self.detail_tabs(ui);
+
                 let content = ui.available_rect_before_wrap();
                 ui.advance_cursor_after_rect(content);
                 detail_content = Some(content);
@@ -619,6 +755,7 @@ impl eframe::App for App {
         }
         self.note_editor_window(&ctx);
         self.audio_editor_window(&ctx);
+
         widgets::paint_gone(&ctx);
         self.typing = ctx.text_edit_focused();
 
@@ -641,7 +778,9 @@ impl eframe::App for App {
 }
 
 pub(crate) const BROWSER_MIN: f32 = 220.0;
+
 pub(crate) const DETAIL_CHROME: f32 = 48.0;
+
 const ARRANGEMENT_MIN: f32 = 180.0;
 
 pub fn run() -> eframe::Result {
@@ -653,6 +792,7 @@ pub fn run() -> eframe::Result {
     {
         std::process::exit(probe::run_helper(clsid));
     }
+
     let instance = instance::start(&args);
     let mut launch = Launch::from_args();
     launch.instance = instance;
@@ -668,6 +808,7 @@ pub fn run() -> eframe::Result {
             .with_icon(brand::window_icon()),
         ..Default::default()
     };
+
     if launch.bench.is_some() {
         options.wgpu_options.surface.present_mode = eframe::wgpu::PresentMode::AutoNoVsync;
         if let Some((w, h)) = launch.bench_size {
@@ -677,6 +818,7 @@ pub fn run() -> eframe::Result {
                 .with_position([0.0, 0.0]);
         }
     }
+
     if let eframe::egui_wgpu::WgpuSetup::CreateNew(setup) = &mut options.wgpu_options.wgpu_setup {
         let base = setup.device_descriptor.clone();
         setup.device_descriptor = Arc::new(move |adapter| {

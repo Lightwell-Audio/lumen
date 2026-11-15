@@ -31,6 +31,11 @@ pub(crate) enum FileDialog {
     Place(Option<PathBuf>),
     DrumMapExport(Option<PathBuf>),
     DrumMapImport(Option<PathBuf>),
+
+    SamplerFiles {
+        paths: Vec<PathBuf>,
+        device: lumen_project::model::Id,
+    },
 }
 
 thread_local! {

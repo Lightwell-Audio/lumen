@@ -461,6 +461,18 @@ pub mod alpha {
     pub const STEP_PAST_END: f32 = 0.35;
 }
 
+pub mod glow {
+    use super::Color32;
+
+    pub fn additive(lit: Color32) -> Color32 {
+        Color32::from_rgba_premultiplied(lit.r(), lit.g(), lit.b(), 0)
+    }
+
+    pub const STOPS: [f32; 4] = [0.0, 0.35, 0.7, 1.0];
+    pub const ALPHAS: [f32; 4] = [1.0, 0.42, 0.10, 0.0];
+    pub const SIDES: usize = 24;
+}
+
 pub fn meter(db: f32, base: Color32) -> Color32 {
     let c = p();
     if db > 0.0 {
@@ -536,6 +548,11 @@ pub mod personality {
 
     pub const REVERB_CORE: Color32 = Color32::from_rgb(0xFF, 0xF1, 0xD6);
     pub const REVERB_WARM: Color32 = Color32::from_rgb(0xFF, 0xC0, 0x8A);
+
+    pub const SHUTTER: Color32 = Color32::from_rgb(0x6F, 0xA8, 0xFF);
+
+    #[allow(dead_code, reason = "read by Shutter's face when it is built")]
+    pub const SHUTTER_DEEP: Color32 = Color32::from_rgb(0x1F, 0x6F, 0xD1);
 
     pub const GRAVITY: Color32 = Color32::from_rgb(0xB4, 0x6C, 0xFF);
 

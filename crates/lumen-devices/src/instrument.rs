@@ -1,6 +1,9 @@
+use std::sync::Arc;
 use std::time::Instant;
 
 use lumen_core::midi::Event;
+
+use crate::sampler::Sound;
 
 pub trait Instrument: Send {
     fn render(&mut self, rate: u32, events: &[Event], left: &mut [f32], right: &mut [f32]);
@@ -33,6 +36,10 @@ pub trait Instrument: Send {
     }
 
     fn automate(&mut self, _params: &crate::ParamBlock) {}
+
+    fn load_sound(&mut self, _sound: Arc<Sound>) -> Option<Arc<Sound>> {
+        None
+    }
 
     fn begin(&mut self, _rate: u32, _frames: usize, _events: &[Event]) -> bool {
         false

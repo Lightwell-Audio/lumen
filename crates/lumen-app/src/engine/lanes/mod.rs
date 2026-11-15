@@ -32,6 +32,7 @@ pub struct Handles<'a> {
     pub clips: &'a mut ClipsHandle,
     pub midi: &'a mut MidiHandle,
     pub mixer: &'a mut MixerHandle,
+
     pub hosting: &'a mut crate::hosting::Hosting,
 }
 
@@ -40,19 +41,33 @@ const HOLD_LIMIT: std::time::Duration = std::time::Duration::from_secs(2);
 #[derive(Default)]
 pub struct Lanes {
     pub library: Library,
+
+    pub samples: crate::builtin::samples::Library,
+
     pending: Vec<(u64, Ticks)>,
+
     before: HashMap<u64, (DropInto, u64)>,
+
     landing: Vec<Landing>,
+
     drops: u64,
+
     built: Option<u64>,
+
     dirty: bool,
+
     streamed: (u64, Vec<Clip>),
+
     sent_streams: Vec<Clip>,
     waiting: Vec<Clip>,
+
     playhead: Option<i64>,
     held_since: Option<std::time::Instant>,
+
     warped: std::sync::Mutex<Option<WarpedStreams>>,
+
     masked: Vec<crate::midi::play::Replacing>,
+
     midi_built: Option<(
         u64,
         crate::midi::play::Inputs,
@@ -61,19 +76,52 @@ pub struct Lanes {
     )>,
     midi_dirty: bool,
     midi_cache: crate::midi::play::Cache,
+
     pub(crate) midi_ports: crate::midi::play::PortTable,
+
     routed: Option<(u64, crate::routing::Cue, crate::routing::Devices, u32)>,
+
     pub(crate) devices: crate::routing::Devices,
+
     notice: Option<String>,
+
     seen: HashMap<u64, f64>,
+
     revision: u64,
+
     reversed_built: Option<(u64, u64)>,
+
     rate: u32,
 }
 
 impl Lanes {
     pub fn midi_changed(&mut self, changed: bool) {
         self.midi_dirty |= changed;
+    }
+
+    fn follow_samples(&mut self, doc: &Document, rate: u32) -> bool {
+        self.samples.update(rate);
+
+        for device in doc
+            .project()
+            .tracks
+            .iter()
+            .flat_map(|track| track.devices.iter())
+        {
+            let Some(held) = device.sampler() else {
+                continue;
+            };
+            for id in held.media() {
+                if self.samples.get(id).is_some() {
+                    continue;
+                }
+                if let Some(path) = doc.media_files.get(&id) {
+                    self.samples.load(id, path.clone(), rate);
+                }
+            }
+        }
+
+        self.samples.take_arrived()
     }
 
     pub fn masked_tracks(&self) -> Vec<Id> {
@@ -179,6 +227,7 @@ impl Lanes {
         if self.dirty || self.built != Some(doc.state()) || self.masked != masked {
             let sounding = lumen_project::edit::freeze::played(doc.project());
             let list = self.engine_clips(&without_replaced(sounding, &masked), rate);
+
             if self.hold_for_warps(&list, doc.project(), rate) {
                 self.dirty = true;
                 return;
@@ -226,6 +275,7 @@ impl Lanes {
             self.held_since = None;
             return false;
         }
+
         let ids = |clips: &[Clip]| -> Vec<(u64, Option<u64>)> {
             clips
                 .iter()
@@ -310,6 +360,13 @@ impl Lanes {
         }
 
         self.send_clips(doc, clips, rate, inputs);
+
+        self.midi_dirty |= self.follow_samples(doc, rate);
+
+        if self.samples.has_stale() {
+            self.samples.release_stale();
+        }
+
         let midi_wanted = (doc.state(), inputs, rate, &self.devices.overridden);
         if self.midi_dirty
             || self
@@ -326,8 +383,14 @@ impl Lanes {
                 hosting,
             );
             crate::midi::play::with_lanes(&mut tracks, &sounding, &self.devices.overridden, rate);
+
+            let project = &sounding;
+            crate::midi::play::attach_sounds(&mut tracks, project, &|device, map| {
+                self.samples.sound(device, map)
+            });
             self.midi_dirty = match midi.set(tracks) {
                 Ok(()) => false,
+
                 Err(tracks) => {
                     hosting.reclaim(tracks);
                     true
@@ -340,6 +403,7 @@ impl Lanes {
                 self.devices.overridden.clone(),
             ));
         }
+
         let wanted = (doc.state(), cue.clone(), self.devices.clone(), rate);
         if !self.dirty && self.routed.as_ref() != Some(&wanted) {
             let sounding = lumen_project::edit::freeze::played(doc.project());
@@ -350,7 +414,9 @@ impl Lanes {
                 rate,
             )) {
                 Ok(true) => self.routed = Some(wanted),
+
                 Ok(false) => {}
+
                 Err(e) => {
                     debug_assert!(false, "routing refused: {e}");
                     eprintln!("routing refused: {e}");
@@ -364,6 +430,7 @@ impl Lanes {
         let mut imported = Vec::new();
         let library = &self.library;
         let before = &mut self.before;
+
         let drop_of = |id: &u64| before.get(id).map_or(0, |b| b.1);
         let loading = self
             .pending
@@ -538,7 +605,9 @@ impl Lanes {
 
 enum Load<F> {
     Loading,
+
     Gone,
+
     Ready(F),
 }
 
@@ -630,13 +699,17 @@ mod tests {
             let sounding = without_replaced(std::borrow::Cow::Borrowed(doc.project()), &replacing);
             engine_clips(&sounding, 48_000, |_| Some((audio.clone(), 48_000)))
         };
+
         let open = cut(None);
         assert_eq!(one(&open, first), 1);
         assert_eq!(length(&open, first), 24_000);
+
         let punched = cut(Some(Ticks::quarters(3)));
         assert_eq!(one(&punched, first), 2);
         assert_eq!(length(&punched, first), 48_000);
+
         assert_eq!(length(&open, second), length(&whole, second));
+
         let none = without_replaced(std::borrow::Cow::Borrowed(doc.project()), &[]);
         assert!(matches!(none, std::borrow::Cow::Borrowed(_)));
     }
@@ -700,6 +773,7 @@ mod tests {
     fn clips_play_whole_on_their_track_at_their_own_gain() {
         let (mut doc, audio) = setup(1);
         let id = doc.project().tracks[0].id;
+
         doc.set_volume(id, -6.0);
         let clips = played(&doc, &audio, 48_000);
         assert_eq!(clips.len(), 1);
@@ -710,6 +784,7 @@ mod tests {
     #[test]
     fn fades_and_loops_reach_the_engine_in_frames() {
         let (mut doc, audio) = setup(1);
+
         doc.apply("shape", None, |p| {
             let track = Arc::make_mut(&mut p.tracks[0]);
             let clip = Arc::make_mut(&mut track.clips[0]);
@@ -735,6 +810,7 @@ mod tests {
         assert_eq!(clip.shape.fade_out.offset, 6_000);
         assert_eq!(clip.shape.fade_out.span, 24_000);
         assert_eq!(clip.shape.fade_out.curve, lumen_core::curve::Curve::S_CURVE);
+
         doc.apply("unloop", None, |p| {
             let track = Arc::make_mut(&mut p.tracks[0]);
             Arc::make_mut(&mut track.clips[0]).loop_length = None;
@@ -1066,6 +1142,7 @@ mod tests {
     fn envelopes_reach_the_engine_on_the_clips_own_clock() {
         use lumen_project::envelope::Kind;
         let (mut doc, audio) = setup(1);
+
         with_envelopes(&mut doc, |clip| {
             clip.start = Ticks::quarters(2);
             clip.envelopes
@@ -1077,8 +1154,10 @@ mod tests {
         assert_eq!(gain.points()[0].at, 0, "frame 0 is the clip's first frame");
         assert_eq!(gain.value_at(48_000), -12.0);
         assert_eq!(gain.value_at(24_000), -6.0);
+
         let (_, law) = clip.envelope.pan.as_ref().unwrap();
         assert_eq!(*law, lumen_core::pan::PanLaw::Balance);
+
         with_envelopes(&mut doc, |clip| clip.envelopes = Default::default());
         assert!(played(&doc, &audio, 48_000)[0].envelope.is_empty());
     }
@@ -1103,6 +1182,7 @@ mod tests {
     fn a_looping_clips_envelope_keeps_hidden_source_knots_and_tempo_shape() {
         use lumen_project::envelope::Kind;
         let (mut doc, audio) = setup(1);
+
         with_envelopes(&mut doc, |clip| {
             clip.length = Ticks::quarters(8);
             clip.loop_length = Some(Ticks::quarters(2));
@@ -1114,9 +1194,11 @@ mod tests {
             .gain
             .clone()
             .unwrap();
+
         assert!(gain.points().iter().any(|p| p.at == 144_000));
         assert_eq!(gain.value_at(24_000), -20.0);
         assert_eq!(gain.value_at(144_000), 0.0);
+
         doc.apply("slow", None, |p| p.tempo[0].bpm = 60.0);
         let slow = played(&doc, &audio, 48_000)[0]
             .envelope
@@ -1130,10 +1212,12 @@ mod tests {
     fn missing_audio_plays_nothing_and_track_mutes_are_the_mixers() {
         let (mut doc, audio) = setup(3);
         let ids: Vec<Id> = doc.project().tracks.iter().map(|t| t.id).collect();
+
         doc.set_mute(&ids[..1], true);
         doc.set_solo(&ids[2..], true, true);
         let clips = played(&doc, &audio, 48_000);
         assert!(clips.iter().all(|c| c.gain == 1.0));
+
         let none = engine_clips(doc.project(), 48_000, |_| None);
         assert!(none.is_empty());
     }
@@ -1141,11 +1225,13 @@ mod tests {
     #[test]
     fn offsets_follow_the_device_rate_and_the_clip_region_caps_the_length() {
         let (mut doc, audio) = setup(1);
+
         doc.apply("Trim", None, |p| {
             let clip = Arc::make_mut(&mut Arc::make_mut(&mut p.tracks[0]).clips[0]);
             if let ClipContent::Audio { offset, .. } = &mut clip.content {
                 *offset = 44_100;
             }
+
             clip.length = Ticks::quarters(1);
         });
         let clips = played(&doc, &audio, 44_100);
@@ -1172,6 +1258,7 @@ mod tests {
         let mut lanes = Lanes::default();
         let names = ["kick", "snare", "hat"];
         let ids: Vec<u64> = names.iter().map(|_| doc.fresh_id().0).collect();
+
         for (i, (&id, name)) in ids.iter().zip(names).enumerate() {
             let drop = if i < 2 { 1 } else { 2 };
             lanes.library.insert_loading(id, name, 48_000);
@@ -1274,12 +1361,14 @@ mod tests {
                 engine.process(48_000, &mut data, 2, 128);
                 out.extend((0..128).map(|i| data[2 * i]));
             };
+
             for _ in 0..100 {
                 block(&mut out);
             }
             let id = doc.project().tracks[0].id;
             let preset = Preset::ALL.iter().find(|p| p.id() == to).copied();
             doc.set_instrument(&[id], preset);
+
             update(&mut lanes, &mut doc);
             for _ in 0..(24_000 + 12_000) / 128 - 100 {
                 block(&mut out);

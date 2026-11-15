@@ -246,6 +246,7 @@ impl App {
                 file: dir.join(format!("bounced-{}.wav", media.0)),
                 media,
                 unread: audio.unread(),
+                samples: self.lanes.samples.snapshot(),
             });
         }
         self.bouncing = Some(Running {

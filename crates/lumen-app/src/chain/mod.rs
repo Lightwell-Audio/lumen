@@ -3,6 +3,7 @@ mod art;
 mod card;
 pub(crate) mod editor;
 mod face;
+pub(crate) use face::cadence;
 mod geometry;
 pub(crate) mod outputs;
 mod params;
