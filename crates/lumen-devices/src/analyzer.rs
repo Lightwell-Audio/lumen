@@ -397,8 +397,8 @@ pub struct Display {
 }
 
 impl Display {
-    /// A picture across `low` to `high` hertz: [`POINTS`] bins at the face's
-    /// own axis, and three times that for an axis more than three decades wide.
+    /// A picture across `low` to `high` hertz, one bin every [`PER_OCTAVE`]th
+    /// of an octave: [`POINTS`] of them on the face's own axis.
     pub fn new((low, high): (f32, f32)) -> Self {
         let low = low.max(1.0);
         let high = high.max(low * 2.0);

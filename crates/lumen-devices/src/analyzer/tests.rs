@@ -1,4 +1,3 @@
-
 use super::*;
 
 fn sine(hz: f32, rate: f32, frames: usize, amplitude: f32) -> Vec<f32> {
