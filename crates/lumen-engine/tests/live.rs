@@ -1,9 +1,3 @@
-//! Live MIDI through the engine (M5 slice 2): messages from a live input
-//! land on their device frame on the tracks that listen, stopped or
-//! playing; note-offs end only what this track holds; and every way a
-//! track stops listening lets go of its live notes. A probe instrument
-//! writes +1 for a note-on and -1 for a note-off at its exact frame.
-
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
@@ -62,7 +56,6 @@ impl Instrument for Probe {
     }
 }
 
-/// A live input the test fills: messages wait until their frame comes.
 #[derive(Clone, Default)]
 struct Script(Arc<Mutex<VecDeque<LiveIn>>>);
 
@@ -173,7 +166,6 @@ fn rig(tracks: Vec<MidiTrack>, log: &Log) -> Rig {
 }
 
 impl Rig {
-    /// Renders `frames` in blocks of `block`; returns the left channel.
     fn run(&mut self, frames: usize, block: usize) -> Vec<f32> {
         let mut out = Vec::with_capacity(frames);
         let mut data = vec![0.0; 2 * block];
@@ -226,7 +218,6 @@ fn live_notes_play_on_their_frame_while_stopped_and_while_playing() {
 
     rig.transport.send(Command::Play).unwrap();
     rig.run(128, 128);
-    // Frames count on from the 4,224 already rendered.
     rig.live.send(5_000, KEYS, Msg::note_on(0, 62, 90));
     rig.live.send(6_543, KEYS, Msg::note_off(0, 62));
     let playing = impulses(&rig.run(4_096, 100));
@@ -282,8 +273,6 @@ fn a_live_note_and_a_clip_note_on_one_key_each_end_by_their_own_off() {
     };
     let mut rig = rig(vec![track(A, &log, keys_on(None), vec![clip])], &log);
     rig.transport.send(Command::Play).unwrap();
-    // The clip's note is held from 24,000 to 48,000; the live one from
-    // 30,000 to 40,000.
     rig.live.send(30_000, KEYS, Msg::note_on(0, 60, 100));
     rig.live.send(40_000, KEYS, Msg::note_off(0, 60));
     let found = impulses(&rig.run(50_000, 128));
@@ -313,7 +302,6 @@ fn an_audition_sounds_on_its_track_alone_and_never_ends_another_sources_note() {
         }]),
         controls: control_list(Vec::new()),
     };
-    // A listens to the keys and has the clip; B listens to nothing.
     let mut rig = rig(
         vec![
             track(A, &log, keys_on(None), vec![clip]),
@@ -322,12 +310,7 @@ fn an_audition_sounds_on_its_track_alone_and_never_ends_another_sources_note() {
         &log,
     );
     rig.transport.send(Command::Play).unwrap();
-    // The clip's note on pitch 60 runs 24,000 to 48,000; a held key on it
-    // 26,000 to 46,000. Previews of pitch 60 on A: 30,000 to 32,000, and
-    // 47,000 to 50,000 (across the clip's end). One on B, which does not
-    // listen: 31,000 to 33,000.
     rig.live.send(26_000, KEYS, Msg::note_on(0, 60, 100));
-    // Previews play on channel 15, apart from the clip's channel 0.
     rig.live.audition(30_000, A, Msg::note_on(15, 60, 80));
     rig.live.audition(31_000, B, Msg::note_on(15, 60, 80));
     rig.live.audition(32_000, A, Msg::note_off(15, 60));
@@ -336,7 +319,6 @@ fn an_audition_sounds_on_its_track_alone_and_never_ends_another_sources_note() {
     rig.live.audition(47_000, A, Msg::note_on(15, 60, 80));
     rig.live.audition(50_000, A, Msg::note_off(15, 60));
     let found = impulses(&rig.run(52_000, 128));
-    // Every source ends its own note, at its own frame.
     assert_eq!(
         found,
         vec![
@@ -358,14 +340,12 @@ fn an_audition_sounds_on_its_track_alone_and_never_ends_another_sources_note() {
     );
     assert_eq!(rig.held_live(A), 0);
     assert_eq!(rig.held_live(B), 0);
-    // A stray off with nothing sounding sends nothing.
     let before = notes_of(&rig.log(), A).len();
     rig.live.audition(52_100, A, Msg::note_off(15, 60));
     rig.run(512, 128);
     assert_eq!(notes_of(&rig.log(), A).len(), before);
 }
 
-/// The real synth, reporting how many of its voices sound after each block.
 struct Counted {
     synth: Synth,
     voices: Arc<Mutex<usize>>,
@@ -426,8 +406,6 @@ fn a_preview_of_a_clip_notes_key_on_the_audition_channel_leaves_the_clip_note_so
     let log = Log::default();
     let mut rig = rig(vec![track.listening(keys_on(None))], &log);
     rig.transport.send(Command::Play).unwrap();
-    // The clip's note on pitch 60 runs from 24,000 to 192,000. A preview of
-    // pitch 60 on the audition channel runs from 30,000 to 32,000.
     rig.live.audition(30_000, A, Msg::note_on(15, 60, 80));
     rig.live.audition(32_000, A, Msg::note_off(15, 60));
     rig.run(31_000, 128);
@@ -448,13 +426,10 @@ fn a_preview_of_a_clip_notes_key_on_the_audition_channel_leaves_the_clip_note_so
 fn a_note_played_and_let_go_within_one_frame_is_not_left_sounding() {
     let log = Log::default();
     let mut rig = rig(vec![track(A, &log, Listen::OFF, Vec::new())], &log);
-    // Events on one frame order offs first, so an on and off on one frame
-    // (a preview retriggered at once) must keep the off after its on.
     rig.run(256, 128);
     rig.live.audition(300, A, Msg::note_on(0, 60, 80));
     rig.live.audition(300, A, Msg::note_off(0, 60));
     assert_eq!(impulses(&rig.run(512, 128)), vec![(44, 1), (45, -1)]);
-    // And on the last frame of a part.
     rig.live.audition(1_279, A, Msg::note_on(0, 61, 80));
     rig.live.audition(1_279, A, Msg::note_off(0, 61));
     assert_eq!(impulses(&rig.run(512, 128)), vec![(510, 1), (511, -1)]);
@@ -464,10 +439,6 @@ fn a_note_played_and_let_go_within_one_frame_is_not_left_sounding() {
 fn messages_landing_on_one_frame_keep_the_order_they_came_in() {
     let log = Log::default();
     let mut rig = rig(vec![track(A, &log, Listen::OFF, Vec::new())], &log);
-    // A slow device takes several of the app's messages in one block, all
-    // on one frame: a key struck, let go, struck and let go, and a chord
-    // swapped for another that shares a key. Each note-on must follow the
-    // note-off before it, whatever the sort of one frame's events.
     rig.run(256, 128);
     let key = |on: bool, k: u8| {
         if on {
@@ -498,7 +469,6 @@ fn messages_landing_on_one_frame_keep_the_order_they_came_in() {
         .into_iter()
         .map(|(on, _, k)| (on, k))
         .collect();
-    // Per key, the order sent: on, off, on, off, ...
     for k in [62, 64, 69] {
         let sent: Vec<bool> = sent
             .iter()
@@ -544,7 +514,6 @@ fn a_track_that_stops_listening_or_leaves_lets_go_of_its_live_notes() {
     rig.live.send(0, KEYS, Msg::note_on(0, 60, 100));
     rig.live.send(0, KEYS, Msg::controller(0, cc::SUSTAIN, 127));
     rig.run(256, 128);
-    // A stops listening, and B leaves the list.
     rig.midi
         .set(vec![track(A, &log, Listen::OFF, Vec::new())])
         .ok()
@@ -558,7 +527,6 @@ fn a_track_that_stops_listening_or_leaves_lets_go_of_its_live_notes() {
         "the pedal is let up"
     );
     assert_eq!(rig.held_live(A), 0);
-    // The note-off from the key now finds nothing to end.
     rig.live.send(600, KEYS, Msg::note_off(0, 60));
     rig.run(256, 128);
     assert_eq!(notes_of(&rig.log(), A).len(), 2);
@@ -629,10 +597,6 @@ fn a_new_live_input_replaces_the_old_and_the_old_comes_back_to_be_freed() {
 
 #[test]
 fn clip_lists_sent_while_a_live_note_rings_are_still_taken() {
-    // Stopped with a note sounding, the engine renders its tail instead of
-    // idling. The lists the interface sends meanwhile (every edit sends one)
-    // must still be taken, or the queue fills, the interface holds its routing
-    // back, and a volume change does nothing until the note ends.
     let log: Log = Arc::default();
     let mut rig = rig(vec![track(A, &log, keys_on(None), Vec::new())], &log);
     rig.live.send(0, KEYS, Msg::note_on(0, 60, 100));
@@ -650,9 +614,6 @@ fn clip_lists_sent_while_a_live_note_rings_are_still_taken() {
     assert_eq!(rig.held_live(A), 1, "and the note still rings");
 }
 
-// ---------------------------------------------------------------- choke (M8 D0)
-
-/// A kit whose two hats choke each other (group 1), with a kick in none.
 fn hat_kit() -> Box<DrumKit> {
     let mut kit = DrumKit::new();
     for key in [42, 46, 36] {
@@ -670,8 +631,6 @@ fn hat_kit() -> Box<DrumKit> {
     Box::new(kit)
 }
 
-/// A track sent to MIDI output port 1, playing `kit` (its notes and frames
-/// are read back from the output queue).
 fn port_track(id: u64, clips: Vec<MidiClip>, kit: Box<DrumKit>) -> MidiTrack {
     MidiTrack::new(
         id,
@@ -686,7 +645,6 @@ fn port_track(id: u64, clips: Vec<MidiClip>, kit: Box<DrumKit>) -> MidiTrack {
     .playing_drums(Some(kit))
 }
 
-/// The notes the port was sent: `(device frame, note-on, key)`.
 fn sent(rig: &mut Rig) -> Vec<(u64, bool, u8)> {
     let mut out = Vec::new();
     while let Ok(message) = rig.output.pop() {
@@ -701,7 +659,6 @@ fn sent(rig: &mut Rig) -> Vec<(u64, bool, u8)> {
     out
 }
 
-/// A one-track clip of `(start, length, pitch)` notes, from tick zero.
 fn drum_clip(notes: &[(Ticks, Ticks, u8)]) -> MidiClip {
     MidiClip {
         id: 9,
@@ -727,7 +684,6 @@ fn drum_clip(notes: &[(Ticks, Ticks, u8)]) -> MidiClip {
 
 #[test]
 fn a_closed_hat_in_a_clip_ends_the_open_hat_at_the_same_sample() {
-    // 120 BPM at 48 kHz: a beat is 24,000 frames.
     let q = Ticks::quarters;
     let log = Log::default();
     let clip = drum_clip(&[(q(0), q(4), 46), (q(1), q(1), 42), (q(2), q(1), 36)]);
@@ -752,8 +708,6 @@ fn a_closed_hat_in_a_clip_ends_the_open_hat_at_the_same_sample() {
 fn a_live_hat_chokes_a_clip_hat_and_a_clip_hat_chokes_a_live_one() {
     let q = Ticks::quarters;
     let log = Log::default();
-    // The clip's open hat runs from beat 1 to beat 5 (0 to 96,000). A played
-    // closed hat at 30,000 ends it and sounds itself.
     let clip = drum_clip(&[(q(0), q(4), 46)]);
     let mut rig = rig(vec![port_track(A, vec![clip], hat_kit())], &log);
     rig.transport.send(Command::Play).unwrap();
@@ -798,8 +752,6 @@ fn a_played_closed_hat_ends_a_played_open_hat_at_the_same_sample() {
 
 #[test]
 fn a_sound_the_map_silences_sounds_nothing_from_a_player() {
-    // A muted sound: the played note never reaches the instrument, and its
-    // note-off is not a stray either.
     let log = Log::default();
     let mut kit = DrumKit::new();
     kit.set(
@@ -834,11 +786,6 @@ fn a_sound_the_map_silences_sounds_nothing_from_a_player() {
 
 #[test]
 fn every_note_on_a_choking_track_is_answered_while_playing() {
-    // A short pattern where hats cut each other and a kick plays through:
-    // every note-on is answered by a note-off, at the end and at every stop.
-    // The hits are a 32nd apart, not a tick: two sounds on one *frame* are
-    // one pass's tug of war (the first never sounds, its note-on taken back
-    // with the second's start), which the choke tests cover.
     let q = Ticks::quarters;
     let after = Ticks(q(1).0 / 8);
     let log = Log::default();
@@ -862,8 +809,6 @@ fn every_note_on_a_choking_track_is_answered_while_playing() {
     assert!(ons >= 6, "the pattern played: {notes:?}");
 }
 
-/// The notes the port was sent, with their channel: `(device frame, on,
-/// channel, key)`.
 fn sent_channels(rig: &mut Rig) -> Vec<(u64, bool, u8, u8)> {
     let mut out = Vec::new();
     while let Ok(message) = rig.output.pop() {
@@ -878,9 +823,6 @@ fn sent_channels(rig: &mut Rig) -> Vec<(u64, bool, u8, u8)> {
     out
 }
 
-/// Asserts every note-on was answered once: per channel and key a note-off
-/// never comes before the note-on it answers, and nothing is left sounding at
-/// the end (M8 D0 review H2).
 #[track_caller]
 fn assert_every_note_answered(notes: &[(u64, bool, u8, u8)]) {
     let mut sounding: Vec<(u8, u8)> = Vec::new();
@@ -904,10 +846,6 @@ fn assert_every_note_answered(notes: &[(u64, bool, u8, u8)]) {
     );
 }
 
-/// One hat of each kind overlapping in time, hit at one tick, or struck on one
-/// frame: the choke lands on the other's note-on. Every one of these starts
-/// both in one pass, where a note-off for a note the instrument has not been
-/// sent yet used to ring on for ever (M8 D0 review H1).
 fn answers_after(rig: &mut Rig, run: impl FnOnce(&mut Rig)) -> Vec<(u64, bool, u8, u8)> {
     run(rig);
     rig.transport.send(Command::Stop).unwrap();
@@ -919,8 +857,6 @@ fn answers_after(rig: &mut Rig, run: impl FnOnce(&mut Rig)) -> Vec<(u64, bool, u
 
 #[test]
 fn a_locate_into_two_overlapping_hats_answers_every_note() {
-    // 120 BPM at 48 kHz: a beat is 24,000 frames. An open hat holds beats 0 to
-    // 4 and a closed one 1 to 5; a locate to beat 1½ starts both in one pass.
     let q = Ticks::quarters;
     let log = Log::default();
     let clip = drum_clip(&[(q(0), q(4), 46), (q(1), q(4), 42)]);
@@ -953,8 +889,6 @@ fn a_locate_into_two_overlapping_hats_answers_every_note() {
 
 #[test]
 fn a_loop_wrap_into_two_overlapping_hats_answers_every_note() {
-    // The open hat runs from beat 0 to 9 and a closed one from 1 to 3: the
-    // loop's wrap to beat 2 starts both in one pass.
     let q = Ticks::quarters;
     let log = Log::default();
     let clip = drum_clip(&[(q(0), q(9), 46), (q(1), q(2), 42)]);
@@ -964,7 +898,6 @@ fn a_loop_wrap_into_two_overlapping_hats_answers_every_note() {
         .unwrap();
     rig.transport.send(Command::Play).unwrap();
     answers_after(&mut rig, |rig| {
-        // Past the wrap at beat 5, into the loop's second pass.
         rig.run(5 * 24_000 + 12_000, 128);
     });
     assert_eq!(rig.held_live(A), 0);
@@ -1006,8 +939,6 @@ fn two_pads_of_one_group_on_one_frame_answer_every_note() {
     assert_eq!(rig.held_live(A), 0);
 }
 
-/// A clip of one note, as the app hands it to the engine: the sound's note and
-/// its channel.
 fn one_note_clip(start: Ticks, length: Ticks, pitch: u8, channel: u8) -> MidiClip {
     let mut clip = drum_clip(&[]);
     clip.length = Ticks::quarters(8);
@@ -1023,18 +954,12 @@ fn one_note_clip(start: Ticks, length: Ticks, pitch: u8, channel: u8) -> MidiCli
 
 #[test]
 fn a_clip_note_ends_on_the_channel_it_played_on_even_after_an_edit() {
-    // A sound may name a channel (M8 D0): the note goes out there, and its
-    // note-off does too, whatever the map says when the note ends (review
-    // L4).
     let q = Ticks::quarters;
     let log = Log::default();
     let first = one_note_clip(Ticks::ZERO, q(4), 36, 5);
     let mut rig = rig(vec![port_track(A, vec![first.clone()], hat_kit())], &log);
     rig.transport.send(Command::Play).unwrap();
     rig.run(24_000, 128);
-    // A map edit that changes the sound's note under it, as the app's rebuilt
-    // clip would: the old note is let go where it played, and the new one
-    // starts on the same channel.
     let edited = one_note_clip(Ticks::ZERO, q(4), 37, 5);
     rig.midi
         .set(vec![port_track(A, vec![edited], hat_kit())])
@@ -1068,7 +993,6 @@ fn a_clip_note_ends_on_the_channel_it_played_on_even_after_an_edit() {
 #[test]
 fn a_live_pad_ends_on_the_channel_it_played_on_even_after_an_edit() {
     let log = Log::default();
-    // The kit's snare plays on channel 9, not the track's channel 3.
     let mut kit = DrumKit::new();
     kit.set(
         38,
@@ -1081,13 +1005,9 @@ fn a_live_pad_ends_on_the_channel_it_played_on_even_after_an_edit() {
     let mut rig = rig(vec![port_track(A, Vec::new(), Box::new(kit))], &log);
     rig.transport.send(Command::Play).unwrap();
     rig.run(128, 128);
-    // A pad played and let go: the note and its end are both on channel 9.
     rig.live.send(1_000, KEYS, Msg::note_on(0, 38, 100));
     rig.live.send(2_000, KEYS, Msg::note_off(0, 38));
     rig.run(2_000, 128);
-    // A second pad, held while the map changes under it (the sound now plays
-    // on channel 11): its note-off still goes out where its note-on did
-    // (review L4).
     rig.live.send(3_000, KEYS, Msg::note_on(0, 38, 100));
     rig.run(1_000, 128);
     let mut edited = DrumKit::new();

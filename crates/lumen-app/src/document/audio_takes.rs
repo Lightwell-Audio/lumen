@@ -1,7 +1,3 @@
-//! Recorded audio (M9 slice R2): the document side. The files are written by
-//! the take worker (`take_worker.rs`); where they go is
-//! `lumen_project::edit::audio_take`.
-
 use std::path::PathBuf;
 
 use lumen_project::edit::audio_take::{self, Placed, Take};
@@ -10,15 +6,11 @@ use super::Document;
 use super::clips::fresh_ids;
 
 impl Document {
-    /// Puts each recorded file on its track, over the span it was played in,
-    /// as one step that undo takes back whole. Takes whose track is gone are
-    /// left out; with none left nothing is recorded in the history.
     pub fn record_audio_takes(&mut self, takes: &[Take]) -> Placed {
         for take in takes {
             self.media_files
                 .insert(take.media.id, PathBuf::from(&take.media.path));
         }
-        // The preference decides whether the clips follow the tempo (S4d).
         let follow = self.follow_tempo.recorded();
         let takes: Vec<Take> = takes
             .iter()
@@ -42,7 +34,6 @@ mod tests {
     use lumen_core::time::Ticks;
     use lumen_project::model::Media;
 
-    /// The `n`th audio track of the project.
     fn audio(doc: &Document, n: usize) -> usize {
         doc.project()
             .tracks

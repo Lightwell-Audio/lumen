@@ -1,53 +1,33 @@
-//! The shown track's devices as rows: what each card shows, how its plugin is
-//! running, and where Reload would start it and how long ago that was.
-
 use super::*;
 use crate::chain::{outputs, presets, sidechain};
 
-/// A device's row in the chain, with what the card needs (no state blobs).
 pub(super) struct Row {
     pub(super) id: Id,
     pub(super) name: String,
     pub(super) vendor: String,
     pub(super) identity: String,
-    /// A VST3 plugin: its class id is the identity.
     pub(super) vst3: bool,
-    /// Lumen's own effect (M8 slice B0): no host, no window, a table.
     pub(super) builtin: bool,
-    /// The built-in's effect is running in the mixer; false when the pool had
-    /// no room for it.
     pub(super) running: bool,
     pub(super) instrument: bool,
     pub(super) bypass: bool,
     pub(super) face: OwnedFace,
     pub(super) latency_ms: f32,
-    /// The strip's knobs and how many parameters the plugin offers.
     pub(super) slots: Vec<Option<strip::Slot>>,
     pub(super) parameters: usize,
-    /// The plugin's own window and Learn.
     pub(super) editor: strip::Editor,
     pub(super) learning: bool,
-    /// The preset field of a running plugin.
     pub(super) field: Option<presets::FieldLook>,
-    /// The sidechain row of a plugin effect with a sidechain input.
     pub(super) sidechain: Option<sidechain::Look>,
-    /// The outputs row of a plugin instrument with several outputs.
     pub(super) outputs: Option<outputs::Look>,
-    /// A built-in with a drawing (M8): its card is a set piece, and these are
-    /// the values it reads.
     pub(super) drawing: Option<DrawingRow>,
 }
 
-/// A built-in's drawing and its values: one slot for each parameter it reads or
-/// has a control or handle for, in [`face::Drawing::params`] order.
 pub(in crate::chain) struct DrawingRow {
     pub(in crate::chain) drawing: &'static crate::chain::face::Drawing,
-    /// Its parts, the one picked, and the live analysis it is shown (M8 slice B1:
-    /// Iris's bands and its mist).
     pub(in crate::chain) parts: Option<&'static crate::chain::face::Parts>,
     pub(in crate::chain) picked: usize,
     pub(in crate::chain) spectrum: Option<Vec<f32>>,
-    /// What its gain-reduction meter read this frame, if it has one (B2).
     pub(in crate::chain) reading: Option<lumen_devices::MeterReading>,
     pub(in crate::chain) slots: Vec<strip::Slot>,
     pub(in crate::chain) table: &'static [lumen_devices::params::ParamInfo],
@@ -82,7 +62,6 @@ impl OwnedFace {
 }
 
 impl App {
-    /// The shown track's devices as rows, with how each is running.
     pub(super) fn rows_of(&self, track: &Track, rate: u32) -> Vec<Row> {
         let playing = self.transport.state().playing;
         track
@@ -97,9 +76,6 @@ impl App {
             .collect()
     }
 
-    /// Stops every built-in's analyser (M8 slice B1): the Devices tab is the
-    /// one place they are read, so a tab that is not drawn silences them
-    /// rather than leaving them writing a window nothing looks at.
     pub(super) fn silence_spectra(&mut self) {
         for id in self.builtin.spectrum_ids() {
             if let Some(reader) = self.builtin.spectrum(id) {
@@ -109,12 +85,6 @@ impl App {
         }
     }
 
-    /// Reads the analyser of every built-in whose card is drawn this frame and
-    /// silences every other (M8 slice B1): the mist runs only while its card is
-    /// on the shown track and not folded, only while something plays through it
-    /// (a stopped transport with a silent meter leaves no mist), and never while
-    /// motion is reduced. It asks for the next frame only while it runs, so an
-    /// idle card costs nothing.
     pub(super) fn pump_spectra(&mut self, ctx: &egui::Context, track: Id, rate: u32) {
         let heard = mist_runs(
             crate::motion::reduced(),
@@ -153,8 +123,6 @@ impl App {
             if reader.read() == lumen_devices::Read::Window {
                 picture.update(reader.spectrum(), rate.max(1), dt);
             } else {
-                // Nothing new was written: the picture keeps falling towards
-                // what it last heard rather than freezing.
                 picture.advance(dt);
             }
         }
@@ -165,9 +133,6 @@ impl App {
 
     fn row_of(&self, d: &Device, rate: u32) -> Row {
         let builtin = crate::builtin::is_builtin(d);
-        // Lumen's own device with a parameter table: an effect, or the synth
-        // (M8 slice B4). Its card reads the table and shows the strip; its
-        // timing is its own (an instrument reports none).
         let controls = crate::builtin::has_table(d);
         let (name, vendor, identity) = match &d.plugin {
             PluginRef::Vst3 {
@@ -176,9 +141,6 @@ impl App {
                 vendor,
                 ..
             } => (name.clone(), vendor.clone(), class_id.clone()),
-            // A built-in has a personality: its own name, with what it is
-            // under it (M8 slice B0, DESIGN §7k). A device without one (the
-            // synth) keeps its plain name and the product's.
             PluginRef::Builtin { name } => match crate::builtin::identity(name) {
                 Some(identity) => (
                     identity.name.to_owned(),
@@ -212,7 +174,6 @@ impl App {
                 .or_else(|| d.reported.map(|r| r.latency_at(rate)));
             (face, frames.unwrap_or(0))
         } else if builtin {
-            // What the device's own build reported, as the routing has it.
             let frames = self.lanes.devices.builtin.get(&d.id).copied().unwrap_or(0);
             (OwnedFace::Ready, frames)
         } else {
@@ -234,8 +195,6 @@ impl App {
             None
         };
         let editor = if controls {
-            // A built-in's controls are its card and All parameters: there is
-            // no separate window.
             strip::Editor::Unavailable("This device's controls are on its card".to_owned())
         } else {
             self.editor_look(d)
@@ -265,8 +224,6 @@ impl App {
 }
 
 impl App {
-    /// Where Reload would start a stopped plugin from, in words: the sound
-    /// last read from it and how long ago, or what the project holds.
     fn reload_source(&self, d: &Device) -> String {
         match self.hosting.last_good_age(d.id) {
             Some(age) => format!("its sound from {} ago", ago(age)),
@@ -276,7 +233,6 @@ impl App {
     }
 }
 
-/// How long ago, roughly: "a moment", "40 s", "3 min", "2 h".
 pub(super) fn ago(age: std::time::Duration) -> String {
     let seconds = age.as_secs();
     match seconds {
@@ -287,15 +243,10 @@ pub(super) fn ago(age: std::time::Duration) -> String {
     }
 }
 
-/// Whether the analyser runs: never while motion is reduced (the screen is
-/// then still), and otherwise only while the transport plays or the track's
-/// meter reads something, so a stopped, silent track costs nothing.
 pub(super) fn mist_runs(reduced: bool, playing: bool, level: f32) -> bool {
     !reduced && (playing || level > 0.0)
 }
 
-/// What a built-in's card adds to a plain one: its hue, its drawing with the
-/// values it reads, the step its card is at and what it hears (M8).
 pub(super) fn personal_of(
     row: &Row,
     step: crate::chain::geometry::Step,

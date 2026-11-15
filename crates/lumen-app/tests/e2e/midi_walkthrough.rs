@@ -1,6 +1,3 @@
-//! The M5 exit walkthrough (slice 8): record a MIDI part, quantize it in the
-//! piano roll, save and reopen the project, then play the reopened notes.
-
 use eframe::egui::{Key, Modifiers};
 use lumen_app::TimeView;
 use lumen_midi::Direction;

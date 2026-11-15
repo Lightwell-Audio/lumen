@@ -1,8 +1,3 @@
-//! The drum editor's frame time beside the piano roll's, on the same clip of
-//! 100,000 hits (M8 D2's acceptance): an ignored bench that prints both and
-//! fails only if the lanes are far slower. It drives the real window and GPU,
-//! as the arrangement's bench does (ADR-0011).
-
 use std::time::Instant;
 
 use lumen_core::time::Ticks;
@@ -14,8 +9,6 @@ use super::Lumen;
 
 const HITS: usize = 100_000;
 
-/// A mapped track whose clip holds `HITS` hits across 400 beats, on the
-/// 808-style kit's sounds.
 fn dense_kit() -> Project {
     let map = Preset::EIGHT_OH_EIGHT.map(Id(500));
     let sounds: Vec<u8> = map.sounds.iter().map(|s| s.input).collect();
@@ -49,7 +42,6 @@ fn dense_kit() -> Project {
     project
 }
 
-/// Milliseconds a frame took, over `frames` frames after a warm-up.
 fn measure(lumen: &mut Lumen, frames: usize) -> (f64, f64, f64) {
     lumen.frames(20);
     let mut times = Vec::with_capacity(frames);
@@ -84,6 +76,11 @@ fn a_hundred_thousand_hits_in_the_lanes_beside_the_piano_roll() {
     );
     let lanes = measure(&mut lumen, 120);
 
+    lumen.app_mut().show_the_steps_view();
+    lumen.frames(60);
+    assert_eq!(lumen.app().drum_view_shown(), Some("steps"));
+    let steps = measure(&mut lumen, 120);
+
     lumen.app_mut().show_the_keys_view();
     lumen.frames(60);
     assert_eq!(lumen.app().drum_view_shown(), Some("keys"));
@@ -92,8 +89,15 @@ fn a_hundred_thousand_hits_in_the_lanes_beside_the_piano_roll() {
     println!(
         "100,000 hits, 1280x820 at 100%:\n\
          drum lanes   p50 {:6.2} ms  p95 {:6.2}  worst {:6.2}\n\
+         step grid    p50 {:6.2} ms  p95 {:6.2}  worst {:6.2}
          piano roll   p50 {:6.2} ms  p95 {:6.2}  worst {:6.2}",
-        lanes.0, lanes.1, lanes.2, roll.0, roll.1, roll.2
+        lanes.0, lanes.1, lanes.2, steps.0, steps.1, steps.2, roll.0, roll.1, roll.2
+    );
+    assert!(
+        steps.1 <= roll.1 * 1.15 + 1.0,
+        "the step grid's p95 ({:.2} ms) within 15% of the roll's ({:.2} ms)",
+        steps.1,
+        roll.1
     );
     assert!(
         lanes.1 <= roll.1 * 1.15 + 1.0,

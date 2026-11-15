@@ -1,13 +1,3 @@
-//! Warp in the model (format v33, M9.5 slice S4a; the pitch envelope is v34, S6).
-//!
-//! Two kinds of test. The format ones: a golden file that loads forever, older
-//! projects that open unwarped, a project without warp that writes none, and
-//! the checks that refuse a warp no clip may hold. The property ones: every
-//! audio-clip edit run on random warped clips, checking that the second of the
-//! file heard at each tick of the song is what the edit promises, that the
-//! project stays valid, and that split followed by Join returns the original.
-//! Nothing here listens: until S4b, warp is stored and kept true, not played.
-
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -37,8 +27,6 @@ fn fixture(name: &str) -> PathBuf {
         .join("tests/fixtures")
         .join(name)
 }
-
-// ---------------------------------------------------------------- the format
 
 fn audio_clip(id: u64, start: Ticks, length: Ticks, offset: i64) -> Clip {
     Clip {
@@ -88,7 +76,6 @@ fn project_with(clip: Clip) -> Project {
     project
 }
 
-/// The model the v33 golden file must always load as. Never change it.
 fn golden_v33_expected() -> Project {
     let mut clip = audio_clip(3_301, q(4), q(8), 96_000);
     clip.warp = Some(Warp {
@@ -113,7 +100,6 @@ fn golden_v33_loads_and_round_trips() {
     assert_eq!(from_bytes(&to_bytes(&project).unwrap()).unwrap(), project);
 }
 
-/// The model the v34 golden file must always load as. Never change it.
 fn golden_v34_expected() -> Project {
     use lumen_core::automation::{Lane, Point, Shape};
     use lumen_core::curve::Curve;
@@ -212,7 +198,6 @@ fn a_warp_no_clip_may_hold_is_refused() {
         .is_err(),
         "too many markers"
     );
-    // A MIDI clip is not warped.
     let mut project = good.clone();
     let track = Arc::make_mut(&mut project.tracks[0]);
     let clip = Arc::make_mut(&mut track.clips[0]);
@@ -240,7 +225,6 @@ fn a_warped_take_keeps_its_own_map_through_a_swap_and_a_save() {
         }],
     ));
     let mut clip = warp_edit::enable(&project, &clip, 120.0).unwrap();
-    // Trim the start: both passes' maps follow the new start.
     Arc::make_mut(&mut project.tracks[0]).clips[0] = Arc::new(clip.clone());
     clip = edit::trim(&project, &tempo, &clip, Edge::Start, q(2), false);
     for pass in [Pass::of(&clip).unwrap(), {
@@ -254,8 +238,6 @@ fn a_warped_take_keeps_its_own_map_through_a_swap_and_a_save() {
         else {
             panic!("each pass is warped")
         };
-        // 120 BPM, the file made at 120: the passes start at seconds 1 and 5;
-        // the start moved two beats (one second) on in both.
         let at_new_start = warp.source_at(Ticks::ZERO);
         assert!(
             (at_new_start - 2.0).abs() < 1e-9 || (at_new_start - 6.0).abs() < 1e-9,
@@ -268,8 +250,6 @@ fn a_warped_take_keeps_its_own_map_through_a_swap_and_a_save() {
     assert_eq!(back, project);
 }
 
-// ----------------------------------------------------------------- the model
-
 struct Rng(u64);
 
 impl Rng {
@@ -279,7 +259,6 @@ impl Rng {
         self.0 ^= self.0 << 17;
         self.0
     }
-    /// A number in `lo..hi`.
     fn range(&mut self, lo: i64, hi: i64) -> i64 {
         lo + (self.next() % (hi - lo) as u64) as i64
     }
@@ -291,15 +270,10 @@ impl Rng {
     }
 }
 
-/// A random warped clip on an otherwise empty project: from one to four
-/// markers, a few ticks off the beat, the file made at 92, 120 or 140 BPM; a
-/// loop on half of them. The whole window sits well inside the file.
 fn random_clip(rng: &mut Rng, looping: bool) -> Project {
     random_clip_with(rng, looping, false)
 }
 
-/// [`random_clip`], with a second take whose pass sits near the start of the
-/// file (often the one that limits a trim) when `takes` is set.
 fn random_clip_with(rng: &mut Rng, looping: bool, takes: bool) -> Project {
     let start = Ticks(q(rng.range(1, 12)).0 + rng.range(0, PPQ));
     let length = Ticks(q(rng.range(4, 20)).0 + rng.range(0, PPQ));
@@ -346,8 +320,6 @@ fn only(project: &Project) -> Clip {
     (*project.tracks[0].clips[0]).clone()
 }
 
-/// The second of the file, read forwards, that `clip` plays at `abs` on the
-/// song's timeline. Positions of a looping clip wrap as the engine's do.
 fn heard(clip: &Clip, abs: Ticks) -> f64 {
     let warp = clip.warp.as_ref().expect("a warped clip");
     let mut at = abs - clip.start + clip.loop_phase;
@@ -362,7 +334,6 @@ fn heard(clip: &Clip, abs: Ticks) -> f64 {
     }
 }
 
-/// Ticks inside `clip`'s window, never on a turn of its loop.
 fn inside(rng: &mut Rng, clip: &Clip, count: usize) -> Vec<Ticks> {
     let mut out = Vec::new();
     while out.len() < count {
@@ -381,7 +352,6 @@ fn same_second(a: f64, b: f64, what: &str) {
     assert!((a - b).abs() < 1e-9, "{what}: {a} against {b}");
 }
 
-/// The first place a looping clip's content repeats, or the end of the clip.
 fn first_repeat(clip: &Clip) -> Ticks {
     match clip.loop_length {
         Some(p) => {
@@ -448,9 +418,6 @@ fn trimming_reveals_the_same_audio_and_stays_in_the_file() {
         Arc::make_mut(&mut project.tracks[0]).clips[0] = Arc::new(trimmed.clone());
         assert_eq!(validate(&project), Ok(()), "case {case}");
         assert_anchored(&project, &trimmed);
-        // The new window plays what the map played there before, the part
-        // the trim revealed included. A looping clip's start cannot go before
-        // its loop's origin, so its revealed part is the same turn.
         let mut extended = original.clone();
         if original.loop_length.is_none() {
             extended.length = Ticks(i64::MAX / 8);
@@ -464,7 +431,6 @@ fn trimming_reveals_the_same_audio_and_stays_in_the_file() {
                 );
             }
         }
-        // The first frame heard is never before the file's.
         let first = trimmed.warp.as_ref().unwrap().source_at(Ticks::ZERO);
         assert!(first > -1e-6, "case {case}: starts at {first}");
     }
@@ -484,11 +450,8 @@ fn slipping_slides_the_audio_under_the_window() {
         assert_anchored(&project, &slid);
         let applied = slid.warp.as_ref().unwrap().markers[0].at
             - original.warp.as_ref().unwrap().markers[0].at;
-        // Within what the file allows, the whole slip is made.
         assert_eq!(applied, by, "case {case}: {by:?} is well inside the file");
         for abs in inside(&mut rng, &slid, 10) {
-            // The position in the content (wrapped by a loop) moves back by
-            // the slip before the old map reads it.
             let mut at = abs - slid.start + slid.loop_phase;
             if let Some(period) = slid.loop_length {
                 at = Ticks(at.0.rem_euclid(period.0));
@@ -509,9 +472,6 @@ fn slipping_slides_the_audio_under_the_window() {
 
 #[test]
 fn slip_stops_at_the_files_edges() {
-    // Looping and not, with a phase: whatever the slip asked for, the part of
-    // the map the window plays (one turn of a loop) lies inside the file, to
-    // the last bit: no tolerance.
     let mut rng = Rng(7);
     for case in 0..CASES {
         let mut project = random_clip(&mut rng, case % 2 == 1);
@@ -533,8 +493,6 @@ fn slip_stops_at_the_files_edges() {
     }
 }
 
-/// `offset` and `audio_phase_seconds` hold the second the map puts at tick 0
-/// (never before the file's first frame), as every edit promises.
 fn assert_anchored(project: &Project, clip: &Clip) {
     let ClipContent::Audio { offset, .. } = clip.content else {
         unreachable!()
@@ -576,14 +534,11 @@ fn changing_the_original_tempo_moves_the_anchor_of_the_clip_and_every_take() {
         }],
     ));
     let clip = warp_edit::enable(&project, &clip, 120.0).unwrap();
-    // One marker well after the clock, so tick 0 reads through the original
-    // tempo: changing it moves the second at tick 0.
     let clip = warp_edit::set_markers(&project, &clip, vec![Marker::new(3.0, q(2))]).unwrap();
     let slow = warp_edit::set(&project, &clip, &warp_edit::Change::OriginalBpm(60.0)).unwrap();
     Arc::make_mut(&mut project.tracks[0]).clips[0] = Arc::new(slow.clone());
     assert_eq!(validate(&project), Ok(()));
     assert_anchored(&project, &slow);
-    // The stored pass followed too.
     let Some(Pass::Audio {
         offset,
         audio_phase_seconds,
@@ -595,7 +550,6 @@ fn changing_the_original_tempo_moves_the_anchor_of_the_clip_and_every_take() {
     assert_eq!(other.original_bpm, 60.0);
     let held = offset as f64 / f64::from(RATE) + audio_phase_seconds;
     assert!((held - other.source_at(Ticks::ZERO).max(0.0)).abs() < 1e-9);
-    // And warp off keeps the anchor.
     let off = warp_edit::disable(&slow).unwrap();
     let ClipContent::Audio { offset, .. } = off.content else {
         unreachable!()
@@ -621,16 +575,12 @@ fn markers_that_leave_the_file_are_refused() {
         );
     }
     assert_eq!(clip.warp, before);
-    // A tempo change that pushes the end out of the file cuts the clip back
-    // to where the file ends (MT-WARP-2): never longer, and never refused
-    // for that alone.
     let mut project = project_with(audio_clip(1, q(0), q(8), 0));
     let clip = (*project.tracks[0].clips[0]).clone();
     let tail = Marker::new(FILE_SECONDS - 4.0, Ticks::ZERO);
     let clip = warp_edit::enable(&project, &clip, 120.0).unwrap();
     let clip = warp_edit::set_markers(&project, &clip, vec![tail]).unwrap();
     Arc::make_mut(&mut project.tracks[0]).clips[0] = Arc::new(clip.clone());
-    // Four seconds of file for a clip that plays four; at 60 BPM it needs eight.
     let fitted = warp_edit::set(&project, &clip, &warp_edit::Change::OriginalBpm(60.0))
         .expect("the clip is cut back, not refused");
     assert!(fitted.length < clip.length, "cut back to the file's end");
@@ -648,8 +598,6 @@ fn warp_off_keeps_the_anchor_of_a_phased_loop() {
         let project = random_clip(&mut rng, true);
         let on = only(&project);
         let off = warp_edit::disable(&on).unwrap();
-        // The offset holds the second at the clock, which is where the loop's
-        // content begins; turning warp off does not move it.
         let ClipContent::Audio { offset, .. } = off.content else {
             unreachable!()
         };
@@ -676,8 +624,6 @@ fn reversing_plays_the_same_stretch_the_other_way_and_twice_returns_the_clip() {
         assert!(flipped.reversed);
         let end = original.start + original.length;
         for abs in inside(&mut rng, &flipped, 10) {
-            // The reversed clip plays the old one's audio from the other
-            // end of its window, backwards.
             let mirror = original.start + end - abs;
             let on_turn = original.loop_length.is_some_and(|p| {
                 (mirror - original.start + original.loop_phase)
@@ -696,7 +642,6 @@ fn reversing_plays_the_same_stretch_the_other_way_and_twice_returns_the_clip() {
         }
         reverse::reverse(&mut project, &[original.id]);
         let back = only(&project);
-        // Mirroring twice returns the map to within the last bit of a second.
         let (a, b) = (back.warp.as_ref().unwrap(), original.warp.as_ref().unwrap());
         assert_eq!(a.markers.len(), b.markers.len(), "case {case}");
         for (x, y) in a.markers.iter().zip(&b.markers) {
@@ -735,7 +680,6 @@ fn unlooping_makes_clips_that_play_the_same_seconds() {
                     &format!("case {case}"),
                 );
             }
-            // A piece starts on the second the map puts there.
             let anchor = piece.warp.as_ref().unwrap().source_at(Ticks::ZERO);
             let ClipContent::Audio { offset, .. } = piece.content else {
                 unreachable!()
@@ -799,7 +743,6 @@ fn the_brace_keeps_what_plays_up_to_the_first_repeat() {
             checked += 1;
         }
         total_checked += checked;
-        // Same clip start, on the same tick.
         assert_eq!(changed.start, original.start);
     }
     assert!(made > CASES / 2, "{made} edits made, {skipped} refused");
@@ -832,9 +775,6 @@ fn warp_off_leaves_the_clip_where_it_stands_in_its_file() {
     }
 }
 
-/// Whether every pass `clip` keeps, the playing one and each stored, reads
-/// inside the file over the window it plays: from the clock to the end of the
-/// clip, or of one turn of its loop. No tolerance.
 fn every_pass_fits(clip: &Clip) {
     let span = clip.loop_length.unwrap_or(clip.length);
     let mut warps = vec![clip.warp.clone().unwrap()];
@@ -872,7 +812,6 @@ fn a_trim_or_a_brace_edit_keeps_every_take_inside_its_file() {
         Arc::make_mut(&mut project.tracks[0]).clips[0] = Arc::new(trimmed.clone());
         assert_eq!(validate(&project), Ok(()), "case {case}");
         every_pass_fits(&trimmed);
-        // The brace too, on the trimmed clip.
         let change = match rng.range(0, 4) {
             0 => LoopEdit::On,
             1 => LoopEdit::End(Ticks(trimmed.start.0 + rng.range(PPQ, 9 * PPQ))),
@@ -892,10 +831,6 @@ fn a_trim_or_a_brace_edit_keeps_every_take_inside_its_file() {
 fn a_new_original_tempo_cuts_the_clip_back_when_a_stored_take_would_leave_the_file() {
     let mut project = project_with(audio_clip(1, q(0), q(4), 0));
     let mut clip = (*project.tracks[0].clips[0]).clone();
-    // The playing pass is pinned by two markers (it reads the same whatever
-    // the original tempo is); the stored one starts two seconds from the end
-    // of the file and plays four beats, which fill two seconds at 120 BPM and
-    // four at 60.
     clip.takes = Some(Takes::new(
         0,
         2,
@@ -914,8 +849,6 @@ fn a_new_original_tempo_cuts_the_clip_back_when_a_stored_take_would_leave_the_fi
     Arc::make_mut(&mut project.tracks[0]).clips[0] = Arc::new(clip.clone());
     assert_eq!(validate(&project), Ok(()));
     every_pass_fits(&clip);
-    // The clip is cut to where the tightest pass's file ends, so every pass
-    // still reads inside it.
     let fitted = warp_edit::set(&project, &clip, &warp_edit::Change::OriginalBpm(60.0))
         .expect("the clip is cut back, not refused");
     assert!(fitted.length < clip.length);

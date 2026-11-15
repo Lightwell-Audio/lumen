@@ -1,14 +1,3 @@
-//! The audio a render plays, at the project's sample rate (M9 slice R4,
-//! ADR-0105). Joined, bounced and frozen audio is made at the rate the project
-//! says (Project settings), whatever the audio device runs at. The clip player
-//! holds every file converted to the device's rate, and converting that copy
-//! again would be a second conversion, so when the two rates differ the
-//! render's worker reads each file it plays from disk again and converts it
-//! once, to the project's rate (reversed clips play the same file, mirrored).
-//! When the rates are the same the loaded audio is used as it is, and nothing
-//! is read twice. The model-to-engine translation is the same pure function
-//! playback uses (`lanes::engine_clips`), so the file is what plays.
-
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
@@ -23,7 +12,6 @@ use crate::media::streams::Unread;
 use crate::media::warped::WarpedStreams;
 use crate::media::{mirror, reversed_key};
 
-/// One file a render plays, and which of its forms: as it is, and mirrored.
 struct File {
     media: u64,
     path: PathBuf,
@@ -31,29 +19,19 @@ struct File {
     reversed: bool,
 }
 
-/// The clips of a render made again at the project's rate, on the worker.
 pub struct Again {
     project: Project,
     rate: u32,
     files: Vec<File>,
-    /// The result, kept for the next job of the same render (a bounce of
-    /// several tracks reads each file once).
     made: Mutex<Option<Vec<Clip>>>,
-    /// The streams the warped clips of `made` play as (M9.5 S4b), forgotten
-    /// with the render.
     warped: Mutex<WarpedStreams>,
-    /// What the clips could not read from disk, shared with the render.
     unread: Unread,
 }
 
 impl Again {
-    /// The clips as they play at the project's rate, reading each file again
-    /// and converting it once. `Ok(None)` if `cancel` was set meanwhile; an
-    /// error says which file could not be read.
     pub fn clips(&self, cancel: &AtomicBool) -> Result<Option<Vec<Clip>>, String> {
         let mut made = self.made.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(clips) = &*made {
-            // A stream plays through a loader of the job's own.
             return Ok(Some(crate::media::streams::offline(
                 clips.clone(),
                 &self.unread,
@@ -85,7 +63,6 @@ impl Again {
         Ok(Some(crate::media::streams::offline(clips, &self.unread)))
     }
 
-    /// One file at the project's rate, with the rate it was made at.
     fn read(&self, file: &File, cancel: &AtomicBool) -> Result<Option<(ClipAudio, u32)>, String> {
         let name = file
             .path
@@ -116,24 +93,15 @@ impl Again {
     }
 }
 
-/// What a render plays and the rate it renders at.
 pub struct RenderAudio {
-    /// The project's rate: the rate of the files the render writes.
     pub rate: u32,
-    /// The clips the engine has loaded, at the device's rate.
     loaded: Vec<Clip>,
-    /// Present when the device's rate is not the project's.
     again: Option<Arc<Again>>,
-    /// What the render could not read from disk, for every job.
     unread: Unread,
-    /// The streams the warped clips of `loaded` play as, kept until the
-    /// render is done.
     warps: Option<Arc<WarpedStreams>>,
 }
 
 impl RenderAudio {
-    /// For the audio clips in `wanted` (the clips the render plays), from the
-    /// files `lanes` holds.
     pub fn new<'a>(
         lanes: &Lanes,
         project: &Project,
@@ -151,7 +119,6 @@ impl RenderAudio {
         audio
     }
 
-    /// For every clip of `tracks`: what a bounce or a freeze plays.
     pub fn of_tracks<'a>(
         lanes: &Lanes,
         project: &Project,
@@ -166,7 +133,6 @@ impl RenderAudio {
         )
     }
 
-    /// [`Self::new`] with the loaded clips and the files given.
     pub(crate) fn build<'a>(
         project: &Project,
         device_rate: u32,
@@ -213,16 +179,10 @@ impl RenderAudio {
         }
     }
 
-    /// Whether the audio of clip `id` is loaded, so the render can play it.
     pub fn has(&self, id: Id) -> bool {
         self.loaded.iter().any(|c| c.id == id.0)
     }
 
-    /// The clips a job starts with: the loaded ones when they are at the
-    /// project's rate, none when the worker makes them (`Self::again`). Clips
-    /// played from disk read through a pool of the job's own, filled as the
-    /// render reaches each page (M9 slice R6), so call this once per job:
-    /// one job's pool is read by one thread.
     pub fn clips(&self) -> Vec<Clip> {
         if self.again.is_some() {
             Vec::new()
@@ -231,20 +191,14 @@ impl RenderAudio {
         }
     }
 
-    /// What the jobs' clips could not read from disk: the worker checks it
-    /// before it keeps a file.
     pub fn unread(&self) -> Unread {
         self.unread.clone()
     }
 
-    /// The warped streams the clips play, for a job to hold until it is done:
-    /// they are forgotten when the last holder lets go, and a real-time export
-    /// reads them again on its own thread, after this render is dropped.
     pub fn warps(&self) -> Option<Arc<WarpedStreams>> {
         self.warps.clone()
     }
 
-    /// What the worker makes the clips with, when the rates differ.
     pub fn again(&self) -> Option<Arc<Again>> {
         self.again.clone()
     }
@@ -261,7 +215,6 @@ mod tests {
     use lumen_project::model::{Clip as ModelClip, Color, Track, TrackKind};
     use lumen_project::testing::TempDir;
 
-    /// A mono-ish stereo ramp file at `rate`, one second long.
     fn write(path: &Path, rate: u32) {
         let left: Vec<f32> = (0..rate)
             .map(|i| ((i as f32 / rate as f32) * 440.0 * std::f32::consts::TAU).sin() * 0.5)
@@ -308,7 +261,6 @@ mod tests {
         }
     }
 
-    /// A project at `rate` with one audio track holding `clips`.
     fn project_at(rate: u32, clips: Vec<ModelClip>) -> Project {
         let mut project = crate::empty_project();
         project.sample_rate = rate;
@@ -318,7 +270,6 @@ mod tests {
         project
     }
 
-    /// What loading `path` for a device at `rate` leaves in the library.
     fn loaded_at(path: &Path, rate: u32) -> Arc<ClipAudio> {
         let never = AtomicBool::new(false);
         let decoded = lumen_media::decode(path, &never, &mut |_| {}).unwrap();
@@ -329,7 +280,6 @@ mod tests {
         })
     }
 
-    /// The engine's clips for `project` with the file loaded at `rate`.
     fn playing(project: &Project, file: &Path, media: u64, native: u32, rate: u32) -> Vec<Clip> {
         let audio = loaded_at(file, rate);
         engine_clips(project, rate, |key| {
@@ -368,7 +318,6 @@ mod tests {
         write(&file, 48_000);
         let clip = model_clip(1, 9, false);
         let project = project_at(44_100, vec![clip.clone()]);
-        // The device runs at 48 kHz: the loaded clips are at 48 kHz.
         let loaded = playing(&project, &file, 9, 48_000, 48_000);
 
         let audio = RenderAudio::build(&project, 48_000, loaded, |_| Some(file.clone()), [&clip]);
@@ -385,8 +334,6 @@ mod tests {
         assert_eq!(made[0].audio.sample_rate(), 44_100);
         assert_eq!(made[0].audio.frames(), 44_100, "one second at the new rate");
 
-        // The same project on a device that runs at 44.1 kHz plays exactly
-        // what the worker made: the file was converted once, from the file.
         let direct = playing(&project, &file, 9, 48_000, 44_100);
         assert_eq!(made[0].audio.memory(), direct[0].audio.memory());
         assert_eq!(
@@ -416,14 +363,11 @@ mod tests {
             stream.is_offline(),
             "the render loads its pages itself; with no loader it would be silent"
         );
-        // And what it loads is the tone, not silence.
         let heard = crate::media::streams::in_memory(made).unwrap();
         let wave = &heard[0].audio.memory().unwrap()[0];
         assert!(wave.iter().any(|v| v.abs() > 0.1));
     }
 
-    /// Joins the clip `1` of `project` as a render does, with the audio
-    /// `audio` gives, and returns the file it wrote.
     fn joined(project: &Project, audio: &RenderAudio, file: PathBuf) -> PathBuf {
         use crate::consolidate::{Job, Poll, Render};
         use lumen_engine::Timeline;
@@ -476,13 +420,11 @@ mod tests {
         let project = project_at(44_100, vec![clip.clone()]);
         let never = AtomicBool::new(false);
 
-        // A device at 48 kHz: the worker reads the file again.
         let loaded = playing(&project, &file, 9, 48_000, 48_000);
         let apart = RenderAudio::build(&project, 48_000, loaded, |_| Some(file.clone()), [&clip]);
         assert!(apart.again().is_some());
         let first = joined(&project, &apart, dir.path().join("apart.wav"));
 
-        // A device at 44.1 kHz: the loaded audio is used as it is.
         let loaded = playing(&project, &file, 9, 48_000, 44_100);
         let same = RenderAudio::build(&project, 44_100, loaded, |_| Some(file.clone()), [&clip]);
         assert!(same.again().is_none());
@@ -548,7 +490,6 @@ mod tests {
         let again = audio.again().unwrap();
         let never = AtomicBool::new(false);
         let first = again.clips(&never).unwrap().unwrap();
-        // The file is gone: a second job still has its clips.
         std::fs::remove_file(&file).unwrap();
         let second = again.clips(&never).unwrap().unwrap();
         assert!(Arc::ptr_eq(&first[0].audio, &second[0].audio));
@@ -625,14 +566,11 @@ mod tests {
         let mut audio =
             RenderAudio::build(&crate::empty_project(), 48_000, vec![clip], |_| None, []);
         audio.warps = Some(Arc::new(warps));
-        // What a job takes: its clips and the streams' keeper.
         let keeper = audio.warps();
         let clips = audio.clips();
         drop(audio);
         let read = crate::media::streams::in_memory(clips.clone()).unwrap();
         assert_eq!(read[0].audio.memory().unwrap()[0].len(), 48_000);
-        // Without the keeper the streams are gone with the render, which is
-        // what a real-time export once met.
         drop(keeper);
         assert!(crate::media::streams::in_memory(clips).is_err());
     }

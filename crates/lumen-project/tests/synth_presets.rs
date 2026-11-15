@@ -1,12 +1,3 @@
-//! The synth's sound as values (format v36, M8 slice B4).
-//!
-//! Before v36 a synth device's sound was the *name* of one of five presets,
-//! saved as text in its `state`. v36 gives every synth device the values the
-//! sound is made of, worked out from that name, and a file of it is frozen
-//! as a golden. The values are literals in the migration on purpose: a
-//! project written before v36 opens sounding as it always did, whatever the
-//! synth's defaults or its presets become.
-
 mod common;
 
 use std::collections::BTreeMap;
@@ -23,9 +14,6 @@ fn q(n: i64) -> Ticks {
     Ticks::quarters(n)
 }
 
-/// `project` as version 35 wrote it: the same model, one version back. A
-/// synth device made by [`Device::synth`] writes no values, so the file is
-/// exactly what that build saved.
 fn as_v35(project: &Project) -> Vec<u8> {
     let text = String::from_utf8(to_bytes(project).unwrap()).unwrap();
     text.replace("\"version\": 36", "\"version\": 35")
@@ -42,9 +30,6 @@ fn synth(id: Id, preset: &str) -> Device {
     Device::synth(id, preset)
 }
 
-/// The model the v36 golden file must always load as: a MIDI track whose
-/// synth holds Poly's values, with a plugin beside it holding a name and its
-/// own parameters. Never change it.
 fn golden_v36_expected() -> Project {
     let mut synth = Device::new(
         Id(0x3601),
@@ -99,7 +84,6 @@ fn golden_v36_expected() -> Project {
     };
     let mut keys = midi_track(vec![synth]);
     keys.clips = vec![Arc::new(clip)];
-    // A plugin instrument of its own, on its own track: a track holds one.
     let mut pad = Track::new(Id(0x3605), "Pad".to_owned(), TrackKind::Midi, Color(0));
     pad.devices = vec![plugin];
     project_of("Golden v36", vec![keys, pad])
@@ -111,9 +95,6 @@ fn golden_v36_loads_and_round_trips() {
     assert_eq!(from_bytes(&to_bytes(&project).unwrap()).unwrap(), project);
 }
 
-/// The five preset names a v35 project may hold become the values that sound
-/// the same, and a name this build does not know becomes the default sound,
-/// as it always played.
 #[test]
 fn a_preset_name_becomes_its_values() {
     let mut poly = None;
@@ -131,13 +112,11 @@ fn a_preset_name_becomes_its_values() {
             device.params.values().all(|v| (0.0..=1.0).contains(v)),
             "{preset}"
         );
-        // The whole file round-trips.
         assert_eq!(from_bytes(&to_bytes(&loaded).unwrap()).unwrap(), loaded);
         if preset == "poly" {
             poly = Some(device.params.clone());
         }
     }
-    // A name from a later version plays the default sound, as it always did.
     let future = project_of(
         "Old",
         vec![midi_track(vec![synth(Id(2), "from-the-future")])],
@@ -146,8 +125,6 @@ fn a_preset_name_becomes_its_values() {
     assert_eq!(loaded.tracks[0].devices[0].params, poly.unwrap());
 }
 
-/// A v35 project opens sounding as it did: its synth holds the values its
-/// preset name meant, and a file already at v36 keeps what it holds.
 #[test]
 fn an_older_project_opens_with_its_synth_s_values() {
     let project = project_of("Old", vec![midi_track(vec![synth(Id(2), "pad")])]);
@@ -158,10 +135,7 @@ fn an_older_project_opens_with_its_synth_s_values() {
         .find(|d| d.is_synth())
         .expect("the synth");
     assert_eq!(device.params.len(), 34, "the synth has its values");
-    // Pad's corner, as that preset set it (a 1.6 kHz low-pass): the values are
-    // frozen in the migration, so this is what it always opens as.
     assert!((device.params[&13] - 0.429_227_144).abs() < 1e-9);
-    // A value the project already holds is never replaced.
     let mut project = old.clone();
     let mut tracks: Vec<Arc<Track>> = Vec::new();
     for track in &project.tracks {
@@ -182,8 +156,6 @@ fn an_older_project_opens_with_its_synth_s_values() {
     assert_eq!(device.params.get(&13), Some(&0.25));
 }
 
-/// A synth with no readable name is still given the default sound, and a
-/// project with no synth is untouched.
 #[test]
 fn a_synth_with_no_name_gets_the_default_sound() {
     let project = project_of(
@@ -198,13 +170,11 @@ fn a_synth_with_no_name_gets_the_default_sound() {
         )])],
     );
     let mut bytes = as_v35(&project);
-    // The file as that build wrote a synth with no name at all.
     let text = String::from_utf8(std::mem::take(&mut bytes))
         .unwrap()
         .replace(",\n            \"state\": \"\"", "");
     let loaded = from_bytes(text.as_bytes()).expect("it loads");
     assert_eq!(loaded.tracks[0].devices[0].params.len(), 34);
-    // A project with a plugin alone is untouched by the migration.
     let plugin_only = project_of(
         "Old",
         vec![midi_track(vec![Device::vst3(
@@ -219,9 +189,6 @@ fn a_synth_with_no_name_gets_the_default_sound() {
     assert!(loaded.tracks[0].devices[0].params.is_empty());
 }
 
-/// A hosted plugin that happens to be called "synth" is not the built-in: its
-/// state is the plugin's own and no parameter values are invented for it
-/// (review L4).
 #[test]
 fn a_plugin_named_synth_is_not_migrated() {
     let mut plugin = Device::vst3(

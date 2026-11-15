@@ -1,7 +1,3 @@
-//! Native VST3 editor windows on macOS. AppKit, the plugin and its view all
-//! stay on the host's main thread; the view is attached to an NSView owned by
-//! this child process, never to Lumen's window.
-
 use std::cell::RefCell;
 use std::ffi::c_void;
 use std::sync::Arc;
@@ -62,7 +58,6 @@ impl IPlugFrameTrait for FrameObject {
         if size.is_null() || view.is_null() {
             return kInvalidArgument;
         }
-        // SAFETY: a non-null rectangle supplied for the duration of this callback.
         let Some((width, height)) = rectangle_size(unsafe { &*size }) else {
             return kInvalidArgument;
         };
@@ -90,7 +85,6 @@ impl IPlugFrameTrait for FrameObject {
                 right: width,
                 bottom: height,
             };
-            // SAFETY: the view was cloned from the live editor on this thread.
             unsafe { view.onSize(&mut rect) };
             kResultTrue
         } else {
@@ -112,7 +106,6 @@ fn rectangle_size(rect: &ViewRect) -> Option<(i32, i32)> {
     (width > 0 && height > 0).then(|| constrained_size(width, height))
 }
 
-/// The editor operations are called only by the AppKit main thread.
 #[derive(Default)]
 pub struct MacEditors {
     captured: Vec<u8>,
@@ -131,7 +124,6 @@ impl Editors for MacEditors {
             return Err("an editor is already open".into());
         }
         let view = view.ok_or("the plugin has no editor")?;
-        // SAFETY: a live view owned by the plugin host's main thread.
         if unsafe { view.isPlatformTypeSupported(kPlatformTypeNSView) } != kResultTrue {
             return Err("the plugin editor does not support NSView".into());
         }
@@ -149,7 +141,6 @@ impl Editors for MacEditors {
             NSPoint::new(0.0, 0.0),
             NSSize::new(f64::from(width), f64::from(height)),
         );
-        // SAFETY: the plugin view is live and owned on this main thread.
         let can_resize = unsafe { view.canResize() } == kResultTrue;
         let mut style = NSWindowStyleMask::Titled
             .union(NSWindowStyleMask::Closable)
@@ -157,7 +148,6 @@ impl Editors for MacEditors {
         if can_resize {
             style = style.union(NSWindowStyleMask::Resizable);
         }
-        // SAFETY: constructing a normal AppKit window on its marked main thread.
         let window = unsafe {
             NSWindow::initWithContentRect_styleMask_backing_defer(
                 NSWindow::alloc(mtm),
@@ -168,9 +158,6 @@ impl Editors for MacEditors {
             )
         };
         window.setTitle(&NSString::from_str(title));
-        // AppKit windows are retained explicitly; close must not invalidate
-        // the Rust owner before lifecycle cleanup calls `removed`.
-        // SAFETY: the Rust owner explicitly keeps the window retained.
         unsafe { window.setReleasedWhenClosed(false) };
         let content = window
             .contentView()
@@ -183,7 +170,6 @@ impl Editors for MacEditors {
         let scale = view.cast::<IPlugViewContentScaleSupport>();
         let factor = window.backingScaleFactor() as f32;
         if let Some(scale) = &scale {
-            // SAFETY: this is the optional VST3 scale interface of the view.
             unsafe { scale.setContentScaleFactor(factor) };
         }
         let initial = view_size(&view);
@@ -207,13 +193,10 @@ impl Editors for MacEditors {
             NSSize::new(initial.0 as f64, initial.1 as f64),
         ));
         let frame = ComWrapper::new(FrameObject);
-        // SAFETY: the COM frame remains owned in OpenEditor until detached.
         let frame_ptr = frame
             .to_com_ptr::<IPlugFrame>()
             .ok_or("could not create the plugin editor frame")?;
-        // SAFETY: a valid frame pointer with the host's retained reference.
         if unsafe { view.setFrame(frame_ptr.as_ptr()) } != kResultOk {
-            // SAFETY: clear a frame even if the plugin reports setup failure.
             unsafe { view.setFrame(std::ptr::null_mut()) };
             return Err("the plugin refused the editor frame".into());
         }
@@ -241,7 +224,6 @@ impl Editors for MacEditors {
             });
         });
         let parent = &*content as *const NSView as *mut c_void;
-        // SAFETY: AppKit content view is a live NSView on this main thread.
         let attached = unsafe { view.attached(parent, kPlatformTypeNSView) };
         if attached != kResultOk {
             close_editor(mtm);
@@ -341,7 +323,6 @@ fn view_size(view: &ComPtr<IPlugView>) -> (i32, i32) {
         right: 320,
         bottom: 200,
     };
-    // SAFETY: valid out pointer to a live VST3 view.
     unsafe { view.getSize(&mut rect) };
     rectangle_size(&rect).unwrap_or((320, 200))
 }
@@ -353,7 +334,6 @@ fn constrain_view_size(view: &ComPtr<IPlugView>, (width, height): (i32, i32)) ->
         right: width,
         bottom: height,
     };
-    // SAFETY: a valid in/out rectangle for the live editor view.
     if unsafe { view.checkSizeConstraint(&mut rect) } == kResultOk {
         rectangle_size(&rect).unwrap_or_else(|| constrained_size(width, height))
     } else {
@@ -400,8 +380,6 @@ fn set_window_position(window: &NSWindow, bounds: EditorBounds, mtm: MainThreadM
         f64::from(bounds.x) / scale,
         screen_top - f64::from(bounds.y) / scale - frame.size.height,
     ));
-    // A saved editor may belong to a display that has since been removed.
-    // AppKit keeps its title bar reachable on one of the current displays.
     window.setFrame_display(
         window.constrainFrameRect_toScreen(window.frame(), None),
         false,
@@ -415,13 +393,11 @@ fn close_editor(mtm: MainThreadMarker) {
         let dpi = (editor.window.backingScaleFactor() * 72.0).round().max(1.0) as u32;
         let scale = f64::from(dpi) / 72.0;
         if editor.attached {
-            // SAFETY: this thread created and owns the view and its window.
             unsafe {
                 editor.view.removed();
             }
             editor.attached = false;
         }
-        // SAFETY: stop callbacks before the frame owner is dropped.
         unsafe {
             editor.view.setFrame(std::ptr::null_mut());
         }
@@ -441,9 +417,6 @@ fn close_editor(mtm: MainThreadMarker) {
     }
 }
 
-/// AppKit reports screen frames from the primary display's bottom-left
-/// coordinate system. The protocol stores a top-left Y relative to that same
-/// origin; negative values correctly represent displays above the primary.
 fn primary_screen_top(mtm: MainThreadMarker) -> f64 {
     let screens = objc2_app_kit::NSScreen::screens(mtm);
     if screens.count() == 0 {
@@ -463,8 +436,6 @@ fn release_captured(editor: &mut OpenEditor) {
     }
 }
 
-/// A low-latency AppKit event pump. Short timed waits keep native window
-/// events flowing while the channel wakes protocol requests from the reader.
 pub struct WindowPump {
     wake: Sender<()>,
     woken: Receiver<()>,
@@ -551,13 +522,7 @@ impl Pump for WindowPump {
     }
 }
 
-/// Puts a plugin window in front of every other window and gives it the
-/// keyboard. The host is an accessory process that is not active when its
-/// window opens, and an inactive process's window otherwise opens behind the
-/// active application's, here Lumen's.
 fn bring_forward(app: Retained<NSApplication>, window: &NSWindow) {
-    // The cooperative `activate` of newer systems does nothing unless the
-    // active application yields, and Lumen does not.
     #[allow(
         deprecated,
         reason = "the newer cooperative activate does nothing unless the active application yields, and Lumen does not"
@@ -567,10 +532,6 @@ fn bring_forward(app: Retained<NSApplication>, window: &NSWindow) {
     window.orderFrontRegardless();
 }
 
-/// Keeps the plugin window above Lumen's own windows while Lumen or the
-/// window's process is the active application, and drops it to the normal
-/// level when another application is active, so it never floats over other
-/// work. Only a change is applied.
 fn stack_editor() {
     EDITOR.with(|slot| {
         let mut slot = slot.borrow_mut();
@@ -597,7 +558,6 @@ fn next_event(app: &NSApplication) -> Option<Retained<NSEvent>> {
     app.nextEventMatchingMask_untilDate_inMode_dequeue(
         NSEventMask::Any,
         Some(&past),
-        // SAFETY: this is the system-owned default run-loop mode constant.
         unsafe { NSDefaultRunLoopMode },
         true,
     )
@@ -644,7 +604,6 @@ fn sync_resize() {
         right: size.0,
         bottom: size.1,
     };
-    // SAFETY: the cloned view is attached and belongs to this main thread.
     unsafe { view.onSize(&mut rect) };
 }
 
@@ -663,7 +622,6 @@ fn sync_backing_scale() {
         return;
     };
     if let Some(scale) = scale {
-        // SAFETY: the scale interface belongs to the active view on this thread.
         unsafe {
             scale.setContentScaleFactor(factor);
         }
@@ -724,8 +682,6 @@ fn handle_key_event(event: &NSEvent) -> bool {
 }
 
 fn windows_keycode(key: u16) -> Option<u8> {
-    // USB keyboard usages for the common note-key range, mapped to the
-    // Windows virtual-key values already used by Lumen's computer keyboard.
     let letter = match key {
         0 => b'A',
         11 => b'B',

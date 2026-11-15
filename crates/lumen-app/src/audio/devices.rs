@@ -1,8 +1,3 @@
-//! Which device to open (M9 review M1): the user's choice, the driver
-//! models of this platform, the backend each one makes, and finding the
-//! device a choice names (a saved device, `--audio`, or the system's
-//! default), with the fallback when it is missing.
-
 use std::time::Duration;
 
 use lumen_audio::{Backend, DeviceId, StreamConfig};
@@ -11,22 +6,14 @@ use lumen_core::product::PRODUCT_NAME;
 use super::test_devices::{self, TEST_DRIVER, TEST_DRIVERS, TEST_INPUT_DRIVER, is_test};
 use crate::settings::AudioSettings;
 
-/// Which device to open.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Choice {
-    /// The system default output (WASAPI shared on Windows).
     Default,
-    /// `--audio <driver>:<name>`: `asio`, `wasapi` or `exclusive` on Windows,
-    /// `cpal` elsewhere. ASIO names must match exactly; others match any
-    /// part of the name.
     Named { driver: String, name: String },
-    /// The device saved in the settings: found by id, then by name; if it
-    /// is missing, the default output with a note saying so.
     Saved(AudioSettings),
 }
 
 impl Choice {
-    /// Parses the `--audio` argument.
     pub fn parse(arg: &str) -> Result<Self, String> {
         let (driver, name) = arg
             .split_once(':')
@@ -40,7 +27,6 @@ impl Choice {
         })
     }
 
-    /// The silent test device with scripted inputs ([`TEST_INPUT_DRIVER`]).
     pub fn test_input_device() -> Self {
         Choice::Named {
             driver: TEST_INPUT_DRIVER.into(),
@@ -48,7 +34,6 @@ impl Choice {
         }
     }
 
-    /// The silent test device ([`TEST_DRIVER`]).
     pub fn test_device() -> Self {
         Choice::Named {
             driver: TEST_DRIVER.into(),
@@ -57,25 +42,20 @@ impl Choice {
     }
 }
 
-/// What the transport bar shows about audio.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Status {
     Starting,
     Running {
         device: String,
-        /// The rate, buffer and round trip, as the tooltip shows them.
         detail: String,
-        /// The rate in kHz, as the chip shows it ("48.0 kHz").
         rate: String,
     },
-    /// The device went away; Lumen reconnects when it returns.
     Lost(String),
     Off(String),
 }
 
 pub type MakeBackend = fn() -> Box<dyn Backend>;
 
-/// The driver models on this platform: (key, label).
 pub const DRIVERS: &[(&str, &str)] = if cfg!(windows) {
     &[
         ("asio", "ASIO"),
@@ -86,7 +66,6 @@ pub const DRIVERS: &[(&str, &str)] = if cfg!(windows) {
     &[("cpal", "System audio")]
 };
 
-/// The driver models to offer while `driver` is in use.
 pub fn drivers_for(driver: &str) -> &'static [(&'static str, &'static str)] {
     if is_test(driver) {
         TEST_DRIVERS
@@ -103,8 +82,6 @@ pub fn driver_label(driver: &str) -> &str {
         .map_or(driver, |(_, label)| label)
 }
 
-/// What a message calls the driver behind `device`: an ASIO driver by its
-/// own name ("Focusrite USB ASIO"), the others by their driver model.
 pub(super) fn driver_name(driver: &str, device: &str) -> String {
     if driver == "asio" {
         device.to_owned()
@@ -113,15 +90,11 @@ pub(super) fn driver_name(driver: &str, device: &str) -> String {
     }
 }
 
-/// How long a driver may take to answer before the row says it is not
-/// answering: as long as a driver switch waits for its handover.
 pub(super) const NOT_ANSWERING: Duration = lumen_audio::HANDOVER_TIMEOUT;
 
 pub fn backend(driver: &str) -> Option<MakeBackend> {
     match driver {
         #[cfg(windows)]
-        // If ASIO cannot start here (COM), every open fails with the reason
-        // and the app shows it, rather than the audio thread panicking.
         "asio" => Some(|| match lumen_audio::asio::AsioBackend::new() {
             Ok(backend) => Box::new(backend),
             Err(e) => Box::new(lumen_audio::Unavailable::new(format!(
@@ -140,24 +113,18 @@ pub fn backend(driver: &str) -> Option<MakeBackend> {
 
 pub const DEFAULT_DRIVER: &str = if cfg!(windows) { "wasapi" } else { "cpal" };
 
-/// Why audio is off after Audio On/Off turned it off.
 pub(super) const AUDIO_OFF: &str = "Audio is off";
-/// A device found for a choice.
 pub(super) struct Resolved {
     pub(super) driver: String,
     pub(super) make: MakeBackend,
     pub(super) id: DeviceId,
     pub(super) name: String,
-    /// Rate, buffer and channels: saved ones, or defaults.
     pub(super) sample_rate: Option<u32>,
     pub(super) buffer_frames: Option<u32>,
     pub(super) input_channels: Vec<usize>,
-    /// Every input the device has (`input_channels` is then empty).
     pub(super) all_inputs: bool,
     pub(super) output_channels: Vec<usize>,
-    /// The cue pair, opened after the main pair (empty: none).
     pub(super) cue_channels: Vec<usize>,
-    /// Something the user should know (the saved device was missing).
     pub(super) notice: Option<String>,
 }
 
@@ -178,8 +145,6 @@ impl Resolved {
         }
     }
 
-    /// The stream to open: the main pair, then the cue pair, so the cue is
-    /// always on the third and fourth channels the engine sees.
     pub(super) fn config(&self) -> StreamConfig {
         let cue = self
             .cue_channels
@@ -199,7 +164,6 @@ impl Resolved {
     }
 }
 
-/// (id, name) of each device of `driver`, without loading ASIO drivers.
 pub fn listed(driver: &str, make: MakeBackend) -> Vec<(DeviceId, String)> {
     #[cfg(windows)]
     if driver == "asio" {
@@ -213,8 +177,6 @@ pub fn listed(driver: &str, make: MakeBackend) -> Vec<(DeviceId, String)> {
         .collect()
 }
 
-/// Finds the device and its display name. Enumeration runs on its own
-/// thread, away from the UI thread's COM apartment.
 pub(super) fn resolve(choice: &Choice) -> Result<Resolved, String> {
     let choice = choice.clone();
     std::thread::spawn(move || resolve_on_this_thread(&choice))
@@ -222,7 +184,6 @@ pub(super) fn resolve(choice: &Choice) -> Result<Resolved, String> {
         .unwrap_or_else(|_| Err("audio device lookup failed".into()))
 }
 
-/// The saved device, if it is there: by id, then by name.
 pub(super) fn find_saved(saved: &AudioSettings) -> Option<Resolved> {
     let make = backend(&saved.driver)?;
     let devices = listed(&saved.driver, make);

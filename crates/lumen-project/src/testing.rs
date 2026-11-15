@@ -1,6 +1,3 @@
-//! Synthetic projects and temporary folders for tests and benchmarks.
-//! Not a stable API.
-
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -12,7 +9,6 @@ use crate::model::{
     TimeSignature, Track, TrackKind, constant_meter,
 };
 
-/// A temporary folder removed on drop.
 pub struct TempDir(PathBuf);
 
 impl TempDir {
@@ -38,12 +34,10 @@ impl Drop for TempDir {
     }
 }
 
-/// A small deterministic random number generator (xorshift) for tests.
 pub struct Rng(u64);
 
 impl Rng {
     pub fn new(seed: u64) -> Self {
-        // Xorshift must not start at zero.
         Self(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1)
     }
 
@@ -59,13 +53,10 @@ impl Rng {
     }
 }
 
-/// A small but varied project; different seeds give different content.
 pub fn small_project(seed: u64) -> Project {
     synthetic(seed, 6, 4, 8, 64)
 }
 
-/// Track 0 is a group containing tracks 1–4; odd tracks are MIDI, even
-/// tracks audio. Every other track gets one plugin with `state_bytes` of state.
 pub fn synthetic(
     seed: u64,
     tracks: usize,
@@ -104,7 +95,6 @@ pub fn synthetic(
             media_id
         });
         let devices = if kind != TrackKind::Group {
-            // Arguments run in order, so the generator is drawn as before.
             vec![Device::new(
                 id(),
                 PluginRef::Vst3 {
@@ -214,8 +204,6 @@ pub fn synthetic(
     }
 }
 
-/// A project of `tracks` at 120 BPM in 4/4, for tests that need only their
-/// content: ids from 1000 are free for the caller; the master is 999.
 pub fn project_of(name: &str, tracks: Vec<Track>) -> Project {
     Project {
         name: name.into(),
@@ -241,10 +229,6 @@ pub fn project_of(name: &str, tracks: Vec<Track>) -> Project {
     }
 }
 
-/// A MIDI track with the synth on `preset` and one clip of `notes` and
-/// `events` from `start` to `start + length` (in quarter notes), with the
-/// content repeating every `repeat` quarters when given. Ids count from
-/// `id`: the track, its device, its clip.
 pub fn midi_track(
     id: u64,
     name: &str,
@@ -255,8 +239,6 @@ pub fn midi_track(
     events: Vec<crate::model::ClipEvent>,
 ) -> Track {
     let mut track = Track::new(Id(id), name, TrackKind::Midi, Color(0x4F81BD));
-    // A real device of this format: its sound is the values its preset meant
-    // (the migration's frozen record of them), not just the name.
     let mut synth = Device::synth(Id(id + 1), preset);
     synth.params = crate::migrate::synth_values_of(preset)
         .iter()
@@ -287,23 +269,6 @@ pub fn midi_track(
     track
 }
 
-/// The project for the manual test MT-MIDI-2 (`tests/projects/midi-demo.lumen`):
-/// notes cannot be drawn until the piano roll (M5 slice 3), so the project
-/// holds what the slice has to prove. 120 BPM, eight bars:
-/// - **Chords** (Poly): Am, F, C, G over four bars, repeated by the clip's
-///   loop; the C is short with the sustain pedal down for the bar, so it
-///   rings on until the pedal comes up;
-/// - **Pad** (Pad): one chord for all eight bars, for chase: start playback
-///   anywhere and it sounds at once;
-/// - **Bass** (Bass): eighth notes on the chords' roots and fifths, four
-///   bars repeated;
-/// - **Lead** (Keys): a note in bar 5 that bends up two semitones while the
-///   modulation wheel opens the filter, then comes back;
-/// - **Hardware** (Pluck, sent to Microsoft GS Wavetable Synth, channel 1):
-///   an arpeggio of the same chords in bars 1 to 4, in eighth notes, its
-///   root on every downbeat.
-///
-/// The loop brace (bars 1 to 4) is set and off.
 pub fn midi_demo() -> Project {
     use crate::model::{ClipEvent, EventKind, MidiTo};
     let q = Ticks::quarters;
@@ -342,7 +307,6 @@ pub fn midi_demo() -> Project {
         vec![note(0, 32, 48, 70), note(0, 32, 55, 70)],
         vec![],
     );
-    // Roots of Am, F, C, G, one per bar: root, root, fifth, root, twice.
     let bass_line: Vec<Note> = [33_u8, 29, 36, 31]
         .iter()
         .enumerate()
@@ -388,8 +352,6 @@ pub fn midi_demo() -> Project {
             wheel(6, 0),
         ],
     );
-    // The chords' notes again, one bar each, eighth notes going up and
-    // back: the root (the chord's lowest note) on every downbeat.
     let arpeggio: Vec<Note> = [
         [57_u8, 60, 64, 69],
         [53, 57, 60, 65],
@@ -424,16 +386,6 @@ pub fn midi_demo() -> Project {
     project
 }
 
-/// The project for the manual test MT-AUTO-1 (`tests/projects/automation-demo.lumen`):
-/// there is no lane interface until M7 slice A1, so the project holds what
-/// slice A0 has to prove, by ear. 120 BPM, eight bars, three tracks of
-/// [`midi_demo`]:
-/// - **Pad** swells in from near silence over two bars (a fader lane in dB),
-///   holds, and falls 18 dB over the last two;
-/// - **Chords** sweeps from the left to the right and back, every two bars
-///   (a pan lane);
-/// - **Bass** drops out for the third bar and the seventh (a mute lane of
-///   steps).
 pub fn automation_demo() -> Project {
     use crate::automation::{AutomationLane, Target};
     use lumen_core::automation::{Lane, Point, Shape};

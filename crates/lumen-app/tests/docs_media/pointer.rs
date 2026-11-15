@@ -1,12 +1,5 @@
-//! The pointer and the click mark, drawn into clips: the render has no
-//! system cursor, so the recorder draws the one Lumen asks for that frame
-//! (USER_DOCS.md §6.3).
-
 use eframe::egui::{CursorIcon, Pos2};
 
-/// The outline of the pointer for `icon`, 1 unit = 1 point, with the hot
-/// spot at the origin. Shapes Lumen asks for that have no outline here
-/// (the hands, the zoom glass) are drawn as the arrow.
 fn outline(icon: CursorIcon) -> Vec<(f32, f32)> {
     match icon {
         CursorIcon::Crosshair => vec![
@@ -35,7 +28,6 @@ fn outline(icon: CursorIcon) -> Vec<(f32, f32)> {
     }
 }
 
-/// The classic arrow, its tip at the origin.
 const ARROW: [(f32, f32); 7] = [
     (0.0, 0.0),
     (0.0, 17.0),
@@ -46,7 +38,6 @@ const ARROW: [(f32, f32); 7] = [
     (12.2, 12.2),
 ];
 
-/// A double arrow across, centred on the origin.
 const RESIZE: [(f32, f32); 10] = [
     (-10.0, 0.0),
     (-5.0, -5.0),
@@ -60,8 +51,6 @@ const RESIZE: [(f32, f32); 10] = [
     (-5.0, 5.0),
 ];
 
-/// The pointer for `icon` at `at` (points). `press` from 0 to 1 shrinks it
-/// slightly while the button is down.
 pub fn draw(image: &mut image::RgbaImage, icon: CursorIcon, at: Pos2, scale: f32, press: f32) {
     let dip = 0.08 * (1.0 - (press * 2.0 - 1.0).abs()).min(1.0) * f32::from(u8::from(press > 0.0));
     let size = scale * (1.0 - dip);
@@ -93,7 +82,6 @@ pub fn draw(image: &mut image::RgbaImage, icon: CursorIcon, at: Pos2, scale: f32
     }
 }
 
-/// A click's ring around `at`, growing and fading as `t` goes from 0 to 1.
 pub fn ring(image: &mut image::RgbaImage, at: Pos2, scale: f32, t: f32) {
     let radius = (6.0 + 16.0 * t) * scale;
     let width = 2.0 * scale;
@@ -106,7 +94,6 @@ pub fn ring(image: &mut image::RgbaImage, at: Pos2, scale: f32, t: f32) {
             let cover = (1.0 - ((d - radius).abs() - width * 0.5).max(0.0)).clamp(0.0, 1.0) * alpha;
             if cover > 0.0 {
                 let px = image.get_pixel_mut(x as u32, y as u32);
-                // The accent, #4FA3FF.
                 for (channel, accent) in px.0.iter_mut().zip([79.0, 163.0, 255.0]) {
                     *channel = (f32::from(*channel) * (1.0 - cover) + accent * cover) as u8;
                 }

@@ -1,7 +1,3 @@
-//! The Project media tab as the app runs it (audit M12): drawing it from
-//! what `app::media_pool` knows, and applying what was clicked there. The
-//! rows, their cards and the empty words are `crate::browser::media_tab`.
-
 use eframe::egui::{self, Id, Key, Modifiers, Rect, Ui, pos2, vec2};
 use lumen_project::model::Id as MediaId;
 
@@ -17,7 +13,6 @@ use crate::relink::{Found, Verdict};
 use crate::{App, theme, widgets};
 
 impl App {
-    /// Draws the Project media tab below the tabs, in `body`.
     pub(crate) fn media_tab(&mut self, ui: &mut Ui, body: Rect) {
         let ctx = ui.ctx().clone();
         let side = (theme::space::M - theme::space::S) as i8;
@@ -54,7 +49,6 @@ impl App {
         }
     }
 
-    /// The search, the filter, what is under way and what to do about it.
     fn media_controls(&mut self, ui: &mut Ui, ctx: &egui::Context) {
         let searched = controls::search(
             ui,
@@ -132,8 +126,6 @@ impl App {
         }
     }
 
-    /// A search under way, what it found, a file waiting to be confirmed, or
-    /// the last thing that happened.
     fn media_state(&mut self, ui: &mut Ui, ctx: &egui::Context) {
         if let Some(search) = &self.media_pool.search {
             let progress = search.control.progress();
@@ -200,7 +192,6 @@ impl App {
         }
     }
 
-    /// What a folder search found, to look at before anything changes.
     fn report_card(&mut self, ui: &mut Ui) {
         let Some(report) = self.media_pool.report.clone() else {
             return;
@@ -297,7 +288,6 @@ impl App {
         }
     }
 
-    /// The list is empty: nothing in the project, or nothing that matches.
     fn media_empty(&mut self, ui: &mut Ui, area: Rect, nothing_at_all: bool) {
         let (title, hint) = empty_words(
             nothing_at_all,
@@ -322,8 +312,6 @@ impl App {
         }
     }
 
-    /// The arrows move through the list while the pane has the keyboard.
-    /// Returns whether the selection moved (to scroll it into view).
     fn media_keys(&mut self, ctx: &egui::Context, shown: &[Row]) -> bool {
         if panes::focused(ctx) != Some(Pane::Browser) || ctx.text_edit_focused() {
             return false;
@@ -358,8 +346,6 @@ impl App {
         }
     }
 
-    /// Double-click or Enter: a missing file is located, a used one is
-    /// shown where it is used.
     fn open_media_row(&mut self, ctx: &egui::Context, id: MediaId, missing: bool) {
         if missing {
             self.locate_media(ctx, id);
@@ -402,7 +388,6 @@ impl App {
         }
     }
 
-    /// The rows in view, painted one by one.
     fn media_list(
         &mut self,
         ui: &mut Ui,
@@ -452,7 +437,6 @@ impl App {
         out
     }
 
-    /// Files that belong to no project, and the way to move them to the trash.
     fn strays_card(&mut self, ui: &mut Ui, rect: Rect) {
         let ctx = ui.ctx().clone();
         let strays = self.media_pool.strays();

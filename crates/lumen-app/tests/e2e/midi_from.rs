@@ -1,10 +1,3 @@
-//! Which tracks listen (M5 slice 2b, format v13): a MIDI track plays what is
-//! played live when its Monitor is In, or Auto while it is armed or
-//! selected; never when Off. MIDI From chooses the inputs (all, the
-//! computer keyboard, one port and channel), and the track menu, the mixer
-//! strip and the palette set it and Monitor, each one undo step. The
-//! settings survive saving and opening.
-
 use std::time::Duration;
 
 use eframe::egui::{Key, Modifiers};
@@ -17,7 +10,6 @@ use lumen_project::testing::{TempDir, midi_track, project_of};
 
 use super::Lumen;
 
-/// Two MIDI tracks (no notes) and an audio track.
 fn project() -> Project {
     project_of(
         "Listening",
@@ -36,7 +28,6 @@ fn launch(name: &str, fake: &FakeControl) -> Lumen {
     let fake = fake.clone();
     let mut lumen = Lumen::start_with(dir, move |l| l.opening(path).with_midi(fake));
     lumen.wait_for("the project", |app| app.project().tracks.len() == 3);
-    // Rows grow in over a few frames.
     lumen.frames(30);
     lumen
 }
@@ -59,10 +50,7 @@ fn track<'a>(lumen: &'a Lumen, name: &str) -> &'a Track {
         .unwrap()
 }
 
-/// The loudest sample heard while a note is held, for `play`, which
-/// starts it. The note is released and its tail let go before returning.
 fn level_of(lumen: &mut Lumen, play: impl FnOnce(&mut Lumen)) -> f32 {
-    // Let anything left ring out first.
     lumen.listen(Duration::from_millis(600), 4_000);
     play(lumen);
     let heard = lumen.listen(Duration::from_millis(150), 3_000);
@@ -81,11 +69,6 @@ fn keyboard_note(lumen: &mut Lumen) -> f32 {
 
 const HEARD: f32 = 0.005;
 
-/// The level of a note that is expected to be heard: up to three tries, the
-/// first that is heard counts. These scenarios are about which tracks listen,
-/// not about every note arriving; on a loaded macOS runner a first note was
-/// once not heard (not reproduced on Linux, even with every core busy). A
-/// silent expectation is measured once: a retry could only make it pass.
 fn eventually(lumen: &mut Lumen, mut measure: impl FnMut(&mut Lumen) -> f32) -> f32 {
     let mut loudest = 0.0f32;
     for _ in 0..3 {
@@ -97,7 +80,6 @@ fn eventually(lumen: &mut Lumen, mut measure: impl FnMut(&mut Lumen) -> f32) -> 
     loudest
 }
 
-/// Opens the settings' MIDI page and switches the input on for tracks.
 pub(super) fn switch_on_for_tracks(lumen: &mut Lumen, fake: &FakeControl, port: &str) {
     lumen.open_midi_settings();
     let label = format!("Track {port} input");
@@ -123,14 +105,12 @@ fn input_off(fake: &FakeControl, port: &str, channel: u8) {
 fn a_selected_midi_track_plays_what_is_played_and_nothing_selected_is_silent() {
     let fake = FakeControl::new();
     let mut lumen = launch("from-selected", &fake);
-    // Nothing is selected: nobody listens.
     assert!(keyboard_note(&mut lumen) < HEARD);
     select(&mut lumen, "Keys");
     assert!(
         eventually(&mut lumen, keyboard_note) > HEARD,
         "the selected track plays"
     );
-    // An audio track selected instead: silent.
     select(&mut lumen, "Vox");
     assert!(keyboard_note(&mut lumen) < HEARD);
 }
@@ -153,7 +133,6 @@ fn monitor_in_always_listens_and_off_never_does() {
         eventually(&mut lumen, keyboard_note) > HEARD,
         "In plays with the track not selected"
     );
-    // One undo step each.
     assert_eq!(lumen.app().undo_label(), Some("Monitor: In"));
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert_eq!(track(&lumen, "Keys").monitor, Monitor::Off);
@@ -171,11 +150,9 @@ fn arming_a_second_track_layers_it() {
     assert!(one > HEARD);
     lumen.click("Arm Lead");
     assert!(track(&lumen, "Lead").armed);
-    // Armed, it listens while Keys is still selected: twice the sound.
     select(&mut lumen, "Keys");
     let two = keyboard_note(&mut lumen);
     assert!(two > one * 1.5, "layered: {one} then {two}");
-    // Selecting the audio track leaves only the armed one.
     select(&mut lumen, "Vox");
     let armed = eventually(&mut lumen, keyboard_note);
     assert!(armed > HEARD && armed < two * 0.75, "{armed} vs {two}");
@@ -188,19 +165,16 @@ fn from_chooses_between_the_keyboard_and_a_port() {
     let mut lumen = launch("from-ports", &fake);
     switch_on_for_tracks(&mut lumen, &fake, "Pad");
     select(&mut lumen, "Keys");
-    // All inputs: the keyboard and the port both play.
     assert!(eventually(&mut lumen, keyboard_note) > HEARD);
     assert!(eventually(&mut lumen, |l| input_note(l, &fake, "Pad", 0)) > HEARD);
     input_off(&fake, "Pad", 0);
 
-    // The computer keyboard only: the port is ignored.
     super::midi_play::palette(&mut lumen, "MIDI From: Computer keyboard");
     assert_eq!(track(&lumen, "Keys").midi_from.source, FromSource::Keyboard);
     assert!(eventually(&mut lumen, keyboard_note) > HEARD);
     assert!(input_note(&mut lumen, &fake, "Pad", 0) < HEARD);
     input_off(&fake, "Pad", 0);
 
-    // The port on channel 2 only.
     lumen.app_mut().set_midi_from(MidiFrom {
         source: FromSource::Port("Pad".into()),
         channel: Some(1),
@@ -250,7 +224,6 @@ fn the_track_menu_sets_midi_from_and_monitor_and_undo_restores_them() {
     assert_eq!(track(&lumen, "Keys").monitor, Monitor::In);
     assert_eq!(lumen.app().undo_label(), Some("Monitor: In"));
 
-    // Undo, one step at a time.
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert_eq!(track(&lumen, "Keys").monitor, Monitor::Auto);
     lumen.key(Modifiers::COMMAND, Key::Z);
@@ -258,7 +231,6 @@ fn the_track_menu_sets_midi_from_and_monitor_and_undo_restores_them() {
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert!(track(&lumen, "Keys").midi_from.is_default());
 
-    // A port the track names that is unplugged is listed, dimmed.
     select(&mut lumen, "Keys");
     lumen.app_mut().set_midi_from(MidiFrom {
         source: FromSource::Port("Gone".into()),

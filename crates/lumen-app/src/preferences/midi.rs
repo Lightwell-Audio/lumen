@@ -1,12 +1,3 @@
-//! The MIDI page of Preferences (M5 slice 0; a page of Preferences since M9
-//! R7): every input and output with its switches, and what to do when there
-//! are none. Outputs have Sync (MIDI clock, M5 slice 7) and, while it is
-//! on, its delay.
-//!
-//! The ports are a table: a column per switch with its caption over it, the
-//! last column at the page's right edge where every other switch sits, and
-//! a port's name cut short before it reaches them.
-
 use eframe::egui::{
     self, Align, Align2, FontId, Layout, Rect, RichText, Sense, Ui, UiBuilder, pos2, vec2,
 };
@@ -18,26 +9,18 @@ use crate::midi::{Action, Midi, SYNC_DELAY_MS};
 use crate::widgets::{SliderKind, hint, warning};
 use crate::{fonts, settings, theme, widgets};
 
-/// What the page shows: the ports, and what is saved for them (the clock
-/// delays).
 #[derive(Clone, Copy)]
 pub struct Shown<'a> {
     pub midi: &'a Midi,
     pub saved: &'a settings::Midi,
 }
 
-/// The delay field's width.
 const DELAY_WIDTH: f32 = 64.0;
 
-/// Each switch column's width. The switches sit at their column's right
-/// edge, so the last one lines up with every other switch on the pages,
-/// and the column's caption is centred over its switch.
 const COLUMN: f32 = 64.0;
 
-/// Room for a port's state dot at the start of its row.
 const DOT: f32 = 12.0;
 
-/// The ports. `marks` outlines the row a search led to.
 pub fn page(ui: &mut Ui, shown: Shown<'_>, marks: &Marks, actions: &mut Vec<Action>) {
     let midi = shown.midi;
     if let Some(why) = midi.unavailable() {
@@ -73,11 +56,9 @@ pub fn page(ui: &mut Ui, shown: Shown<'_>, marks: &Marks, actions: &mut Vec<Acti
             actions.push(Action::Rescan);
         }
     });
-    // New devices appear while the page is open.
     ui.ctx().request_repaint_after(crate::motion::DEVICE_POLL);
 }
 
-/// A section's title with the captions of its two switch columns.
 fn header(ui: &mut Ui, title: &str, captions: [&str; 2]) {
     ui.add_space(theme::space::M);
     let row = take_row(ui, theme::size::CONTROL_SMALL);
@@ -129,8 +110,6 @@ fn list(
     }
 }
 
-/// A port's row: its state, its name, then its two switches (Track, and
-/// Remote for an input or Sync for an output).
 fn port_row(ui: &mut Ui, port: &PortState, using: &mut Use) {
     let name = port.info.name.as_str();
     let is_input = port.info.id.direction == Direction::Input;
@@ -191,7 +170,6 @@ fn port_row(ui: &mut Ui, port: &PortState, using: &mut Use) {
     }
 }
 
-/// A switch at the right of `column`, named `name`; returns its state.
 fn column_switch(
     ui: &mut Ui,
     column: Rect,
@@ -216,8 +194,6 @@ fn column_switch(
     on
 }
 
-/// Under an output with Sync on: its clock delay (the owner's F3 and F4),
-/// the field under the Sync switch.
 fn delay_row(ui: &mut Ui, name: &str, saved: &settings::Midi, actions: &mut Vec<Action>) {
     let row = take_row(ui, theme::size::CONTROL);
     let label = Rect::from_min_max(
@@ -270,25 +246,20 @@ fn delay_row(ui: &mut Ui, name: &str, saved: &settings::Midi, actions: &mut Vec<
     }
 }
 
-/// Takes a row of the page's width and `height`, snapped to pixels.
 fn take_row(ui: &mut Ui, height: f32) -> Rect {
     let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::hover());
     row.round_to_pixels(ui.pixels_per_point())
 }
 
-/// The two switch columns at the right of `row`.
 fn columns(row: Rect) -> [Rect; 2] {
     let second = Rect::from_min_max(pos2(row.right() - COLUMN, row.top()), row.max);
     [second.translate(vec2(-COLUMN, 0.0)), second]
 }
 
-/// Where the middle of a switch at the right of `column` is.
 fn switch_middle(column: Rect) -> f32 {
     column.right() - widgets::SWITCH_WIDTH / 2.0
 }
 
-/// Draws `add` inside `rect`, laid out by `layout`, without moving the
-/// page's cursor (the row was taken already).
 fn cell<R>(
     ui: &mut Ui,
     rect: Rect,
@@ -300,7 +271,6 @@ fn cell<R>(
     add(&mut child)
 }
 
-/// Open ports are lit, failed ones warn, the rest are quiet.
 fn dot(ui: &mut Ui, rect: Rect, port: &PortState, salt: impl egui::AsIdSalt) {
     let palette = theme::p();
     let colour = if port.error.is_some() {

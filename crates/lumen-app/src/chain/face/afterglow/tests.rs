@@ -1,6 +1,3 @@
-//! Afterglow's card: what the glow and the rings read, and what a drag on them
-//! writes.
-
 use eframe::egui::{Color32, Rect, pos2, vec2};
 
 use super::*;
@@ -67,7 +64,6 @@ fn the_glow_grows_with_space_and_the_specimen_is_the_specimen() {
         "{at_62:?}"
     );
     assert!(glow_radii(picture(), 0.2).x < glow_radii(picture(), 0.8).x);
-    // A thinner picture is a flatter glow, never an empty one.
     let band = Rect::from_min_size(pos2(0.0, 0.0), vec2(272.0, 20.0));
     assert!(glow_radii(band, 0.62).y > 0.0);
 }
@@ -80,8 +76,6 @@ fn the_glow_edge_maps_back_to_space() {
         let back = glow_value(edge, rect);
         assert!((back - f64::from(norm)).abs() < 0.01, "{norm}: {back}");
     }
-    // Not held to 0 to 1 (a drag is the change in it): out beyond the edge is
-    // more than 1, in at the middle is less than 0.
     assert!(glow_value(pos2(-900.0, -900.0), rect) > 1.0);
     assert!(glow_value(centre(rect), rect) < 0.0);
 }
@@ -128,7 +122,6 @@ fn the_decay_is_worded_in_seconds() {
     assert_eq!(decay_words(8.0), "8.0 s");
 }
 
-/// A scene over `slots`, hearing `level`, with motion reduced as `still` says.
 fn scene<'a>(
     painter: &'a eframe::egui::Painter,
     slots: &'a [Slot],
@@ -162,13 +155,9 @@ fn the_glow_swells_with_the_level_falls_with_the_decay_and_is_still_when_reduced
     let ctx = eframe::egui::Context::default();
     let painter = ctx.layer_painter(eframe::egui::LayerId::background());
     let slots = slots(&[]);
-    // Reduced motion: the swell is nothing whatever plays, and keeps nothing.
     assert_eq!(swell(&scene(&painter, &slots, 0.9, true), 2.4), 0.0);
-    // Hearing something: it follows the level up at once.
     let loud = swell(&scene(&painter, &slots, 0.8, false), 2.4);
     assert!((loud - 0.8).abs() < 1e-6, "{loud}");
-    // With the sound gone, it is kept for the next frame and has not jumped to
-    // nothing (the frame clock has not moved in a test, so it holds).
     let after = swell(&scene(&painter, &slots, 0.0, false), 2.4);
     assert!(after > 0.0 && after <= 0.8, "{after}");
 }

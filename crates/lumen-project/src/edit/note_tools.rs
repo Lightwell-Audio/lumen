@@ -1,67 +1,19 @@
-//! Note tools (M5 slice 5a): humanize, fixed length, scale constrain, reverse.
-//!
-//! Pure functions over a clip's note list, like [`super::notes`] and
-//! [`super::velocity`]: the app wraps each in one undo step, so everything
-//! here is tested without a window.
-//!
-//! # The selection contract
-//!
-//! Notes are picked by **index** into the clip's `notes`, and each function
-//! returns the indices of the notes it changed, sorted, in the list as it is
-//! *after* the edit. Indices out of range or repeated are ignored. The list
-//! stays sorted by start, then pitch, so an edit that moves notes moves their
-//! indices; [`super::notes`] has the full contract.
-//!
-//! - [`humanize`] moves starts and velocities by random offsets. The same
-//!   inputs (seed included) always give the same result. Each picked note
-//!   draws a timing offset, then a velocity offset, in picked-index order; the
-//!   draws are made whether or not an axis is used, so a velocity result does
-//!   not depend on the timing setting. A zero axis leaves that axis alone.
-//! - [`fixed_length`] gives the picked notes one length, at least
-//!   [`MIN_NOTE`] and cut where the content ends, as [`super::notes::add`]
-//!   cuts a new note.
-//! - [`scale_constrain`] moves each picked pitch that is not in the scale to
-//!   the nearest scale tone, a tie going down. Octaves are kept.
-//! - [`reverse`] mirrors the picked notes within their own span (earliest
-//!   start to latest end): the order of their starts is reversed and each
-//!   note keeps its length.
-//!
-//! Only notes change; controller, bend, pressure and program events are not
-//! touched.
-
 use lumen_core::time::Ticks;
 
 use super::notes::{MIN_NOTE, finish, picked, tag};
 use crate::model::Note;
 
-/// The largest timing offset [`humanize`] uses. Far beyond any clip; it keeps
-/// the random range inside `i64`.
 const MAX_TIMING: i64 = i64::MAX / 4;
 
-/// How far [`scale_constrain`] searches for a scale tone on either side.
 const MAX_SEARCH: i32 = 6;
 
-/// Random offsets for [`humanize`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Humanize {
-    /// Each picked note's start moves by a whole number of ticks in
-    /// `[-timing, timing]`. Zero leaves starts alone; a negative value counts
-    /// as zero.
     pub timing: Ticks,
-    /// Each picked note's velocity moves by a whole number in
-    /// `[-velocity, velocity]`. Zero leaves velocities alone.
     pub velocity: u8,
-    /// Starts the random sequence; the same seed gives the same result.
     pub seed: u64,
 }
 
-/// Moves the picked notes' starts and velocities by random offsets
-/// ([`Humanize`]).
-///
-/// With a timing range, a start is kept within `[0, length - note length]`
-/// where the note fits, and within `[0, length)` always. A note already past
-/// the end of the content moves back inside it, as far as its length allows.
-/// With a velocity range, velocities are kept within `1..=127`.
 pub fn humanize(
     notes: &mut Vec<Note>,
     selection: &[usize],
@@ -102,7 +54,6 @@ pub fn humanize(
     finish(notes, tagged)
 }
 
-/// SplitMix64: a small generator whose output depends only on its seed.
 struct SplitMix64(u64);
 
 impl SplitMix64 {
@@ -114,16 +65,12 @@ impl SplitMix64 {
         z ^ (z >> 31)
     }
 
-    /// A whole number in `[-range, range]`, for `range >= 0`.
     fn offset(&mut self, range: i64) -> i64 {
         let span = range as u64 * 2 + 1;
         (self.next_u64() % span) as i64 - range
     }
 }
 
-/// Gives the picked notes the length `len`, at least [`MIN_NOTE`], cut where
-/// the content ends (`length`). Where the two conflict the cut wins, as in
-/// [`super::notes::add`], but a note keeps at least one tick.
 pub fn fixed_length(
     notes: &mut Vec<Note>,
     selection: &[usize],
@@ -148,7 +95,6 @@ pub fn fixed_length(
     finish(notes, tagged)
 }
 
-/// A set of pitch classes, as semitone steps above the root.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Scale {
     Major,
@@ -161,7 +107,6 @@ pub enum Scale {
 }
 
 impl Scale {
-    /// Every scale, in menu order.
     pub const ALL: [Scale; 7] = [
         Scale::Major,
         Scale::Minor,
@@ -172,7 +117,6 @@ impl Scale {
         Scale::Chromatic,
     ];
 
-    /// The steps above the root, ascending, starting at 0 and below 12.
     pub fn intervals(self) -> &'static [u8] {
         match self {
             Scale::Major => &[0, 2, 4, 5, 7, 9, 11],
@@ -185,7 +129,6 @@ impl Scale {
         }
     }
 
-    /// The name shown in menus.
     pub fn name(self) -> &'static str {
         match self {
             Scale::Major => "Major",
@@ -199,9 +142,6 @@ impl Scale {
     }
 }
 
-/// Moves each picked pitch that is outside `scale` to the nearest tone of
-/// it, a tie going down (C# in C major becomes C). `root` is a pitch class,
-/// C = 0, taken mod 12. Pitches stay within 0..=127.
 pub fn scale_constrain(
     notes: &mut Vec<Note>,
     selection: &[usize],
@@ -232,9 +172,6 @@ fn in_scale(pitch: i32, intervals: &[u8], root: i32) -> bool {
     intervals.contains(&step)
 }
 
-/// The in-scale pitch nearest to `pitch` within 0..=127, searching one
-/// semitone down, then up, then two, and so on. A pitch in the scale is
-/// returned as it is.
 fn nearest(pitch: i32, intervals: &[u8], root: i32) -> i32 {
     if in_scale(pitch, intervals, root) {
         return pitch;
@@ -245,10 +182,6 @@ fn nearest(pitch: i32, intervals: &[u8], root: i32) -> i32 {
         .unwrap_or(pitch)
 }
 
-/// Mirrors the picked notes within their span (earliest start to latest
-/// end): each note's new start is `span start + span end - its end`, so the
-/// order of their starts is reversed and their lengths are kept. A single
-/// note does not move.
 pub fn reverse(notes: &mut Vec<Note>, selection: &[usize]) -> Vec<usize> {
     let picked = picked(selection, notes.len());
     let (Some(first), Some(last)) = (
@@ -288,8 +221,6 @@ mod tests {
 
     const LEN: Ticks = Ticks(PPQ * 16);
 
-    /// Eight notes a quarter apart, pitches 60 to 67: no edit this small
-    /// reorders them, so index i is note i.
     fn row() -> Vec<Note> {
         (0..8u8).map(|i| n(i64::from(i), 1, 60 + i)).collect()
     }
@@ -339,7 +270,6 @@ mod tests {
             n(0, 1, 60),
             n(7, 2, 64),
             n(15, 1, 62),
-            // Longer than the whole clip: it can only sit at 0.
             Note::new(q(0), q(20), 66, 100),
         ];
         humanize(&mut notes, &[0, 1, 2, 3], LEN, &hum(PPQ * 64, 0, 9));
@@ -373,7 +303,6 @@ mod tests {
 
     #[test]
     fn a_zero_axis_is_left_alone() {
-        // With no timing, a note past the content's end keeps its start.
         let mut notes = vec![n(0, 1, 60), Note::new(q(15), q(3), 62, 100)];
         humanize(&mut notes, &[0, 1], LEN, &hum(0, 9, 3));
         assert_eq!(notes[1].start(), q(15));
@@ -383,7 +312,6 @@ mod tests {
                 .all(|note| (91..=109).contains(&note.velocity()))
         );
 
-        // With no velocity range, velocities are kept.
         let mut notes = vec![n(0, 1, 60), n(2, 1, 62)];
         let before = notes.clone();
         humanize(&mut notes, &[0, 1], LEN, &hum(PPQ / 4, 0, 3));
@@ -410,8 +338,6 @@ mod tests {
 
     #[test]
     fn the_returned_indices_follow_the_notes_after_they_move() {
-        // Huge timing reorders the list; the returned indices must still find
-        // the picked notes.
         let mut notes = row();
         let sel = humanize(&mut notes, &[1, 4, 7], LEN, &hum(PPQ * 8, 0, 21));
         assert_eq!(sel.len(), 3);
@@ -444,7 +370,6 @@ mod tests {
 
     #[test]
     fn a_note_is_cut_where_the_content_ends() {
-        // Starting at 14 in a 16-beat clip leaves two beats.
         let mut notes = vec![n(0, 1, 62), n(14, 1, 60)];
         fixed_length(&mut notes, &[0, 1], LEN, q(4));
         assert_eq!(notes, [n(0, 4, 62), n(14, 2, 60)]);
@@ -464,7 +389,6 @@ mod tests {
         assert_eq!(notes[0], Note(q(0), q(1), 60, 33, true, true));
     }
 
-    /// The pitch `pitch` becomes under `scale` on root `root`.
     fn constrained(pitch: u8, root: u8, scale: Scale) -> u8 {
         let mut notes = vec![Note::new(Ticks::ZERO, MIN_NOTE, pitch, 100)];
         scale_constrain(&mut notes, &[0], root, scale);
@@ -473,8 +397,6 @@ mod tests {
 
     #[test]
     fn a_tie_goes_down() {
-        // C# sits between C and D: C. D# between D and E: D. F# between F
-        // and G: F.
         assert_eq!(constrained(61, 0, Scale::Major), 60);
         assert_eq!(constrained(63, 0, Scale::Major), 62);
         assert_eq!(constrained(66, 0, Scale::Major), 65);
@@ -482,8 +404,6 @@ mod tests {
 
     #[test]
     fn the_nearest_tone_wins_on_either_side() {
-        // Minor pentatonic on C: C# is one below C (in scale), D is one
-        // above F (in scale) and one below C# (not in scale).
         assert_eq!(constrained(61, 0, Scale::PentatonicMinor), 60);
         assert_eq!(constrained(62, 0, Scale::PentatonicMinor), 63);
     }
@@ -500,11 +420,7 @@ mod tests {
 
     #[test]
     fn the_search_stays_inside_the_midi_range() {
-        // Pitch 0 on root C# (1): its only neighbours are 1 (above, in scale)
-        // and nothing below.
         assert_eq!(constrained(0, 1, Scale::PentatonicMinor), 1);
-        // 126 on C: 125 is out of the scale and so is the tie below, so the
-        // nearest tone is 127 above it.
         assert_eq!(constrained(126, 0, Scale::PentatonicMajor), 127);
         assert_eq!(constrained(127, 0, Scale::PentatonicMajor), 127);
     }
@@ -523,8 +439,6 @@ mod tests {
                         "{pitch} to {out} in {}",
                         scale.name()
                     );
-                    // Two covers the top and bottom edges, where one side
-                    // of the nearest tone can be off the range.
                     assert!(out.abs_diff(pitch) <= 2, "{pitch} to {out}");
                 }
             }
@@ -533,7 +447,6 @@ mod tests {
 
     #[test]
     fn the_returned_indices_point_at_the_picked_notes() {
-        // Velocities mark the notes; the scale moves the picked 61 and 66.
         let mut notes = vec![
             Note::new(q(0), MIN_NOTE, 60, 11),
             Note::new(q(0), MIN_NOTE, 61, 10),
@@ -580,8 +493,6 @@ mod tests {
 
     #[test]
     fn reversing_three_notes_of_different_lengths_mirrors_them_in_their_span() {
-        // Span 0 to 7. A (0 to 1) mirrors to 6 to 7; B (2 to 4) to 3 to 5;
-        // C (3 to 7) to 0 to 4.
         let mut notes = vec![n(0, 1, 60), n(2, 2, 62), n(3, 4, 64)];
         let sel = reverse(&mut notes, &[0, 1, 2]);
         assert_eq!(notes, [n(0, 4, 64), n(3, 2, 62), n(6, 1, 60)]);
@@ -590,8 +501,6 @@ mod tests {
 
     #[test]
     fn only_the_picked_notes_move_and_the_indices_follow_them() {
-        // Span of A and C is 0 to 7. A (0 to 1) goes to 6, C (3 to 7) to 0.
-        // B and D are not picked.
         let mut notes = vec![n(0, 1, 60), n(2, 2, 62), n(3, 4, 64), n(10, 1, 70)];
         let sel = reverse(&mut notes, &[0, 2]);
         assert_eq!(notes, [n(0, 4, 64), n(2, 2, 62), n(6, 1, 60), n(10, 1, 70)]);

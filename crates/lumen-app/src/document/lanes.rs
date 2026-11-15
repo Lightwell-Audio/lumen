@@ -1,22 +1,3 @@
-//! Velocity and lane edits as undoable `Document` methods (M5 slice 4a). The
-//! arithmetic is `lumen_project::edit::{velocity, events}`; each method here
-//! is one undo step through the history, as the note edits are (`notes.rs`).
-//!
-//! Velocity edits change a clip's notes and never its events; lane edits
-//! change its events and never its notes. Selections are indices into the
-//! list an edit works on, and every method returns what it answers with: the
-//! indices of the items picked or changed, in the list after the edit (see
-//! the selection contracts in `lumen_project::edit::{velocity, events}`).
-//!
-//! Gestures (a drag through a lane or the velocity lane) take `base`, the
-//! project as the gesture found it, and redo the whole edit from there each
-//! frame; with the same `merge` key the frames are one undo step. One-shot
-//! edits work on the project as it is.
-//!
-//! A locked clip, a clip that is not there and an audio clip refuse every
-//! edit: nothing changes and the selection given comes back (none, for an
-//! edit that takes none).
-
 use std::sync::Arc;
 
 use lumen_core::curve::Curve;
@@ -26,45 +7,28 @@ use lumen_project::model::{Clip, ClipContent, ClipEvent, Id, Note, Project};
 
 use super::{Document, plural};
 
-/// The most events one drawn line or curve makes on its lane (its end point
-/// included). A longer span is drawn at a coarser step; see [`span_step`].
 pub const MAX_SPAN_EVENTS: usize = 4000;
 
-/// How an edit takes part in a drag: the project the gesture began from and the
-/// key that merges its frames into one undo step. `Drag::default()` is a one-shot edit.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Drag<'a> {
-    /// The project the gesture began from; `None` edits the project as it is.
     pub base: Option<&'a Project>,
-    /// The key that merges the gesture's frames into one undo step.
     pub merge: Option<&'a str>,
 }
 
-/// A line or curve between two (tick, value) ends, shaped by a curve.
 #[derive(Debug, Clone, Copy)]
 pub struct Line<'a, V> {
-    /// The start of the line: a tick and a value.
     pub from: (Ticks, V),
-    /// The end of the line: a tick and a value.
     pub to: (Ticks, V),
-    /// The shape of the line between its ends.
     pub curve: &'a Curve,
 }
 
-/// How far a group of points moves.
 #[derive(Debug, Clone, Copy)]
 pub struct Shift {
-    /// The move in ticks.
     pub time: Ticks,
-    /// The move in the lane's value.
     pub value: i32,
 }
 
 impl Document {
-    /// Runs `change` on the notes and the events of the unlocked MIDI clip
-    /// `clip` (starting from `base` when given) as one step, with the clip's
-    /// content length. Returns the selection `change` answers with, or
-    /// `selection` when the clip is refused.
     fn edit_midi(
         &mut self,
         label: &str,
@@ -103,7 +67,6 @@ impl Document {
         result
     }
 
-    /// [`edit_midi`](Self::edit_midi) for a change to the clip's events only.
     fn edit_events(
         &mut self,
         label: &str,
@@ -118,7 +81,6 @@ impl Document {
         })
     }
 
-    /// [`edit_midi`](Self::edit_midi) for a change to the clip's notes only.
     fn edit_velocities(
         &mut self,
         label: &str,
@@ -133,9 +95,6 @@ impl Document {
         })
     }
 
-    /// Sets each listed note's velocity (the pencil in the velocity lane;
-    /// a later entry for the same note wins). A drag, from `base`. Refused,
-    /// it answers with the indices named in `changes`.
     pub fn set_velocities_each(
         &mut self,
         base: Option<&Project>,
@@ -149,9 +108,6 @@ impl Document {
         })
     }
 
-    /// Sets the picked notes' velocities along a line from `from` to `to`
-    /// (each a tick and a velocity) shaped by `curve`. A drag, from `base`.
-    /// Returns the picked indices.
     pub fn ramp_velocities(
         &mut self,
         drag: Drag<'_>,
@@ -170,8 +126,6 @@ impl Document {
         )
     }
 
-    /// Adds `delta` to the picked notes' velocities (clamped to 1..=127).
-    /// Returns the picked indices.
     pub fn offset_velocities(&mut self, clip: Id, selection: &[usize], delta: i32) -> Vec<usize> {
         let label = if delta < 0 {
             "Lower velocities"
@@ -183,9 +137,6 @@ impl Document {
         })
     }
 
-    /// Moves the picked points of `lane` by `time` ticks and `value` as a
-    /// group, clamped as a whole (see `events::move_points`); a drag, from
-    /// `base`. Returns the moved points' indices.
     pub fn move_lane_points(
         &mut self,
         drag: Drag<'_>,
@@ -206,7 +157,6 @@ impl Document {
         )
     }
 
-    /// Deletes the picked events. Nothing remains selected.
     pub fn delete_lane_points(&mut self, clip: Id, selection: &[usize]) -> Vec<usize> {
         let label = plural(selection.len(), "Delete point", "Delete {} points");
         self.edit_events(&label, None, None, clip, selection, |events, _| {
@@ -214,12 +164,6 @@ impl Document {
         })
     }
 
-    /// Draws a line or curve on `lane` from `from` to `to` (each a tick and a
-    /// value), shaped by `curve`, with a point every `step` ticks. The step is
-    /// raised where the span would make more than [`MAX_SPAN_EVENTS`] points.
-    /// The line replaces the lane's points between its two ends, clipped to
-    /// the clip; the rest of the lane and every other lane stay. A drag, from
-    /// `base`. Returns the points it added.
     pub fn draw_lane_span(
         &mut self,
         drag: Drag<'_>,
@@ -247,12 +191,6 @@ impl Document {
         })
     }
 
-    /// Draws the points of `lane` as the pencil does: each `(tick, value)` is
-    /// one event, and the lane's points between the first and the last tick
-    /// are replaced by them. Points are sorted by tick, a later one on the
-    /// same tick wins, and ticks are clamped into the clip, as the pencil does.
-    /// Empty `points` change nothing and record no step. A drag, from `base`.
-    /// Returns the added points' indices.
     pub fn draw_lane_points(
         &mut self,
         base: Option<&Project>,
@@ -275,8 +213,6 @@ impl Document {
                     return Vec::new();
                 }
                 let last = length - Ticks(1);
-                // A stable sort keeps a later point after an earlier one on its
-                // tick, so the pass below keeps the later one.
                 let mut sorted = points.to_vec();
                 sorted.sort_by_key(|&(at, _)| at);
                 let mut drawn: Vec<ClipEvent> = Vec::with_capacity(sorted.len());
@@ -302,11 +238,6 @@ impl Document {
     }
 }
 
-/// The step that keeps a span from `from` to `to` within [`MAX_SPAN_EVENTS`]
-/// points. With points every `step` ticks from one end to the other, the
-/// count is at most `ceil(span / step) + 1`, so a step of
-/// `ceil(span / (MAX_SPAN_EVENTS - 1))` (or more) keeps it at the cap. A
-/// span too long for `i64` steps are saturated.
 fn span_step(from: Ticks, to: Ticks) -> Ticks {
     let span = u128::from(from.0.abs_diff(to.0));
     let per_step = (MAX_SPAN_EVENTS - 1) as u128;
@@ -317,7 +248,6 @@ fn is_midi(clip: &Clip) -> bool {
     matches!(clip.content, ClipContent::Midi { .. })
 }
 
-/// The unlocked MIDI clip `id`.
 fn find(project: &Project, id: Id) -> Option<&Arc<Clip>> {
     project
         .tracks
@@ -372,13 +302,10 @@ mod tests {
         }
     }
 
-    /// Three notes, one per quarter, with velocities 40, 80 and 120.
     fn notes() -> Vec<Note> {
         vec![note(0, 1, 60, 40), note(1, 1, 62, 80), note(2, 1, 64, 120)]
     }
 
-    /// A controller 7, a controller 1, a pitch bend and a controller 7 again,
-    /// on quarters 0, 1, 2 and 3, with a program change at quarter 1.
     fn events() -> Vec<ClipEvent> {
         vec![
             cc(0, 7, 10),
@@ -389,8 +316,6 @@ mod tests {
         ]
     }
 
-    /// A document with a 16-quarter MIDI clip holding `notes` and `events`;
-    /// returns it with the clip's id.
     fn doc_with(notes: Vec<Note>, events: Vec<ClipEvent>) -> (Document, Id) {
         let mut doc = Document::new(crate::empty_project());
         let track = doc.add_track(TrackKind::Midi, None);
@@ -411,7 +336,6 @@ mod tests {
         (doc, clip)
     }
 
-    /// The standard test clip: [`notes`] and [`events`].
     fn standard() -> (Document, Id) {
         doc_with(notes(), events())
     }
@@ -427,7 +351,6 @@ mod tests {
         content(doc).0.iter().map(|n| n.velocity()).collect()
     }
 
-    /// (tick, value) of `lane`'s points, in order.
     fn points(events: &[ClipEvent], lane: ev::Lane) -> Vec<(i64, i32)> {
         events
             .iter()
@@ -435,8 +358,6 @@ mod tests {
             .collect()
     }
 
-    /// An audio clip on a new audio track, which the lane and velocity edits
-    /// must refuse.
     fn with_audio_clip(doc: &mut Document) -> Id {
         doc.add_track(TrackKind::Audio, None);
         let clip = doc.fresh_id();
@@ -501,7 +422,6 @@ mod tests {
             ),
             [0, 1, 2]
         );
-        // Ramped at each note's start: 0, halfway, and the end.
         assert_eq!(velocities(&doc), [20, 60, 100]);
         assert_eq!(
             content(&doc).1,
@@ -515,7 +435,6 @@ mod tests {
         let (mut doc, clip) = standard();
         let notes0 = content(&doc).0;
 
-        // A point on a tick with a bend: it goes after the events on its tick.
         assert_eq!(
             doc.draw_lane_points(None, clip, CC7, &[(q(2), 5)], None),
             [4]
@@ -524,7 +443,6 @@ mod tests {
             points(&content(&doc).1, CC7),
             [(0, 10), (2 * PPQ, 5), (3 * PPQ, 60)]
         );
-        // A point on an existing point of its lane replaces it.
         assert_eq!(
             doc.draw_lane_points(None, clip, CC7, &[(q(3), 90)], None),
             [5]
@@ -598,7 +516,6 @@ mod tests {
                 .iter()
                 .all(|&i| CC7.value_of(events[i].kind).is_some())
         );
-        // Controller 1, the program change and the bend are as they were.
         let others = |e: &[ClipEvent]| -> Vec<ClipEvent> {
             e.iter()
                 .copied()
@@ -950,8 +867,6 @@ mod tests {
     #[test]
     fn a_long_span_is_drawn_at_a_coarser_step_within_the_cap() {
         let (mut doc, clip) = doc_with(vec![], vec![]);
-        // A pitch bend sweep of 15,000 ticks at a step of one tick would be
-        // 15,000 events; the cap draws it every four ticks.
         doc.draw_lane_span(
             Drag::default(),
             clip,

@@ -1,6 +1,3 @@
-//! Save and load at quality-bar scale: 200 tracks, 19,900 clips, 99,500
-//! notes, 199 plugin states of 4 KiB.
-
 use lumen_project::model::{ClipContent, Project};
 use lumen_project::testing::{TempDir, synthetic};
 use lumen_project::{SaveOptions, from_bytes, save, to_bytes};

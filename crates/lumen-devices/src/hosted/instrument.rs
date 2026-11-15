@@ -1,13 +1,7 @@
-//! A plugin instrument: the notes of a track as a host hears them.
-
 use super::*;
 
-/// The most events one hosted instrument takes to its host in a block; a
-/// storm past it is dropped and counted.
 pub(super) const EVENTS: usize = 2048;
 
-/// Whether a message may make the plugin sound: everything but the one that
-/// stops every sound at once.
 fn wakes(msg: Msg) -> bool {
     !matches!(
         msg.kind(),
@@ -18,17 +12,9 @@ fn wakes(msg: Msg) -> bool {
     )
 }
 
-/// The notes held down and the channels with the sustain pedal down, which
-/// say whether an instrument still sounds without a word being said. A held
-/// note keeps the host given blocks even while its output is quiet (a slow
-/// attack, a swell).
 struct Holding {
-    /// A bit for each channel and key.
     notes: [u64; 32],
-    /// A bit for each channel with the pedal down.
     pedals: u16,
-    /// How many notes are down: asked every block, so not counted from the
-    /// bits each time.
     down: u32,
 }
 
@@ -47,7 +33,6 @@ impl Holding {
         *self = Self::NONE;
     }
 
-    /// Lets go of one channel's notes and pedal: its 128 bits are two words.
     fn clear_channel(&mut self, channel: u8) {
         let first = usize::from(channel & 15) * 2;
         for word in &mut self.notes[first..first + 2] {
@@ -78,7 +63,6 @@ impl Holding {
             Kind::Controller { number, value } => match number {
                 cc::SUSTAIN if value >= 64 => self.pedals |= 1 << channel,
                 cc::SUSTAIN => self.pedals &= !(1 << channel),
-                // The plugin lets go of what that channel holds, pedal or not.
                 cc::ALL_SOUND_OFF | cc::ALL_NOTES_OFF => self.clear_channel(channel),
                 _ => {}
             },
@@ -87,31 +71,19 @@ impl Holding {
     }
 }
 
-/// A plugin instrument in a host, played as an [`Instrument`] (M6 slice 2b).
-/// The app builds one when it attaches a host, and a [`placeholder`] in every
-/// later track list: the engine carries a track's instrument across lists by
-/// its kind, so the real one stays and the placeholder is dropped.
-///
-/// [`placeholder`]: HostedInstrument::placeholder
 pub struct HostedInstrument {
     pub(super) guard: Option<Guard>,
-    /// Messages that arrived with no block to ride on, for the next block.
     pub(super) pending: Vec<Event>,
-    /// The block's events, pending ones first.
     block: Vec<Event>,
     begun: bool,
-    /// The early `begin` of this block was refused and its events are in
-    /// `pending`: `render` retries the block without them.
     refused: bool,
     rate: u32,
     holding: Holding,
     dropped: u32,
-    /// The parameters that change in the next block ([`Instrument::automate`]).
     pub(super) params: ParamBlock,
 }
 
 impl HostedInstrument {
-    /// Allocates; call off the audio thread.
     pub fn new(guard: Guard) -> Self {
         Self {
             guard: Some(guard),
@@ -126,8 +98,6 @@ impl HostedInstrument {
         }
     }
 
-    /// A stand-in with no host, for a track list whose instrument is already
-    /// attached. Allocates nothing.
     pub fn placeholder() -> Self {
         Self {
             guard: None,
@@ -142,9 +112,6 @@ impl HostedInstrument {
         }
     }
 
-    /// Hands the host a block, with `events` and what is pending. `retry`:
-    /// the block was refused by an early [`Instrument::begin`], which put its
-    /// events in `pending`, so they are not added again.
     fn offer(&mut self, rate: u32, frames: usize, events: &[Event], retry: bool) -> bool {
         self.begun = false;
         if rate > 0 {
@@ -154,17 +121,12 @@ impl HostedInstrument {
         let Some(guard) = self.guard.as_mut() else {
             return false;
         };
-        // The other outputs are those of the block now begun, if any: not
-        // those of the last one, when this one is refused or skipped.
         guard.forget_block();
-        // A block refused early has its events in `pending`: they are not
-        // said again.
         let events = if retry { &[] } else { events };
         let held = self.holding.any();
         if rate == 0
             || (events.is_empty() && self.pending.is_empty() && !held && !guard.sounding(rate))
         {
-            // Nothing sounds and nothing is said: the host is left alone.
             return false;
         }
         self.block.clear();
@@ -180,9 +142,6 @@ impl HostedInstrument {
         };
         self.refused = !sent && !guard.failed();
         if self.refused {
-            // The host is still on an earlier block: what was said goes with
-            // the next one, at its start, rather than being lost (a lost
-            // note-off would leave a note hanging).
             let said = self.block.iter().map(|e| Event {
                 offset: 0,
                 msg: e.msg,
@@ -194,8 +153,6 @@ impl HostedInstrument {
             self.holding.note(event.msg);
             woken |= wakes(event.msg);
         }
-        // What was said, and held notes and a held pedal, keep it sounding
-        // block after block; after that, its output decides.
         if woken || self.holding.any() {
             guard.wake();
         }
@@ -203,7 +160,6 @@ impl HostedInstrument {
         sent
     }
 
-    /// Events dropped because a block had more than the host takes.
     pub fn dropped_events(&self) -> u32 {
         self.dropped
     }
@@ -219,14 +175,9 @@ impl Instrument for HostedInstrument {
     }
 
     fn automate(&mut self, params: &ParamBlock) {
-        // Nothing to say, and nothing left from before to take back: the
-        // common case, at every block of every instrument without a lane.
         if params.is_empty() && self.params.is_empty() {
             return;
         }
-        // A placeholder instrument (its track's plugin lives elsewhere) has
-        // no room for a block and no host to send one to: copying into it
-        // would allocate on the audio thread, so nothing is (sweep Low).
         if !self.params.has_room() {
             return;
         }
@@ -265,8 +216,6 @@ impl Instrument for HostedInstrument {
             return;
         }
         if frames == 0 {
-            // Messages only (a track let go of its notes): they go with the
-            // next block.
             for event in events {
                 if self.pending.len() < EVENTS {
                     self.pending.push(Event {
@@ -290,8 +239,6 @@ impl Instrument for HostedInstrument {
     }
 
     fn active(&self) -> bool {
-        // Messages waiting for a block count: a note-off must reach the host
-        // even when the project has stopped.
         self.guard.as_ref().is_some_and(|g| {
             !g.failed() && (!self.pending.is_empty() || self.holding.any() || g.sounding(self.rate))
         })
@@ -332,7 +279,6 @@ mod tests {
         held.note(Msg::controller(5, cc::ALL_SOUND_OFF, 0));
         assert_eq!(held.down, 0);
         assert!(!held.any());
-        // Letting go of what is not held changes nothing.
         held.note(Msg::controller(9, cc::ALL_NOTES_OFF, 0));
         assert_eq!(held.down, 0);
     }

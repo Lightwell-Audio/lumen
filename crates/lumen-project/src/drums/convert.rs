@@ -1,26 +1,12 @@
-//! Converting a clip's notes from one drum map to another (M8 D0): the one
-//! destructive drum edit (§6.4). Each note that has a sound in the map it is
-//! stored in becomes the input note of the same sound in the target map,
-//! found by name first and then by the note the sound plays; a sound the
-//! target lacks can be kept as it is, or left out.
-
 use crate::model::{DrumMap, Note};
 
-/// What a conversion did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Converted {
-    /// Notes rewritten to the target's input note.
     pub moved: usize,
-    /// Notes the target lacks, kept as they were because they were asked for.
     pub kept: usize,
-    /// Notes the target lacks, left out.
     pub dropped: usize,
 }
 
-/// `notes` rewritten from `from` to `to`. A note with no sound in `from`
-/// plays as written through either map, so it is kept as it is;
-/// `keep_missing` keeps the notes whose sound `to` lacks, otherwise they are
-/// dropped. The notes' times, lengths, velocities and flags do not change.
 pub fn convert_notes(
     from: &DrumMap,
     to: &DrumMap,
@@ -81,13 +67,10 @@ mod tests {
         ])
     }
 
-    /// The target numbers its sounds elsewhere, as another kit would.
     fn kit_two() -> DrumMap {
         map(vec![
-            // The snare comes first here: the name still finds it.
             Sound::new("Snare", 50, 51, DrumIcon::Snare),
             Sound::new("Kick", 60, 61, DrumIcon::Kick),
-            // No sound called "Clave"; this one plays the same note.
             Sound::new("Stick", 80, 76, DrumIcon::Percussion),
         ])
     }
@@ -106,7 +89,6 @@ mod tests {
             "kick and snare by name, the clave by the note it plays"
         );
         assert_eq!((done.moved, done.kept, done.dropped), (3, 0, 0));
-        // Nothing else about a note changes.
         assert_eq!(notes[0].start(), Ticks(48));
         assert_eq!(notes[0].length(), Ticks(96));
         assert_eq!(notes[0].velocity(), 100);

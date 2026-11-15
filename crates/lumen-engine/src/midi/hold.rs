@@ -1,27 +1,3 @@
-//! Which notes sound on a track, and the window-by-window reading of MIDI
-//! clips that starts and ends them (M5 slice 1, ADR-0045).
-//!
-//! One [`TrackState`] per track is the **note tracker**: every note-on that
-//! was sent is held here until its note-off is, so any event that must let
-//! go (stop, a jump, a loop wrap, an edit, a change of instrument, a lost
-//! port, Panic) can release exactly what sounds. Nothing here allocates:
-//! the vectors are made at their full size on the UI side and never grow;
-//! a full one drops the new event and counts it. Near the top, room is kept
-//! for what the tracker itself lets go ([`TrackState::push_release`]): the
-//! note-off of a note it holds, and the pedal and the bend put back at rest.
-//! Room is kept by where a message comes from, not by what it is: a clip's or
-//! a player's own pedal-up takes ordinary room, so a flood of them cannot use
-//! up what a held note's note-off needs, and a note can never stick for lack
-//! of room. That holds because a track holds at most [`MAX_HELD`] clip notes
-//! and [`MAX_HELD`] live notes, which is what [`KEPT_FOR_RELEASES`] is made
-//! from.
-//!
-//! Positions are worked out from ticks every block, through the timeline,
-//! so tempo changes move notes with the music. An event belongs to the
-//! block that holds `sample_at(tick)`; the window of ticks searched is
-//! widened by one sample either side before converting to ticks, so the
-//! nearest-sample rounding cannot lose an event on a block boundary.
-
 use lumen_core::midi::{Event, Kind, Msg, cc};
 use lumen_core::time::Ticks;
 
@@ -31,72 +7,42 @@ use super::live::LiveState;
 use super::{MidiClip, MidiControl, MidiNote};
 use crate::timeline::Timeline;
 
-/// Most notes one track holds at once; past it, new notes are dropped.
 pub(super) const MAX_HELD: usize = 128;
-/// Most events one track queues for one part; past it, they are dropped.
 pub(super) const MAX_EVENTS: usize = 1_024;
-/// Room at the top of a track's queue kept for what the tracker lets go: a
-/// note-off for every clip note and live note it can hold, and the pedal and
-/// the bend back at rest for each. Nothing else may use it, and the tracker
-/// holds nothing new once the ordinary room is full, so it is never short.
 pub(super) const KEPT_FOR_RELEASES: usize = 2 * MAX_HELD + 4;
-/// Ticks of margin around a block's window of ticks.
 const MARGIN: i64 = 2;
-/// How many repeats back a chase looks for a controller.
 const CHASE_REPEATS: i64 = 64;
-/// A recording window with no bounds.
 pub(super) const ALWAYS: (Ticks, Ticks) = (Ticks(i64::MIN), Ticks(i64::MAX));
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Held {
     pub channel: u8,
     pub key: u8,
-    /// Absolute tick where the note began: with the key, what tells the
-    /// note apart through an edit (see [`sync`]).
     pub start: Ticks,
     pub on_sample: i64,
-    /// Absolute tick of the note-off.
     pub off_tick: Ticks,
 }
 
-/// A key a recording track's input holds down, so a recording that begins
-/// while it is held can take it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Down {
     pub source: u8,
     pub channel: u8,
     pub key: u8,
-    /// The note the track's map plays of it: what the clips' notes carry and
-    /// what a played key wins (`TrackState::yields`, M8 D0 review M1).
     pub played: u8,
     pub velocity: u8,
-    /// It went down inside the recording window, so the take shows its
-    /// note and it wins its pitch (`TrackState::yields`).
     pub wins: bool,
 }
 
-/// Per track: the held notes and the events waiting for the next part.
 pub(super) struct TrackState {
     pub held: Vec<Held>,
-    /// Events for the next part, sorted when it is rendered.
     pub events: Vec<Event>,
-    /// A sustain pedal down message went out and no up since.
     pub sustain: bool,
-    /// A pitch bend away from the centre went out.
     pub bend: bool,
-    /// Events and notes dropped for lack of room.
     pub dropped: u32,
-    /// Live notes, apart from the clips' (slice 2).
     pub live: LiveState,
-    /// Keys the track's recording input holds down now (slice 6).
     pub down: Vec<Down>,
-    /// The last part had the track recording.
     pub recording: bool,
-    /// The engine pass on which this recording session began.
     pub record_pass: u32,
-    /// Where the take shows what is recorded (punch and loop), in ticks:
-    /// only there does a key played win its pitch. Captured outside it
-    /// stays hidden in the clip, so the clips play on under it.
     pub window: (Ticks, Ticks),
 }
 
@@ -116,21 +62,14 @@ impl TrackState {
         }
     }
 
-    /// Whether a key played at tick `at` shows in the take: the track
-    /// records and `at` is inside the recording window.
     pub fn shows(&self, at: Ticks) -> bool {
         self.recording && self.window_has(at)
     }
 
-    /// Whether tick `at` is inside the recording window.
     pub fn window_has(&self, at: Ticks) -> bool {
         (self.window.0..self.window.1).contains(&at)
     }
 
-    /// Notes a key of the recording input going down or up. `wins`: it went
-    /// down where the take shows it ([`Self::shows`]). `kit`: the track's drum
-    /// map, whose note the key plays, so it wins the pitch the clips' notes
-    /// carry rather than the one that came in (M8 D0 review M1).
     pub fn press(&mut self, source: u8, msg: Msg, wins: bool, kit: Option<&DrumKit>) {
         match msg.kind() {
             Kind::NoteOn { key, velocity } => {
@@ -158,23 +97,10 @@ impl TrackState {
         }
     }
 
-    /// Whether the clips' notes on `key` give way to the recording input:
-    /// the track records and its input holds the key down. A note played
-    /// over a clip's note of the same pitch wins it, as the take will once
-    /// committed (`lumen_project::edit::record`), so the old note neither
-    /// sounds under it nor ends it. Only inside the recording window, at
-    /// tick `at`, and only for a key that went down there: outside it the
-    /// take keeps the played note hidden, so the clips play on. `key` is what
-    /// the clips play ([`Down::played`]): a sound that remaps its note wins
-    /// the note it plays.
     pub fn yields(&self, key: u8, at: Ticks) -> bool {
         self.shows(at) && self.down.iter().any(|d| d.wins && d.played == key)
     }
 
-    /// Ends the clip notes sounding on `key` at `offset`: the recording
-    /// input has just played it. A clip note chased in this same part has
-    /// not reached the instrument, so its note-on is taken back rather than
-    /// answered (M8 D0 review round 2).
     pub fn give_way(&mut self, key: u8, offset: u32) {
         let mut i = 0;
         while i < self.held.len() {
@@ -188,16 +114,10 @@ impl TrackState {
         }
     }
 
-    /// Queues `event` for the next part; false (and counted) when there is
-    /// no room. It may not use the room kept at the top of the queue, so a
-    /// note-off of a held note always finds a place.
     pub fn push(&mut self, event: Event) -> bool {
         self.push_within(event, MAX_EVENTS - KEPT_FOR_RELEASES)
     }
 
-    /// Queues a release the tracker owes: the note-off of a note it holds
-    /// (and no longer holds once this is sent), or the pedal or the bend put
-    /// back at rest. It may use the room kept at the top of the queue.
     pub(super) fn push_release(&mut self, event: Event) -> bool {
         self.push_within(event, MAX_EVENTS)
     }
@@ -212,10 +132,6 @@ impl TrackState {
         }
     }
 
-    /// Sends a note-on at `offset` and holds the note. A note already held
-    /// on the key is ended first (taken back rather than answered when it
-    /// has not reached the instrument yet), and the other sounds of its
-    /// choke group end at the same sample (M8 D0).
     pub fn start_note(&mut self, held: Held, velocity: u8, offset: u32, kit: Option<&DrumKit>) {
         if let Some(i) = self
             .held
@@ -230,8 +146,6 @@ impl TrackState {
             self.dropped = self.dropped.saturating_add(1);
             return;
         }
-        // A note-on with no room is not held: its note-off would be a
-        // release of nothing.
         if self.push(Event {
             offset,
             msg: Msg::note_on(held.channel, held.key, velocity),
@@ -240,11 +154,6 @@ impl TrackState {
         }
     }
 
-    /// Ends the note on `channel` and `key` at `offset` for the instrument,
-    /// which has not been sent it yet if its note-on is still waiting in this
-    /// part: then the note-on is taken back instead, since a note-off for a
-    /// note the instrument never got would let go of nothing and the note
-    /// that took its place would ring on for ever (M8 D0 review H1).
     fn end_before_it_sounded(&mut self, channel: u8, key: u8, offset: u32) {
         if !self.cancel_queued_on(channel, key, offset) {
             self.push_release(Event {
@@ -254,9 +163,6 @@ impl TrackState {
         }
     }
 
-    /// Takes the note-on of `key` on `channel` at `offset` off this part's
-    /// queue if it is there: the note started in this pass and never reached
-    /// the instrument. A bounded scan of the part's events; nothing is made.
     fn cancel_queued_on(&mut self, channel: u8, key: u8, offset: u32) -> bool {
         let found = self.events.iter().rposition(|e| {
             e.offset == offset
@@ -264,7 +170,6 @@ impl TrackState {
                 && matches!(e.msg.kind(), Kind::NoteOn { key: k, .. } if k == key)
         });
         match found {
-            // Keeping the other events' order: the part is sorted after this.
             Some(i) => {
                 self.events.remove(i);
                 true
@@ -273,12 +178,6 @@ impl TrackState {
         }
     }
 
-    /// Ends the other sounds of the choke group `key` is in, at `offset`: a
-    /// new hit of a group silences the rest of it, the owner's CO A. A sound
-    /// that started in this same part has not reached the instrument yet, so
-    /// its note-on is taken back rather than answered
-    /// ([`Self::end_before_it_sounded`]). A note of the same key is left to
-    /// [`Self::start_note`], which retriggers it.
     pub fn choke(&mut self, kit: Option<&DrumKit>, key: u8, offset: u32) {
         let Some(kit) = kit.filter(|k| k.chokes()) else {
             return;
@@ -297,8 +196,6 @@ impl TrackState {
                 i += 1;
             }
         }
-        // The live notes of the group end too: a played hat chokes a clip's
-        // open hat, and the other way round.
         let mut live = std::mem::replace(&mut self.live, LiveState::empty());
         live.choke(
             |out_key| out_key != key && kit.choke_group(out_key) == group,
@@ -307,15 +204,12 @@ impl TrackState {
         self.live = live;
     }
 
-    /// Sends a controller-like message, remembering the pedal and bend once
-    /// it is queued (a refused one changed nothing that must be put back).
     pub fn send(&mut self, offset: u32, msg: Msg) {
         if self.push(Event { offset, msg }) {
             self.remember(msg);
         }
     }
 
-    /// Puts the pedal or the bend back at rest: a release the tracker owes.
     fn send_rest(&mut self, msg: Msg) {
         if self.push_release(Event { offset: 0, msg }) {
             self.remember(msg);
@@ -332,8 +226,6 @@ impl TrackState {
         }
     }
 
-    /// Lets go of the live notes, pedal and bend at the start of the next
-    /// part.
     pub fn release_live(&mut self) {
         let mut live = std::mem::replace(&mut self.live, LiveState::empty());
         live.release_all(|event| {
@@ -342,8 +234,6 @@ impl TrackState {
         self.live = live;
     }
 
-    /// Lets go of everything held, and of the pedal and the bend, at the
-    /// start of the next part.
     pub fn release_all(&mut self, channel: u8) {
         for i in 0..self.held.len() {
             let h = self.held[i];
@@ -362,14 +252,10 @@ impl TrackState {
     }
 }
 
-/// Whether a message in a track's queue is the note-off of a note it held.
-/// Every note-off there is one: a clip's are sent only for held notes, and
-/// a player's only for a live note the track holds ([`LiveState::take`]).
 pub(super) fn ends_a_held_note(msg: Msg) -> bool {
     matches!(msg.kind(), Kind::NoteOff { .. })
 }
 
-/// Tick and sample conversions at the current tempo map and rate.
 #[derive(Clone, Copy)]
 pub(super) struct Clock<'a> {
     pub timeline: &'a Timeline,
@@ -394,8 +280,6 @@ fn period(clip: &MidiClip) -> i64 {
         .max(1)
 }
 
-/// The repeats of `clip` that overlap ticks `lo..=hi`, as `first..=last`
-/// (empty when `first > last`).
 fn repeats(clip: &MidiClip, period: i64, lo: i64, hi: i64) -> (i64, i64) {
     let (start, length) = (clip.start.0, clip.length.0);
     if length <= 0 || hi < start || lo >= start + length {
@@ -407,21 +291,14 @@ fn repeats(clip: &MidiClip, period: i64, lo: i64, hi: i64) -> (i64, i64) {
     (first, last)
 }
 
-/// How many ticks of repeat `rep` the clip plays.
 fn span(clip: &MidiClip, period: i64, rep: i64) -> i64 {
     period.min(clip.length.0 - rep * period)
 }
 
-/// Where a note ends: the end of its length, cut at the end of its repeat,
-/// and at least a tick after its start.
 fn off_tick(base: i64, note: &MidiNote, span: i64) -> i64 {
     (base + (note.start.0 + note.length.0).min(span)).max(base + note.start.0 + 1)
 }
 
-/// Reads the part `from..to` (timeline samples): note-ons and controllers
-/// that fall in it, then the note-offs that come due. Events land in
-/// `state.events` at their frame within the part. `kit` is the track's drum
-/// map, for the groups that choke each other.
 pub(super) fn gather(
     clips: &[MidiClip],
     state: &mut TrackState,
@@ -430,10 +307,6 @@ pub(super) fn gather(
     (from, to): (i64, i64),
     kit: Option<&DrumKit>,
 ) {
-    // A sample represents a range of ticks. Its inverse is the centre of
-    // that range, so a fixed tick margin can miss events that round to
-    // `from` but lie before that centre. Bound the search in samples; the
-    // exact sample check below still assigns every event to just one part.
     let lo = clock.tick(from.saturating_sub(1)) - MARGIN;
     let hi = clock.tick(to.saturating_add(1)) + MARGIN;
     for clip in clips {
@@ -480,7 +353,6 @@ pub(super) fn gather(
             }
         }
     }
-    // Note-offs that come due, the new notes' included.
     let mut i = 0;
     while i < state.held.len() {
         let h = state.held[i];
@@ -501,16 +373,6 @@ fn with_channel(msg: Msg, channel: u8) -> Msg {
     Msg([(msg.0[0] & 0xF0) | (channel & 15), msg.0[1], msg.0[2]])
 }
 
-/// Brings the held notes in line with `clips` after an edit, at `pos`:
-/// notes that no longer exist are released, and notes that should be
-/// sounding but are not are started now.
-///
-/// A held note is known by where it began on the timeline and its key, not
-/// by its clip's start or its length: resizing a clip (either edge, which
-/// moves its start and cuts its notes' lengths anew) or changing a note's
-/// length leaves the note sounding, only ending where it now ends. Only a
-/// note that is gone or begins elsewhere is released (and chased again if
-/// it sounds at `pos`).
 pub(super) fn sync(
     (clips, index): (&[MidiClip], &[ClipIndex]),
     state: &mut TrackState,
@@ -539,8 +401,6 @@ pub(super) fn sync(
     chase_notes((clips, index), state, channel, clock, pos, kit);
 }
 
-/// Where `held` ends now, if a note that began where it did on its key is
-/// still in `clips` (the longest, if several).
 fn renewed(clips: &[MidiClip], held: &Held) -> Option<i64> {
     let at = held.start.0;
     let mut off: Option<i64> = None;
@@ -570,10 +430,6 @@ fn renewed(clips: &[MidiClip], held: &Held) -> Option<i64> {
     off
 }
 
-/// Where the clip the position `pos` is in begins, in ticks from the start
-/// of `clip`, a run of touching clips (`MidiClip::seams`): zero for a
-/// single clip. A seam counts from its own sample, so a position on it is
-/// in the clip that begins there.
 fn owning_start(clip: &MidiClip, clock: Clock<'_>, pos: i64) -> i64 {
     clip.seams
         .iter()
@@ -582,10 +438,6 @@ fn owning_start(clip: &MidiClip, clock: Clock<'_>, pos: i64) -> i64 {
         .map_or(0, |s| s.0)
 }
 
-/// Starts the notes that sound at `pos` (began before it, end after it)
-/// and are not held. In a run of touching clips, only notes that began in
-/// the clip `pos` is in: one carried on from the clip before belongs to
-/// that clip, so playing from the next one does not strike it again.
 pub(super) fn chase_notes(
     (clips, index): (&[MidiClip], &[ClipIndex]),
     state: &mut TrackState,
@@ -595,8 +447,6 @@ pub(super) fn chase_notes(
     kit: Option<&DrumKit>,
 ) {
     let at = clock.tick(pos);
-    // A note that ended at or before this tick had ended by the sample `pos`
-    // (with a sample's rounding to spare).
     let over = clock.tick(pos.saturating_sub(4));
     for (k, clip) in clips.iter().enumerate() {
         if clip.start.0 > at + MARGIN {
@@ -605,7 +455,6 @@ pub(super) fn chase_notes(
         let notes = index.get(k).and_then(|i| i.notes_for(clip));
         let period = period(clip);
         let (first, last) = repeats(clip, period, at, at);
-        // Only the repeat the position is in: notes end with their repeat.
         for rep in first..=last {
             let base = clip.start.0 + rep * period;
             let span = span(clip, period, rep);
@@ -666,7 +515,6 @@ pub(super) fn chase_notes(
     }
 }
 
-// Notes the chase on this thread has looked at (a test counts them).
 #[cfg(test)]
 thread_local! {
     pub(super) static VISITED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
@@ -683,9 +531,6 @@ pub(super) fn slot(msg: Msg) -> Option<usize> {
     }
 }
 
-/// Sends the latest value of every controller, bend, pressure and program
-/// set before `pos`, at the start of the next part (bank selects and
-/// controllers first, the program last).
 pub(super) fn chase_controls(
     (clips, index): (&[MidiClip], &[ClipIndex]),
     state: &mut TrackState,
@@ -701,7 +546,6 @@ pub(super) fn chase_controls(
         }
         let controls = index.get(k).and_then(|i| i.controls_for(clip));
         let period = period(clip);
-        // A clip that has ended still leaves its controllers as they were.
         let count = ((clip.length.0 + period - 1) / period).max(1);
         let last = ((at - clip.start.0) / period).min(count - 1);
         for rep in (last - CHASE_REPEATS).max(0)..=last {
@@ -714,7 +558,6 @@ pub(super) fn chase_controls(
                 }
             };
             match controls {
-                // The last event of each controller before the position.
                 Some(controls) => {
                     for (slot, list) in controls.slots() {
                         let before = list.partition_point(|&j| {
@@ -747,11 +590,6 @@ pub(super) fn chase_controls(
     }
 }
 
-/// Orders events by frame, then note-offs, controllers and note-ons, so a
-/// note retriggered on one frame ends before it starts. A stable insertion
-/// sort that finds each place by bisection and moves the events with one
-/// rotation: no allocation, and a list of up to [`MAX_EVENTS`] out of order
-/// costs a few memory moves, not a million comparisons.
 pub(super) fn sort_events(events: &mut [Event]) {
     fn key(event: &Event) -> (u32, u8) {
         use lumen_core::midi::Kind;
@@ -767,7 +605,6 @@ pub(super) fn sort_events(events: &mut [Event]) {
         if key(&events[i - 1]) <= this {
             continue;
         }
-        // After every event that is not greater: equal keys keep their order.
         let at = events[..i].partition_point(|e| key(e) <= this);
         events[at..=i].rotate_right(1);
     }
@@ -800,7 +637,6 @@ mod tests {
         }
     }
 
-    /// A repeatable stream of numbers.
     fn rng(mut seed: u64) -> impl FnMut() -> u64 {
         move || {
             seed ^= seed << 13;
@@ -810,8 +646,6 @@ mod tests {
         }
     }
 
-    /// A clip with many short notes, some long ones, controllers on a few
-    /// slots, and optionally repeating.
     fn busy_clip(next: &mut impl FnMut() -> u64, start: i64, repeats: bool) -> MidiClip {
         let q = Ticks::quarters(1).0;
         let length = q * 400;
@@ -874,7 +708,6 @@ mod tests {
                 Kind::NoteOn { .. } => 2,
                 _ => 1,
             };
-            // The old sort, a bubble of swaps, is the reference.
             let mut want = events.clone();
             for i in 1..want.len() {
                 let mut j = i;
@@ -953,7 +786,6 @@ mod tests {
         c.notes = note_list(notes);
         let clips = [c];
         let index: Vec<ClipIndex> = clips.iter().map(ClipIndex::new).collect();
-        // Half a sixteenth into the last thousand notes.
         let pos = clock.sample(99_000 * step + step / 2);
         let looked = |index: &[ClipIndex]| {
             VISITED.with(|v| v.set(0));
@@ -967,7 +799,6 @@ mod tests {
             visited <= 130,
             "{visited} notes were read to find one that sounds"
         );
-        // Without the index every note before the position is read.
         let (every, held_plain) = looked(&[]);
         assert_eq!(held_plain, 1);
         assert!(every > 90_000, "{every}");
@@ -983,8 +814,6 @@ mod tests {
                     rate,
                 };
                 let sample = 1_000;
-                // Every tick that rounds to this sample belongs to its
-                // block, even when it is before that sample's inverse tick.
                 for tick in clock.tick(sample - 1)..=clock.tick(sample + 1) {
                     if clock.sample(tick) != sample {
                         continue;
@@ -1021,8 +850,6 @@ mod tests {
     fn a_note_at_the_reported_ocarina_onset_sounds_on_play_and_at_a_block_boundary() {
         use lumen_core::time::{TempoMap, TempoPoint};
 
-        // Timing geometry from the owner's 192-PPQ file, without its
-        // musical content. The second E5 starts at quarter 66.
         let timeline = Timeline::new(
             TempoMap::new(
                 [
@@ -1078,8 +905,6 @@ mod tests {
 
     #[test]
     fn a_full_queue_refuses_new_notes_and_never_a_note_off() {
-        // A pathological part fills one block's queue: a note started before
-        // the flood must still end, so it can never stick (M5 review M4).
         let mut state = TrackState::new();
         let held = |key| Held {
             channel: 0,
@@ -1102,7 +927,6 @@ mod tests {
         assert_eq!(state.events.len(), MAX_EVENTS - KEPT_FOR_RELEASES);
         assert_eq!(refused, 2 * MAX_EVENTS - state.events.len() + 1);
 
-        // A note-on now is refused and not held: no release of nothing later.
         state.start_note(held(62), 100, 2, None);
         assert!(state.held.iter().all(|h| h.key != 62), "not held");
         let ons = |state: &TrackState| {
@@ -1114,7 +938,6 @@ mod tests {
         };
         assert_eq!(ons(&state), 1, "only the first note went out");
 
-        // Every held note, the pedal and the bend still let go.
         state.sustain = true;
         state.bend = true;
         state.release_all(0);
@@ -1136,9 +959,6 @@ mod tests {
 
     #[test]
     fn a_flood_of_pedal_ups_and_centred_bends_cannot_take_a_note_offs_room() {
-        // A clip or a player sends pedal-ups and centred bends: they look
-        // like releases but are not the tracker's, so they take ordinary
-        // room and the note-off of a held note still finds its place.
         let mut state = TrackState::new();
         let held = |key| Held {
             channel: 0,
@@ -1159,7 +979,6 @@ mod tests {
         assert_eq!(state.events.len(), MAX_EVENTS - KEPT_FOR_RELEASES);
         assert!(!state.sustain && !state.bend);
 
-        // A pedal-down refused now is not remembered as down.
         state.send(2, Msg::controller(0, cc::SUSTAIN, 127));
         assert!(!state.sustain, "a refused pedal-down changed nothing");
 
@@ -1173,7 +992,6 @@ mod tests {
         assert!(state.held.is_empty());
     }
 
-    /// A kit whose hats are one group; the kick is in none.
     fn hat_kit() -> DrumKit {
         let mut kit = DrumKit::new();
         for key in [42, 46, 36] {
@@ -1191,7 +1009,6 @@ mod tests {
         kit
     }
 
-    /// Holds `key` from `at`, as a clip note would.
     fn hold_key_at(state: &mut TrackState, key: u8, at: Ticks, offset: u32, kit: &DrumKit) {
         state.start_note(
             Held {
@@ -1207,7 +1024,6 @@ mod tests {
         );
     }
 
-    /// Holds `key` from `at`, at the first sample of its part.
     fn hold_key(state: &mut TrackState, key: u8, at: Ticks, kit: &DrumKit) {
         hold_key_at(state, key, at, 0, kit);
     }
@@ -1217,12 +1033,9 @@ mod tests {
         let kit = hat_kit();
         let mut state = TrackState::new();
         hold_key(&mut state, 46, Ticks(10), &kit);
-        // The kick is in no group: it ends nothing.
         hold_key(&mut state, 36, Ticks(20), &kit);
         assert_eq!(state.held.len(), 2);
         assert_eq!(state.events.len(), 2, "both note-ons went out");
-        // The closed hat strikes a part later: the open hat's off precedes its
-        // on, both at the new note's frame.
         hold_key_at(&mut state, 42, Ticks(30), 100, &kit);
         let kinds: Vec<(u32, u8, Msg)> = state
             .events
@@ -1242,7 +1055,6 @@ mod tests {
             state.held.iter().all(|h| h.key != 46),
             "the open hat is no longer held"
         );
-        // Letting go of everything answers the notes still held, once.
         state.release_all(0);
         let offs = |key: u8| {
             state
@@ -1257,10 +1069,6 @@ mod tests {
 
     #[test]
     fn a_note_choked_before_its_part_plays_never_reaches_the_instrument() {
-        // A chase, a same-tick pair of clip notes or two pads on one frame
-        // start both sounds in one pass: the one that is choked has not been
-        // sent yet, so its note-on is taken back and no note-off is owed
-        // (M8 D0 review H1).
         let kit = hat_kit();
         let mut state = TrackState::new();
         hold_key(&mut state, 46, Ticks(10), &kit);
@@ -1288,10 +1096,6 @@ mod tests {
 
     #[test]
     fn a_clip_note_chased_in_the_pass_a_pad_wins_it_never_reaches_the_instrument() {
-        // A list rebuilt while recording chases the clip's note at offset 0,
-        // and a pad of that key wins it on the same frame: the chased note-on
-        // is taken back, not answered by an off that would sort before it
-        // (M8 D0 review round 2).
         let kit = hat_kit();
         let mut state = TrackState::new();
         hold_key(&mut state, 44, Ticks(0), &kit);
@@ -1302,7 +1106,6 @@ mod tests {
             state.events
         );
         assert!(state.held.is_empty());
-        // A note that sounded in an earlier part still gets its real off.
         hold_key(&mut state, 44, Ticks(0), &kit);
         state.events.clear();
         state.give_way(44, 0);
@@ -1320,8 +1123,6 @@ mod tests {
         hold_key(&mut state, 46, Ticks(0), &kit);
         hold_key_at(&mut state, 42, Ticks(5), 100, &kit);
         state.events.clear();
-        // The open hat's own end (tick 10,000) is gone from the tracker: no
-        // second note-off for it when the part is read past it.
         let timeline = Timeline::constant(120.0, Meter::FOUR_FOUR);
         let clock = Clock {
             timeline: &timeline,
@@ -1340,7 +1141,6 @@ mod tests {
             state.events.iter().all(|e| e.msg != Msg::note_off(0, 46)),
             "the open hat's end sent nothing"
         );
-        // The closed hat's own end still comes.
         assert!(state.events.iter().any(|e| e.msg == Msg::note_off(0, 42)));
     }
 

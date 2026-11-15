@@ -1,6 +1,3 @@
-//! Making MIDI clips (M5 slice 3a): the clip a double-click on an empty MIDI
-//! lane, or the Create MIDI clip command, puts on a track.
-
 use std::sync::Arc;
 
 use lumen_core::time::Ticks;
@@ -10,22 +7,13 @@ use lumen_project::model::{Clip, ClipContent, Id, TrackKind};
 use super::Document;
 use super::clips::fresh_ids;
 
-/// Where a new MIDI clip goes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NewClip {
-    /// Over a time range (a time selection). The ends may come in either
-    /// order; a start before zero is moved to zero, and a range shorter than
-    /// the shortest clip is lengthened to it.
     Range(Ticks, Ticks),
-    /// One bar long, starting at the bar line at or before this time.
     Bar(Ticks),
 }
 
 impl Document {
-    /// Puts an empty MIDI clip on the MIDI track `track` and returns its
-    /// id. It cuts away the unlocked clips it covers, as every clip put
-    /// down does; if a locked clip is in the way, or `track` is not a MIDI
-    /// track, nothing happens and there is no id. One undo step.
     pub fn create_midi_clip(&mut self, track: Id, place: NewClip) -> Option<Id> {
         let project = self.project();
         let target = project
@@ -38,7 +26,6 @@ impl Document {
                 (a, (b - a).max(MIN_LENGTH))
             }
             NewClip::Bar(at) => {
-                // The bar the time falls in, whatever the meter is there.
                 let map = project.meter_map();
                 let bar = map.bbt_at(at.max(Ticks::ZERO)).bar;
                 let start = map.bar_start(bar);
@@ -133,7 +120,6 @@ mod tests {
         let (mut doc, track) = doc_with_midi_track();
         doc.set_time_signature_at(Ticks::ZERO, 6, 8, None);
         doc.create_midi_clip(track, NewClip::Bar(q(4)));
-        // A 6/8 bar is three quarters.
         assert_eq!(clips(&doc), [(q(3), q(3))]);
         doc.create_midi_clip(track, NewClip::Bar(Ticks(-5)));
         assert_eq!(clips(&doc)[0], (Ticks::ZERO, q(3)));
@@ -157,7 +143,6 @@ mod tests {
             .create_midi_clip(track, NewClip::Range(q(0), q(8)))
             .unwrap();
         doc.create_midi_clip(track, NewClip::Range(q(2), q(4)));
-        // The old clip is cut around the new one.
         assert_eq!(clips(&doc), [(q(0), q(2)), (q(2), q(2)), (q(4), q(4))]);
         assert_eq!(doc.project().tracks[0].clips[0].id, old);
         assert_eq!(lumen_project::validate(doc.project()), Ok(()));
@@ -171,7 +156,6 @@ mod tests {
         );
         assert_eq!(doc.state(), state, "nothing changed");
         assert_eq!(*doc.project(), before);
-        // Beside the locked clip is fine.
         assert!(
             doc.create_midi_clip(track, NewClip::Range(q(8), q(12)))
                 .is_some()

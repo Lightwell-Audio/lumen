@@ -1,7 +1,3 @@
-//! A run as the notes and controllers the engine plays: cut where a note
-//! stops, carried across a seam, and a looping clip's pattern read against its
-//! own period.
-
 use std::sync::Arc;
 
 use lumen_core::midi::Msg;
@@ -13,8 +9,6 @@ use lumen_project::model::{self, ClipContent, DrumMap, EventKind};
 use super::voice::Voice;
 use super::{Dest, Member, Suppression, content, loops, shows};
 
-/// The notes a run plays, in ticks from its first clip's start, each cut
-/// where it stops (see the module documentation). Unsorted.
 pub(crate) fn run_notes(run: &[Member<'_>]) -> Vec<MidiNote> {
     run_notes_masked(run, None)
 }
@@ -27,8 +21,6 @@ pub(super) fn run_notes_masked(
         return Vec::new();
     };
     let mut out: Vec<MidiNote> = Vec::new();
-    // Notes sounding up to the end of the member before: arrangement start,
-    // pitch, and where they are in `out`.
     let mut reaching: Vec<(Ticks, u8, usize)> = Vec::new();
     let mut carried: Vec<usize> = Vec::new();
     for (k, m) in run.iter().enumerate() {
@@ -106,7 +98,6 @@ pub(super) fn run_notes_masked(
     out
 }
 
-/// The controllers a run plays, in ticks from its first clip's start.
 pub(super) fn run_controls(
     run: &[Member<'_>],
     suppression: Option<Suppression>,
@@ -130,9 +121,6 @@ pub(super) fn run_controls(
     out
 }
 
-/// The first part of a looping clip after punch-out, ending at the next
-/// original cycle boundary. Notes and controls are rotated to the clip's
-/// phase at `from`; later cycles can keep the original periodic pattern.
 pub(crate) fn loop_fragment(
     clip: &model::Clip,
     from: Ticks,
@@ -199,8 +187,6 @@ pub(crate) fn loop_fragment(
     (played_notes, played_controls)
 }
 
-/// A clip event as the messages that carry it (a program change with a
-/// bank sends the bank first).
 fn control(event: &model::ClipEvent) -> Vec<MidiControl> {
     let at = event.at;
     let msg = |m: Msg| MidiControl { at, msg: m };
@@ -228,8 +214,6 @@ fn control(event: &model::ClipEvent) -> Vec<MidiControl> {
     }
 }
 
-/// A split piece may be shorter than the source loop. Read the source pattern
-/// against its original period, not that piece's timeline window.
 pub(super) fn loop_pattern(
     clip: &model::Clip,
     period: Ticks,

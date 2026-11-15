@@ -1,14 +1,8 @@
-//! The `--bench` and `--bench-editor` drivers: they put the view where the
-//! benchmark wants it, frame by frame, and report when it is done
-//! (`crate::bench`).
-
 use eframe::egui;
 
 use crate::{App, bench};
 
 impl App {
-    /// `--bench-frames`: puts the view where the benchmark wants it this
-    /// frame, or reports and exits when it is done (`crate::bench`).
     pub(crate) fn drive_bench(&mut self, ctx: &egui::Context) {
         let Some(bench) = &mut self.bench else {
             return;
@@ -29,7 +23,6 @@ impl App {
                     self.document.project(),
                     self.lanes.pending().len(),
                 );
-                // The lanes take a little over half the window.
                 let visible = ctx.content_rect().height() * 0.6;
                 self.arrangement.top = view.top * (content - visible).max(0.0);
                 if editor {
@@ -56,11 +49,7 @@ report: {}",
         }
     }
 
-    /// `--bench-editor`: keeps the stress project's dense clip open in the
-    /// clip editor, its pitches scrolled to `top` (0 to 1) of their range.
     fn bench_editor(&mut self, top: f32) {
-        // The roll has its own view (ADR-0048): the run drives it to the same
-        // zoom and scroll as the arrangement, so it is measured zoomed.
         self.note_editor.time = self.nav.view;
         if self.note_editor.clip.is_none() {
             let dense = self

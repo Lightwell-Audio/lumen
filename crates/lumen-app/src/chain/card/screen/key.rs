@@ -1,10 +1,3 @@
-//! The sidechain chip on a built-in's screen (Gravity: "Keyed by Kick · post"),
-//! from the round-2 specimen. It is the card's sidechain chooser, drawn as the
-//! screen's own chip rather than as a row: the same accessible name, tooltip,
-//! menu and command (`devices.sidechain`) as a plugin card's row, with a lamp
-//! that lights with what arrives. Where nothing keys the effect it is a quiet
-//! "Sidechain · none" chip, so the choice can always be reached from the card.
-
 use eframe::egui::{
     self, Align2, Color32, FontId, Rect, Response, Sense, Stroke, StrokeKind, Ui, pos2, vec2,
 };
@@ -15,7 +8,6 @@ use crate::chain::sidechain::{self, Look, Source};
 use crate::theme::personality::card as c;
 use crate::widgets::{self, raised};
 
-/// The index of a step in the chip's tokens.
 fn at(step: Step) -> usize {
     match step {
         Step::Whole => 0,
@@ -24,8 +16,6 @@ fn at(step: Step) -> usize {
     }
 }
 
-/// Where the chip stands, `width` wide: at the screen's lower left (above the
-/// dials' strip on the short card, centred on the band on the compact one).
 fn place(plan: &Plan, width: f32) -> Rect {
     let k = at(plan.step);
     let height = c::KEY_HEIGHT[k];
@@ -42,7 +32,6 @@ fn place(plan: &Plan, width: f32) -> Rect {
     }
 }
 
-/// Draws the chip and answers it (a click opens the sidechain menu).
 pub(super) fn chip(
     ui: &mut Ui,
     plan: &Plan,
@@ -60,9 +49,6 @@ pub(super) fn chip(
         ),
         Source::Gone => ("Source removed".to_owned(), palette.warning),
         Source::Track { name, .. } => (
-            // The compact band is a strip of picture: the chip says only whose
-            // key it is, so the picture stays in view (the tooltip and the
-            // accessible name have the whole sentence).
             if plan.step == Step::Compact {
                 format!("{name} \u{00B7} {}", sidechain::tap_short(look.tap))
             } else {
@@ -122,8 +108,6 @@ pub(super) fn chip(
         ink,
     );
     if lamp > 0.0 {
-        // The lamp: lit by what arrives, a warning ring while the song plays
-        // and the key has been silent.
         let lit = pos2(
             rect.right() - c::KEY_PAD / 2.0 - c::KEY_LAMP,
             rect.center().y,

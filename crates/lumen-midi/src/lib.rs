@@ -1,13 +1,3 @@
-//! Lumen's MIDI device layer (ADR-0044).
-//!
-//! - [`types`]: ports, short messages and errors.
-//! - [`backend`]: the interface a driver model implements; [`midir_host`]
-//!   is the real one (WinMM, CoreMIDI, ALSA) and [`fake`] a scriptable one
-//!   for tests.
-//! - [`system`]: [`MidiSystem`], a worker thread that lists ports, notices
-//!   plugging and unplugging, and opens and closes ports as the user's
-//!   switches say, so enumeration and opening never touch the UI thread.
-
 pub mod activity;
 pub mod backend;
 pub mod fake;

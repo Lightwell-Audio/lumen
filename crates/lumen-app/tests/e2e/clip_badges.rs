@@ -1,8 +1,3 @@
-//! Clip marks (M9.5 S3, ADR-0128): a reversed clip and a clip with its
-//! polarity inverted carry a small mark at the right end of the title bar,
-//! hover says what was done, a narrow clip shows one dot and a very narrow
-//! one nothing, and MIDI clips never carry them.
-
 use eframe::egui::{Key, Modifiers, Pos2};
 use lumen_core::time::Ticks;
 
@@ -62,8 +57,6 @@ fn a_narrow_clip_still_draws_without_trouble_and_marks_are_not_a_midi_thing() {
     command(&mut lumen, "Reverse");
     lumen.frames(3);
     assert!(clip(&lumen, kick).reversed);
-    // The clip is a few points wide: nothing overlaps, nothing panics, and
-    // the clip still answers a hover.
     let r = rect(&lumen, kick);
     assert!(r.width() > 0.0);
     lumen.frames(5);

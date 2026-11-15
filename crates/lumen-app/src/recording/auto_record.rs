@@ -1,37 +1,19 @@
-//! Recording a lane (M7 slice A4b): what a track's mode (Read, Touch, Latch,
-//! Write) does with the controls that move while the song plays. A pure state
-//! machine, so the rules are tested without the interface: the app tells it
-//! each frame where the playhead is and what was touched, and it says which
-//! lanes to take over and which passes to write.
-//!
-//! Touch writes while a control is held and hands the lane back when it is let
-//! go (the owner's choice: a short glide, so there is no click). Latch starts at
-//! the first touch and goes on until Stop. Write goes from where playing begins
-//! until Stop. A looped song ends a pass at the wrap and Latch and Write begin
-//! the next at once, so each loop is one undo step.
-
 use std::collections::{BTreeMap, BTreeSet};
 
 use lumen_core::time::Ticks;
 use lumen_project::automation::Target;
 use lumen_project::model::Id;
 
-/// What a track does with the controls that move while it plays.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Mode {
-    /// The lane plays; a moved control takes it over (A4a).
     #[default]
     Read,
-    /// Writes while a control is held.
     Touch,
-    /// Writes from the first touch until Stop.
     Latch,
-    /// Writes from where playing begins until Stop.
     Write,
 }
 
 impl Mode {
-    /// The words for the chip and the menu.
     pub fn name(self) -> &'static str {
         match self {
             Mode::Read => "Read",
@@ -41,7 +23,6 @@ impl Mode {
         }
     }
 
-    /// What the mode does, for a tip.
     pub fn about(self) -> &'static str {
         match self {
             Mode::Read => "The lane plays; moving a control takes it over",
@@ -51,84 +32,59 @@ impl Mode {
         }
     }
 
-    /// Whether the mode can write a lane.
     pub fn records(self) -> bool {
         self != Mode::Read
     }
 
-    /// The modes in the order a menu lists them.
     pub const ALL: [Mode; 4] = [Mode::Read, Mode::Touch, Mode::Latch, Mode::Write];
 }
 
-/// How a pass ends: a control was let go of (glide back to the lane), or the
-/// song stopped or wrapped (the lane keeps what was written).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum End {
     Released,
     Stopped,
 }
 
-/// What the recorder asks of the app.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
-    /// The lane stops playing: its control's own value is heard and written.
     TakeOver(Id, Target),
-    /// A finished pass, to be written into the lane.
     Write {
         track: Id,
         target: Target,
         raw: Vec<(Ticks, f32)>,
         end: End,
-        /// What the control held before the pass began: what a lane that did
-        /// not exist yet says before and after the pass.
         rest: Option<f32>,
     },
 }
 
-/// What the recorder needs to know of the project, a frame at a time.
 pub trait World {
-    /// The mode of `track`.
     fn mode(&self, track: Id) -> Mode;
-    /// Whether a move of `target` on `track` can be written: it has a lane or
-    /// it is the lane the track shows.
     fn armed(&self, track: Id, target: Target) -> bool;
-    /// The lane each track in Write mode writes: the one it shows.
     fn write_targets(&self) -> Vec<(Id, Target)>;
-    /// The value the control has now.
     fn value(&self, track: Id, target: Target) -> Option<f32>;
 }
 
-/// One frame of input.
 pub struct Frame<'a> {
     pub playing: bool,
-    /// Where the playhead is.
     pub at: Ticks,
-    /// A mouse button is down: a control held with it is still held.
     pub pointer_down: bool,
-    /// The controls moved since the last frame.
     pub touched: &'a [(Id, Target)],
-    /// The plugin gestures that are open (begun, not ended).
     pub open: &'a BTreeSet<(Id, Target)>,
-    /// What the controls moved this frame held before they moved.
     pub rests: &'a BTreeMap<(Id, Target), f32>,
 }
 
-/// A pass under way: what was played, and what the control held before.
 #[derive(Debug, Default)]
 struct Pass {
     raw: Vec<(Ticks, f32)>,
     rest: Option<f32>,
 }
 
-/// What a pass under way has heard: the control's value at each frame, and
-/// what it held before the pass began.
 #[derive(Debug, Clone, Copy)]
 pub struct HeardSoFar<'a> {
     pub raw: &'a [(Ticks, f32)],
     pub rest: Option<f32>,
 }
 
-/// The passes being recorded.
 #[derive(Debug, Default)]
 pub struct Recorder {
     passes: BTreeMap<(Id, Target), Pass>,
@@ -136,13 +92,10 @@ pub struct Recorder {
 }
 
 impl Recorder {
-    /// The lanes being written now.
     pub fn active(&self) -> impl Iterator<Item = (Id, Target)> + '_ {
         self.passes.keys().copied()
     }
 
-    /// What a pass under way has heard so far, and what its control held
-    /// before it began.
     pub fn heard(&self, key: (Id, Target)) -> Option<HeardSoFar<'_>> {
         self.passes.get(&key).map(|p| HeardSoFar {
             raw: &p.raw,
@@ -150,13 +103,11 @@ impl Recorder {
         })
     }
 
-    /// Whether a pass is under way.
     #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.passes.is_empty()
     }
 
-    /// Takes one frame in and says what to do.
     pub fn frame(&mut self, f: &Frame<'_>, world: &dyn World) -> Vec<Action> {
         let mut out = Vec::new();
         if !f.playing {
@@ -164,8 +115,6 @@ impl Recorder {
             self.last = None;
             return out;
         }
-        // A jump back while playing is a loop wrap: the pass ends there, and
-        // those that go on until Stop begin again.
         let wrapped = self.last.is_some_and(|last| f.at < last);
         self.last = Some(f.at);
         let mut again: Vec<(Id, Target)> = Vec::new();
@@ -224,8 +173,6 @@ impl Recorder {
         world: &dyn World,
         out: &mut Vec<Action>,
     ) {
-        // A control moved this frame was resting at its earlier value; one that
-        // did not move rests where it is.
         let rest = f
             .rests
             .get(&key)
@@ -367,7 +314,6 @@ mod tests {
     fn touch_writes_while_held_and_ends_when_let_go() {
         let w = world(Mode::Touch);
         let mut r = Recorder::default();
-        // Nothing is written until a control is touched.
         assert!(step(&mut r, &w, 0, false, &[]).is_empty());
         let a = step(&mut r, &w, 10, true, &[(T, VOL)]);
         assert_eq!(a, [Action::TakeOver(T, VOL)]);
@@ -376,7 +322,6 @@ mod tests {
         let a = step(&mut r, &w, 40, false, &[]);
         assert_eq!(written(&a), [(VOL, vec![10, 20, 30], End::Released)]);
         assert!(r.is_empty());
-        // The other control was never touched.
         assert!(step(&mut r, &w, 50, false, &[]).is_empty());
     }
 
@@ -403,7 +348,6 @@ mod tests {
                 rest: Some(rest), ..
             }] if *rest == -12.0
         ));
-        // A control that did not move this frame rests where it is.
         let mut r = Recorder::default();
         step(&mut r, &world(Mode::Write), 0, false, &[]);
         let a = stop(&mut r, &w);
@@ -504,8 +448,6 @@ mod tests {
             assert!(a.contains(&Action::TakeOver(T, VOL)), "{mode:?} goes on");
             assert!(!r.is_empty());
         }
-        // Touch held across the wrap: the pass ends and the next waits for a
-        // touch, which the held control does not make until it moves.
         let w = world(Mode::Touch);
         let mut r = Recorder::default();
         step(&mut r, &w, 0, true, &[(T, VOL)]);

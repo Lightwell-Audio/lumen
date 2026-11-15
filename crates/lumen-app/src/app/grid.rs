@@ -1,7 +1,3 @@
-//! The editing grid in the app (M3 slice 5a): snapping, its keys, the
-//! grid menu (right-click the lanes, or the grid value in the ruler
-//! corner's well) and the snap guide. The grid itself is `lumen_core::grid`.
-
 use eframe::egui::{self, Align2, FontId, Rect, Stroke, pos2};
 use lumen_core::grid::{Feel, Size, Step, Width};
 use lumen_core::time::Ticks;
@@ -11,14 +7,10 @@ use crate::icons::{self, Icon};
 use crate::{App, ruler, theme, widgets};
 
 impl App {
-    /// `t` snapped to the grid at the current zoom, unless `free` (Alt held)
-    /// or snapping is off.
     pub(crate) fn snapped(&self, t: Ticks, free: bool) -> Ticks {
         self.snapped_at_zoom(t, free, self.nav.view.zoom)
     }
 
-    /// [`Self::snapped`] for a view at `zoom` points a beat: the clip
-    /// editor's own zoom (its grid lines are drawn at it, so it snaps there).
     pub(crate) fn snapped_at_zoom(&self, t: Ticks, free: bool, zoom: f64) -> Ticks {
         if free {
             return t;
@@ -26,41 +18,32 @@ impl App {
         self.grid.snap(&self.transport.timeline.meter, t, zoom)
     }
 
-    /// The grid step `t` falls in, at the current zoom (scrubbing).
     pub(crate) fn grid_cell(&self, t: Ticks) -> (Ticks, Ticks) {
         self.grid_cell_at_zoom(t, self.nav.view.zoom)
     }
 
-    /// [`Self::grid_cell`] at `zoom` points a beat.
     pub(crate) fn grid_cell_at_zoom(&self, t: Ticks, zoom: f64) -> (Ticks, Ticks) {
         self.grid.cell(&self.transport.timeline.meter, t, zoom)
     }
 
-    /// The step showing now, where the view starts.
     pub(crate) fn grid_step(&self) -> Step {
         self.grid_step_at(self.nav.view.left, self.nav.view.zoom)
     }
 
-    /// The step showing in a view whose left edge is at beat `left` and
-    /// that takes `zoom` points a beat.
     pub(crate) fn grid_step_at(&self, left: f64, zoom: f64) -> Step {
         let map = &self.transport.timeline.meter;
         let meter = map.meter_at(ruler::ticks_at(left));
         self.grid.step(meter, zoom)
     }
 
-    /// What the grid is, for the screen: "1/16", "1/8T", "4 bars".
     pub(crate) fn grid_label(&self) -> String {
         self.grid.label(self.grid_step())
     }
 
-    /// [`Self::grid_label`] for a view at `left` and `zoom` (the clip
-    /// editor's toolbar shows the grid its roll is drawn with).
     pub(crate) fn grid_label_at(&self, left: f64, zoom: f64) -> String {
         self.grid.label(self.grid_step_at(left, zoom))
     }
 
-    /// The grid menu: adaptive widths, fixed sizes, triplet, dotted, snap.
     pub(crate) fn grid_menu(&mut self, ui: &mut egui::Ui) {
         let keys = |command| self.keymap.keys(command);
         let (narrower, wider, triplet, snap, fixed) = (
@@ -120,7 +103,6 @@ impl App {
         );
     }
 
-    /// How wide the grid's value piece is: its size and the menu's arrow.
     pub(crate) fn grid_value_width(&self, ui: &egui::Ui) -> f32 {
         let text = ui
             .painter()
@@ -134,9 +116,6 @@ impl App {
         text + theme::space::XS + widgets::ARROW_SIZE + 2.0 * theme::space::XS
     }
 
-    /// The grid in the ruler corner's well (the interface audit's H1): the
-    /// magnet, its own piece, turns snapping on and off; the value piece
-    /// opens the grid menu.
     pub(crate) fn grid_pieces(&mut self, ui: &mut egui::Ui, magnet: Rect, value: Rect) {
         let label = self.grid_label();
         let palette = theme::p();
@@ -168,7 +147,6 @@ impl App {
         switch.widget_info(|| {
             egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, snap, "Snap to grid")
         });
-        // Lit while snapping, struck through when not (MT-APP-13 run 1).
         let (icon, colour) = if snap {
             (Icon::Magnet, palette.accent)
         } else {
@@ -221,7 +199,6 @@ impl App {
     }
 }
 
-/// The snap guide: where a click or a drop will land, across `area`.
 pub(crate) fn draw_snap_guide(painter: &egui::Painter, x: f32, area: Rect) {
     if (area.left()..=area.right()).contains(&x) {
         painter.line_segment(

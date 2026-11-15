@@ -1,8 +1,3 @@
-//! Creating an instance and setting it up: buses, speaker arrangements and
-//! activation.
-
-// The bindings' enum constants are `i32` on Windows and `u32` elsewhere, so a
-// cast one platform needs is a no-op on the other.
 #![allow(
     clippy::unnecessary_cast,
     reason = "the bindings' enum constants are `i32` on Windows and `u32` elsewhere, so the cast one platform needs is a no-op on the other"
@@ -11,7 +6,6 @@
 use super::*;
 
 impl Instance {
-    /// Creates the first audio class of `module` (or the one named).
     pub fn create(module: &Module, class: Option<ClassId>) -> Result<Self, InstanceError> {
         let info = module
             .classes()
@@ -25,12 +19,8 @@ impl Instance {
             return Err(InstanceError::NoClass);
         }
 
-        // The host context goes to the factory first, for the plugins that
-        // keep it (the VST3 hosting notes ask for it; most ignore it).
         let host = com::host_application();
         if let Some(factory) = module.factory.cast::<IPluginFactory3>() {
-            // SAFETY: the context outlives the factory's use of it (the
-            // instance owns it, and the module is never unloaded).
             unsafe { factory.setHostContext(host.as_ptr().cast()) };
         }
 
@@ -38,8 +28,6 @@ impl Instance {
             |cid: &ClassId, iid: &[u8; 16]| -> Result<*mut std::ffi::c_void, InstanceError> {
                 let mut object = ptr::null_mut();
                 let cid: TUID = to_tuid(cid);
-                // SAFETY: valid class and interface ids; `object` receives an
-                // owned reference on success.
                 let result = unsafe {
                     module
                         .factory
@@ -53,11 +41,8 @@ impl Instance {
             };
 
         let object = create(&info.id, &IComponent::IID)?;
-        // SAFETY: an owned IComponent reference from createInstance.
         let component = unsafe { ComPtr::<IComponent>::from_raw(object.cast()) }
             .ok_or_else(|| plugin("no component"))?;
-        // SAFETY: the host context outlives the component (both are owned
-        // by the instance).
         let result = unsafe { component.initialize(host.as_ptr().cast()) };
         if result != kResultOk {
             return Err(plugin(format!("initialize failed ({result})")));
@@ -66,20 +51,15 @@ impl Instance {
             .cast::<IAudioProcessor>()
             .ok_or_else(|| plugin("the component has no audio processor"))?;
 
-        // The controller: the component itself (a single-component plugin)
-        // or a class of its own.
         let mut separate_controller = false;
         let mut controller = component.cast::<IEditController>();
         if controller.is_none() {
             let mut cid: TUID = [0; 16];
-            // SAFETY: a valid out pointer.
             if unsafe { component.getControllerClassId(&mut cid) } == kResultOk {
                 let id: ClassId = cid.map(|c| c as u8);
                 if let Ok(object) = create(&id, &IEditController::IID) {
-                    // SAFETY: an owned IEditController reference.
                     controller = unsafe { ComPtr::<IEditController>::from_raw(object.cast()) };
                     if let Some(c) = &controller {
-                        // SAFETY: as for the component.
                         let r = unsafe { c.initialize(host.as_ptr().cast()) };
                         if r == kResultOk {
                             separate_controller = true;
@@ -94,7 +74,6 @@ impl Instance {
         let handler = ComWrapper::new(Handler::default());
         if let Some(c) = &controller {
             if let Some(h) = handler.to_com_ptr::<IComponentHandler>() {
-                // SAFETY: the handler outlives the controller (owned by the instance).
                 unsafe { c.setComponentHandler(h.as_ptr()) };
             }
             if separate_controller
@@ -103,7 +82,6 @@ impl Instance {
                     c.cast::<IConnectionPoint>(),
                 )
             {
-                // SAFETY: both are live connection points.
                 unsafe {
                     a.connect(b.as_ptr());
                     b.connect(a.as_ptr());
@@ -145,7 +123,6 @@ impl Instance {
             ignored: 0,
             reported: Vec::with_capacity(MOST_PENDING),
             for_controller: Vec::with_capacity(MOST_PENDING),
-            // SAFETY: a plain C struct; zero is a valid "nothing known" context.
             context: unsafe { std::mem::zeroed() },
             in_buses: 0,
             out_buses: 0,
@@ -163,7 +140,6 @@ impl Instance {
     pub(super) fn stop(&mut self) {
         self.notes.clear();
         if self.processing {
-            // SAFETY: shutdown calls on live objects.
             unsafe {
                 self.processor.setProcessing(0);
                 self.component.setActive(0);
@@ -172,26 +148,17 @@ impl Instance {
         }
     }
 
-    /// Sets the format and starts processing with no auxiliary bus turned on.
-    /// Safe to call again with a new format: the plugin is stopped first.
     pub fn configure(&mut self, format: Format) -> Result<(), InstanceError> {
         self.configure_with(format, Aux::default())
     }
 
-    /// The first routable audio buses the plugin declares, inputs then outputs.
-    /// The VST3 component may internally declare up to `MAX_DECLARED_BUSES`;
-    /// later buses stay inactive because the protocol's auxiliary masks are
-    /// limited to 32 buses.
     pub fn buses(&self) -> (Vec<crate::protocol::BusInfo>, Vec<crate::protocol::BusInfo>) {
         let list = |direction: i32| -> Vec<crate::protocol::BusInfo> {
-            // SAFETY: plain calls on a live component with valid out pointers.
             let count = unsafe { self.component.getBusCount(kAudio as i32, direction) }
                 .clamp(0, MAX_BUSES as i32);
             (0..count)
                 .filter_map(|bus| {
-                    // SAFETY: an all-zero `BusInfo` is a valid value to fill in.
                     let mut info: BusInfo = unsafe { std::mem::zeroed() };
-                    // SAFETY: as above.
                     let got = unsafe {
                         self.component
                             .getBusInfo(kAudio as i32, direction, bus, &mut info)
@@ -210,16 +177,11 @@ impl Instance {
         (list(kInput as i32), list(kOutput as i32))
     }
 
-    /// How many audio buses the plugin declares in `direction`.
     fn bus_count(&self, direction: i32) -> usize {
-        // SAFETY: a plain call on a live component.
         unsafe { self.component.getBusCount(kAudio as i32, direction) }.max(0) as usize
     }
 
-    /// How many channels bus `bus` has, as the plugin describes it now.
     fn bus_width(&self, direction: i32, bus: usize) -> usize {
-        // SAFETY: a plain call with a valid out pointer; an all-zero
-        // `BusInfo` is a valid value to fill in.
         unsafe {
             let mut info: BusInfo = std::mem::zeroed();
             if self
@@ -234,9 +196,6 @@ impl Instance {
         }
     }
 
-    /// Sets the format and starts processing, with the auxiliary buses `aux`
-    /// asks for turned on and every other one off. `format` gives the main
-    /// buses' channels; afterwards [`Instance::format`] holds the totals.
     pub fn configure_with(&mut self, format: Format, aux: Aux) -> Result<(), InstanceError> {
         self.stop();
         let ins = usize::from(format.inputs);
@@ -244,10 +203,6 @@ impl Instance {
         if ins > MAX_CHANNELS || outs > MAX_CHANNELS {
             return Err(plugin("too many channels"));
         }
-        // One arrangement per bus, as the plugin declares them: the main bus
-        // as asked, the others as they are. A count that does not match what
-        // the plugin declares is refused by plugins that check, so the host
-        // never gives a shorter list.
         let (in_buses, out_buses) = (
             self.bus_count(kInput as i32),
             self.bus_count(kOutput as i32),
@@ -258,7 +213,6 @@ impl Instance {
                 in_buses.max(out_buses)
             )));
         }
-        // The auxiliary buses asked for must be there, and mono or stereo.
         let mut wanted_aux = [Vec::new(), Vec::new()];
         for (side, (name, direction, buses, mask)) in [
             ("input", kInput as i32, in_buses, aux.inputs),
@@ -290,7 +244,6 @@ impl Instance {
                         return speakers(wanted as u8);
                     }
                     let mut current: SpeakerArrangement = SpeakerArr::kStereo;
-                    // SAFETY: a valid out pointer; a refusal leaves stereo.
                     unsafe {
                         self.processor
                             .getBusArrangement(direction, bus as i32, &mut current)
@@ -301,8 +254,6 @@ impl Instance {
         };
         let mut input_layout = layout(kInput as i32, in_buses, ins)?;
         let mut output_layout = layout(kOutput as i32, out_buses, outs)?;
-        // SAFETY: valid pointers to vectors that outlive the call, with the
-        // counts they hold.
         unsafe {
             self.processor.setBusArrangements(
                 if in_buses > 0 {
@@ -321,14 +272,10 @@ impl Instance {
         }
         self.in_buses = in_buses;
         self.out_buses = out_buses;
-        // The plugin may refuse a layout; what it really has must match
-        // what was asked, or blocks would be mis-sized.
         for (direction, wanted, aux_buses) in [
             (kInput as i32, ins, &wanted_aux[0]),
             (kOutput as i32, outs, &wanted_aux[1]),
         ] {
-            // A plugin with a main bus can run it unused, but not with a
-            // different count than the host fills.
             if wanted > 0 {
                 let have = if self.bus_count(direction) > 0 {
                     self.bus_width(direction, 0)
@@ -350,8 +297,6 @@ impl Instance {
                 }
             }
         }
-        // Where each turned-on bus's channels sit in a block: the main bus
-        // first, then the auxiliary ones in bus order.
         let slots = |main: usize, aux_buses: &[(usize, u8)]| -> Vec<Slot> {
             let mut list = Vec::with_capacity(1 + aux_buses.len());
             let mut first = 0;
@@ -382,7 +327,6 @@ impl Instance {
         }
         self.in_slots = in_slots;
         self.out_slots = out_slots;
-        // SAFETY: valid pointers to locals for each call.
         unsafe {
             let mut setup = ProcessSetup {
                 processMode: kRealtime as i32,
@@ -405,8 +349,6 @@ impl Instance {
                         .activateBus(media, direction, 0, u8::from(active));
                 }
             }
-            // The auxiliary audio buses: the ones asked for on, the rest off
-            // (a plugin may have some on by default).
             for (direction, buses, slots) in [
                 (kInput as i32, in_buses, &self.in_slots),
                 (kOutput as i32, out_buses, &self.out_slots),
@@ -422,7 +364,6 @@ impl Instance {
                 return Err(plugin(format!("setActive failed ({result})")));
             }
             let result = self.processor.setProcessing(1);
-            // Plugins may answer "not implemented" here and still work.
             if result != kResultOk && result != vst3::Steinberg::kNotImplemented {
                 self.component.setActive(0);
                 return Err(plugin(format!("setProcessing failed ({result})")));
@@ -431,9 +372,6 @@ impl Instance {
         }
         self.context.sampleRate = format.sample_rate;
         self.context.tempo = 120.0;
-        // A time signature even where nothing is known: a plugin that
-        // divides by the denominator without looking at the flag must not
-        // meet zero.
         self.context.timeSigNumerator = 4;
         self.context.timeSigDenominator = 4;
         self.context.state = (kPlaying | kTempoValid | kTimeSigValid) as u32;

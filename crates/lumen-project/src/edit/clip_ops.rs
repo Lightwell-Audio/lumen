@@ -1,12 +1,3 @@
-//! Clip commands of M7b slice E1: join, crop to a range and unloop. Pure
-//! functions over the model; the document wraps each in one undo step.
-//!
-//! **Join** is seamless or it does not happen to audio. Two clips join when
-//! cutting the joined clip back at the seam gives exactly the two clips
-//! again (the proof is the check, not a list of rules), so joining what a
-//! split made returns the original. MIDI clips also merge when they do not
-//! meet: their shown notes, loops baked, go into one clip.
-
 use std::sync::Arc;
 
 use lumen_core::fade::Fade;
@@ -19,28 +10,17 @@ use super::{
     to_arrangement,
 };
 
-/// The most clips an unloop makes from one clip.
 pub const MOST_REPEATS: i64 = 1_024;
 
-/// Source seconds two phases may differ by and still be one position: far
-/// below a sample at any rate.
 const PHASE_SLACK: f64 = 1e-7;
 
-/// What a join did.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Joined {
-    /// The clips that now stand where the selection was: the joined clips
-    /// and the selected ones that stayed as they were.
     pub clips: Vec<Id>,
-    /// How many clips were taken into another.
     pub merged: usize,
-    /// Whether audio clips were left apart because they do not continue one
-    /// another in their source (that is Join into new file's work).
     pub apart: bool,
 }
 
-/// Joins the selected unlocked clips of each track that follow one another
-/// (see the module): the first of a run keeps its id and the rest go.
 pub fn join(project: &mut Project, ids: &[Id]) -> Joined {
     let tempo = tempo_of(project);
     let snapshot = project.clone();
@@ -88,8 +68,6 @@ pub fn join(project: &mut Project, ids: &[Id]) -> Joined {
     out
 }
 
-/// `left` and `next` as one clip, if cutting that clip at their seam gives
-/// them back exactly.
 fn seamless(project: &Project, tempo: &TempoMap, left: &Clip, next: &Clip) -> Option<Clip> {
     if left.start + left.length != next.start || left.muted != next.muted {
         return None;
@@ -101,11 +79,9 @@ fn seamless(project: &Project, tempo: &TempoMap, left: &Clip, next: &Clip) -> Op
     cuts_back(project, tempo, &joined, left, next).then_some(joined)
 }
 
-/// Whether cutting `joined` at the seam of `left` and `next` gives both.
 fn cuts_back(project: &Project, tempo: &TempoMap, joined: &Clip, left: &Clip, next: &Clip) -> bool {
     let (a, b) = (left.start, next.start);
     let end = next.start + next.length;
-    // Where in its file a clip's window begins, in seconds.
     let begins = |c: &Clip| match super::audio_of(project, c) {
         Some((rate, _, offset)) => offset as f64 / f64::from(rate) + c.audio_phase_seconds,
         None => 0.0,
@@ -113,8 +89,6 @@ fn cuts_back(project: &Project, tempo: &TempoMap, joined: &Clip, left: &Clip, ne
     let same = |cut: Option<Clip>, want: &Clip| {
         cut.is_some_and(|mut cut| {
             let apart = if want.warp.is_some() {
-                // A warped clip holds its place as an offset and a phase that
-                // two routes to the same second may split differently.
                 (begins(&cut) - begins(want)).abs()
             } else {
                 (cut.audio_phase_seconds - want.audio_phase_seconds).abs()
@@ -136,8 +110,6 @@ fn cuts_back(project: &Project, tempo: &TempoMap, joined: &Clip, left: &Clip, ne
         && same(slice(project, tempo, joined, b, end), next)
 }
 
-/// A fade cropped by a cut, as it was before it: whole again when the clip
-/// has room for the original.
 fn restored(fade: Fade, room: Ticks) -> Fade {
     if fade.span == Ticks::ZERO {
         return Fade {
@@ -158,8 +130,6 @@ fn restored(fade: Fade, room: Ticks) -> Fade {
     }
 }
 
-/// Two MIDI clips as one new clip from the start of the first to the end of
-/// the second: the notes and events each shows, loops baked.
 fn merge_midi(first: &Clip, second: &Clip) -> Option<Clip> {
     if first.muted != second.muted || second.start < first.start + first.length {
         return None;
@@ -199,8 +169,6 @@ fn merge_midi(first: &Clip, second: &Clip) -> Option<Clip> {
     })
 }
 
-/// The notes and events a MIDI clip plays, in ticks from its start: its
-/// window, every repeat of a loop, none longer than its content or the clip.
 fn baked(clip: &Clip) -> (Vec<Note>, Vec<ClipEvent>) {
     let ClipContent::Midi { notes, events } = &clip.content else {
         return (Vec::new(), Vec::new());
@@ -227,8 +195,6 @@ fn baked(clip: &Clip) -> (Vec<Note>, Vec<ClipEvent>) {
     (out_notes, out_events)
 }
 
-/// Keeps `[a, b)` on `tracks` and removes everything else there (Crop to
-/// selection). Locked clips stay whole.
 pub fn crop(
     project: &mut Project,
     tracks: &[Id],
@@ -243,10 +209,6 @@ pub fn crop(
     clear(project, tracks, b, FOREVER_AFTER, fresh);
 }
 
-/// Replaces each selected unlocked looping clip with real clips, one for
-/// each repeat it shows. The first keeps the clip's id. Returns the ids now
-/// standing for the selection, and whether any clip was too long to unloop
-/// (more than [`MOST_REPEATS`] repeats), which is left as it was.
 pub fn unloop(
     project: &mut Project,
     ids: &[Id],
@@ -297,7 +259,6 @@ pub fn unloop(
     (result, too_long)
 }
 
-/// The clips a looping `clip` is, repeat by repeat; `None` for too many.
 fn unlooped(
     project: &Project,
     tempo: &TempoMap,
@@ -328,7 +289,6 @@ fn unlooped(
             piece.id = fresh();
         }
         piece.loop_length = None;
-        // Each repeat is a clip of its own; the other passes stay with none.
         piece.takes = None;
         let in_loop = if index == 0 {
             clip.loop_phase
@@ -337,14 +297,10 @@ fn unlooped(
         };
         match &mut piece.content {
             ClipContent::Audio { .. } => {
-                // The source time at the piece's start: the clip's own at its
-                // loop origin, plus the way into the loop the piece begins.
                 piece.audio_phase_seconds = clip.audio_phase_seconds + tempo.seconds_at(from)
                     - tempo.seconds_at(from - in_loop);
                 piece.envelopes = clip.envelopes.clone();
                 piece.envelopes.shift(Ticks::ZERO - in_loop);
-                // The map covers one turn from the loop's origin; the piece's
-                // clock is its own start, which is that far into the turn.
                 if let Some(warp) = &mut piece.warp {
                     warp.shift(Ticks::ZERO - Ticks(in_loop.0.rem_euclid(period.0)));
                 }
@@ -542,7 +498,6 @@ mod tests {
         let mut project = song();
         let first = clip_at(&project, 0, 0);
         let parts = split::clips(&mut project, &[first.id], &[q(8)], &mut ids());
-        // The second part plays other material.
         set(&mut project, 0, 1, |c| {
             if let ClipContent::Audio { offset, .. } = &mut c.content {
                 *offset += 960;
@@ -608,7 +563,6 @@ mod tests {
             ],
             vec![],
         );
-        // A second clip after a gap, at 14 quarters.
         let mut second = clip_at(&project, 0, 0);
         second.id = Id(77);
         second.start = q(14);
@@ -630,7 +584,6 @@ mod tests {
         let ClipContent::Midi { notes, events } = &clip.content else {
             panic!("MIDI stays MIDI");
         };
-        // The note hidden past the first clip's end is not brought in.
         assert_eq!(
             notes
                 .iter()
@@ -676,7 +629,6 @@ mod tests {
                 .all(|c| c.loop_length.is_none() && c.loop_phase == Ticks::ZERO)
         );
         assert_eq!(t.clips[0].id, original.id);
-        // 120 BPM: the first part begins a quarter (0.5 s) into the loop.
         assert!((t.clips[0].audio_phase_seconds - 1.0).abs() < 1e-9);
         assert!((t.clips[1].audio_phase_seconds - 0.5).abs() < 1e-9);
         assert_eq!(t.clips[0].fade_in, original.fade_in);
@@ -711,7 +663,6 @@ mod tests {
                     .collect()
             })
             .collect();
-        // The long note stops at the loop end (two quarters left) each repeat.
         assert_eq!(shown[0], [(0, 2, 60), (1, 2, 62)]);
         assert_eq!(shown[1], [(0, 2, 60), (1, 2, 62)]);
         assert_eq!(shown[2], [(0, 1, 60)]);

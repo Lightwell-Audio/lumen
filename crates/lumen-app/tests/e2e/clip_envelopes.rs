@@ -1,9 +1,3 @@
-//! Envelopes on audio clips (M7 slice A7, the owner's E1 A and E2): the E key
-//! shows the selected clip's gain envelope over it, a click over the clip adds
-//! a point kept from the clip's start, the chip switches to pan, the envelope
-//! is heard, moves with the clip, survives a save and a reopen, and every edit
-//! is one undo step.
-
 use eframe::egui::{Key, Modifiers};
 use lumen_core::time::Ticks;
 use lumen_project::automation::Target;
@@ -13,11 +7,8 @@ use lumen_project::model::Id;
 use super::lane_view::{click_at, near, peak, point_pos, spot, tone};
 use super::{Lumen, TempDir};
 
-/// The test tone's peak (`wav`): 3,000 of 32,768.
 const TONE: f32 = 3_000.0 / 32_768.0;
 
-/// The first clip of the first track, selected, with the track's clips left as
-/// they are.
 fn picked(lumen: &mut Lumen) -> (Id, Id) {
     let track = lumen.app().project().tracks[0].id;
     let clip = lumen.app().project().tracks[0].clips[0].id;
@@ -37,7 +28,6 @@ fn envelope(lumen: &Lumen, kind: Kind) -> Vec<(Ticks, f32)> {
 #[test]
 fn the_e_key_shows_and_hides_the_selected_clips_envelope() {
     let (mut lumen, track) = tone("env-key");
-    // Nothing selected: nothing happens, and the track shows no lane.
     lumen.app_mut().select_tracks(&[]);
     lumen.key(Modifiers::NONE, Key::E);
     assert_eq!(lumen.app().automation_shown(track), None);
@@ -65,7 +55,6 @@ fn the_e_key_shows_and_hides_the_selected_clips_envelope() {
 fn a_click_over_the_clip_adds_a_point_and_it_is_kept_from_the_clips_start() {
     let (mut lumen, _) = tone("env-click");
     let (track, clip) = picked(&mut lumen);
-    // The clip starts at quarter 4, so its points are measured from there.
     lumen.app_mut().move_clip_to(clip, Ticks::quarters(4));
     lumen.frames(5);
     lumen.key(Modifiers::NONE, Key::E);
@@ -86,9 +75,7 @@ fn a_click_over_the_clip_adds_a_point_and_it_is_kept_from_the_clips_start() {
     );
     assert_eq!(lumen.app().automation_picked(), Some((track, vec![0])));
     assert!(lumen.app().is_dirty());
-    // The track has no lane of its own for it.
     assert!(lumen.app().project().tracks[0].automation.is_empty());
-    // One undo step takes the envelope with it.
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert!(envelope(&lumen, Kind::Gain).is_empty());
     lumen.key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z);
@@ -108,8 +95,6 @@ fn a_locked_clip_keeps_its_envelope_and_unlocking_lets_it_be_drawn_again() {
 
     super::lane_view::run_command(&mut lumen, "Lock clip");
     assert!(lumen.app().project().tracks[0].clips[0].locked);
-    // A click adds nothing, a drag over the point moves nothing, and Delete
-    // takes nothing away.
     let elsewhere = spot(&lumen, track, 5.0, -10.0);
     click_at(&mut lumen, elsewhere);
     assert_eq!(
@@ -144,7 +129,6 @@ fn a_locked_clip_keeps_its_envelope_and_unlocking_lets_it_be_drawn_again() {
 fn a_click_beside_the_clip_is_not_the_envelopes() {
     let (mut lumen, _) = tone("env-beside");
     let (track, clip) = picked(&mut lumen);
-    // Shorten the clip to two quarters so there is track beside it.
     lumen
         .app_mut()
         .trim_clip_end_to(clip, Ticks::quarters(2), false);
@@ -219,7 +203,6 @@ fn the_chip_switches_to_pan_and_back() {
     assert_eq!(held.len(), 1);
     assert!(held[0].1 > 0.9, "hard right: {}", held[0].1);
     assert!(envelope(&lumen, Kind::Gain).is_empty());
-    // Pan is heard: the left side goes quiet.
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.wait_for("playback", |app| app.playhead() > Ticks::quarters(1));
     let frames = lumen.listen(std::time::Duration::from_millis(150), 1_000);
@@ -283,8 +266,6 @@ fn delete_takes_the_picked_point_and_the_last_one_takes_the_envelope() {
     );
 }
 
-// ---- Lock envelopes (the owner's E3): the track's automation and its clips ----
-
 use lumen_core::automation::{Lane, Point};
 
 fn volume_lane(points: &[(i64, f32)]) -> Lane {
@@ -297,8 +278,6 @@ fn volume_lane(points: &[(i64, f32)]) -> Lane {
     .unwrap()
 }
 
-/// A track whose one clip is eight quarters long, with a volume lane that has
-/// points at 2 and 6 (under the clip) and 12 (past it).
 fn automated(name: &str) -> (Lumen, Id, Id) {
     let (mut lumen, _) = tone(name);
     let (track, clip) = picked(&mut lumen);
@@ -351,7 +330,6 @@ fn with_envelopes_locked_the_automation_stays_where_it_is() {
     lumen.app_mut().move_clip_to(clip, Ticks::quarters(16));
     lumen.frames(3);
     assert_eq!(volume_points(&lumen), vec![2, 6, 12]);
-    // The choice is the user's, kept in the settings.
     assert!(lumen.app().lock_envelopes());
     super::lane_view::run_command(&mut lumen, "Lock envelopes");
     assert!(!lumen.app().lock_envelopes());
@@ -374,8 +352,6 @@ fn duplicating_a_clip_duplicates_the_automation_under_it() {
     lumen.app_mut().select_clip(clip);
     lumen.key(Modifiers::COMMAND, Key::D);
     lumen.frames(5);
-    // The copy lands right after the clip, eight quarters on: its points are
-    // 8 later, and the point at 12 is under it, so it is replaced by the copy.
     assert_eq!(volume_points(&lumen), vec![2, 6, 10, 14]);
     lumen.key(Modifiers::COMMAND, Key::Z);
     assert_eq!(volume_points(&lumen), vec![2, 6, 12]);

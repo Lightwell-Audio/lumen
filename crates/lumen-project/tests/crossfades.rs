@@ -1,7 +1,3 @@
-//! Format v28: an audio clip may mark its incoming fade as a crossfade and
-//! projects may opt into automatic crossfades. Earlier formats preserve the
-//! old playback by migrating with automatic crossfades disabled.
-
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -144,8 +140,6 @@ fn audio_clip(id: u64, start: i64, length: i64, crossfade: bool) -> Arc<Clip> {
     })
 }
 
-/// The one rule of a crossfade: it stands only while an audio clip ends where
-/// the incoming clip starts, and every edit through the history keeps it.
 #[test]
 fn a_crossfade_ends_with_the_clip_that_ends_at_its_start() {
     use lumen_project::history::History;
@@ -155,13 +149,11 @@ fn a_crossfade_ends_with_the_clip_that_ends_at_its_start() {
     let mut history = History::new(project_of("Rule", vec![track]));
     let flag = |h: &History| h.project().tracks[0].clips[1].crossfade;
 
-    // An unrelated edit leaves it alone.
     history.apply("rename", None, |p| {
         Arc::make_mut(&mut Arc::make_mut(&mut p.tracks[0]).clips[0]).name = "A".into();
     });
     assert!(flag(&history));
 
-    // Moving the incoming clip away ends it, and its fade-in with it.
     history.apply("move", None, |p| {
         Arc::make_mut(&mut Arc::make_mut(&mut p.tracks[0]).clips[1]).start = Ticks::quarters(9);
     });
@@ -171,7 +163,6 @@ fn a_crossfade_ends_with_the_clip_that_ends_at_its_start() {
         Ticks::ZERO
     );
 
-    // Undo brings it back whole, in one step.
     history.undo();
     assert!(flag(&history));
     assert_eq!(
@@ -179,7 +170,6 @@ fn a_crossfade_ends_with_the_clip_that_ends_at_its_start() {
         Ticks::quarters(4)
     );
 
-    // Trimming the outgoing clip so it no longer reaches the start ends it.
     history.apply("trim", None, |p| {
         Arc::make_mut(&mut Arc::make_mut(&mut p.tracks[0]).clips[0]).length = Ticks::quarters(3);
     });

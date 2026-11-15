@@ -1,7 +1,3 @@
-//! The loopback helper's card in the audio settings' Latency section (the
-//! owner's A, 2026-10-29): the cable's ends, what came back of the clicks,
-//! the round trip found, and the offset it asks for, offered with one click.
-
 use eframe::egui::{self, RichText, Sense, Shape, Ui, pos2, vec2};
 use lumen_engine::loopback::{CLICKS, Failure, RETURN_BEFORE};
 
@@ -11,54 +7,36 @@ use crate::theme;
 use crate::widgets::{Dropdown, raised};
 use crate::widgets::{hint, warning};
 
-/// The returned clicks' strip.
 const TRACE_HEIGHT: f32 = theme::size::CONTROL_LARGE * 1.5;
-/// The share of the row's room the output dropdown takes: an output pair's
-/// label is about twice an input's.
 const OUTPUT_SHARE: f32 = 0.58;
 
-/// The card's own state: open or folded, and the cable's ends as chosen.
 #[derive(Debug, Default)]
 pub struct Card {
     pub open: bool,
-    /// Scrolls the card into view on its next frame: the window can be
-    /// shorter than the Audio page.
     pub reveal: bool,
-    /// The chosen output pair and input, as the callback numbers them.
     output: Option<usize>,
     input: Option<usize>,
 }
 
-/// What the card shows, lent each frame.
 pub struct Shown<'a> {
     pub measurement: &'a Measurement,
-    /// The device channels open as outputs and inputs, in callback order.
     pub outputs: &'a [usize],
     pub inputs: &'a [usize],
-    /// The device's channel names, by device channel.
     pub output_names: &'a [String],
     pub input_names: &'a [String],
-    /// Why Measure cannot run now (playing, recording), if it cannot.
     pub held: Option<&'static str>,
-    /// The recording offset in use, and what it was measured with if it
-    /// was measured.
     pub offset_ms: f32,
     pub offset_measured: Option<&'a MeasuredWith>,
-    /// The device setup running now.
     pub running: &'a MeasuredWith,
 }
 
-/// What the card asks for.
 pub enum Asked {
     Measure(Cable),
     Use(f32, MeasuredWith),
 }
 
-/// One end the cable can be plugged into: (first callback channel, both of
-/// a pair, label).
 type End = (usize, bool, String);
 
-/// An end's label as it reads in a sentence: "2 (In 2)" for "2  In 2".
 fn in_words(label: &str) -> String {
     match label.split_once("  ") {
         Some((number, name)) => format!("{number} ({name})"),
@@ -73,8 +51,6 @@ fn name(names: &[String], channel: usize, prefix: &str) -> String {
     }
 }
 
-/// The open outputs as pairs (a last odd one alone), labelled by device
-/// channel.
 fn output_ends(outputs: &[usize], names: &[String]) -> Vec<End> {
     outputs
         .chunks(2)
@@ -113,7 +89,6 @@ impl Card {
     pub fn show(&mut self, ui: &mut Ui, shown: Shown<'_>) -> Option<Asked> {
         let outputs = output_ends(shown.outputs, shown.output_names);
         let inputs = input_ends(shown.inputs, shown.input_names);
-        // A choice the device no longer has falls back to the first.
         let output = self
             .output
             .and_then(|o| outputs.iter().position(|e| e.0 == o))
@@ -130,7 +105,6 @@ impl Card {
         let mut asked = None;
 
         let back = [ui.painter().add(Shape::Noop), ui.painter().add(Shape::Noop)];
-        // An indent under the offset it sets.
         let outer = egui::Margin {
             left: (2.0 * theme::space::L) as i8,
             top: theme::space::XS as i8,
@@ -144,7 +118,6 @@ impl Card {
                     ui.spacing_mut().item_spacing.y = theme::space::S;
                     ui.horizontal(|ui| {
                         ui.label(RichText::new("Cable from").weak());
-                        // The two dropdowns share what is left of the row.
                         let to = ui
                             .painter()
                             .layout_no_wrap(
@@ -212,7 +185,6 @@ impl Card {
                      device skips its converters, so it measures too short.",
                     );
                 });
-        // The response holds the outer margin; the well sits inside it.
         let [well, lip] = raised::sunken_shapes(frame.response.rect - outer, theme::radius::LARGE);
         ui.painter().set(back[0], well);
         ui.painter().set(back[1], lip);
@@ -226,8 +198,6 @@ impl Card {
     }
 }
 
-/// The strip that shows what came back of the clicks, laid over each
-/// other: one sharp line when they agree.
 fn trace(ui: &mut Ui, busy: bool, outcome: Option<&Outcome>) {
     let width = ui.available_width();
     let (rect, response) = ui.allocate_exact_size(vec2(width, TRACE_HEIGHT), Sense::hover());
@@ -252,7 +222,6 @@ fn trace(ui: &mut Ui, busy: bool, outcome: Option<&Outcome>) {
             let frames = returns.iter().map(Vec::len).max().unwrap_or(1).max(2);
             let x = |i: usize| rect.left() + rect.width() * i as f32 / (frames - 1) as f32;
             let y = |s: f32| rect.center().y - s / loudest * (rect.height() * 0.45);
-            // The first on top, the others fainter under it.
             for (k, back) in returns.iter().enumerate().rev() {
                 let colour = if k == 0 {
                     c.accent
@@ -308,8 +277,6 @@ fn trace(ui: &mut Ui, busy: bool, outcome: Option<&Outcome>) {
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &described));
 }
 
-/// The round trip found and the offset it asks for, or what went wrong and
-/// what to do.
 fn result(ui: &mut Ui, outcome: &Outcome, shown: &Shown<'_>) -> Option<Asked> {
     let offset_ms = shown.offset_ms;
     let ms = |frames: u32| f64::from(frames) * 1000.0 / f64::from(outcome.rate.max(1));
@@ -348,7 +315,6 @@ fn result(ui: &mut Ui, outcome: &Outcome, shown: &Shown<'_>) -> Option<Asked> {
         );
     }
     let offset = outcome.offset_ms()?;
-    // A round trip measured on another setup does not hold for this one.
     if !outcome.with.same_setup(shown.running) {
         hint(
             ui,
@@ -358,8 +324,6 @@ fn result(ui: &mut Ui, outcome: &Outcome, shown: &Shown<'_>) -> Option<Asked> {
     }
     let mut asked = None;
     ui.horizontal(|ui| {
-        // The same number measured on another setup (or typed) is still
-        // offered, so the setup it holds for is remembered.
         if (offset - offset_ms).abs() < 0.05
             && shown
                 .offset_measured

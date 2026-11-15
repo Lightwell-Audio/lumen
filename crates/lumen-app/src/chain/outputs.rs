@@ -1,14 +1,3 @@
-//! The outputs row of a plugin instrument's card (M6 slice 6d; the owner's
-//! O1): shown only when the running plugin has outputs besides its main one.
-//! The word "Outputs" and one chooser that says how many have a track of their
-//! own ("Main only", "Main + 2"); its menu lists every output with a switch
-//! and the name of the track it makes, with All on and All off. Turning an
-//! output on makes an audio track for it, right under the instrument's track;
-//! turning it off takes the track away, and when that track holds clips or
-//! devices the menu asks whether to remove it or keep it.
-//!
-//! Every change is `Document::set_outputs`: one undo step.
-
 use eframe::egui::{self, Align2, FontId, Id as EguiId, Rect, Response, Sense, Ui, pos2, vec2};
 use eframe::emath::GuiRounding as _;
 use lumen_project::model::Id;
@@ -19,19 +8,14 @@ use crate::theme::Tone;
 use crate::widgets::{self, raised};
 use crate::{App, motion, theme};
 
-/// What a card's row shows.
 pub(super) struct Look {
-    /// Outputs besides the main one that have a track of their own.
     pub extra_on: usize,
 }
 
-/// The word before the chooser, as wide as the sidechain row's.
 const LABEL: f32 = 62.0;
 const HEIGHT: f32 = 22.0;
-/// The most rows the list shows before it scrolls.
 const LIST_HEIGHT: f32 = 224.0;
 
-/// "Main only", "Main + 2".
 fn summary(extra_on: usize) -> String {
     match extra_on {
         0 => "Main only".to_owned(),
@@ -39,7 +23,6 @@ fn summary(extra_on: usize) -> String {
     }
 }
 
-/// The chooser's id for the card of `device` (the command opens its menu).
 pub(super) fn chooser_id(device: Id) -> EguiId {
     chooser_id_of(EguiId::new(("device", device.0)))
 }
@@ -48,11 +31,6 @@ pub(super) fn chooser_id_of(card: EguiId) -> EguiId {
     card.with("outputs")
 }
 
-/// The row in `area`, which is `KEY_ROOM` tall; answers the chooser.
-///
-/// In a compact card's footer (`footer` holds the footer's own words, which
-/// move into the tooltip) the chooser fills `area` at the small control's
-/// height, without the word before it.
 pub(super) fn paint(
     ui: &mut Ui,
     area: Rect,
@@ -132,9 +110,6 @@ pub(super) fn paint(
     }
 }
 
-/// What each track that plays a plugin's output says about it: where the
-/// sound comes from, and that it plays nothing while the instrument is not
-/// running.
 pub(crate) fn notes_of(app: &App) -> std::collections::HashMap<Id, crate::arrangement::OutputNote> {
     use crate::arrangement::OutputNote;
     let project = app.document.project();
@@ -180,14 +155,10 @@ pub(crate) fn notes_of(app: &App) -> std::collections::HashMap<Id, crate::arrang
         .collect()
 }
 
-/// Outputs asked to be turned off whose tracks hold work: waiting for the
-/// answer in the menu.
 #[derive(Default)]
 pub(crate) struct Asking(Option<(Id, Vec<u32>)>);
 
 impl App {
-    /// The row of `device`'s card: none for a card that is not a running plugin
-    /// instrument with outputs besides its main one.
     pub(super) fn outputs_look(&self, device: &lumen_project::model::Device) -> Option<Look> {
         if !device.is_vst3()
             || !device.is_instrument()
@@ -208,21 +179,18 @@ impl App {
         })
     }
 
-    /// The menu under the chooser of `device`.
     pub(super) fn outputs_menu(&mut self, chooser: &Response, device: Id) {
         widgets::Menu::below(chooser)
             .keeping_open()
             .show(|ui| self.outputs_menu_body(ui, device));
     }
 
-    /// Opens the chosen card's outputs menu (the command).
     pub(crate) fn open_outputs_menu(&mut self, ctx: &egui::Context) {
         if let Some(device) = self.chain.selected {
             widgets::Menu::open_for(ctx, chooser_id(device));
         }
     }
 
-    /// Whether the chosen card has an outputs row.
     pub(crate) fn chosen_has_outputs(&self) -> bool {
         self.chain.selected.is_some_and(|d| {
             find_device(self.document.project(), d)
@@ -254,11 +222,7 @@ impl App {
         let mut turn_off: Vec<u32> = Vec::new();
 
         widgets::menu_caption(ui, &format!("Outputs of {instrument}"));
-        // The main output is the instrument's own track: not a choice, so
-        // it is said and not offered as a switch.
         widgets::menu_caption(ui, "Main plays on the instrument's own track");
-        // A solid bar takes room of its own (when the list scrolls), so it
-        // does not lie over the switches.
         ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
         egui::ScrollArea::vertical()
             .max_height(LIST_HEIGHT)
@@ -267,16 +231,8 @@ impl App {
                 for (bus, name) in &extra {
                     let track = track_of(*bus);
                     let mut is_on = track.is_some();
-                    // A block carries only so many channels: past that an
-                    // output cannot be turned on until another is off.
                     let fits = is_on || self.hosting.output_fits(device, &on_buses, *bus);
                     crowded |= !fits;
-                    // One widget per row: the track's name is painted inside
-                    // it, so nothing laid out after the switch can widen the
-                    // menu (a row beside a full-width switch grew it on
-                    // every frame).
-                    // The name it was given when made says nothing new: only a
-                    // track that was renamed is named here.
                     let made = format!("{instrument} \u{b7} {name}");
                     let note = track
                         .map(track_name)
@@ -319,7 +275,6 @@ impl App {
             }
         });
 
-        // A turned-off output whose track holds work waits for an answer.
         let waiting = self
             .chain
             .asking
@@ -367,7 +322,6 @@ impl App {
                 self.chain.asking = Asking::default();
                 self.apply_outputs(device, &turn_on, &turn_off, None);
             } else {
-                // The ones with nothing in them can go at once; the others wait.
                 let idle: Vec<u32> = turn_off
                     .iter()
                     .copied()
@@ -379,7 +333,6 @@ impl App {
         }
     }
 
-    /// One change of outputs, one undo step; a refusal is said.
     fn apply_outputs(
         &mut self,
         device: Id,

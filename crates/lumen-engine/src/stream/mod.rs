@@ -1,28 +1,3 @@
-//! Audio read from disk as it plays (M9 slice R6, ADR-0109).
-//!
-//! A streamed file is cut into pages of [`PAGE`] frames. A [`PagePool`]
-//! holds a fixed number of pages, allocated once. Each streamed file has a
-//! page table ([`StreamAudio`]): for each of its pages, the pool page that
-//! holds it, or none. The audio thread reads the table and the samples and
-//! never waits: a page that is not there is a miss, and the clip player
-//! fades the clip out and back in around it.
-//!
-//! One thread writes a pool ([`PoolWriter`]): it fills a free page, then
-//! publishes it in the table. It takes a page out of a table before it uses
-//! it again, and waits for a grace period first: the audio thread counts
-//! the blocks it reads in ([`PagePool::enter`] and [`PagePool::leave`]), and
-//! a page is reused only once no block that could have seen it is still
-//! running. So the audio thread never reads a page while it is rewritten.
-//!
-//! Samples are stored as `f32` bits in atomics, read and written with
-//! relaxed ordering (plain loads and stores on every target); the table
-//! entries carry the ordering. No lock, no allocation and no unsafe code on
-//! either side.
-//!
-//! The two sides are told apart by type (sweep M16b): the audio thread's
-//! player reads only pages that are in memory ([`NoLoader`]), and only an
-//! offline render's player may load one it misses ([`PageLoad`]).
-
 mod offline;
 pub mod plan;
 mod writer;
@@ -33,20 +8,14 @@ pub use writer::PoolWriter;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
-/// Frames per page: about 85 ms at 48 kHz.
 pub const PAGE: usize = 4_096;
-/// Samples per page: two channels, interleaved (a mono file uses the first).
 const STRIDE: usize = 2;
-/// A table entry with no page.
 const NONE: u32 = u32::MAX;
 
-/// A fixed set of pages and the count of blocks that read them.
 pub struct PagePool {
     samples: Box<[AtomicU32]>,
     pages: u32,
-    /// Odd while the audio thread is in a block that reads pages.
     epoch: AtomicU64,
-    /// Times a clip had to fade out because its audio was not read in time.
     underruns: AtomicU64,
 }
 
@@ -59,7 +28,6 @@ impl std::fmt::Debug for PagePool {
 }
 
 impl PagePool {
-    /// A pool of `pages` pages. Allocates; call off the audio thread.
     pub fn new(pages: u32) -> Arc<Self> {
         let pages = pages.min(NONE - 1);
         let samples = (0..pages as usize * PAGE * STRIDE)
@@ -77,18 +45,15 @@ impl PagePool {
         self.pages
     }
 
-    /// Bytes of sample memory the pool holds.
     pub fn memory(&self) -> usize {
         self.samples.len() * std::mem::size_of::<AtomicU32>()
     }
 
-    /// The audio thread starts a block that may read pages. Real-time safe.
     pub fn enter(&self) {
         let was = self.epoch.fetch_add(1, Ordering::SeqCst);
         debug_assert!(was.is_multiple_of(2), "a block entered twice");
     }
 
-    /// The audio thread ends the block. Real-time safe.
     pub fn leave(&self) {
         let was = self.epoch.fetch_add(1, Ordering::SeqCst);
         debug_assert!(!was.is_multiple_of(2), "a block left without entering");
@@ -98,40 +63,29 @@ impl PagePool {
         self.epoch.load(Ordering::SeqCst)
     }
 
-    /// Counts an underrun. Real-time safe.
     pub fn underrun(&self) {
         self.underruns.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// Underruns since the pool was made.
     pub fn underruns(&self) -> u64 {
         self.underruns.load(Ordering::Relaxed)
     }
 }
 
 struct Table {
-    /// The id the app gave the file, to match it in the disk thread's plan.
     id: u64,
     sample_rate: u32,
     channels: u16,
     frames: u64,
     pool: Arc<PagePool>,
     entries: Box<[AtomicU32]>,
-    /// Loads a missing page on the spot: only for an offline render's
-    /// streams, never for those the audio thread plays.
     loader: Option<Arc<dyn PageLoader>>,
 }
 
-/// Loads pages of an offline render's streams when the clip player finds
-/// them missing, on the rendering thread. Blocks; never given to a stream the
-/// audio thread plays.
 pub trait PageLoader: Send + Sync {
-    /// Loads `audio`'s `page` into its pool, if it can.
     fn load(&self, audio: &StreamAudio, page: usize);
 }
 
-/// A file played from disk: its shape and its page table. Cheap to clone;
-/// clones share the table.
 #[derive(Clone)]
 pub struct StreamAudio(Arc<Table>);
 
@@ -153,8 +107,6 @@ impl PartialEq for StreamAudio {
 }
 
 impl StreamAudio {
-    /// An empty table for a file of `frames` frames and `channels` (one or
-    /// two played) channels, in `pool`. Allocates; call off the audio thread.
     pub fn new(
         pool: &Arc<PagePool>,
         id: u64,
@@ -165,9 +117,6 @@ impl StreamAudio {
         Self::table(pool, id, (sample_rate, channels, frames), None)
     }
 
-    /// As [`StreamAudio::new`], for an offline render: a page the clip player
-    /// finds missing is loaded on the spot by `loader`, so the render never
-    /// starves. Never give one to the audio thread.
     pub fn offline(
         pool: &Arc<PagePool>,
         id: u64,
@@ -195,7 +144,6 @@ impl StreamAudio {
         }))
     }
 
-    /// Whether this stream loads its own pages (an offline render's).
     pub fn is_offline(&self) -> bool {
         self.0.loader.is_some()
     }
@@ -208,7 +156,6 @@ impl StreamAudio {
         self.0.sample_rate
     }
 
-    /// One or two.
     pub fn channels(&self) -> usize {
         usize::from(self.0.channels)
     }
@@ -221,29 +168,21 @@ impl StreamAudio {
         &self.0.pool
     }
 
-    /// Pages in the file.
     pub fn pages(&self) -> usize {
         self.0.entries.len()
     }
 
     #[inline]
     fn entry(&self, page: usize) -> Option<u32> {
-        // Sequentially consistent, so that a page the writer takes out after
-        // seeing no block in progress is never read by the next block
-        // ([`PoolWriter`]); a plain load on x86 and the same as acquire on ARM.
         let entry = self.0.entries.get(page)?.load(Ordering::SeqCst);
         (entry != NONE).then_some(entry)
     }
 
-    /// Whether the file's `page` is in memory. Real-time safe.
     #[inline]
     pub fn resident(&self, page: usize) -> bool {
         self.entry(page).is_some()
     }
 
-    /// Whether `page` is in memory, after loading it if this stream can. Never
-    /// for the audio thread: its player has no way to reach this
-    /// ([`NoLoader`], sweep M16b).
     #[inline]
     pub fn ensure(&self, page: usize) -> bool {
         if self.resident(page) {
@@ -258,13 +197,10 @@ impl StreamAudio {
         }
     }
 
-    /// One channel's samples, read through the page table: the audio thread's
-    /// side, which never loads a page.
     pub fn side(&self, channel: usize) -> StreamSide<'_> {
         self.side_with::<NoLoader>(channel)
     }
 
-    /// One channel's samples, read (and loaded when missing) as `L` allows.
     pub fn side_with<L: PageLoad>(&self, channel: usize) -> StreamSide<'_, L> {
         StreamSide {
             audio: self,
@@ -277,23 +213,12 @@ impl StreamAudio {
     }
 }
 
-/// Where [`StreamSide`] remembers a page that is not in memory.
 const MISSING: usize = usize::MAX;
 
-/// Whether a player may load a page it finds missing (sweep M16b).
-///
-/// A stream has two sides. The audio thread reads pages the disk thread has
-/// put in memory and must never touch a disk; an offline render fills its own
-/// pool as it reads. The clip player is written once and given one of these as
-/// a type parameter, so the audio thread's player is compiled with no way to
-/// reach a loader at all: not by convention, by type.
 pub trait PageLoad: Send {
-    /// Whether `page` is in memory, loading it when this side may.
     fn ensure(stream: &StreamAudio, page: usize) -> bool;
 }
 
-/// The audio thread's pages: what the disk thread has put in memory, nothing
-/// more. Never loads anything.
 pub struct NoLoader;
 
 impl PageLoad for NoLoader {
@@ -303,8 +228,6 @@ impl PageLoad for NoLoader {
     }
 }
 
-/// An offline render's pages: a page the player misses is loaded on the spot,
-/// on the rendering thread. Never the audio thread's.
 pub struct LoadPages;
 
 impl PageLoad for LoadPages {
@@ -313,24 +236,16 @@ impl PageLoad for LoadPages {
     }
 }
 
-/// One channel of a streamed file as the clip player reads it, remembering
-/// the last page it looked up. The pool's samples and the file's length are
-/// looked up once, so a sample costs an index and a load.
 pub struct StreamSide<'a, L = NoLoader> {
     audio: &'a StreamAudio,
     samples: &'a [AtomicU32],
     frames: u64,
     channel: usize,
-    /// The last page looked up, and where its first sample of this channel
-    /// is in `samples` ([`MISSING`]: not in memory).
     last: std::cell::Cell<(usize, usize)>,
-    /// What this side may load: [`NoLoader`] for the audio thread.
     policy: std::marker::PhantomData<L>,
 }
 
 impl<L: PageLoad> StreamSide<'_, L> {
-    /// The sample at `frame`, or `None` past the end or when its page is not
-    /// in memory. Real-time safe for [`NoLoader`], which loads nothing.
     #[inline]
     pub fn at(&self, frame: usize) -> Option<f32> {
         if frame as u64 >= self.frames {
@@ -341,7 +256,6 @@ impl<L: PageLoad> StreamSide<'_, L> {
         let base = if seen == page {
             base
         } else {
-            // A side that may load gets what it misses.
             let entry = match self.audio.entry(page) {
                 Some(entry) => entry,
                 None if L::ensure(self.audio, page) => self.audio.entry(page).unwrap_or(NONE),

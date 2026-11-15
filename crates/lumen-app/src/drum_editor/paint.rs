@@ -1,12 +1,3 @@
-//! How the lanes look (M8 slice D2): each lane a row in the map's order, its
-//! hits the specimen's diamonds (DE A) whose outline is the sound's colour and
-//! whose fill runs from the foot up to the velocity, and the overlay the
-//! pointer makes — the hovered hit, the picked ones, a box, a gesture's ghosts
-//! and the time outside the clip.
-//!
-//! The drawing takes what the app computed (the lanes, the gathered cells,
-//! the preview) and paints it; it never reads the document.
-
 use eframe::egui::{Color32, Painter, Pos2, Rect, Shape, Stroke, pos2};
 use eframe::emath::GuiRounding as _;
 use lumen_core::time::Ticks;
@@ -19,46 +10,40 @@ use crate::note_editor::view::EditorView;
 use crate::widgets;
 use crate::{fonts, theme};
 
-/// The most hits a gesture's ghosts or a lane's length bars draw in a frame.
 const MAX_DRAWN: usize = 4000;
-/// The ring around a picked hit, beyond its diamond.
+
 const PICKED: f32 = theme::size::LANE_PICKED_RING;
-/// How much of the picture column's width a hit at least fills, so a hit
-/// stays a visible diamond at any zoom.
+
 const LEAST_CELL: f32 = 2.5;
-/// How much of a column a gathered cell fills.
+
 const CELL_FILL: f32 = 0.9;
-/// A hit this small is drawn as one filled shape (a packed picture), not a
-/// fill inside an outline.
+
 const SMALL_HIT: f32 = 2.0;
 
-/// What the lanes draw this frame.
 pub(crate) struct Scene<'a> {
     pub lanes: &'a [Lane],
-    /// The clip's notes (the whole content: the editor shows what is there).
+
     pub notes: &'a [Note],
-    /// The hits in view, one per picture column and lane.
+
     pub cells: &'a [Cell],
-    /// The hit under the pointer.
+
     pub hover: Option<usize>,
     pub preview: &'a Preview,
-    /// The notes a marquee would pick.
+
     pub boxed: &'a [usize],
     pub clip_length: Ticks,
-    /// The grid step now, the width a hit's diamond is bounded by.
+
     pub step: Ticks,
-    /// Whether a lane shows its sound's length.
+
     pub shows_length: &'a dyn Fn(u8) -> bool,
 }
 
-/// The lanes' rows behind the grid: the header's face, alternate rows a shade
-/// darker, and the lanes of picked hits washed with the accent (the
-/// specimen's picked row). Also the row separators.
 pub(crate) fn background(
     painter: &Painter,
     view: &EditorView,
     lanes: &[Lane],
     picked_rows: &[bool],
+    banded: bool,
 ) {
     let p = theme::p();
     let painter = painter.with_clip_rect(view.body.intersect(painter.clip_rect()));
@@ -71,7 +56,7 @@ pub(crate) fn background(
         let picked = picked_rows.get(row).copied().unwrap_or(false);
         let wash = if picked {
             p.accent.gamma_multiply(theme::alpha::WASH_FAINT)
-        } else if row % 2 == 1 {
+        } else if banded && row % 2 == 1 {
             p.lane_black
         } else {
             Color32::TRANSPARENT
@@ -87,10 +72,6 @@ pub(crate) fn background(
     }
 }
 
-/// The hits: each a diamond with the sound's colour for its outline and its
-/// velocity for the fill, gathered per picture column (so only what is in view
-/// is drawn, however many notes the clip holds). A lane set to show length
-/// draws a bar from the hit to the note's end.
 pub(crate) fn hits(painter: &Painter, view: &EditorView, scene: &Scene<'_>) {
     let painter = painter.with_clip_rect(view.body.intersect(painter.clip_rect()));
     let p = theme::p();
@@ -100,10 +81,9 @@ pub(crate) fn hits(painter: &Painter, view: &EditorView, scene: &Scene<'_>) {
             continue;
         };
         let top = view.body.top() + cell.row as f32 * view.row_height - view.scroll;
-        // The picture column decides the diamond's width when the zoom packs
-        // hits: no wider than the column they share.
+
         let r = geometry::hit_radius(view, scene.step).min(column.max(LEAST_CELL));
-        let centre = pos2(cell.x + r, top + view.row_height / 2.0);
+        let centre = pos2(cell.x, top + view.row_height / 2.0);
         let colour = if cell.muted {
             p.text_secondary.gamma_multiply(theme::alpha::EDGE)
         } else {
@@ -115,7 +95,6 @@ pub(crate) fn hits(painter: &Painter, view: &EditorView, scene: &Scene<'_>) {
             lane.color
         };
         if r <= SMALL_HIT {
-            // A packed picture: one filled diamond, a shape not two.
             let points = diamond_points(centre, r);
             painter.add(Shape::convex_polygon(points.to_vec(), fill, Stroke::NONE));
         } else {
@@ -132,8 +111,7 @@ pub(crate) fn hits(painter: &Painter, view: &EditorView, scene: &Scene<'_>) {
             diamond_outline(&painter, centre, r + PICKED, theme::stroke::LIT, p.accent);
         }
     }
-    // A lane set to show length draws a bar from each gathered hit to its
-    // note's end (never a pass over the clip's notes, H2).
+
     let mut barred = 0;
     for cell in scene.cells {
         if barred >= MAX_DRAWN {
@@ -164,20 +142,15 @@ pub(crate) fn hits(painter: &Painter, view: &EditorView, scene: &Scene<'_>) {
     }
 }
 
-/// The width of one picture column in `view`.
 fn cell_column_width(view: &EditorView) -> f32 {
     geometry::bucket(view)
 }
 
-/// The overlay over the hits: the time outside the clip dimmed, the hovered
-/// hit lit, the picked ones ringed, a box drawn, a gesture's ghosts and the
-/// box itself.
 pub(crate) fn overlay(painter: &Painter, view: &EditorView, scene: &Scene<'_>) {
     let p = theme::p();
     let body = view.body;
     let painter = painter.with_clip_rect(body);
 
-    // Time outside the clip is dimmed, as in the roll.
     let clip_left = view.x_of(Ticks::ZERO);
     let clip_right = view.x_of(scene.clip_length);
     let dim = p.app.gamma_multiply(theme::alpha::INK_QUIET);
@@ -195,7 +168,7 @@ pub(crate) fn overlay(painter: &Painter, view: &EditorView, scene: &Scene<'_>) {
             dim,
         );
     }
-    // The hits a gesture moves: where they were, faint.
+
     for &i in &scene.preview.hidden {
         if let Some(note) = scene.notes.get(i)
             && view.shows(*note)
@@ -235,8 +208,7 @@ pub(crate) fn overlay(painter: &Painter, view: &EditorView, scene: &Scene<'_>) {
             );
         }
     }
-    // A gesture's notes: a wash of accent inside a dashed outline, as a
-    // ghost note is in the roll.
+
     for (n, ghost) in scene.preview.ghosts.iter().enumerate() {
         if n >= MAX_DRAWN {
             break;
@@ -267,9 +239,6 @@ pub(crate) fn overlay(painter: &Painter, view: &EditorView, scene: &Scene<'_>) {
     }
 }
 
-/// A hit's diamond at `centre`: `radius` from the middle to each tip, its
-/// outline in `outline`, and filled from the foot up to `velocity` (0 to 127)
-/// in the fill's colour.
 pub(crate) fn diamond(
     painter: &Painter,
     centre: Pos2,
@@ -298,7 +267,6 @@ pub(crate) fn diamond(
     }
 }
 
-/// The diamond's outline at `radius`, for a hover, a pick or a ghost.
 pub(crate) fn diamond_outline(
     painter: &Painter,
     centre: Pos2,
@@ -313,7 +281,6 @@ pub(crate) fn diamond_outline(
     ));
 }
 
-/// The four tips of a diamond, clockwise from the top.
 fn diamond_points(centre: Pos2, radius: f32) -> [Pos2; 4] {
     [
         pos2(centre.x, centre.y - radius),
@@ -323,9 +290,6 @@ fn diamond_points(centre: Pos2, radius: f32) -> [Pos2; 4] {
     ]
 }
 
-/// A convex polygon cut to the part at or below `y` (Sutherland–Hodgman
-/// against one half-plane). Points that land on the line are one point, so a
-/// cut at a vertex does not repeat it.
 fn clip_below(points: &[Pos2], y: f32) -> Vec<Pos2> {
     let mut out: Vec<Pos2> = Vec::with_capacity(points.len() + 2);
     let mut push = |p: Pos2| {
@@ -353,10 +317,6 @@ fn clip_below(points: &[Pos2], y: f32) -> Vec<Pos2> {
     out
 }
 
-/// A lane's name at the left of `rect`: its colour bar, its sound's drawing,
-/// its name, and its mute and solo toggles at the right. `picked` washes the
-/// row as a selected row; `hovered` gives it the pointer's light; `silent`
-/// quiets the name (muted, or unsoloed while another sound is soloed).
 pub(crate) fn lane_name(
     painter: &Painter,
     rect: Rect,
@@ -421,9 +381,6 @@ pub(crate) fn lane_name(
     }
 }
 
-/// The lanes' empty states (M8 D2 review M6), as the Clip tab says them: a
-/// map with no sounds, or Hide unused with nothing used (which offers the way
-/// back). Returns the state and whether it offers to show every sound.
 pub(crate) fn empty_state(sounds: usize) -> (widgets::EmptyState<'static>, bool) {
     if sounds == 0 {
         (
@@ -460,7 +417,6 @@ mod tests {
 
     #[test]
     fn the_two_empty_states_say_which_one_it_is_and_offer_the_way_back() {
-        // Review M6: a map with no sounds, or Hide unused hiding them all.
         let (none, can_show) = empty_state(0);
         assert!(!can_show);
         assert_eq!(none.hint, super::super::NO_SOUNDS);
@@ -479,15 +435,15 @@ mod tests {
         assert_eq!(points[1], pos2(110.0, 100.0));
         assert_eq!(points[2], pos2(100.0, 110.0));
         assert_eq!(points[3], pos2(90.0, 100.0));
-        // Nothing: the fill is above the diamond entirely.
+
         assert!(clip_below(&points, 111.0).is_empty());
-        // Full: the whole diamond.
+
         assert_eq!(clip_below(&points, 89.0).len(), 4);
-        // Halfway: a triangle from the waist to the bottom tip.
+
         let half = clip_below(&points, 100.0);
         assert_eq!(half.len(), 3);
         assert!(half.iter().all(|p| p.y >= 100.0));
-        // A quarter: a smaller triangle, narrower at the waist.
+
         let quarter = clip_below(&points, 105.0);
         assert_eq!(quarter.len(), 3);
         let waist = quarter.iter().filter(|p| p.y == 105.0).count();

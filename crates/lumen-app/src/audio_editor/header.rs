@@ -1,77 +1,47 @@
-//! Which layout the audio editor's header takes (M9.5 D24): the first that
-//! fits, from what its parts measure this frame. The drawing is
-//! `app::audio_editor::header`. Left to right: the title, the tool switch,
-//! the grid chip and the toggles (Zero crossings); at the right the Gain and
-//! Pan pills, the view buttons and the ⋯ menu.
-
 use crate::theme;
 
-/// The header's layouts, widest first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum Layout {
-    /// Every control with its word.
     #[default]
     Words,
-    /// The toggles and the view buttons lose their words.
     Icons,
-    /// The title gives up its caption and shortens; the tool switch and the
-    /// grid chip lose their words.
     Compact,
-    /// Everything right of the grid chip but the pills moves into a menu.
     More,
-    /// The colour bar, the tool switch, the grid's icon and the menu, which
-    /// holds the pills too.
     Least,
 }
 
 impl Layout {
-    /// The toggles and view buttons are in the strip, not the menu.
     pub(crate) fn shows_views(self) -> bool {
         matches!(self, Self::Words | Self::Icons | Self::Compact)
     }
 
-    /// The pills are in the strip.
     pub(crate) fn shows_pills(self) -> bool {
         self != Self::Least
     }
 }
 
-/// What the parts measure, in points, gaps within a part included.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub(crate) struct Widths {
-    /// The room for the row: the strip less its padding.
     pub room: f32,
-    /// The title with its caption, and shortened; its colour bar alone.
     pub title: f32,
     pub title_short: f32,
     pub bar: f32,
-    /// The tool switch with its words, and as icons.
     pub tools: f32,
     pub tools_icons: f32,
-    /// The grid chip, without its word, and as its icon.
     pub grid: f32,
     pub grid_value: f32,
     pub grid_icon: f32,
-    /// The toggles with their words, and as icons.
     pub toggles_words: f32,
     pub toggles_icons: f32,
-    /// The Gain and Pan pills.
     pub pills: f32,
-    /// The view buttons with their words.
     pub view_words: f32,
-    /// The view buttons as icons.
     pub view_icons: f32,
-    /// The ⋯ button.
     pub more: f32,
 }
 
-/// How much room the left parts and the right parts keep between them, and
-/// between parts of a group.
 const LEFT_GAP: f32 = theme::space::M;
 const RIGHT_GAP: f32 = theme::space::S;
 
-/// The first layout that fits. [`Layout::Least`] is taken when none does:
-/// nothing is left out of it, as the menu holds the rest.
 pub(crate) fn choose(w: Widths) -> Layout {
     let left = |parts: &[f32]| parts.iter().sum::<f32>() + LEFT_GAP * (parts.len() - 1) as f32;
     let pills = w.pills + RIGHT_GAP;
@@ -127,17 +97,12 @@ mod tests {
 
     #[test]
     fn each_layout_is_taken_where_it_first_fits() {
-        // Words: 200 + 150 + 130 + 120 + 3 gaps = 636, a gap, then
-        // 100 + 8 + 180 = 288: 936.
         assert_eq!(choose(widths(936.0)), Layout::Words);
         assert_eq!(choose(widths(935.0)), Layout::Icons);
-        // Icons: 540 + 12 + 164 = 716.
         assert_eq!(choose(widths(716.0)), Layout::Icons);
         assert_eq!(choose(widths(715.0)), Layout::Compact);
-        // Compact: 310 + 12 + 164 = 486.
         assert_eq!(choose(widths(486.0)), Layout::Compact);
         assert_eq!(choose(widths(485.0)), Layout::More);
-        // More: 274 + 12 + 132 = 418.
         assert_eq!(choose(widths(418.0)), Layout::More);
         assert_eq!(choose(widths(417.0)), Layout::Least);
         assert_eq!(choose(widths(10.0)), Layout::Least);

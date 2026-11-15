@@ -1,14 +1,8 @@
-//! Finding the audio in an uncompressed file: WAV (RIFF, and RF64 beyond
-//! 4 GiB) and AIFF (AIFF, and AIFC without compression or with byte-swapped
-//! or float samples). Pure: it reads headers from any `Read + Seek` and
-//! touches no samples.
-
 use std::io::{Read, Seek, SeekFrom};
 
 use super::{Encoding, Layout};
 use crate::MediaError;
 
-/// The most channels a stream file may have.
 const MOST_CHANNELS: u16 = 64;
 
 fn io(error: std::io::Error) -> MediaError {
@@ -19,8 +13,6 @@ fn damaged(what: &str) -> MediaError {
     MediaError::Decode(what.to_owned())
 }
 
-/// The layout of the file `source` holds, `total` bytes long; `None` when it
-/// is not a format a stream reads directly (compressed, or not WAV or AIFF).
 pub(super) fn layout<R: Read + Seek>(
     source: &mut R,
     total: u64,
@@ -38,7 +30,6 @@ pub(super) fn layout<R: Read + Seek>(
     }
 }
 
-/// A chunk's id, the offset of its body and its declared size.
 fn chunks<R: Read + Seek>(
     source: &mut R,
     total: u64,
@@ -58,8 +49,6 @@ fn chunks<R: Read + Seek>(
             u32::from_be_bytes(raw)
         });
         found.push((id, at + 8, size));
-        // The audio is the last chunk that matters; a data chunk whose size
-        // is unknown (a take still being written, or RF64) runs to the end.
         if (&id == b"data" || &id == b"SSND") && size == u64::from(u32::MAX) {
             break;
         }
@@ -121,7 +110,6 @@ fn wav<R: Read + Seek>(
         if fmt.len() < 26 {
             return Err(damaged("an extensible WAV format chunk that is too short"));
         }
-        // The sub-format's GUID starts with the format tag.
         tag = le16(&fmt, 24);
     }
     let container = block.checked_div(channels).unwrap_or(0);
@@ -132,7 +120,6 @@ fn wav<R: Read + Seek>(
         (1, 4, _) => Encoding::I32Le,
         (3, 4, 32) => Encoding::F32Le,
         (3, 8, 64) => Encoding::F64Le,
-        // Compressed (ADPCM, A-law and others): decoded and converted instead.
         _ => return Ok(None),
     };
     let Some(&(_, data, declared)) = found.iter().find(|c| &c.0 == b"data") else {
@@ -145,7 +132,6 @@ fn wav<R: Read + Seek>(
     finish(channels, rate, encoding, data, declared, total).map(Some)
 }
 
-/// An 80-bit extended-precision number (AIFF's sample rate) as a whole number.
 fn extended(b: &[u8]) -> Option<u32> {
     let exponent = i32::from(u16::from_be_bytes([b[0], b[1]]) & 0x7FFF) - 16_383;
     let mantissa = u64::from_be_bytes(b[2..10].try_into().ok()?);
@@ -214,7 +200,6 @@ fn finish(
         return Err(damaged("a sample rate of 0"));
     }
     let available = total.saturating_sub(data);
-    // A take still being written names `u32::MAX`: everything to the end.
     let bytes = if declared == u64::from(u32::MAX) {
         available
     } else {

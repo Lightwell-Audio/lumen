@@ -1,13 +1,3 @@
-//! Save a copy and Collect and save (M9 slice R4, ADR-0105). Both copy every
-//! audio file the project uses into a project folder, whether or not the
-//! copy-imported preference is on, on a worker (`files::collect`) with progress
-//! in the toast and Esc to stop. Save a copy writes a new project and leaves
-//! the open one exactly as it is (its file, its unsaved mark, the recent list,
-//! the autosave); Collect and save is a Save that also gathers the outside
-//! files. The project file is written after the last copy, so a stop or a full
-//! disk changes nothing in the project, and each file is written under a
-//! temporary name and renamed when whole.
-
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::Instant;
@@ -19,40 +9,30 @@ use crate::app::commands::wait;
 use crate::app::projects::{self, FileDialog};
 use crate::{App, files, trace};
 
-/// What a save is for. Saving waits for the plugins' states to be read
-/// whichever it is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Purpose {
     Save,
     Copy,
     Collect,
-    /// A copy kept in the templates folder, to start new projects from.
     Template,
-    /// The unsaved version put away before Revert reads the saved file back.
     Revert,
 }
 
-/// A save waiting for the running plugins' states to be read.
 pub(crate) struct Waiting {
     pub(crate) purpose: Purpose,
     pub(crate) path: PathBuf,
-    /// Resolve the path as Save As does, into a project folder.
     pub(crate) normalize: bool,
     pub(crate) since: Instant,
 }
 
-/// A copy or a collect under way.
 pub(crate) struct Running {
     purpose: Purpose,
-    /// The document's change mark when the copy began: Revert only goes on
-    /// when it is still the same.
     mark: u64,
     control: files::Control,
     result: Receiver<Result<files::Saved, files::Failure>>,
 }
 
 impl App {
-    /// A copy or collect is possible now, or why not.
     pub(crate) fn copy_unavailable(&self) -> Result<(), &'static str> {
         if self.collecting.is_some() {
             Err(wait::COPY)
@@ -65,7 +45,6 @@ impl App {
         }
     }
 
-    /// Save a copy: asks where, then copies the project and its audio there.
     pub(crate) fn save_copy(&mut self, ctx: &egui::Context) {
         if self.copy_unavailable().is_err() {
             return;
@@ -92,8 +71,6 @@ impl App {
         });
     }
 
-    /// Collect and save: into this project's folder, or, for a project that
-    /// has none yet, asks where first.
     pub(crate) fn collect_and_save(&mut self, ctx: &egui::Context) {
         if self.copy_unavailable().is_err() {
             return;
@@ -124,12 +101,8 @@ impl App {
         }
     }
 
-    /// Starts the worker for a copy or a collect, with the plugins' states as
-    /// they were last read.
     pub(crate) fn write_copy(&mut self, purpose: Purpose, path: PathBuf, normalize: bool) {
         trace::log(|| format!("files: {purpose:?} to {}", path.display()));
-        // A copy, a template and what Revert puts away are new projects: the
-        // open one is not saved.
         let copying = purpose != Purpose::Collect;
         if !copying {
             self.document.begin_save();
@@ -142,15 +115,12 @@ impl App {
                 path,
                 normalize_project_path: normalize,
                 media_files: self.document.media_files.clone(),
-                // What Revert puts away points at the audio where it is (it
-                // is only a way back); everything else holds its own.
                 copy_imported: purpose != Purpose::Revert,
                 renders: Some(self.renders_dir()),
                 recordings: Some(self.recordings_dir()),
                 templates: Some(self.templates_dir()),
                 keep_backups: lumen_project::SaveOptions::default().keep_backups,
                 state: self.document.state(),
-                // A copy is a new project: not the one that is open.
                 not_over: if copying {
                     self.document.path.clone()
                 } else {
@@ -168,16 +138,12 @@ impl App {
         self.say(format!("{} 0% \u{b7} Esc to stop", verb(purpose)));
     }
 
-    /// Progress, Esc, and the result of the copy or collect under way. Call
-    /// every frame.
     pub(crate) fn poll_collecting(&mut self, ctx: &egui::Context) {
         let Some(running) = &self.collecting else {
             return;
         };
         let (purpose, mark) = (running.purpose, running.mark);
         if !self.typing && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-            // The worker stops at its next piece and answers; its answer is
-            // taken here, like any other.
             running.control.stop();
         }
         let progress = running.control.progress();
@@ -214,7 +180,6 @@ impl App {
 
     fn copy_done(&mut self, ctx: &egui::Context, purpose: Purpose, mark: u64, saved: files::Saved) {
         if purpose == Purpose::Revert {
-            // Reading the saved file back reports what is missing.
             self.reload_saved(saved.path, mark);
             return;
         }
@@ -259,16 +224,12 @@ impl App {
                     format!("Saved the template {called} ({audio})")
                 });
             }
-            // The open project is untouched: not its file, its unsaved mark,
-            // its media, the recent list, its notices or the autosave.
             _ => self.say(if audio.is_empty() {
                 format!("Saved a copy as {called}")
             } else {
                 format!("Saved a copy as {called} ({audio})")
             }),
         }
-        // The save committed even where the previous version could not be
-        // kept: say both, so the warning is not taken for a failed save.
         if let Some(why) = &backup_error {
             self.file_notice = Some(format!("Saved, but {why}. Your project itself was saved."));
         }

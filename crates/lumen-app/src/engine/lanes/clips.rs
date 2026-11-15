@@ -1,8 +1,3 @@
-//! The clip list the engine plays, derived from the project (M3 slices 3–4,
-//! audit M4): warped loops unlooped into the clips they play as, the pitch
-//! curves their streams follow, fades and envelopes in frames, and the
-//! recordings that replace what was there. Pure, so it is tested.
-
 use std::collections::HashMap;
 
 use lumen_core::time::Ticks;
@@ -11,11 +6,6 @@ use lumen_project::model::{ClipContent, Id, Project};
 
 use crate::media::warped::{Identity, Part, merge_pitch};
 
-/// `project` with each warped looping clip replaced by the clips it unloops
-/// into (`edit::clip_ops::unloop`, which gives each repeat its own map, its
-/// own envelope and its own start). The pieces get ids made from the clip's,
-/// the same every time, so a level glides across lists as it does for any
-/// clip. Borrowed when nothing in it is a warped loop.
 fn unlooped_warps(project: &Project) -> std::borrow::Cow<'_, Project> {
     use std::borrow::Cow;
     let loops: Vec<Id> = project
@@ -29,7 +19,6 @@ fn unlooped_warps(project: &Project) -> std::borrow::Cow<'_, Project> {
         return Cow::Borrowed(project);
     }
     let mut copy = project.clone();
-    // Locked clips are left whole by the edit; this copy is never saved.
     for track in &mut copy.tracks {
         if track
             .clips
@@ -53,11 +42,6 @@ fn unlooped_warps(project: &Project) -> std::borrow::Cow<'_, Project> {
     }
     Cow::Owned(copy)
 }
-/// What the engine plays (audit M4: the model-to-engine translation, kept
-/// pure so it is tested): every audio clip whose audio is loaded (`audio`
-/// gives the audio at the device rate and the file's own rate), for the
-/// shorter of the clip and the file, at its clip gain, on its track. The
-/// track's level, pan, mute and solo are in the routing (`routing.rs`).
 #[cfg(test)]
 pub fn engine_clips(
     project: &Project,
@@ -67,28 +51,18 @@ pub fn engine_clips(
     engine_clips_with(project, rate, audio, &mut |_| None)
 }
 
-/// [`engine_clips`] with the warped clips (M9.5 S4b) played through
-/// `warped`, which gives the stream a warped clip plays as. A warped clip it
-/// gives none for plays as if it were not warped.
 pub fn engine_clips_with(
     project: &Project,
     rate: u32,
     audio: impl Fn(Id) -> Option<(std::sync::Arc<lumen_engine::ClipAudio>, u32)>,
     warped: &mut dyn FnMut(&crate::media::warped::Request<'_>) -> Option<std::sync::Arc<ClipAudio>>,
 ) -> Vec<Clip> {
-    // A warped loop plays as the real clips it unloops into, each following
-    // the tempo from its own start and edge-faded as any clip is; a loop too
-    // long to unloop plays unwarped.
     let unlooped = unlooped_warps(project);
     let project = &*unlooped;
     let tempo = lumen_core::time::TempoMap::new(project.tempo.clone()).ok();
     let mut list = Vec::new();
-    // Crossfades are clips that overlap, as `crossfades::played` has them.
     let played = crate::crossfades::played(project);
-    // The pitch each stream plays at: its clips' envelopes as one curve (S6).
     let pitch = pitch_curves(project, &played);
-    // The last sample any clip reaches: every warped stream is as long as
-    // the song (rounded up), so the pieces of a clip share one.
     let reach = tempo.as_ref().map_or(0, |tempo| {
         let end = project
             .tracks
@@ -114,7 +88,6 @@ pub fn engine_clips_with(
             else {
                 continue;
             };
-            // A reversed clip plays the reversed twin of its file.
             let key = if clip.reversed {
                 Id(crate::media::reversed_key(media.0))
             } else {
@@ -123,8 +96,6 @@ pub fn engine_clips_with(
             let Some((samples, native)) = audio(key) else {
                 continue;
             };
-            // The offset is in the file's frames; the audio is at the
-            // device rate.
             let base_offset = (*offset as f64 * f64::from(samples.sample_rate())
                 / f64::from(native.max(1))) as i64;
             let source_origin = if clip.loop_length.is_some() {
@@ -132,9 +103,6 @@ pub fn engine_clips_with(
             } else {
                 clip.start
             };
-            // A warped clip plays a stream of its own, computed from its map
-            // (S4b): frame `k` of it is timeline sample `k`, so the clip's
-            // offset is its start sample, and its pieces share the stream.
             let start_sample = tempo.as_ref().map(|t| t.sample_at(clip.start, rate));
             let warped_audio = clip
                 .warp
@@ -168,7 +136,6 @@ pub fn engine_clips_with(
                     base_offset + timeline_sample - source_anchor
                 })
             };
-            // Frames between two musical positions at the device rate.
             let frames = |a: Ticks, b: Ticks| {
                 tempo
                     .as_ref()
@@ -180,8 +147,6 @@ pub fn engine_clips_with(
             } else {
                 i64::MAX
             };
-            // A looping clip repeats for its whole length; otherwise it
-            // stops where the file does.
             let length = if clip.loop_length.is_some() {
                 region
             } else {
@@ -189,8 +154,6 @@ pub fn engine_clips_with(
             };
             let shape = lumen_engine::ClipShape {
                 fade_in: if clip.crossfade && !blend[0] {
-                    // A crossfade that is not played (nothing to blend) is
-                    // not an ordinary fade-in either.
                     Default::default()
                 } else {
                     fade_frames(clip, tempo.as_ref(), rate, true, blend[0])
@@ -220,8 +183,6 @@ pub fn engine_clips_with(
                     start: clip.start,
                     offset,
                     length,
-                    // Muted clips stay at gain 0, so they fade out and
-                    // back in rather than clicking.
                     gain: if clip.muted {
                         0.0
                     } else if clip.inverted {
@@ -239,32 +200,19 @@ pub fn engine_clips_with(
     list
 }
 
-/// What the clips of a song play their pitch with (M9.5 S6): the curve of
-/// each stream with an envelope, and the stream each clip is in.
 #[derive(Default)]
 struct PitchPlan {
-    /// The curve of each stream, in semitones in song ticks.
     curves: HashMap<Identity, lumen_core::automation::Lane>,
-    /// The stream of each clip that is warped and can be transposed.
     streams: HashMap<Id, Identity>,
 }
 
 impl PitchPlan {
-    /// The pitch curve of `clip`'s stream, if it has one.
     fn of(&self, clip: Id) -> Option<&lumen_core::automation::Lane> {
         self.curves.get(self.streams.get(&clip)?)
     }
 }
 
-/// The pitch envelope of each stream, in semitones in song ticks (M9.5 S6).
-/// Clips that play one file along one map share a stream (the pieces a split
-/// leaves), and a stream has one pitch, so the curve is built from the
-/// envelopes of all of them (`media::warped::merge_pitch`). Clips layered on
-/// one another (they overlap in the song) with envelopes that differ cannot
-/// share a curve: each of those has a stream of its own. Only streams with
-/// an envelope have a curve.
 fn pitch_curves(project: &Project, played: &HashMap<Id, crate::crossfades::Played>) -> PitchPlan {
-    // Each clip with the track it is on: a crossfade's two pieces are on one.
     let mut groups: HashMap<Identity, Vec<(Id, usize, Part<'_>)>> = HashMap::new();
     for (track_at, track) in project.tracks.iter().enumerate() {
         for model in &track.clips {
@@ -272,8 +220,6 @@ fn pitch_curves(project: &Project, played: &HashMap<Id, crate::crossfades::Playe
             let (Some(warp), ClipContent::Audio { media, .. }) = (&clip.warp, &clip.content) else {
                 continue;
             };
-            // A warped loop plays as the clips it unloops into; the rest play
-            // from their own start.
             if clip.loop_length.is_some() || !warp.mode.transposes() {
                 continue;
             }
@@ -290,8 +236,6 @@ fn pitch_curves(project: &Project, played: &HashMap<Id, crate::crossfades::Playe
     }
     let mut plan = PitchPlan::default();
     for (identity, parts) in groups {
-        // The clips laid over another of the line with another envelope. A
-        // crossfade is two pieces of one line that overlap on purpose.
         let mut layered: std::collections::HashSet<Id> = std::collections::HashSet::new();
         for (i, (x, track_x, a)) in parts.iter().enumerate() {
             for (y, track_y, b) in &parts[i + 1..] {
@@ -331,7 +275,6 @@ fn pitch_curves(project: &Project, played: &HashMap<Id, crate::crossfades::Playe
     plan
 }
 
-/// The media ids of the files a reversed clip plays, each once.
 pub(super) fn reversed_media(project: &Project) -> Vec<u64> {
     let mut wanted: Vec<u64> = project
         .tracks
@@ -348,7 +291,6 @@ pub(super) fn reversed_media(project: &Project) -> Vec<u64> {
     wanted
 }
 
-/// Converts a visible fade slice to the sample window of its original curve.
 fn fade_frames(
     clip: &lumen_project::model::Clip,
     tempo: Option<&lumen_core::time::TempoMap>,
@@ -392,10 +334,6 @@ fn fade_frames(
     }
 }
 
-/// A clip's envelopes on its own sample clock (M7 slice A7): each lane cut to
-/// the window the clip plays (its loop, or its length) and baked with the
-/// tempo map, so frame 0 is the clip's first frame. A mono clip pans by the
-/// project's law and a stereo one balances, as a track does (`routing.rs`).
 fn envelope_of(
     clip: &lumen_project::model::Clip,
     project: &Project,
@@ -403,7 +341,6 @@ fn envelope_of(
     rate: u32,
     channels: usize,
 ) -> lumen_engine::ClipEnvelope {
-    // The pitch envelope is not the engine's: it is in the clip's stream.
     let has_gain_or_pan = clip.envelopes.gain.is_some() || clip.envelopes.pan.is_some();
     let Some(tempo) = tempo.filter(|_| has_gain_or_pan) else {
         return Default::default();
@@ -428,8 +365,6 @@ fn envelope_of(
     }
 }
 
-/// The audio tracks a take is being recorded over, from the same list the
-/// MIDI tracks are in.
 pub(super) fn audio_replacing(
     project: &Project,
     inputs: &crate::midi::play::Inputs,
@@ -447,9 +382,6 @@ pub(super) fn audio_replacing(
         .collect()
 }
 
-/// The project as it sounds while audio is recorded over: what the take
-/// covers on its track is cut away, as Stop will cut it (the overlap rule),
-/// so the old clip is not heard under the new one.
 pub(super) fn without_replaced<'a>(
     project: std::borrow::Cow<'a, Project>,
     replacing: &[crate::midi::play::Replacing],
@@ -458,7 +390,6 @@ pub(super) fn without_replaced<'a>(
         return project;
     }
     let mut copy = project.into_owned();
-    // Ids for the right-hand pieces; the cut project is never saved.
     let mut next = u64::MAX;
     let mut fresh = || {
         next -= 1;

@@ -1,33 +1,15 @@
-//! Pill tabs: a row of small rounded-end tabs for switching what a lane or
-//! strip shows (the clip editor's controller lane, M5 slice 5; the Segmented
-//! card's lane pills, ADR-0052). 24 pt high and fully round. The chosen pill
-//! is `accent_muted` with a 38% `accent` hairline and `accent` letters; the
-//! others are bare words that take the Ember wash on hover (`FAST`). State is
-//! never colour alone: the chosen pill also has its hairline.
-//!
-//! [`pill_tabs`] is for choosing one of several; [`pill_button`] is the
-//! "+ CC" pill, a `border_strong` hairline, that opens a menu instead of
-//! choosing. [`chip_toggle`] and [`chip_button`] are the browser's tighter
-//! chips: an 8 pt side room, and the button a bare word like the rest, so a
-//! row of them reads as one flow of words (the interface audit's B1).
-
 use eframe::egui::{self, Id, Response, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
 use eframe::emath::GuiRounding as _;
 
 use super::raised;
 use crate::{motion, theme};
 
-/// One pill of [`pill_tabs`].
 #[derive(Debug, Clone, Copy)]
 pub struct Pill<'a> {
     pub label: &'a str,
-    /// Said on hover.
     pub tip: &'a str,
 }
 
-/// A row of pills, one chosen. Each is named "<label> tab" for assistive
-/// technology (as [`super::tabs`] names its tabs). Returns the index clicked,
-/// if it is another than `chosen`.
 pub fn pill_tabs(ui: &mut Ui, id: Id, chosen: usize, pills: &[Pill<'_>]) -> Option<usize> {
     let mut picked = None;
     ui.spacing_mut().item_spacing.x = theme::space::XS;
@@ -50,15 +32,10 @@ pub fn pill_tabs(ui: &mut Ui, id: Id, chosen: usize, pills: &[Pill<'_>]) -> Opti
     picked
 }
 
-/// A pill that is on or off in a row where one is on at a time, and several
-/// may wrap onto lines (the browser's category chips). Named
-/// "<label> filter". True when clicked.
 pub fn pill_toggle(ui: &mut Ui, id: Id, label: &str, on: bool, tip: &str) -> bool {
     toggle_with(ui, id, (label, on, tip), PILL)
 }
 
-/// A pill that shows or hides something (the audio editor's Gain and Pan
-/// envelopes), named `name`. The caller adds the tooltip with its keys.
 pub fn pill_switch(ui: &mut Ui, id: Id, label: &str, name: &str, on: bool) -> Response {
     let response = pill_body(ui, id, label, Some(on), PILL);
     response.widget_info(|| {
@@ -67,15 +44,10 @@ pub fn pill_switch(ui: &mut Ui, id: Id, label: &str, name: &str, on: bool) -> Re
     response
 }
 
-/// [`pill_toggle`] as a browser chip (8 pt side room). Named
-/// "<label> filter".
 pub fn chip_toggle(ui: &mut Ui, id: Id, label: &str, on: bool, tip: &str) -> bool {
     toggle_with(ui, id, (label, on, tip), CHIP)
 }
 
-/// A chip that does something: a bare word with the chips' room and no
-/// outline, followed by a down arrow when it opens a `menu` ("More ▾"; the
-/// browser list's "Rescan" has none). Named `label`.
 pub fn chip_button(ui: &mut Ui, id: Id, label: &str, menu: bool) -> Response {
     let response = pill_body(
         ui,
@@ -104,16 +76,12 @@ fn toggle_with(ui: &mut Ui, id: Id, (label, on, tip): (&str, bool, &str), look: 
     super::tip(response, tip, None, None).clicked()
 }
 
-/// A hairline pill that does something rather than choosing (it opens a
-/// menu): "+ CC". Named `label`.
 pub fn pill_button(ui: &mut Ui, id: Id, label: &str) -> Response {
     let response = pill_body(ui, id, label, None, OUTLINED);
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
     response
 }
 
-/// How a pill is drawn: its room either side of the words, whether a
-/// button has its hairline, and whether a down arrow follows the words.
 #[derive(Clone, Copy)]
 struct Look {
     pad: f32,
@@ -134,10 +102,8 @@ const CHIP: Look = Look {
     pad: theme::space::S,
     ..PILL
 };
-/// The room a down arrow takes after the words: the gap and its width.
 const ARROW_ROOM: f32 = theme::space::XS + theme::space::S;
 
-/// Lays out and draws one pill. `on` is `None` for a button.
 fn pill_body(ui: &mut Ui, id: Id, label: &str, on: Option<bool>, look: Look) -> Response {
     let palette = theme::p();
     let galley = ui.painter().layout_no_wrap(

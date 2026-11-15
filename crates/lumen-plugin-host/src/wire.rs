@@ -1,21 +1,13 @@
-//! A tiny little-endian encoding with bounds on everything it reads. A
-//! message from a host process is untrusted: a plugin may have corrupted it,
-//! so a count is checked against a limit and against the bytes left before
-//! anything is allocated for it.
-
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WireError {
-    /// The message ended before a value was complete.
     Truncated,
-    /// A count or length above its limit.
     TooLarge {
         what: &'static str,
         max: usize,
         got: usize,
     },
-    /// A value that is not allowed.
     Invalid(&'static str),
 }
 
@@ -81,7 +73,6 @@ impl Writer {
         self.0.extend_from_slice(v);
     }
 
-    /// A length, then the bytes.
     pub fn bytes(&mut self, v: &[u8]) {
         self.u32(v.len() as u32);
         self.raw(v);
@@ -106,7 +97,6 @@ impl<'a> Reader<'a> {
         self.buf.len() - self.pos
     }
 
-    /// Fails if bytes remain: a message with trailing data is malformed.
     pub fn finish(self) -> Result<(), WireError> {
         if self.left() == 0 {
             Ok(())
@@ -166,8 +156,6 @@ impl<'a> Reader<'a> {
         }
     }
 
-    /// A count of items that each take at least `min_item` bytes. It must
-    /// not exceed `max`, nor be more than the bytes left could hold.
     pub fn count(
         &mut self,
         what: &'static str,

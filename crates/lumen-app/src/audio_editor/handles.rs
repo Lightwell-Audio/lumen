@@ -1,9 +1,3 @@
-//! The audio editor's handles (M9.5 S2a): where each one is for a clip drawn
-//! in the wave area, what the pointer is on, how they are drawn at rest, and
-//! what a typed value means. The edits themselves are the arrangement's
-//! (`app::handles`); what the editor does with them is
-//! `app::audio_editor::{gestures, keys}`.
-
 use eframe::egui::{Painter, Pos2, Rangef, Rect, Stroke, StrokeKind, pos2, vec2};
 use lumen_core::time::Ticks;
 use lumen_project::model::Clip;
@@ -15,25 +9,17 @@ use crate::timeview::TimeView;
 use crate::widgets::raised::FOCUS_OUTSET;
 use crate::{motion, theme};
 
-/// Under this width a clip's fades are too close to its grips to be told
-/// apart: only the grips take the pointer (the arrangement's own least).
 const FADES_FROM: f32 = handles::MIN_WIDTH;
-/// A trim grip's room when it has the keyboard.
 const TRIM_STOP: f32 = 12.0;
-/// A fade handle's room when it has the keyboard.
 const FADE_STOP: f32 = 16.0;
-/// The gain line's room when it has the keyboard.
 const GAIN_STOP: f32 = 8.0;
 
-/// A part of the clip that can be edited in the wave.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Part {
     Trim(Edge),
     Handle(Handle),
 }
 
-/// The keyboard's stops, in Tab order. A bend has none: Up and Down on a fade
-/// bend it (M9.5 D17).
 pub(crate) const STOPS: [Part; 5] = [
     Part::Trim(Edge::Start),
     Part::Handle(Handle::Fade(Edge::Start)),
@@ -43,7 +29,6 @@ pub(crate) const STOPS: [Part; 5] = [
 ];
 
 impl Part {
-    /// What tests and logs call it.
     pub(crate) fn key(self) -> &'static str {
         match self {
             Part::Trim(Edge::Start) => "trim start",
@@ -56,7 +41,6 @@ impl Part {
         }
     }
 
-    /// The fade this part belongs to.
     pub(crate) fn fade_edge(self) -> Option<Edge> {
         match self {
             Part::Handle(Handle::Fade(edge) | Handle::Bend(edge)) => Some(edge),
@@ -65,36 +49,24 @@ impl Part {
     }
 }
 
-/// What the pointer is on in the wave area.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum WaveHit {
     Part(Part),
-    /// The bright part: what the clip plays.
     Played,
-    /// The dimmed part of the file.
     File,
-    /// Past the file's ends.
     Outside,
 }
 
-/// A clip's handles in the wave area.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct EditorHandles {
     pub fades: ClipHandles,
-    /// The x of the clip's start and end, which may be far out of view.
     pub start: f32,
     pub end: f32,
     pub body: Rect,
-    /// The gain line is hidden: the Gain envelope is shown over the wave
-    /// (M9.5 D20).
     pub gain_hidden: bool,
 }
 
 impl EditorHandles {
-    /// The handles of `clip` (as shown: `App::shown_clip`) drawn in `body` at
-    /// `time`. Its real start and end, wherever the part played lies: a
-    /// looping clip's end is past its first repeat. `None` for a clip that
-    /// is not audio.
     pub(crate) fn of(clip: &Clip, body: Rect, time: TimeView) -> Option<Self> {
         let x_of = |t: Ticks| time.x(body.left(), t.as_quarters());
         let (start, end) = (x_of(clip.start), x_of(clip.start + clip.length));
@@ -111,8 +83,6 @@ impl EditorHandles {
         })
     }
 
-    /// The same handles, with the gain line hidden while the Gain envelope
-    /// is shown (`pill`).
     pub(crate) fn hiding_gain(mut self, pill: Option<lumen_project::envelope::Kind>) -> Self {
         self.gain_hidden = pill == Some(lumen_project::envelope::Kind::Gain);
         self
@@ -122,9 +92,6 @@ impl EditorHandles {
         self.end - self.start >= FADES_FROM
     }
 
-    /// The part under `p`: a fade's handle first, as the corners are where
-    /// fades start; then the grips, the nearer one when a short clip's
-    /// overlap; then a bend dot, then the gain line.
     pub(crate) fn part_at(&self, p: Pos2) -> Option<Part> {
         let on = if self.roomy() {
             self.fades.handle_at(p)
@@ -147,7 +114,6 @@ impl EditorHandles {
             .map(Part::Handle)
     }
 
-    /// What `p` is on, in a file drawn at `time`.
     pub(crate) fn hit(&self, p: Pos2, file: &WholeFile, time: TimeView) -> WaveHit {
         if let Some(part) = self.part_at(p) {
             return WaveHit::Part(part);
@@ -162,9 +128,6 @@ impl EditorHandles {
         }
     }
 
-    /// The rectangle a stop has for the keyboard and assistive technology:
-    /// kept inside the wave area, as a handle can be far out of view, with
-    /// room for its whole focus ring (the wave area clips what it draws).
     pub(crate) fn stop_rect(&self, part: Part) -> Rect {
         let mid = self.body.center().y;
         let rect = match part {
@@ -196,8 +159,6 @@ impl EditorHandles {
     }
 }
 
-/// The beat to bring into view for `part` of `clip`, in a view of `body`:
-/// `None` for the gain line while some of the clip is showing.
 pub(crate) fn beat_of(clip: &Clip, part: Part, time: TimeView, body: Rect) -> Option<f64> {
     let end = clip.start + clip.length;
     Some(match part {
@@ -220,26 +181,19 @@ pub(crate) fn beat_of(clip: &Clip, part: Part, time: TimeView, body: Rect) -> Op
     })
 }
 
-/// `rect` moved the least to lie inside `area`.
 fn inside(rect: Rect, area: Rect) -> Rect {
     let dx = (area.left() - rect.left()).max(0.0) + (area.right() - rect.right()).min(0.0);
     let dy = (area.top() - rect.top()).max(0.0) + (area.bottom() - rect.bottom()).min(0.0);
     rect.translate(vec2(dx, dy))
 }
 
-/// How the handles are shown this frame.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct Look {
-    /// Under the pointer, dragged, or with the keyboard.
     pub hot: Option<Part>,
-    /// The clip takes no edit: its grips are hollow.
     pub fixed: bool,
-    /// The colours of the two clips a crossfade blends.
     pub crossing: Option<(eframe::egui::Color32, eframe::egui::Color32)>,
 }
 
-/// Draws the handles on `painter`, which the caller keeps to the wave area:
-/// only what is in view, whatever the clip's width.
 pub(crate) fn draw(painter: &Painter, h: &EditorHandles, look: Look) {
     let view = h.body.x_range();
     let hot_handle = match look.hot {
@@ -267,8 +221,6 @@ pub(crate) fn draw(painter: &Painter, h: &EditorHandles, look: Look) {
     }
 }
 
-/// A clip's side: a line down the wave with a tab at its middle, hollow when
-/// the clip takes no edit, in the accent when hot.
 fn draw_grip(painter: &Painter, x: f32, y: Rangef, hot: bool, fixed: bool) {
     let palette = theme::p();
     let (ink, width) = if hot {
@@ -298,11 +250,6 @@ fn draw_grip(painter: &Painter, x: f32, y: Rangef, hot: bool, fixed: bool) {
     }
 }
 
-/// The handles as the audio editor keeps them at rest (the owner's HS A),
-/// over [`handles::draw_handles`]' quiet curves: the gain line, the fades'
-/// handles and their bend dots in hairlines and small marks, so what can be
-/// grabbed is plain before the pointer gets there. `hot` lights up as the
-/// arrangement's does.
 fn draw_resting(
     painter: &Painter,
     h: &ClipHandles,
@@ -362,13 +309,6 @@ fn draw_resting(
     }
 }
 
-/// How far a drag at `x`, pressed at `from`, scrolls the view in `dt`
-/// seconds: within `theme::size::EDGE_SCROLL` of `lane`'s sides, faster the
-/// closer, up to `motion::EDGE_SCROLL_SPEED` at the side and past it.
-/// Positive moves the content right (the pointer is at the left side). Only
-/// a hand moving outwards scrolls: a grip pressed inside the zone (a clip's
-/// end framed by Zoom to clip) stays put until the hand goes on past where
-/// it pressed, and then speeds up from nothing.
 pub(crate) fn edge_scroll(x: f32, from: f32, lane: Rangef, dt: f32) -> f32 {
     let zone = theme::size::EDGE_SCROLL.min(lane.span() / 4.0).max(1.0);
     let ramp = |depth: f32, room: f32| (depth / room.max(1.0)).clamp(0.0, 1.0);
@@ -379,7 +319,6 @@ pub(crate) fn edge_scroll(x: f32, from: f32, lane: Rangef, dt: f32) -> f32 {
     (left - right) * motion::EDGE_SCROLL_SPEED * dt
 }
 
-/// A gain as typed: "-3", "−3.0 dB", "+2.5db".
 pub(crate) fn parse_db(input: &str) -> Result<f32, String> {
     let text = input.trim().to_lowercase().replace('\u{2212}', "-");
     let number = text.strip_suffix("db").unwrap_or(&text).trim();
@@ -390,8 +329,6 @@ pub(crate) fn parse_db(input: &str) -> Result<f32, String> {
         .ok_or_else(|| format!("{:?} is not a gain. Type it in dB, like -3.0", input.trim()))
 }
 
-/// A fade's length as typed, in seconds: "125" and "125 ms" are milliseconds,
-/// "1.5 s" seconds.
 pub(crate) fn parse_length(input: &str) -> Result<f64, String> {
     let text = input.trim().to_lowercase();
     let bad = || {
@@ -510,7 +447,6 @@ mod tests {
 
     #[test]
     fn a_short_clip_gives_the_nearer_grip_and_no_fades() {
-        // 20 points wide: the zones overlap.
         let h = at(&Clip {
             length: Ticks(PPQ * 2 / 5),
             ..clip(2, 1)
@@ -549,7 +485,6 @@ mod tests {
 
     #[test]
     fn a_stop_stays_in_view_when_its_handle_is_not() {
-        // Starts before the view and ends far past it.
         let view = TimeView {
             left: 8.0,
             zoom: 50.0,
@@ -592,7 +527,6 @@ mod tests {
         let fast = edge_scroll(899.0, mid, lane, dt);
         assert!(slow < 0.0 && fast < slow, "{slow} {fast}");
         assert!(edge_scroll(105.0, mid, lane, dt) > 0.0, "the left side");
-        // Past the side it goes no faster.
         assert_eq!(
             edge_scroll(2_000.0, mid, lane, dt),
             -motion::EDGE_SCROLL_SPEED * dt
@@ -603,11 +537,8 @@ mod tests {
     fn a_press_inside_the_zone_scrolls_only_once_the_hand_goes_outwards() {
         let lane = Rangef::new(100.0, 900.0);
         let dt = 1.0 / 60.0;
-        // Pressed 10 pt from the right side: holding still, or moving back
-        // in, does not scroll.
         assert_eq!(edge_scroll(890.0, 890.0, lane, dt), 0.0);
         assert_eq!(edge_scroll(870.0, 890.0, lane, dt), 0.0);
-        // Moving on outwards does, from slowly to full speed at the side.
         let a = edge_scroll(893.0, 890.0, lane, dt);
         let b = edge_scroll(899.0, 890.0, lane, dt);
         assert!(a < 0.0 && b < a, "{a} {b}");
@@ -615,7 +546,6 @@ mod tests {
             edge_scroll(950.0, 890.0, lane, dt),
             -motion::EDGE_SCROLL_SPEED * dt
         );
-        // The same on the left.
         assert_eq!(edge_scroll(110.0, 110.0, lane, dt), 0.0);
         assert!(edge_scroll(104.0, 110.0, lane, dt) > 0.0);
     }

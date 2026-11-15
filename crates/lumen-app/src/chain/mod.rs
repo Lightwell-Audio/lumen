@@ -1,9 +1,3 @@
-//! The Devices tab (M6 slice 2d): a track's device chain as cards in a sunk
-//! tray, joined by cables (the owner's C4, design system v3). `place` decides
-//! where a chosen device goes, `art` makes a card's picture from its
-//! identity, `geometry` lays the chain out, `card` paints one device and
-//! `view` is the tab.
-
 mod actions;
 mod art;
 mod card;
@@ -32,102 +26,44 @@ pub(crate) use pictures::Pictures;
 pub(crate) use view::paint_drag_ghost;
 
 impl Chain {
-    /// The least height of the detail panel on the Devices tab: the
-    /// tallest compact card in the tray (D2).
     pub(crate) fn least_panel(&self) -> f32 {
         panel_least(self.least.max(geometry::COMPACT_H))
     }
 }
 
-/// What is being dragged from the browser: a device's catalog id.
 pub(crate) struct Dragged(pub String);
 
-/// A card being dragged: the device and the track it is on. Dropped in the
-/// tray it moves within the chain; on a track's header it moves to that track
-/// (Alt: copies).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct CardDrag {
     pub track: Id,
     pub device: Id,
 }
 
-/// The chain's own state: which card is chosen (the commands act on it) and
-/// whether the tab holds the keyboard.
 #[derive(Default)]
 pub(crate) struct Chain {
-    /// The chosen device; it belongs to the shown track.
     pub selected: Option<Id>,
-    /// The Devices tab has the keyboard: Delete removes the chosen device.
     pub live: bool,
-    /// The pointer was over the tray last frame.
     pub hovered: bool,
-    /// The Devices tab was just picked: the detail panel grows back to the
-    /// height last chosen for Devices at the next frame's layout (it only
-    /// ever grows; the user can drag it back).
     pub grow: bool,
-    /// The height the detail panel last had on the Devices tab (for the
-    /// session).
     pub height: Option<f32>,
-    /// The chain shows compact cards (D2): the panel is shorter than a full
-    /// card needs. Kept between frames for the switch's hysteresis.
     pub compact: bool,
-    /// The step each built-in's set-piece card is at (whole, short, compact),
-    /// kept between frames for the switch's hysteresis (M8).
     pub steps: HashMap<Id, geometry::Step>,
-    /// The part each built-in's drawing has picked, by device (M8 slice B1:
-    /// Iris's band): a view setting, kept for the session like a fold.
     pub bands: HashMap<Id, usize>,
-    /// The analyser's picture for each built-in device whose card shows one,
-    /// by device, kept between frames so its ballistics move at the same speed
-    /// whatever the frame rate is: filled before the cards are built and read
-    /// by the drawing. A device that is gone or folded is not in it, and its
-    /// analyser is told to stop.
     pub analyzers: BTreeMap<Id, lumen_devices::analyzer::Display>,
-    /// A picture a shot harness put in an analyser's place, for a screenshot
-    /// of a card with a signal: a shot's project does not play, so nothing
-    /// writes a real one (`testing::pretend_spectrum`).
     pub pretend_spectrum: Option<(Id, Vec<f32>)>,
-    /// The tallest compact card of the shown chain, as last drawn: a card
-    /// whose message needs more lines is taller, and it sets the panel's
-    /// least height (0 before the tab was first drawn).
     pub least: f32,
-    /// Folded cards (their power button and name only). A view setting, not
-    /// an edit; kept for the session.
     pub folded: HashSet<Id>,
-    /// The device last copied, with its settings as they were then.
     pub clipboard: Option<Device>,
-    /// The plugins' own pictures, read in the background (made on first use).
     pub pictures: Option<Pictures>,
-    /// The parameters on each card's strip, where a person chose them (saved
-    /// with the project's view).
     pub shown: BTreeMap<Id, Vec<u32>>,
-    /// When the plugin's own text for a value was last asked for, and for
-    /// which value, by device and parameter: asked when the value changes,
-    /// not faster than every 50 ms.
     pub text_asked: RefCell<HashMap<(u64, u32), (f64, std::time::Instant)>>,
-    /// A knob's text is waiting on a later frame to be asked for.
     pub text_pending: Cell<bool>,
-    /// [`crate::hosting::Hosting::texts_forgotten`] when `text_asked` was
-    /// last cleared for it.
     pub texts_seen: Cell<u64>,
-    /// The panel with every parameter of one plugin, when open.
     pub panel: Option<params::Panel>,
-    /// Outputs of an instrument being turned off whose tracks hold work,
-    /// waiting for the person's answer in the menu.
     pub asking: outputs::Asking,
-    /// What the shown track's sidechain carried, as the cards' lights show it.
     pub sidechain: sidechain::Readings,
-    /// The device whose Learn is on: the next control touched in its window
-    /// takes a slot of its strip.
     pub learning: Option<Id>,
-    /// The cards' preset menus: the sound each card has, the files found, and
-    /// a save under way.
     pub presets: presets::Presets,
-    /// A device just dropped on a track from the browser: its window opens
-    /// as soon as its plugin is running.
     pub open_when_ready: Option<Id>,
-    /// A change to a parameter that is the device's timing (the limiter's
-    /// lookahead), waiting for its drag to end (M8 slice B2): the value the
-    /// hand is on, applied when the pointer is let go.
     pub deferred: BTreeMap<(Id, u32), f64>,
 }

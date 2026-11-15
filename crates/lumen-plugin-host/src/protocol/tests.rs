@@ -1,5 +1,3 @@
-//! The protocol's tests.
-
 use super::codec::*;
 use super::frame::write_frame;
 use super::*;
@@ -331,12 +329,10 @@ fn too_many_keys_to_capture_are_refused() {
 
 #[test]
 fn only_a_reload_a_bus_change_or_a_new_latency_sets_a_plugin_up_again() {
-    // The VST3 restart flags.
     let (reload, io, values, latency, titles, cc) = (1, 1 << 1, 1 << 2, 1 << 3, 1 << 4, 1 << 5);
     for flag in [reload, io, latency] {
         assert_ne!(RESTART_RECONFIGURE & flag, 0, "{flag}");
     }
-    // What a plugin says when it loads a patch.
     for flag in [values, titles, cc] {
         assert_eq!(RESTART_RECONFIGURE & flag, 0, "{flag}");
     }
@@ -394,10 +390,8 @@ fn malformed_counts_in_a_process_request_are_refused() {
         params: vec![],
     };
     let mut payload = good.encode().1;
-    // generation 4 + seq 8 + frames 4 + channels 4 = 20: the event count.
     payload[20..24].copy_from_slice(&u32::MAX.to_le_bytes());
     assert!(rejects(&frame(REQ_PROCESS, &payload)));
-    // An event past the end of the block.
     let late = Request::Process {
         generation: 1,
         seq: 1,
@@ -407,7 +401,6 @@ fn malformed_counts_in_a_process_request_are_refused() {
         params: vec![],
     };
     assert!(rejects(&frame(REQ_PROCESS, &late.encode().1)));
-    // Input shorter than the block.
     let short = Request::Process {
         generation: 1,
         seq: 1,
@@ -417,7 +410,6 @@ fn malformed_counts_in_a_process_request_are_refused() {
         params: vec![],
     };
     assert!(rejects(&frame(REQ_PROCESS, &short.encode().1)));
-    // Zero frames.
     let none = Request::Process {
         generation: 1,
         seq: 1,
@@ -478,8 +470,6 @@ fn a_bad_attach_is_refused() {
         wake,
     };
     let good = Layout::new(512, 2, 2);
-    // Names go into the operating system's namespace: letters, digits
-    // and dashes only, so a hostile base cannot reach another object.
     for base in ["", "a/b", "..", "a b", "a\\b", "x\0y"] {
         let request = attach(base, good, Wake::EVENT);
         assert!(rejects(&frame(REQ_ATTACH, &request.encode().1)), "{base:?}");
@@ -501,9 +491,8 @@ fn a_bad_attach_is_refused() {
         let request = attach("ok", layout, Wake::EVENT);
         assert!(rejects(&frame(REQ_ATTACH, &request.encode().1)));
     }
-    // An unknown wake mode.
     let mut payload = attach("ok", good, Wake::EVENT).encode().1;
-    let at = payload.len() - 10; // host tag
+    let at = payload.len() - 10;
     payload[at] = 9;
     assert!(rejects(&frame(REQ_ATTACH, &payload)));
 }

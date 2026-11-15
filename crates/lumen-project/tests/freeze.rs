@@ -1,6 +1,3 @@
-//! Format v29: a track may be frozen, playing a rendered file in place of its
-//! clips and devices. Earlier formats have no frozen track.
-
 use std::path::PathBuf;
 use std::sync::Arc;
 

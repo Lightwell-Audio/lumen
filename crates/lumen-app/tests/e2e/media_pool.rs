@@ -1,11 +1,3 @@
-//! The Project media tab (M9 slice R4b, ADR-0106), end to end: a project
-//! opened with its audio moved says so and finds the files again by
-//! searching a folder; entries nothing plays are removed as one undo step;
-//! files that belong to no project are listed, and clearing asks twice.
-//!
-//! Nothing here moves a file to the real trash: that step is tested in the
-//! unit tests with a mover that only records.
-
 use std::path::PathBuf;
 
 use eframe::egui::{Key, Modifiers};
@@ -16,8 +8,6 @@ use lumen_project::testing::{TempDir, project_of};
 use super::copies::{command, with_outside_audio};
 use super::{Lumen, wav};
 
-/// A saved project whose one clip plays `kick.wav`, which is then moved
-/// into a folder inside `Moved`. Returns the project file and the new place.
 fn project_with_moved_audio(name: &str) -> (TempDir, PathBuf, PathBuf) {
     let (mut lumen, kick) = with_outside_audio(name);
     lumen.app_mut().set_copy_imported(false);
@@ -43,7 +33,6 @@ fn a_project_opened_with_its_audio_moved_finds_it_again_in_a_folder() {
     });
     lumen.frames(10);
 
-    // The banner says what is wrong and offers the way out.
     assert_eq!(lumen.app().missing_media_count(), Some(1));
     assert_eq!(
         lumen.app().file_notice(),
@@ -61,8 +50,6 @@ fn a_project_opened_with_its_audio_moved_finds_it_again_in_a_folder() {
     let rows = lumen.app().media_rows();
     assert_eq!(rows, [("kick".to_owned(), true, 1)]);
 
-    // Searching a folder finds it by name, deep inside, and changes nothing
-    // until the person says so.
     let folder = moved.ancestors().nth(2).unwrap().to_path_buf();
     lumen.app_mut().answer_next_dialog(vec![folder]);
     lumen.click("Search a folder\u{2026}");
@@ -92,7 +79,6 @@ fn a_project_opened_with_its_audio_moved_finds_it_again_in_a_folder() {
     lumen.wait_for("the clip to sound again", |app| app.has_waveform(id));
     assert_eq!(lumen.app().undo_label(), None, "relinking is not an edit");
 
-    // Saved, it opens whole next time.
     lumen.app_mut().set_copy_imported(false);
     lumen.key(Modifiers::COMMAND, Key::S);
     lumen.wait_for("the save", |app| !app.is_busy() && !app.is_dirty());
@@ -117,7 +103,6 @@ fn a_file_chosen_for_a_missing_one_is_checked_and_a_wrong_one_is_refused() {
     command(&mut lumen, "Project media");
     lumen.click("kick, missing");
 
-    // A mono file at another rate cannot stand in for a stereo one.
     let other = mono_wav(&lumen.dir().join("other.wav"));
     lumen.app_mut().answer_next_dialog(vec![other]);
     command(&mut lumen, "Locate missing media");
@@ -132,7 +117,6 @@ fn a_file_chosen_for_a_missing_one_is_checked_and_a_wrong_one_is_refused() {
     );
     assert!(lumen.app().media_rows()[0].1, "still missing");
 
-    // The same file, where it went, is taken at once.
     lumen.app_mut().answer_next_dialog(vec![moved]);
     command(&mut lumen, "Locate missing media");
     lumen.wait_for("the relink", |app| !app.media_rows()[0].1);
@@ -230,8 +214,6 @@ fn leftover_files_are_listed_and_clearing_asks_twice() {
     assert!(orphan.is_file());
 }
 
-/// A mono WAV of a second at 44.1 kHz, which no stereo 48 kHz file's
-/// place can be taken by.
 fn mono_wav(path: &std::path::Path) -> PathBuf {
     let data = vec![0u8; 44_100 * 2];
     let mut out = Vec::new();

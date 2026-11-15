@@ -1,6 +1,3 @@
-//! The first-run window's Plugins step (ADR-0115): the scan live and the
-//! folder rows.
-
 use super::*;
 
 impl App {
@@ -15,8 +12,6 @@ impl App {
         self.plugin_folder_rows(ui, &Marks::default());
     }
 
-    /// The scan as it stands: progress and Cancel, what is ready, what
-    /// waits, or why there is no scan.
     pub(super) fn scan_state(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
         section(ui, "Scanning");
@@ -139,8 +134,6 @@ impl App {
         if let Some(waiting) = self.plugins.waiting() {
             for folder in waiting.folders() {
                 let whole = folder.display().to_string();
-                // The notice is whole; only the path in it is shortened,
-                // to the room it has after the sentence's words (DESIGN §9).
                 let font = egui::FontId::proportional(theme::size::BODY);
                 let lead = ui
                     .painter()
@@ -170,11 +163,8 @@ impl App {
             }
         }
     }
-
-    // ── Ready ───────────────────────────────────────────────────────────
 }
 
-/// A thin progress bar the width of the step.
 fn progress(ui: &mut Ui, fraction: f32) {
     let (rect, _) = ui.allocate_exact_size(
         vec2(ui.available_width(), theme::size::PROGRESS_BAR),

@@ -1,5 +1,3 @@
-//! The real backend: WinMM on Windows, CoreMIDI on macOS, ALSA on Linux.
-
 use std::collections::HashMap;
 
 use midir::{
@@ -9,15 +7,12 @@ use midir::{
 use crate::backend::{Backend, Connection, InputSink, Output};
 use crate::types::{Direction, MidiError, PortId, PortInfo};
 
-/// The client name drivers show for the app. The app sets the product name
-/// through `MidirHost::new`.
 pub struct MidirHost {
     client: String,
 }
 
 impl MidirHost {
     pub fn new(client: &str) -> Result<Self, MidiError> {
-        // Fail early, with the driver's reason, if there is no MIDI system.
         MidiInput::new(client).map_err(|e| MidiError::Unavailable(e.to_string()))?;
         Ok(Self {
             client: client.into(),
@@ -25,7 +20,6 @@ impl MidirHost {
     }
 }
 
-/// One direction's port names, with " 2", " 3" after repeated names.
 fn numbered(raw: impl Iterator<Item = String>) -> Vec<String> {
     let mut seen: HashMap<String, u32> = HashMap::new();
     raw.map(|name| {
@@ -36,9 +30,6 @@ fn numbered(raw: impl Iterator<Item = String>) -> Vec<String> {
     .collect()
 }
 
-/// Every input port with its numbered name, from one listing: a device
-/// plugged or unplugged between two listings would otherwise shift the
-/// index found in the first onto another port in the second.
 fn input_ports(input: &MidiInput) -> Vec<(String, MidiInputPort)> {
     let ports = input.ports();
     let names = numbered(
@@ -49,7 +40,6 @@ fn input_ports(input: &MidiInput) -> Vec<(String, MidiInputPort)> {
     names.into_iter().zip(ports).collect()
 }
 
-/// Every output port with its numbered name, from one listing.
 fn output_ports(output: &MidiOutput) -> Vec<(String, MidiOutputPort)> {
     let ports = output.ports();
     let names = numbered(
@@ -60,7 +50,6 @@ fn output_ports(output: &MidiOutput) -> Vec<(String, MidiOutputPort)> {
     names.into_iter().zip(ports).collect()
 }
 
-/// The port named `wanted`, if the listing has it.
 fn named<P>(listing: Vec<(String, P)>, wanted: &str) -> Option<P> {
     listing
         .into_iter()

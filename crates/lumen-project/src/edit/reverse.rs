@@ -1,15 +1,3 @@
-//! Reverse and polarity of audio clips (M7b slice E1). Both are flags on the
-//! clip; neither touches the media.
-//!
-//! A reversed clip plays the file backwards. So that every other edit keeps
-//! working unchanged, a reversed clip's media position (`offset`,
-//! `audio_phase_seconds`, and for a loop its `loop_phase`) is measured in the
-//! *reversed* file, where frame `j` is frame `frames - 1 - j` of the
-//! original. Turning reverse on or off mirrors the clip's window of the file
-//! (and a loop's phase) about the file's end, so the same stretch of the
-//! timeline plays the same stretch of the file, the other way round. Fades
-//! and envelopes belong to the clip's edges and stay where they are.
-
 use std::sync::Arc;
 
 use lumen_core::time::{TempoMap, Ticks};
@@ -19,23 +7,14 @@ use crate::model::{Clip, ClipContent, Id, Media, Project};
 use super::normalize::{self, Window};
 use super::tempo_of;
 
-/// What a reverse did.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Flipped {
-    /// Clips whose flag changed.
     pub changed: usize,
-    /// Audio clips left as they were: their media is missing from the
-    /// project, or the clip reaches past the file's end so that mirroring it
-    /// would start before the file.
     pub refused: usize,
 }
 
-/// Frames a mirrored clip may begin before the file and be taken to begin at
-/// it (rounding in the tempo map).
 const REACH: f64 = 1.5;
 
-/// The unlocked audio clips among `ids`, each with its track's index and
-/// its own.
 fn audio_clips(project: &Project, ids: &[Id]) -> Vec<(usize, usize)> {
     let mut found = Vec::new();
     for (t, track) in project.tracks.iter().enumerate() {
@@ -51,7 +30,6 @@ fn audio_clips(project: &Project, ids: &[Id]) -> Vec<(usize, usize)> {
     found
 }
 
-/// Turns each selected unlocked audio clip's reverse on or off.
 pub fn reverse(project: &mut Project, ids: &[Id]) -> Flipped {
     let tempo = tempo_of(project);
     let mut out = Flipped::default();
@@ -75,8 +53,6 @@ pub fn reverse(project: &mut Project, ids: &[Id]) -> Flipped {
     out
 }
 
-/// Turns each selected unlocked audio clip's polarity inversion on or off.
-/// Returns how many changed.
 pub fn invert(project: &mut Project, ids: &[Id]) -> usize {
     let found = audio_clips(project, ids);
     for &(t, c) in &found {
@@ -87,13 +63,9 @@ pub fn invert(project: &mut Project, ids: &[Id]) -> usize {
     found.len()
 }
 
-/// `clip` with reverse toggled and its place in the file mirrored, or `None`
-/// when the mirror would begin before the file.
 fn mirrored(clip: &Clip, file: &Media, tempo: &TempoMap) -> Option<Clip> {
     let rate = f64::from(file.sample_rate.max(1));
     let total = file.frames as f64 / rate;
-    // Where the clip's material begins in the file, and how long the stretch
-    // that plays from there is: the clip, or one repeat of its loop.
     let Window { from, span } = normalize::window(clip, rate, tempo)?;
     let to = total - from - span;
     if to * rate < -REACH {
@@ -102,12 +74,9 @@ fn mirrored(clip: &Clip, file: &Media, tempo: &TempoMap) -> Option<Clip> {
     let to = to.max(0.0);
     let (new_offset, phase) = super::warp::split_seconds(to, rate);
     let mut out = clip.clone();
-    // The other passes were measured in the file as it was.
     out.takes = None;
     out.reversed = !clip.reversed;
     if let Some(warp) = &mut out.warp {
-        // The map turns about the middle of the stretch that plays, so the
-        // clip stays in time (D6).
         let sum = clip.loop_length.unwrap_or(clip.length);
         lumen_core::warp::mirror(&mut warp.markers, sum, total);
     }
@@ -149,7 +118,6 @@ mod tests {
     #[test]
     fn reversing_mirrors_the_window_about_the_end_of_the_file() {
         let mut project = song();
-        // A clip taking the file from 1 s for 2 s (120 BPM: 4 quarters).
         let rate = f64::from(project.media[0].sample_rate);
         let frames = media_frames(&project) as f64;
         let id = only(&project).id;
@@ -203,7 +171,6 @@ mod tests {
         c.length = q(7);
         let original = only(&project);
         reverse(&mut project, &[original.id]);
-        // (2 + 7) is three whole loops: the mirror begins at the origin.
         assert_eq!(only(&project).loop_phase, Ticks::ZERO);
         reverse(&mut project, &[original.id]);
         assert_eq!(only(&project), original);

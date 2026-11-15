@@ -1,10 +1,3 @@
-//! The card's preset menu (M6 slice 5f): a field with the name of the sound,
-//! arrows to the previous and next, and a menu of the plugin's factory
-//! programs and the preset files saved for it, with a search, Save, Save as…
-//! and Show presets folder; a dot marks a changed sound. The plugins and the
-//! host program are the real ones, built by the test; preset files are real
-//! files in folders of the test's own.
-
 use std::path::{Path, PathBuf};
 
 use eframe::egui::{Event, Key, Modifiers};
@@ -24,7 +17,6 @@ const FIELD: &str = "Preset of Deterministic Test Instrument";
 const PREVIOUS: &str = "Previous preset of Deterministic Test Instrument";
 const NEXT: &str = "Next preset of Deterministic Test Instrument";
 
-/// The folders of one plugin's presets in the user's place and the system's.
 struct Places {
     user: PathBuf,
     system: PathBuf,
@@ -39,13 +31,10 @@ fn put(folder: &Path, name: &str, bytes: &[u8]) {
     std::fs::write(folder.join(name), bytes).unwrap();
 }
 
-/// Lumen with the instrument on a track, its card showing, and system presets
-/// "Quiet square" (good), "Broken" (not a preset) and "Bass/Warm" (good).
 fn launch(name: &str) -> (Lumen, Places) {
     launch_with(name, "Presets")
 }
 
-/// As [`launch`], with the module of the test plugin named `module` installed.
 fn launch_with(name: &str, module: &str) -> (Lumen, Places) {
     let dir = TempDir::new(&format!("e2e-preset-menu-{name}"));
     let places = Places {
@@ -158,7 +147,6 @@ fn the_field_shows_on_a_running_plugin_and_the_menu_lists_programs_and_files() {
         assert!(lumen.shows(action), "{action} is offered");
     }
 
-    // Every word of the search has to be in a name.
     lumen.type_into_menu("saw");
     assert!(lumen.shows("Saw, loud") && lumen.shows("Saw, half"));
     assert!(!lumen.shows("Square, quiet") && !lumen.shows("Warm"));
@@ -178,16 +166,13 @@ fn choosing_a_program_names_the_field_and_a_change_afterwards_marks_it() {
         app.device_param_known(PLUGIN, LEVEL) == Some(0.9)
     });
     assert_eq!(lumen.app().undo_label(), Some("Load Saw, loud"));
-    // The sound has settled once the program's answering edits are in.
     lumen.wait_for("the field to name it", |app| {
         app.device_preset(PLUGIN) == Some(("Saw, loud".to_owned(), false))
     });
     assert!(!lumen.shows("Search presets"), "choosing closes the menu");
-    // A program's answering edits belong to it for a moment.
     std::thread::sleep(std::time::Duration::from_millis(1700));
     lumen.frames(5);
 
-    // A control moved in the plugin's own window changes the sound.
     lumen.app_mut().set_device_param(PLUGIN, LEVEL, 0.2);
     lumen.wait_for("the dot", |app| {
         app.device_preset(PLUGIN) == Some(("Saw, loud".to_owned(), true))
@@ -198,7 +183,6 @@ fn choosing_a_program_names_the_field_and_a_change_afterwards_marks_it() {
 fn the_arrows_step_through_programs_then_files_and_wrap_round() {
     let (mut lumen, _places) = launch("arrows");
     play(&mut lumen);
-    // None chosen: next is the first, previous is the last.
     lumen.click(NEXT);
     lumen.wait_for("the first program", |app| {
         app.device_preset(PLUGIN).map(|p| p.0) == Some("Square, quiet".to_owned())
@@ -211,7 +195,6 @@ fn the_arrows_step_through_programs_then_files_and_wrap_round() {
     lumen.wait_for("back to the first", |app| {
         app.device_preset(PLUGIN).map(|p| p.0) == Some("Square, quiet".to_owned())
     });
-    // Before the first comes the last: the last file, loaded.
     lumen.click(PREVIOUS);
     lumen.wait_for("the last file", |app| {
         app.device_preset(PLUGIN).map(|p| p.0) == Some("Warm".to_owned())
@@ -219,7 +202,6 @@ fn the_arrows_step_through_programs_then_files_and_wrap_round() {
     lumen.wait_for("its sound to be held", |app| {
         app.project().tracks[0].devices[0].state == state(0.4, 1.0)
     });
-    // And after the last, the first again.
     lumen.click(NEXT);
     lumen.wait_for("round to the first", |app| {
         app.device_preset(PLUGIN).map(|p| p.0) == Some("Square, quiet".to_owned())
@@ -239,7 +221,6 @@ fn a_preset_file_chosen_in_the_menu_is_one_undo_step_and_undo_clears_the_name() 
         app.device_preset(PLUGIN) == Some(("Quiet square".to_owned(), false))
     });
 
-    // Undo takes the sound away, and the name that went with it.
     lumen.key(Modifiers::COMMAND, Key::Z);
     lumen.wait_for("the old sound", |app| {
         app.project().tracks[0].devices[0].state.is_empty()
@@ -266,7 +247,6 @@ fn a_damaged_file_is_refused_and_says_why_and_nothing_changes() {
 fn save_as_writes_a_file_in_the_users_folder_that_loads_back_and_never_writes_over_one() {
     let (mut lumen, places) = launch("save-as");
     play(&mut lumen);
-    // A sound to save: a program the plugin has taken.
     lumen.app_mut().choose_program(PLUGIN, 0, 1);
     lumen.wait_for("the program to settle", |app| {
         app.device_preset(PLUGIN).is_none() && app.device_param_known(PLUGIN, LEVEL) == Some(0.9)
@@ -300,7 +280,6 @@ fn save_as_writes_a_file_in_the_users_folder_that_loads_back_and_never_writes_ov
             .is_some_and(|n| n.contains("Saved") && n.contains("My lead"))
     );
 
-    // The same name again gets another file, and the first is untouched.
     let first = std::fs::read(&file).unwrap();
     lumen.open_preset_menu();
     lumen.click("Save as\u{2026}");
@@ -315,8 +294,6 @@ fn save_as_writes_a_file_in_the_users_folder_that_loads_back_and_never_writes_ov
         ["My lead 2.vstpreset", "My lead.vstpreset"]
     );
 
-    // Both are in the menu once the folder is listed again (off the
-    // interface's thread, so it can lag the file on a loaded machine).
     lumen.open_preset_menu();
     lumen.run_until("both presets in the menu", |l| {
         l.shows("My lead") && l.shows("My lead 2")
@@ -346,7 +323,6 @@ fn save_writes_over_the_users_own_file_after_a_change() {
     lumen.frames(5);
     let before = std::fs::read(&file).unwrap();
 
-    // The sound changes in the plugin's window; Save puts it over the file.
     lumen.app_mut().set_device_param(PLUGIN, LEVEL, 0.2);
     lumen.wait_for("the dot", |app| {
         app.device_preset(PLUGIN).is_some_and(|p| p.1)
@@ -403,7 +379,6 @@ fn show_presets_folder_names_the_folder_once_something_is_saved_there() {
 #[test]
 fn the_commands_open_the_menu_and_save_for_the_chosen_card() {
     let (mut lumen, _places) = launch("commands");
-    // The card is chosen by clicking it.
     lumen.click(&format!("{NAME} on Keys"));
     lumen.key(Modifiers::COMMAND, Key::K);
     lumen
@@ -414,7 +389,6 @@ fn the_commands_open_the_menu_and_save_for_the_chosen_card() {
     lumen.frames(5);
     assert!(lumen.shows("Search presets"), "the command opened the menu");
 
-    // Esc closes it; Save with no file of its own asks for a name.
     lumen.key(Modifiers::NONE, Key::Escape);
     lumen.frames(30);
     assert!(!lumen.shows("Search presets"));
@@ -440,7 +414,6 @@ fn a_builtin_synth_and_a_plugin_that_is_not_running_have_no_preset_field() {
 #[test]
 fn a_preset_saved_from_a_device_added_again_loads_back() {
     let (mut lumen, places) = launch("re-added");
-    // Take the instrument off the track and add the same plugin again.
     lumen.click(&format!("{NAME} on Keys"));
     lumen.key(Modifiers::COMMAND, Key::K);
     lumen.harness.event(Event::Text("Remove device".to_owned()));
@@ -480,7 +453,6 @@ fn a_preset_saved_from_a_device_added_again_loads_back() {
     lumen.wait_for("a file", move |_| any_preset(&user));
     lumen.frames(30);
 
-    // And it loads: the plugin takes what it gave.
     lumen.open_preset_menu();
     lumen.click("Again");
     lumen.wait_for("the preset to be taken", move |app| {
@@ -502,7 +474,6 @@ fn a_preset_saved_from_a_device_added_again_loads_back() {
 #[test]
 fn a_preset_saved_from_a_device_put_back_by_undo_loads_back() {
     let (mut lumen, places) = launch("undone");
-    // Take the instrument off the track and add the same plugin again.
     lumen.click(&format!("{NAME} on Keys"));
     lumen.key(Modifiers::COMMAND, Key::K);
     lumen.harness.event(Event::Text("Remove device".to_owned()));
@@ -537,7 +508,6 @@ fn a_preset_saved_from_a_device_put_back_by_undo_loads_back() {
     lumen.wait_for("a file", move |_| any_preset(&user));
     lumen.frames(30);
 
-    // And it loads: the plugin takes what it gave.
     lumen.open_preset_menu();
     lumen.click("Again");
     lumen.wait_for("the preset to be taken", move |app| {
@@ -567,7 +537,6 @@ fn the_name_is_cut_to_thirty_characters_in_the_field_and_in_the_file() {
     lumen.frames(120);
     lumen.open_preset_menu();
     lumen.click("Save as\u{2026}");
-    // Typing more than the limit stops at it.
     lumen.type_into_menu(&"abcdefghij".repeat(5));
     lumen.click("Save preset");
     let user = places.user.clone();
@@ -584,7 +553,6 @@ fn the_menu_stays_open_while_a_name_is_typed_whatever_the_pointer_does() {
     lumen.open_preset_menu();
     lumen.click("Save as\u{2026}");
     lumen.type_into_menu("My");
-    // The pointer leaves the menu and rests far from it: it used to close.
     lumen.harness.hover_at(eframe::egui::pos2(5.0, 5.0));
     lumen.frames(120);
     assert!(lumen.shows("Preset name"), "the menu went away");
@@ -597,7 +565,6 @@ fn a_preset_a_plugin_refuses_at_first_is_given_to_it_again_and_taken() {
     let (mut lumen, _places) = launch_with("reluctant", "Reluctant");
     lumen.open_preset_menu();
     lumen.click("Quiet square");
-    // Refused twice, then taken on the third try: no note of a refusal.
     lumen.wait_for("the project to hold the preset", |app| {
         app.project().tracks[0].devices[0].state == state(0.1, 0.0)
     });
@@ -625,7 +592,6 @@ fn a_preset_a_plugin_always_refuses_says_so_after_its_tries_and_changes_nothing(
     });
     assert_eq!(lumen.app().project(), &before);
     assert_eq!(lumen.app().device_preset(PLUGIN), None);
-    // The plugin is free to take another try afterwards.
     lumen.open_preset_menu();
     lumen.click("Broken");
     lumen.frames(10);

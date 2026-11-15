@@ -1,8 +1,3 @@
-//! A clip's envelope on the arrangement (M7 slice A7, ADR-0090): where it is
-//! drawn (over its clip, first repeat only), its menu and the faint repeats of a
-//! looping clip. The drawing, state and gestures are the lane's
-//! (`auto_view.rs`, `auto_state.rs`, `app/auto_editing.rs`).
-
 use eframe::egui::{self, Painter, Rect, Stroke, Ui};
 use lumen_core::automation::{Lane, Point};
 use lumen_core::time::Ticks;
@@ -14,9 +9,6 @@ use super::auto_view::{Frame, polyline};
 use crate::document::Document;
 use crate::theme;
 
-/// Where a clip's envelope is drawn across the canvas: the left and right edge
-/// of the first repeat of the clip, in screen points. `None` when `target` names
-/// no clip of the track.
 pub(crate) fn envelope_span(
     project: &Project,
     track: Id,
@@ -36,7 +28,6 @@ pub(crate) fn envelope_span(
 }
 
 impl Arrangement {
-    /// The rows of the selected audio clips' envelopes, for `track`'s menu.
     pub(super) fn envelope_entries(&mut self, ui: &mut Ui, track: &Track, target: Target) {
         let picked: Vec<&lumen_project::model::Clip> = track
             .clips
@@ -71,8 +62,6 @@ impl Arrangement {
         }
     }
 
-    /// The menu of a clip's envelope: which envelope, taking it away, and the
-    /// way back to the track's own lanes.
     pub(super) fn envelope_menu(
         &mut self,
         ui: &mut Ui,
@@ -121,8 +110,6 @@ impl Arrangement {
         }
     }
 
-    /// The repeats of a looping clip's envelope, dashed and faint: they play
-    /// what the first repeat holds, and are not edited.
     pub(super) fn draw_repeats(
         &self,
         painter: &Painter,
@@ -150,7 +137,6 @@ impl Arrangement {
         let palette = *theme::p();
         let end = clip.start + clip.length;
         let left = frame.ticks_at(visible.left());
-        // The first repeat in view, and no more than a screenful of them.
         let first = ((left - clip.start).0 / window.0).max(1);
         for k in first..first + 512 {
             let from = clip.start + Ticks(window.0 * k);

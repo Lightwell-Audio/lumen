@@ -1,25 +1,3 @@
-//! Iris's card (M8 slice B1, the owner's round 2: `docs/specimens/m8/
-//! devices.html`, `iris()`): the curve is the control.
-//!
-//! The screen holds the analyser's mist, the summed response of every band in
-//! the sweep's colours with a glow, and one coloured point for each band. The
-//! picked band's point is haloed with six blades and wears the value chip
-//! ("180 Hz +5.0"); the card's three dials are its Freq, Gain and Q (Slope for
-//! a cut), lit in its colour, and eight numbered pills pick a band.
-//!
-//! # Reaching eight bands
-//!
-//! A fixed 4 x 2 grid of pills (the specimen's four, twice), each in its band's
-//! colour: a click picks it, a double-click turns the band on or off. The same
-//! band is picked by clicking its point, and the three dials always belong to
-//! the picked one, so there is one set of dials and eight bands. Short, the
-//! pills are a row of eight small ones under the screen; compact, the
-//! points pick.
-//!
-//! Everything a band can do is a [`Parts`] callback over the device's values:
-//! the framework (`chain/card/screen/parts.rs`) does the pointer, the keys and
-//! the Tab stops, and every edit is one undo step like a dial's.
-
 use eframe::egui::{Align2, Color32, FontId, Painter, Pos2, Rect, Shape, Stroke, Vec2, pos2, vec2};
 use eframe::epaint::Mesh;
 use lumen_devices::eq::{self, Kind};
@@ -29,62 +7,41 @@ use crate::chain::geometry::Step;
 use crate::theme::personality as p;
 use crate::theme::personality::card;
 
-/// The span of frequencies the picture shows (20 Hz to 20 kHz).
 pub(crate) const LOW: f32 = eq::LOW_HZ;
 pub(crate) const HIGH: f32 = eq::HIGH_HZ;
-/// The most points the curve takes: half a device pixel apart, and eight times
-/// closer across a band's own turn (`eq::curve`).
 const MOST: usize = eq::curve::MOST;
 
-/// The decibels from the middle line to the screen's top and bottom, as the
-/// specimen scales them (176 pt tall, 5.5 pt a decibel).
 const VIEW_DB: f32 = 16.0;
-/// How far past the screen's edge the curve is followed before it is cut off.
 const OFF_SCREEN: f32 = 40.0;
-/// The specimen's screen height, which the point sizes are scaled from.
 const SPECIMEN_HEIGHT: f32 = 176.0;
 
-/// The card: 380 x 330 with a 176 pt screen.
 const WHOLE: Vec2 = Vec2::new(380.0, 330.0);
-/// The dials' centres across the card and down from its top.
 const DIAL_X: [f32; 3] = [52.0, 124.0, 196.0];
 const DIALS_Y: f32 = 278.0;
-/// The pills: four across and two down, from this corner, one band each.
 const PILL: f32 = 22.0;
 const PILL_X: f32 = 244.0;
 const PILL_Y: f32 = 252.0;
 const PILL_PITCH: Vec2 = Vec2::new(28.0, 26.0);
 const PILLS_ACROSS: usize = 4;
 
-/// The graticule's frequencies, its inset from the screen's edges and the
-/// words' size.
 const GRID_HZ: [f32; 3] = [100.0, 1_000.0, 10_000.0];
 const GRID_INSET: f32 = 8.0;
 const GRID_ALPHA: f32 = 0.06;
 const GRID_WORD_ALPHA: f32 = 0.35;
 const MIDDLE_ALPHA: f32 = 0.08;
 
-/// The mist: the decibels it spans (a spectrum's quiet floor and its loud
-/// ceiling), how far up the screen the loudest reaches, and its strength.
 const MIST_FLOOR_DB: f32 = -84.0;
 const MIST_CEIL_DB: f32 = -6.0;
 const MIST_HEIGHT: f32 = 0.7;
 const MIST_ALPHA: f32 = 0.16;
-/// How much of its strength the mist keeps at the screen's foot.
 const MIST_FOOT: f32 = 0.5;
 
-/// The curve: the wash down to the middle line, the glow (its reach each side
-/// of the line and its strength at the line) and the line (its half width and
-/// its soft edge).
 const WASH_ALPHA: f32 = 0.18;
 const GLOW_HALF: f32 = 6.0;
 const GLOW_ALPHA: f32 = 0.42;
 const LINE_HALF: f32 = 1.1;
 const LINE_FEATHER: f32 = 0.5;
 
-/// A point: its radius at rest and picked, its white ring's width, the glow
-/// round it (two layers of this much more radius, at these strengths), how
-/// much a hovered one grows, and the blades of the picked one.
 const POINT: f32 = 6.0;
 const POINT_PICKED: f32 = 7.5;
 const POINT_RING: f32 = 1.0;
@@ -92,7 +49,6 @@ const POINT_RING_PICKED: f32 = 2.0;
 const POINT_HALO: [(f32, f32); 2] = [(5.0, 0.12), (2.5, 0.26)];
 const POINT_GROW: f32 = 1.5;
 const POINT_OFF_ALPHA: f32 = 0.4;
-/// A band that is off is drawn this much smaller.
 const POINT_OFF_SIZE: f32 = 0.8;
 const BLADES: usize = 6;
 const BLADE_FROM: f32 = 12.0;
@@ -101,34 +57,23 @@ const BLADE_TURN: f32 = 0.7;
 const BLADE_START: f32 = 0.3;
 const BLADE_WIDTH: f32 = 1.4;
 const BLADE_ALPHA: f32 = 0.7;
-/// A compact card's dots: radius, picked radius.
 const DOT: f32 = 2.5;
 const DOT_PICKED: f32 = 3.5;
 
-/// The value chip: where it hangs from the screen's top, and how far its text
-/// is padded.
 const CHIP_TOP: f32 = 10.0;
 const CHIP_PAD: f32 = 10.0;
-/// Below this height a screen has no room for the graticule's words, and
-/// below the second none for the chip (the short card's dials say the same).
 const ROOMY: f32 = 96.0;
 const CHIP_ROOM: f32 = 130.0;
-/// How near its right edge a graticule word is set to the left of its line.
 const WORD_EDGE: f32 = 30.0;
 
-/// What a drag, a key and the wheel change: a key's step of frequency (an
-/// octave share) and of gain, and a wheel notch's of Q; Shift is a fifth of it.
 const KEY_OCTAVE: f32 = 1.0 / 24.0;
 const KEY_DB: f32 = 0.5;
 const WHEEL_OCTAVES: f32 = 0.8;
 const FINE: f32 = 0.2;
-/// How far apart a cut's slopes are, and the steepest and gentlest.
 const SLOPE_STEP: f32 = 12.0;
 const SLOPE_LEAST: f32 = 12.0;
 const SLOPE_MOST: f32 = 48.0;
 
-/// Every parameter Iris's parts read: the eight bands' own, and the output
-/// gain the curve adds. The cuts have no Q or type, so those are never named.
 const READS: [u32; 37] = reads();
 
 const fn reads() -> [u32; 37] {
@@ -151,9 +96,6 @@ const fn reads() -> [u32; 37] {
     out
 }
 
-/// The card's dials: Freq, Gain and Q. They name band 2's parameters (a
-/// parameter every kind of middle band has) and are aimed at the picked band by
-/// [`aim`].
 pub(crate) static DRAWING: Drawing = Drawing {
     card: WHOLE,
     screen: SPECIMEN_HEIGHT,
@@ -168,7 +110,6 @@ pub(crate) static DRAWING: Drawing = Drawing {
     handles: &[],
 };
 
-/// The eight bands as the card's parts.
 pub(crate) static PARTS: Parts = Parts {
     count: eq::BANDS,
     reads: &READS,
@@ -190,7 +131,6 @@ pub(crate) static PARTS: Parts = Parts {
     typed: 0,
 };
 
-/// The cell of dial `index` on the whole card, centred on its place.
 fn dial(card_rect: Rect, index: usize) -> Rect {
     Rect::from_center_size(
         pos2(card_rect.left() + DIAL_X[index], card_rect.top() + DIALS_Y),
@@ -198,12 +138,10 @@ fn dial(card_rect: Rect, index: usize) -> Rect {
     )
 }
 
-/// "+5.0 dB" as "+5.0": the unit is in the tooltip (a slope's "24/oct" stays).
 fn without_db(text: &str) -> String {
     text.trim_end_matches(" dB").to_owned()
 }
 
-/// The pill of band `index` on the whole card.
 fn pill(card_rect: Rect, index: usize) -> Rect {
     let (row, column) = (index / PILLS_ACROSS, index % PILLS_ACROSS);
     Rect::from_min_size(
@@ -215,13 +153,11 @@ fn pill(card_rect: Rect, index: usize) -> Rect {
     )
 }
 
-/// A band as the picture reads it from the device's values.
 #[derive(Debug, Clone, Copy)]
 struct Band {
     number: usize,
     kind: Kind,
     on: bool,
-    /// In its own units.
     freq: f32,
     gain: f32,
     q: f32,
@@ -271,7 +207,6 @@ impl Band {
         }
     }
 
-    /// What a screen reader says: "Band 3, bell, 1.20 kHz, +3.0 dB, Q 1.00".
     fn words(&self) -> String {
         let mut words = format!("Band {}, {}", self.number, self.kind.word());
         if !self.on {
@@ -293,7 +228,6 @@ impl Band {
         words
     }
 
-    /// The chip's words: "180 Hz +5.0", "40.0 Hz 24/oct", "2.50 kHz Q 4.00".
     fn chip(&self) -> String {
         let mut words = eq::hz_text(self.freq);
         if self.kind.has_gain() {
@@ -324,8 +258,6 @@ fn is_on(values: &Values<'_>, index: usize) -> bool {
     values.norm(eq::on_of(index + 1)) > 0.5
 }
 
-/// What the three dials are on band `index`: Freq always, Gain for a bell or a
-/// shelf (Slope for a cut), Q for a bell or a notch.
 fn aim(values: &Values<'_>, index: usize, control: usize) -> Option<Aim> {
     let band = band(values, index);
     let number = band.number;
@@ -350,7 +282,6 @@ fn aim(values: &Values<'_>, index: usize, control: usize) -> Option<Aim> {
     }
 }
 
-/// The picture's place for a frequency and a gain.
 fn place(rect: Rect, hz: f32, db: f32) -> Pos2 {
     pos2(x_of(rect, hz), y_of(rect, db))
 }
@@ -359,8 +290,6 @@ fn x_of(rect: Rect, hz: f32) -> f32 {
     rect.left() + rect.width() * eq::axis(hz).clamp(0.0, 1.0)
 }
 
-/// Where `db` is on the picture, past its edges when it is beyond them: the
-/// curve leaves the screen rather than running along its foot.
 fn y_free(rect: Rect, db: f32) -> f32 {
     let half = rect.height() * 0.5;
     (rect.center().y - db / VIEW_DB * half)
@@ -377,9 +306,6 @@ fn at(values: &Values<'_>, index: usize, rect: Rect) -> Option<Pos2> {
     Some(place(rect, band.freq, band.gain))
 }
 
-/// What band `band`'s parameters become with `freq` and `gain`: the pair a
-/// point moves (a cut and a notch only have a frequency), and its switch when
-/// the band was off.
 fn moved_to(values: &Values<'_>, band: &Band, freq: f32, gain: f32) -> Vec<(u32, f64)> {
     let number = band.number;
     let mut out = vec![(
@@ -418,8 +344,6 @@ fn nudge(values: &Values<'_>, index: usize, steps: Vec2, fine: bool) -> Vec<(u32
     moved_to(values, &Band { on: true, ..band }, freq, gain)
 }
 
-/// The wheel is the band's width: a bell's or a notch's Q, doubled every
-/// notch and a quarter, and a cut's slope a step at a time.
 fn wheel(values: &Values<'_>, index: usize, notches: f32, fine: bool) -> Option<(u32, f64)> {
     let band = band(values, index);
     let number = band.number;
@@ -438,8 +362,6 @@ fn wheel(values: &Values<'_>, index: usize, notches: f32, fine: bool) -> Option<
     }
 }
 
-/// A double-click on a point puts its gain back (its frequency, for a band
-/// that has none).
 fn reset_point(values: &Values<'_>, index: usize) -> Vec<(u32, f64)> {
     let band = band(values, index);
     let id = if band.kind.has_gain() {
@@ -450,7 +372,6 @@ fn reset_point(values: &Values<'_>, index: usize) -> Vec<(u32, f64)> {
     vec![(id, values.default_norm(id))]
 }
 
-/// The whole band back to its defaults: the parameters it has.
 fn reset_all(values: &Values<'_>, index: usize) -> Vec<(u32, f64)> {
     let band = band(values, index);
     let number = band.number;
@@ -483,7 +404,6 @@ fn number(index: usize) -> String {
     (index + 1).to_string()
 }
 
-/// The colour of the sweep at `share` of the way across.
 fn sweep_at(share: f32) -> Color32 {
     let sweep = p::EQ_SWEEP;
     let at = (share.clamp(0.0, 1.0) * (sweep.len() - 1) as f32).min(sweep.len() as f32 - 1.001);
@@ -491,7 +411,6 @@ fn sweep_at(share: f32) -> Color32 {
     sweep[low].lerp_to_gamma(sweep[low + 1], at - low as f32)
 }
 
-/// A band that does nothing, to fill the array before it is read.
 fn flat() -> eq::bands::Setting {
     eq::bands::Setting {
         kind: Kind::Bell,
@@ -502,9 +421,6 @@ fn flat() -> eq::bands::Setting {
     }
 }
 
-/// The summed response of every band the device holds, ready to be drawn: a
-/// path half a device pixel apart, eight times closer across each band's own
-/// turn (`eq::curve`, the owner's review OR-7).
 fn response(scene: &Scene<'_>) -> eq::Curve {
     let values = &scene.values;
     let mut settings = [(flat(), false); eq::BANDS];
@@ -515,11 +431,6 @@ fn response(scene: &Scene<'_>) -> eq::Curve {
     eq::Curve::new(settings, values.plain(eq::OUTPUT), scene.rate.max(1))
 }
 
-/// Adds a ribbon along `line` to `mesh`: at each point, one vertex for every
-/// `(distance from the line, strength)` of `profile`, so a glow is a soft
-/// profile and a line a sharp one. `colour` is the colour at each point (the
-/// sweep's own place across the screen, so a path whose points are dense at a
-/// band's peak keeps its colours where they belong).
 fn ribbon(
     mesh: &mut Mesh,
     line: &[Pos2],
@@ -573,7 +484,6 @@ fn draw(scene: &Scene<'_>) {
     }
     curve(scene, rect, &line[..count], scale, band_only);
     let picked = scene.picked.min(eq::BANDS - 1);
-    // Every point, the picked one last so it is over the others.
     for index in (0..eq::BANDS)
         .filter(|index| *index != picked)
         .chain(std::iter::once(picked))
@@ -585,8 +495,6 @@ fn draw(scene: &Scene<'_>) {
     }
 }
 
-/// The graticule: a line and a word at 100 Hz, 1 kHz and 10 kHz, and the middle
-/// line (no change) across.
 fn grid(scene: &Scene<'_>, rect: Rect) {
     let (painter, white) = (scene.painter, scene.ink(Color32::WHITE));
     let words = rect.height() >= ROOMY;
@@ -608,7 +516,6 @@ fn grid(scene: &Scene<'_>, rect: Rect) {
             } else {
                 format!("{hz}")
             };
-            // A word near the right edge is set to the left of its line.
             let left = rect.right() - x > WORD_EDGE;
             painter.text(
                 pos2(if left { x + 3.0 } else { x - 3.0 }, rect.bottom() - 5.0),
@@ -635,9 +542,6 @@ fn grid(scene: &Scene<'_>, rect: Rect) {
     );
 }
 
-/// The analyser's mist: the spectrum's height at each point in the sweep's
-/// colours, fading to nothing at the screen's foot and in and out with the
-/// audio.
 fn mist(scene: &Scene<'_>, rect: Rect) {
     let Some(spectrum) = scene.spectrum.filter(|s| s.len() >= 2) else {
         return;
@@ -669,8 +573,6 @@ fn mist(scene: &Scene<'_>, rect: Rect) {
     scene.painter.add(Shape::mesh(mesh));
 }
 
-/// The summed response: a wash down to the middle line, a glow along it, and
-/// the line, all in the sweep's colours.
 fn curve(scene: &Scene<'_>, rect: Rect, line: &[Pos2], scale: f32, thin: bool) {
     let share_of = |point: Pos2| ((point.x - rect.left()) / rect.width().max(1.0)).clamp(0.0, 1.0);
     let sweep = |point: Pos2| scene.ink(sweep_at(share_of(point)));
@@ -678,7 +580,6 @@ fn curve(scene: &Scene<'_>, rect: Rect, line: &[Pos2], scale: f32, thin: bool) {
     mesh.reserve_vertices(line.len() * 7);
     mesh.reserve_triangles(line.len() * 12);
     if !thin {
-        // The wash: each point to the middle line.
         let middle = rect.center().y;
         for point in line {
             let ink = sweep(*point).gamma_multiply(WASH_ALPHA);
@@ -715,8 +616,6 @@ fn curve(scene: &Scene<'_>, rect: Rect, line: &[Pos2], scale: f32, thin: bool) {
     scene.painter.add(Shape::mesh(mesh));
 }
 
-/// One band's point: its glow, its core with a white ring, and the picked one's
-/// blades. A band that is off is hollow and dim.
 fn point(scene: &Scene<'_>, rect: Rect, index: usize, picked: bool, scale: f32, dot: bool) {
     let band = band(&scene.values, index);
     let painter: &Painter = scene.painter;
@@ -770,7 +669,6 @@ fn point(scene: &Scene<'_>, rect: Rect, index: usize, picked: bool, scale: f32, 
         ),
     );
     if picked {
-        // Six blades in a turn, as the specimen's aperture has.
         for blade in 0..BLADES {
             let angle = blade as f32 * std::f32::consts::TAU / BLADES as f32 + BLADE_START;
             let (from, to) = (angle, angle + BLADE_TURN);
@@ -785,7 +683,6 @@ fn point(scene: &Scene<'_>, rect: Rect, index: usize, picked: bool, scale: f32, 
     }
 }
 
-/// The picked band's value in a chip at the screen's top, over its point.
 fn chip(scene: &Scene<'_>, rect: Rect, picked: usize) {
     let band = band(&scene.values, picked);
     let painter = scene.painter;

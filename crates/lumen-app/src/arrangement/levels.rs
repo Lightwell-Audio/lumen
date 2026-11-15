@@ -1,12 +1,3 @@
-//! Meters on the track headers (M4 slice 5, ADR-0040; redrawn in M9 slice
-//! R1b, ADR-0101).
-//!
-//! A track's level rises in a thin strip beside its colour rail, the full
-//! height of the row less a margin at each end, folded or not: both sides,
-//! the peak faint, the RMS solid with a light at its head, and a hold
-//! tick, on the mixer strips' scale. A clip lights a red mark at the
-//! strip's top that stays until clicked (Alt+click clears every track's).
-
 use eframe::egui::{self, CursorIcon, Id as EguiId, Rect, Sense, Ui, pos2, vec2};
 use eframe::emath::GuiRounding as _;
 use lumen_project::model::Track;
@@ -17,19 +8,12 @@ use crate::app::info::{Held, Info, Mouse};
 use crate::widgets::raised;
 use crate::{light, theme};
 
-/// The strip sits this far right of the rail's left edge (1 pt clear of
-/// the 4 pt rail), and this far inside the row's top and bottom.
 const STRIP_X: f32 = RAIL + 1.0;
 const STRIP_INSET: f32 = 5.0;
-/// The two sides are 2 pt bars with 1 pt between them.
 const SIDE_GAP: f32 = 1.0;
-/// The clip mark at the strip's top.
 const CLIP_MARK: f32 = 3.0;
-/// The trough is too thin for more than a soft corner.
 const STRIP_RADIUS: u8 = 1;
 
-/// Where the level strip of a row in `row` goes, its rail starting at
-/// `rail_left`.
 pub(super) fn strip_rect(row: Rect, rail_left: f32) -> Rect {
     Rect::from_min_max(
         pos2(rail_left + STRIP_X, row.top() + STRIP_INSET),
@@ -41,7 +25,6 @@ pub(super) fn strip_rect(row: Rect, rail_left: f32) -> Rect {
 }
 
 impl Arrangement {
-    /// The colour meters are drawn in below the warning level.
     fn meter_base(&self, track: &Track) -> egui::Color32 {
         if self.track_colour_meters {
             theme::wave(super::color_of(track.color))
@@ -50,8 +33,6 @@ impl Arrangement {
         }
     }
 
-    /// The level strip of `track` beside its rail (which starts at
-    /// `rail_left`) in `row`. `heard`: quieter when the track is not heard.
     pub(super) fn level_strip(
         &mut self,
         ui: &mut Ui,
@@ -83,8 +64,6 @@ impl Arrangement {
         }
     }
 
-    /// The red clip mark, lit until clicked: a click clears this track's,
-    /// Alt+click every track's.
     fn clip_mark(&mut self, ui: &mut Ui, mark: Rect, track: &Track, id: EguiId) {
         let palette = theme::p();
         light::halo_around(ui.painter(), light::FLARE, mark, 1.0, palette.record);
@@ -120,12 +99,10 @@ mod tests {
     fn the_strip_sits_beside_the_rail_inside_the_row() {
         let row = Rect::from_min_size(pos2(100.0, 50.0), vec2(204.0, 44.0));
         let strip = strip_rect(row, 112.0);
-        // 1 pt clear of the 4 pt rail, 5 pt wide, 5 pt in at each end.
         assert_eq!(strip.left(), 117.0);
         assert_eq!(strip.width(), 5.0);
         assert_eq!(strip.top(), 55.0);
         assert_eq!(strip.bottom(), 89.0);
-        // Content starts 12 pt after the rail: 2 pt clear of the strip.
         assert!(strip.right() + 2.0 <= 112.0 + super::super::headers::CONTENT_X);
     }
 }

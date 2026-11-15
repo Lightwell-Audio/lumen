@@ -1,5 +1,3 @@
-//! Files: importing audio, saving and opening, autosave and recovery.
-
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -9,8 +7,6 @@ use lumen_app::testing::{PROJECT_EXTENSION, project_file};
 
 use super::{Lumen, wav};
 
-/// An autosave `session` left behind, with a project whose one track is
-/// `track`, written at `written`.
 fn crashed_copy(dir: &Path, session: &str, track: &str, written: u64) -> PathBuf {
     let autosaves = dir.join("autosave");
     std::fs::create_dir_all(&autosaves).unwrap();
@@ -33,7 +29,6 @@ fn crashed_copy(dir: &Path, session: &str, track: &str, written: u64) -> PathBuf
     copy
 }
 
-/// The clips of every track, as (track name, clip count).
 fn clips(lumen: &Lumen) -> Vec<(String, usize)> {
     lumen
         .app()
@@ -69,14 +64,12 @@ fn a_project_saves_and_opens_again_unchanged() {
     lumen.click(&format!("Mute {name}"));
     assert!(lumen.app().is_dirty());
 
-    // Save as the Save dialog would, once a path is chosen.
     let path = project_file(lumen.dir(), "Song");
     lumen.app_mut().save_to(path.clone());
     lumen.wait_for("the save", |app| !app.is_busy() && !app.is_dirty());
     assert!(path.exists(), "{}", path.display());
     let saved = lumen.app().project().clone();
 
-    // A fresh Lumen opens it: the same project, its audio loaded.
     let dir = lumen.crash();
     let mut again = Lumen::start_with(dir, |launch| launch.opening(path.clone()));
     again.wait_for("the project to open", |app| !app.is_busy());
@@ -97,12 +90,8 @@ fn work_survives_a_crash_through_the_autosave() {
     lumen.key(Modifiers::COMMAND, Key::T);
     lumen.key(Modifiers::COMMAND, Key::T);
     let names = lumen.track_names();
-    // The file can appear before the worker hands its session lock back.
-    // A simulated crash drops the app while the worker thread can still
-    // run: wait for the current state's completed write so the app owns it.
     lumen.wait_for("an autosave of both tracks", |app| app.autosave_finished());
 
-    // Lumen stops without closing normally; the next start offers the work.
     let dir = lumen.crash();
     let mut again = Lumen::start_with(dir, |launch| launch);
     assert!(again.track_names().is_empty());
@@ -117,8 +106,6 @@ fn work_survives_a_crash_through_the_autosave() {
     );
 }
 
-/// `--recover-latest` (sweep M4a: the folder is scanned on a worker): the
-/// newest leftover opens on the first answer, with no click.
 #[test]
 fn recover_latest_opens_the_newest_leftover_at_start() {
     let dir = lumen_project::testing::TempDir::new("e2e-recover-latest");
@@ -135,8 +122,6 @@ fn recover_latest_opens_the_newest_leftover_at_start() {
     );
 }
 
-/// A project named on the command line wins over `--recover-latest`: it
-/// opens, and the leftover is offered rather than adopted silently.
 #[test]
 fn a_named_project_wins_over_recover_latest_and_the_leftover_stays_offered() {
     let dir = lumen_project::testing::TempDir::new("e2e-recover-latest-named");
@@ -172,9 +157,6 @@ fn a_named_project_wins_over_recover_latest_and_the_leftover_stays_offered() {
     );
 }
 
-/// Discarding a crash's copy deletes it and offers the next one, newest
-/// first. The folder is read on a worker (sweep M4a), so the banner follows
-/// the scan's answer rather than the click.
 #[test]
 fn discarding_a_crash_copy_removes_it_and_offers_the_next_one() {
     let dir = lumen_project::testing::TempDir::new("e2e-recover-discard");
@@ -213,7 +195,6 @@ fn discarding_a_crash_copy_removes_it_and_offers_the_next_one() {
     lumen_testkit::wait_until("the last copy to go", || !older.exists());
 }
 
-/// A crash report from an earlier run is offered once (owner, M3 6c).
 #[test]
 fn a_crash_report_from_last_time_is_offered_once() {
     let dir = lumen_project::testing::TempDir::new("e2e-crash-report");
@@ -229,9 +210,6 @@ fn a_crash_report_from_last_time_is_offered_once() {
     assert!(!again.shows("Dismiss"), "shown once");
 }
 
-/// The M3 review's H1: audio comes in from the keyboard alone. Ctrl+T adds
-/// a track and selects it; Import audio puts the chosen file on it at the
-/// playhead, as one undo step.
 #[test]
 fn audio_imports_from_the_keyboard_onto_the_selected_track() {
     let mut lumen = Lumen::start("import-keys");
@@ -253,8 +231,6 @@ fn audio_imports_from_the_keyboard_onto_the_selected_track() {
     assert_eq!(clips(&lumen)[0].1, 0, "one undo step");
 }
 
-/// With nothing selected, imported files go on new tracks; a cancelled
-/// dialog changes nothing. The empty arrangement offers the command too.
 #[test]
 fn importing_with_nothing_selected_makes_tracks_and_cancelling_does_nothing() {
     let mut lumen = Lumen::start("import-new");
@@ -281,10 +257,6 @@ fn importing_with_nothing_selected_makes_tracks_and_cancelling_does_nothing() {
     );
 }
 
-/// The empty arrangement's prompt keeps inside the lanes above the master's
-/// row. With the detail panel open in a short window little room is left, and
-/// the prompt gives up its button rather than run over the master and the time
-/// ruler (the owner's report); in a tall window it is whole.
 #[test]
 fn the_empty_prompt_stays_inside_the_lanes_in_a_short_window() {
     use eframe::egui::vec2;
@@ -323,9 +295,6 @@ fn the_empty_prompt_stays_inside_the_lanes_in_a_short_window() {
     assert!(hidden > 0, "the smallest window has no room for the button");
 }
 
-/// Files dropped together become tracks in the order they were dropped,
-/// not the order they finish loading (a short file loads first; the cause
-/// of flaky runs, seen in the M3 review).
 #[test]
 fn files_dropped_together_keep_their_order() {
     let mut lumen = Lumen::start("drop-order");
@@ -339,9 +308,6 @@ fn files_dropped_together_keep_their_order() {
 
 #[test]
 fn a_project_from_before_the_mixer_opens_with_a_master_and_saves_as_current() {
-    // M4 slice 2: format v7 routes tracks. A version 6 project (the golden
-    // fixture) opens with its master moved out of the tracks, plays, and
-    // saves in the current version.
     let dir = lumen_project::testing::TempDir::new("e2e-v6-to-v7");
     let folder = dir.path().join("Old");
     std::fs::create_dir_all(folder.join("Samples")).unwrap();
@@ -380,9 +346,6 @@ fn a_project_from_before_the_mixer_opens_with_a_master_and_saves_as_current() {
     assert!(saved.contains("\"master\": {"), "with its master");
 }
 
-/// The backup is best effort (sweep M1): with `Backups` taken by a file, the
-/// save still commits, says the previous version was not kept, and the saved
-/// project reopens.
 #[test]
 fn a_save_whose_backup_fails_still_saves_and_says_so() {
     let mut lumen = Lumen::start("save-no-backup");
@@ -391,7 +354,6 @@ fn a_save_whose_backup_fails_still_saves_and_says_so() {
     lumen.app_mut().save_to(path.clone());
     lumen.wait_for("the save", |app| !app.is_busy() && !app.is_dirty());
 
-    // A file where the backups folder would go: every backup fails.
     let folder = path.parent().expect("the project's folder");
     std::fs::write(folder.join("Backups"), b"not a folder").unwrap();
     let name = lumen.track_names()[0].clone();
@@ -412,7 +374,6 @@ fn a_save_whose_backup_fails_still_saves_and_says_so() {
     );
     assert!(!notice.contains('\u{2026}'), "read in full: {notice}");
 
-    // What was saved reopens as it was.
     let dir = lumen.crash();
     let mut again = Lumen::start_with(dir, |launch| launch.opening(path.clone()));
     again.wait_for("the project to open", |app| !app.is_busy());
@@ -429,7 +390,6 @@ fn enter_in_the_save_question_saves_and_goes_on() {
     lumen.app_mut().save_to(path.clone());
     lumen.wait_for("the save", |app| !app.is_busy() && !app.is_dirty());
 
-    // An unsaved change, then a new project: the question asks first.
     let name = lumen.track_names()[0].clone();
     lumen.click(&format!("Mute {name}"));
     assert!(lumen.app().is_dirty());
@@ -437,8 +397,6 @@ fn enter_in_the_save_question_saves_and_goes_on() {
     lumen.frames(2);
     assert!(lumen.shows("Don't save"), "the question");
 
-    // Enter gives Save, its main answer: the change is saved, then the new
-    // project starts.
     lumen.key(Modifiers::NONE, Key::Enter);
     lumen.wait_for("the new project", |app| {
         !app.is_busy() && app.project_path().is_none()
@@ -450,13 +408,9 @@ fn enter_in_the_save_question_saves_and_goes_on() {
 
 #[test]
 fn enter_for_the_save_question_reaches_no_other_window() {
-    // Never saved: Save asks where, and that dialog is cancelled here, so
-    // the project stays and only what Enter reached changes.
     let mut lumen = super::clip_commands::audio("save-question-alone");
     assert!(lumen.app().is_dirty());
 
-    // The bounce popover, which Enter starts and closes, is open under the
-    // question.
     let clip = lumen.app().project().tracks[0].clips[0].id;
     lumen.app_mut().select_clip(clip);
     super::copies::command(&mut lumen, "Bounce");
@@ -477,8 +431,6 @@ fn enter_for_the_save_question_reaches_no_other_window() {
 
 #[test]
 fn a_new_or_opened_project_does_not_play_on_from_the_last() {
-    // Open or New while the song plays: the song belonged to the project
-    // that closed, so playback stops rather than carrying on over the next.
     let mut lumen = Lumen::start("open-while-playing");
     lumen.key(Modifiers::COMMAND, Key::T);
     let path = project_file(lumen.dir(), "Song");

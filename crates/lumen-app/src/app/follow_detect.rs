@@ -1,11 +1,3 @@
-//! Listening to imported files for a loop's tempo (M9.5 S5a, W A: a file
-//! follows the song when it "lasts a whole number of bars from 1 to 32" and
-//! detection is confident of its tempo). A file that states no tempo plays at
-//! its own speed the moment it is imported; the file is read on a worker, and
-//! when it is a loop the clip follows the song as one more undo step, so
-//! nothing waits and the import stays one step. A clip edited meanwhile is
-//! left alone (`Document::follow_detected`).
-
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
@@ -21,7 +13,6 @@ use crate::document::Awaiting;
 
 type Answer = Result<Option<Analysis>, String>;
 
-/// A file being listened to.
 struct Job {
     wait: Awaiting,
     done: Receiver<Answer>,
@@ -34,8 +25,6 @@ impl Drop for Job {
     }
 }
 
-/// The files being listened to, and the clips that wait for a file that is
-/// not ready yet.
 #[derive(Default)]
 pub(crate) struct Jobs {
     waiting: Vec<Awaiting>,
@@ -43,22 +32,17 @@ pub(crate) struct Jobs {
 }
 
 impl Jobs {
-    /// How many files are waiting or being listened to.
     pub(crate) fn busy(&self) -> usize {
         self.waiting.len() + self.running.len()
     }
 }
 
-/// The tempo `found` is sure of for a loop, when it is one.
 pub(crate) fn loop_tempo(found: &Analysis) -> Option<f64> {
     let tempo = found.tempo?;
     (tempo.confidence >= CONFIDENT && tempo.is_loop()).then_some(tempo.bpm)
 }
 
 impl App {
-    /// Starts listening to the files imported since the last frame, takes the
-    /// answers, and makes the clips of the loops follow the song. Once a
-    /// frame; cheap when nothing is being listened to.
     pub(crate) fn drive_follow_detection(&mut self, ctx: &egui::Context) {
         let found = self.document.take_awaiting_follow();
         self.follow_jobs.waiting.extend(found);
@@ -69,13 +53,11 @@ impl App {
         let mut still = Vec::new();
         for wait in std::mem::take(&mut self.follow_jobs.waiting) {
             match self.clip_file_state(wait.media) {
-                // Under way: ask again next frame.
                 ClipFile::Reading => {
                     still.push(wait);
                     continue;
                 }
                 ClipFile::Ready => {}
-                // A file that cannot be used plays as it was imported.
                 ClipFile::Failed(_) | ClipFile::Missing => continue,
             }
             let Some(item) = self.lanes.library.get(wait.media.0) else {
@@ -112,8 +94,6 @@ impl App {
                 Err(TryRecvError::Disconnected) => false,
             });
         for (wait, answer) in answered {
-            // A file that cannot be read plays as it was imported; the
-            // editor says why when its chip is opened.
             let Ok(Some(found)) = answer else {
                 continue;
             };

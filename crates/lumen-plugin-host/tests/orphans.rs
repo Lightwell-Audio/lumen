@@ -1,5 +1,3 @@
-//! A host must not outlive the Lumen that started it, even when Lumen is
-//! killed outright and the host is hung inside a plugin.
 #![cfg(any(target_os = "linux", target_os = "macos"))]
 
 mod support;
@@ -11,12 +9,9 @@ use std::time::{Duration, Instant};
 use support::{SLOW, exists, instrument, note_on};
 
 fn kill_process(pid: u32) {
-    // SAFETY: sends SIGKILL only to the child pid printed by the test helper.
     unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
 }
 
-/// The stand-in for Lumen: starts a host that hangs in `process`, prints the
-/// host's id and then waits to be killed.
 #[test]
 #[ignore = "helper: run as a child by the test below"]
 fn stand_in_for_lumen() {
@@ -47,7 +42,6 @@ fn killing_lumen_takes_a_hung_host_with_it() {
             break id.trim().parse().unwrap();
         }
     };
-    // Give the helper time to send the block that hangs the host.
     std::thread::sleep(Duration::from_millis(400));
     assert!(exists(host), "the host is running (and hung)");
 
@@ -63,7 +57,6 @@ fn killing_lumen_takes_a_hung_host_with_it() {
     }
 }
 
-/// The wrapper exits after the plugin call has made the host hang.
 #[test]
 #[ignore = "helper: run as a child by the race test below"]
 fn wrapper_exits_with_a_hung_host() {
@@ -77,8 +70,6 @@ fn wrapper_exits_with_a_hung_host() {
         vec![],
         Duration::from_millis(100),
     );
-    // Do not run HostProcess::drop: the test needs the hung host to outlive
-    // this wrapper briefly so its own parent watcher has to end it.
     std::mem::forget(host);
 }
 
@@ -113,8 +104,6 @@ fn an_already_exited_parent_does_not_leave_a_hung_host() {
     }
 }
 
-/// A grandchild can start after the wrapper exited, or race its exit while
-/// registering the parent event. In either case the child must leave promptly.
 #[test]
 #[ignore = "helper: run as a child by the race test below"]
 fn child_exits_if_its_parent_is_already_gone() {
@@ -134,14 +123,11 @@ fn parent_exits_immediately_after_starting_watcher_child() {
         "--ignored",
         "--nocapture",
     ]);
-    // As Lumen starts a host: the child knows who started it, so an orphan
-    // adopted by another ancestor (not process 1) still sees its parent is gone.
     lumen_plugin_host::process::started_by_this_process(&mut command);
     let child = command.spawn().unwrap();
     println!("watcher child {}", child.id());
     let mut stdout = std::io::stdout();
     std::io::Write::flush(&mut stdout).unwrap();
-    // Let this helper process exit without waiting for or killing its child.
     std::mem::forget(child);
 }
 

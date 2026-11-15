@@ -1,6 +1,3 @@
-//! Transport behaviour, checked sample by sample: a probe source records the
-//! timeline sample of every frame the engine plays.
-
 use lumen_core::meter::Meter;
 use lumen_core::time::{TempoMap, TempoPoint, Ticks};
 use lumen_engine::{
@@ -10,7 +7,6 @@ use lumen_engine::{
 
 const RATE: u32 = 48_000;
 
-/// Records the timeline sample of each rendered frame, and each locate.
 #[derive(Default)]
 struct Probe {
     played: Vec<i64>,
@@ -19,8 +15,6 @@ struct Probe {
 
 impl Source for Probe {
     fn render(&mut self, cx: &RenderContext<'_>, out: &mut Output<'_>) {
-        // The 2 ms rendered ahead of a jump is only crossfaded out; it is not
-        // playback, so it is not recorded.
         if cx.tail {
             return;
         }
@@ -39,7 +33,6 @@ fn setup(timeline: Timeline) -> (EngineHandle, Engine<Probe>) {
     engine(timeline, Probe::default(), RATE)
 }
 
-/// Processes `frames` frames in blocks of `block` at `rate`.
 fn run(engine: &mut Engine<Probe>, frames: usize, block: usize, rate: u32) {
     let mut data = vec![0.0; 2 * block];
     let mut done = 0;
@@ -75,8 +68,6 @@ fn silence_while_stopped_and_audio_while_playing() {
         data.iter().all(|&s| s == 0.0),
         "stopped output must be zeroed"
     );
-    // Playback fades in over 2 ms (96 frames at 48 kHz), then plays at
-    // full level.
     let mut data = vec![7.0; 2 * 128];
     handle.send(Command::Play).unwrap();
     engine.process(RATE, &mut data, 2, 128);
@@ -87,7 +78,6 @@ fn silence_while_stopped_and_audio_while_playing() {
 
 #[test]
 fn the_loop_wraps_on_the_exact_sample_for_every_block_size() {
-    // 120 BPM: one 4/4 bar is 96,000 samples. Loop bar 2.
     let frames = 400_000;
     let mut expected: Vec<i64> = (0..192_000).collect();
     while expected.len() < frames {
@@ -157,7 +147,6 @@ fn stop_leaves_the_playhead_and_play_starts_from_the_marker() {
     run(&mut engine, 10_000, 128, RATE);
     assert_eq!(handle.transport().sample, 192_000 + 10_000);
 
-    // Stop: the playhead stays where playback stopped; the marker stays put.
     handle.send(Command::Stop).unwrap();
     run(&mut engine, 128, 128, RATE);
     let t = handle.transport();
@@ -165,14 +154,12 @@ fn stop_leaves_the_playhead_and_play_starts_from_the_marker() {
     assert_eq!(t.sample, 202_000);
     assert_eq!(t.marker, bars(2));
 
-    // Play starts from the marker again.
     handle.send(Command::Play).unwrap();
     run(&mut engine, 128, 128, RATE);
     assert_eq!(handle.transport().sample, 192_000 + 128);
     handle.send(Command::Stop).unwrap();
     run(&mut engine, 128, 128, RATE);
 
-    // Stop while stopped returns both to the start.
     handle.send(Command::Stop).unwrap();
     run(&mut engine, 128, 128, RATE);
     let t = handle.transport();
@@ -199,7 +186,7 @@ fn locate_while_playing_lands_on_the_exact_sample() {
     let (mut handle, mut engine) = setup(Timeline::default());
     handle.send(Command::Play).unwrap();
     run(&mut engine, 512, 128, RATE);
-    let triplet = Ticks::whole_note_fraction(1, 12).unwrap(); // 8,000 samples
+    let triplet = Ticks::whole_note_fraction(1, 12).unwrap();
     handle.send(Command::Locate(bars(1) + triplet)).unwrap();
     run(&mut engine, 128, 128, RATE);
     let played = &engine.source().played;
@@ -227,7 +214,6 @@ fn a_tempo_change_keeps_the_bar_and_beat() {
     assert_eq!(t.sample, 256_000, "two bars at 90 BPM");
     assert_eq!(handle.collect_garbage(), 1, "old timeline handed back");
 
-    // While playing, the position stays continuous in ticks across a swap.
     handle.send(Command::Play).unwrap();
     run(&mut engine, 4_800, 64, RATE);
     let before = handle.transport().ticks;
@@ -236,8 +222,6 @@ fn a_tempo_change_keeps_the_bar_and_beat() {
         .unwrap();
     run(&mut engine, 64, 64, RATE);
     let after = handle.transport().ticks;
-    // The position lives on whole samples, so carrying it across the swap
-    // can move it by up to half a sample.
     let fast = Timeline::constant(174.0, Meter::FOUR_FOUR);
     let one_block = fast.ticks_at(64, RATE).0;
     let one_sample = fast.ticks_at(1, RATE).0;
@@ -273,7 +257,6 @@ fn loop_and_punch_follow_a_tempo_change() {
         .unwrap();
     handle.send(Command::Locate(bars(1))).unwrap();
     handle.send(Command::Play).unwrap();
-    // Bar 2 is now 192,000 samples long (60 BPM), from 96,000 to 288,000.
     run(&mut engine, 200_000, 1_000, RATE);
     let played = &engine.source().played;
     assert_eq!(played[191_999], 287_999);
@@ -292,13 +275,11 @@ fn a_sample_rate_change_keeps_the_bar_and_beat() {
     run(&mut engine, 64, 64, RATE);
     assert_eq!(handle.transport().sample, 144_000);
 
-    // The device switched to 44.1 kHz (MT-AUDIO-6).
     run(&mut engine, 64, 64, 44_100);
     let t = handle.transport();
     assert_eq!((t.sample_rate, t.sample), (44_100, 132_300));
     assert_eq!(t.ticks, bars(1) + Ticks::quarters(2));
 
-    // The loop end moved with it: bar 3 starts at 176,400 samples.
     handle.send(Command::Play).unwrap();
     run(&mut engine, 50_000, 64, 44_100);
     let played = &engine.source().played;
@@ -342,8 +323,6 @@ fn scrubbing_while_stopped_plays_the_step_and_moves_the_markers() {
     let beat = Ticks::quarters(1);
     let style = ScrubStyle::Loop { length: beat };
     handle.send(Command::Scrub { at: beat, style }).unwrap();
-    // Half a second plays the beat (24,000 samples at 120 BPM) once, from
-    // where it starts, without the playhead moving on.
     run(&mut engine, 24_000, 128, RATE);
     let played = &engine.source().played;
     assert_eq!(played.first(), Some(&24_000));
@@ -352,14 +331,12 @@ fn scrubbing_while_stopped_plays_the_step_and_moves_the_markers() {
     assert!(!t.playing);
     assert_eq!((t.ticks, t.marker), (beat, beat));
 
-    // Released, it fades out and goes quiet.
     handle.send(Command::EndScrub).unwrap();
     run(&mut engine, 1_000, 128, RATE);
     let heard = engine.source().played.len();
     run(&mut engine, 1_000, 128, RATE);
     assert_eq!(engine.source().played.len(), heard, "silent");
 
-    // While playing, a scrub does nothing: the app locates instead.
     handle.send(Command::Play).unwrap();
     run(&mut engine, 128, 128, RATE);
     let at = handle.transport().sample;
@@ -375,8 +352,6 @@ fn scrubbing_while_stopped_plays_the_step_and_moves_the_markers() {
 
 #[test]
 fn a_loop_across_a_tempo_ramp_ends_on_the_sample_the_ramp_puts_it() {
-    // 120 BPM gliding to 60 over the first bar (4 quarters), then 60 BPM:
-    // the bar takes 60 * 4 / (60 - 120) * ln(0.5) = 2.7726 s.
     let map = TempoMap::new(vec![
         TempoPoint {
             at: Ticks::ZERO,

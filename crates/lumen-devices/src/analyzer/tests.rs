@@ -6,12 +6,9 @@ fn sine(hz: f32, rate: f32, frames: usize, amplitude: f32) -> Vec<f32> {
         .collect()
 }
 
-/// A sine on a bin's own frequency reads its amplitude there, and
-/// nothing anywhere else (the transform and its scale are right).
 #[test]
 fn a_sine_on_a_bin_reads_its_amplitude_in_that_bin() {
     let rate = 48_000.0;
-    // Bin 40 of 1024 over 24 kHz is 937.5 Hz.
     let bin = 40;
     let hz = bin as f32 * rate / 2.0 / BINS as f32;
     let samples = sine(hz, rate, SIZE, 0.5);
@@ -20,14 +17,11 @@ fn a_sine_on_a_bin_reads_its_amplitude_in_that_bin() {
     tap.write(&samples, &samples);
     assert_eq!(reader.read(), Read::Window);
     let spectrum = reader.spectrum();
-    // 0.5 of full scale is −6 dB.
     assert!(
         (spectrum[bin] - (-6.02)).abs() < 0.2,
         "{} dB at its bin",
         spectrum[bin]
     );
-    // A Hann window's main lobe is three bins wide, so its neighbours sit
-    // 6 dB down and 31 dB down; nothing further away is anything at all.
     assert!(
         (spectrum[bin - 1] - (-12.0)).abs() < 1.0,
         "{}",
@@ -40,7 +34,6 @@ fn a_sine_on_a_bin_reads_its_amplitude_in_that_bin() {
     }
 }
 
-/// The transform is the one a direct sum gives: every bin to 1e-3.
 #[test]
 fn the_transform_is_the_one_a_direct_sum_gives() {
     let n = 64;
@@ -62,7 +55,6 @@ fn the_transform_is_the_one_a_direct_sum_gives() {
     }
 }
 
-/// A tap that nothing listens to writes nothing at all.
 #[test]
 fn a_tap_nothing_reads_writes_nothing() {
     let (mut tap, mut reader) = pair();
@@ -74,11 +66,9 @@ fn a_tap_nothing_reads_writes_nothing() {
     tap.write(&[1.0; SIZE], &[1.0; SIZE]);
     assert_eq!(reader.read(), Read::Window);
     assert!(reader.window().iter().all(|x| *x == 1.0));
-    // A second read of a still writer finds nothing new.
     assert_eq!(reader.read(), Read::Nothing, "the window has not moved");
 }
 
-/// The reader gets the newest window, not the first one.
 #[test]
 fn the_reader_gets_the_newest_window() {
     let (mut tap, mut reader) = pair();
@@ -89,9 +79,6 @@ fn the_reader_gets_the_newest_window() {
     assert!(reader.window().iter().all(|x| *x == 2.0));
 }
 
-/// L1: a reader lapped on every try keeps the whole window it held and
-/// says it is stale, never a copy that is two windows joined — the promise
-/// the module makes is the one the code keeps.
 #[test]
 fn a_reader_lapped_on_every_try_keeps_the_window_before() {
     let (mut tap, mut reader) = pair();
@@ -101,7 +88,6 @@ fn a_reader_lapped_on_every_try_keeps_the_window_before() {
     assert!(reader.window().iter().all(|x| *x == 1.0));
     let spectrum_before = reader.spectrum().to_vec();
 
-    // The writer moves on, and every try of the next read is lapped.
     tap.write(&vec![2.0; SIZE], &vec![2.0; SIZE]);
     reader.pretend_laps(TRIES);
     assert_eq!(reader.read(), Read::Stale);
@@ -115,12 +101,10 @@ fn a_reader_lapped_on_every_try_keeps_the_window_before() {
         "and its spectrum is not worked out again"
     );
 
-    // The next read, with no lap, takes the new window.
     assert_eq!(reader.read(), Read::Window);
     assert!(reader.window().iter().all(|x| *x == 2.0));
 }
 
-/// Silence reads the floor, and a tone stands where it is in the picture.
 #[test]
 fn a_picture_of_silence_is_the_floor_and_a_tone_stands_where_it_is() {
     let rate = 48_000;
@@ -160,8 +144,6 @@ fn a_picture_of_silence_is_the_floor_and_a_tone_stands_where_it_is() {
     );
 }
 
-/// The picture is a bin every forty-eighth of an octave across the face's
-/// own axis: a fixed count, whatever the window holds.
 #[test]
 fn the_picture_has_a_bin_every_forty_eighth_of_an_octave() {
     let picture = Display::new((20.0, 20_000.0));
@@ -174,9 +156,6 @@ fn the_picture_has_a_bin_every_forty_eighth_of_an_octave() {
     );
 }
 
-/// A steady tone is a still picture: once it has settled, no bin moves
-/// from one frame to the next. The old "loudest bin under each point"
-/// picture moved by decibels here.
 #[test]
 fn a_steady_tone_gives_a_still_picture() {
     let frames = 90;
@@ -199,10 +178,6 @@ fn a_steady_tone_gives_a_still_picture() {
     assert!(worst < 0.25, "the still tone moved {worst} dB");
 }
 
-/// Pink noise is a flat, smooth picture: no bin stands out from its
-/// neighbours and the whole axis reads the same level, rather than the
-/// log-spaced bins of a transform's own bins (a stair at the bottom and a
-/// comb at the top).
 #[test]
 fn pink_noise_is_a_flat_and_smooth_picture() {
     let frames = 90;
@@ -211,7 +186,6 @@ fn pink_noise_is_a_flat_and_smooth_picture() {
     let picture = run(&signal, hop, frames, 1.0 / 60.0);
     let settled = &picture[30..];
     let last = &settled[settled.len() - 1];
-    // Smooth: neighbouring bins are near each other.
     let roughness: f32 =
         last.windows(2).map(|w| (w[1] - w[0]).abs()).sum::<f32>() / (last.len() - 1) as f32;
     assert!(roughness < 1.0, "{roughness} dB a bin");
@@ -220,9 +194,6 @@ fn pink_noise_is_a_flat_and_smooth_picture() {
         .map(|w| (w[1] - w[0]).abs())
         .fold(0.0f32, f32::max);
     assert!(worst < 4.0, "a step of {worst} dB between two bins");
-    // Flat: an octave at the bottom, in the middle and at the top reads
-    // alike (the first bins, under one transform bin, are the transform's
-    // own limit and are left out).
     let mean = |from: f32, to: f32| {
         let at = |hz: f32| {
             let share = (hz / 20.0).log10() / 3.0;
@@ -242,9 +213,6 @@ fn pink_noise_is_a_flat_and_smooth_picture() {
             "the {name} reads {at} against {middle}"
         );
     }
-    // And it is a still picture too: pink noise moves less than a decibel
-    // from frame to frame in the middle of the axis, and no bin (the ones
-    // under a transform bin excepted) moves by more than three.
     let mut stds: Vec<f32> = (0..last.len())
         .map(|bin| {
             let mean = settled.iter().map(|frame| frame[bin]).sum::<f32>() / settled.len() as f32;
@@ -263,25 +231,18 @@ fn pink_noise_is_a_flat_and_smooth_picture() {
     assert!(worst < 3.0, "a bin moved {worst} dB a frame");
 }
 
-/// Under the transform's first bin the picture is interpolated, not
-/// stepped: a spectrum that climbs steadily climbs steadily in the
-/// picture. A picture of the loudest bin under each point held one value
-/// across every point below 700 Hz.
 #[test]
 fn the_low_end_is_interpolated_not_stepped() {
-    // Amplitude ∝ bin number, so the power climbs 6 dB an octave.
     let spectrum: Vec<f32> = (0..BINS)
         .map(|bin| 20.0 * (bin.max(1) as f32).log10())
         .collect();
     let mut picture = Display::new((20.0, 20_000.0));
     picture.update(&spectrum, 48_000, 1.0);
-    // The transform's own first bin is 23.4 Hz; from the first bin whose
-    // band reaches past it, every bin climbs.
     let bin_hz = 48_000.0 / 2.0 / BINS as f32;
     let first = picture
         .centres
         .iter()
-        .position(|hz| hz * ABOVE > bin_hz)
+        .position(|hz| hz * BAND_ABOVE > bin_hz)
         .unwrap();
     assert!(first > 4, "{first} bins under the first one");
     let low: Vec<f32> = picture.bins()[..60].to_vec();
@@ -291,8 +252,6 @@ fn the_low_end_is_interpolated_not_stepped() {
             "the low end stepped: {pair:?} in {low:?}"
         );
     }
-    // And under the first bin, where a transform cannot see, the picture is
-    // straight rather than stepped down.
     for pair in low[..first].windows(2) {
         assert!(
             (pair[1] - pair[0]).abs() < 0.02,
@@ -301,9 +260,6 @@ fn the_low_end_is_interpolated_not_stepped() {
     }
 }
 
-/// The ballistics are the same in wall-clock time whatever the frame rate
-/// is: a fall covers the same distance after the same hundred
-/// milliseconds at 30, 60, 144 and 240 frames a second.
 #[test]
 fn the_ballistics_keep_their_time_whatever_the_frame_rate() {
     for fps in [30.0, 60.0, 144.0, 240.0] {
@@ -331,8 +287,6 @@ fn the_ballistics_keep_their_time_whatever_the_frame_rate() {
     }
 }
 
-/// A rise is ten milliseconds and a fall is three hundred: the two time
-/// constants the picture is read at.
 #[test]
 fn a_step_rises_in_ten_milliseconds_and_falls_in_three_hundred() {
     let risen = follow(MIN_DB, 0.0, RISE);
@@ -341,13 +295,10 @@ fn a_step_rises_in_ten_milliseconds_and_falls_in_three_hundred() {
     let fallen = follow(0.0, MIN_DB, FALL);
     let want = MIN_DB + (0.0 - MIN_DB) * (-1.0f32).exp();
     assert!((fallen - want).abs() < 0.05, "{fallen} against {want}");
-    // Nearly there after five times the constant, and never past it.
     assert!((follow(MIN_DB, 0.0, RISE * 5.0) - 0.0).abs() < 1.0);
     assert!(follow(0.0, MIN_DB, 0.0) == 0.0);
 }
 
-/// A measurement, not a test: what one window costs the interface, from
-/// the transform's bins to the picture's.
 #[test]
 #[ignore = "a measurement: prints times, asserts only a generous bound"]
 fn the_cost_of_a_picture() {
@@ -372,8 +323,6 @@ fn the_cost_of_a_picture() {
     assert!(times[500] < 10.0, "{} ms", times[500]);
 }
 
-/// A window of `signal` folded into a picture, `frames` of them: what the
-/// interface does when it draws.
 fn run(signal: &[f32], hop: usize, frames: usize, dt: f32) -> Vec<Vec<f32>> {
     let (mut tap, mut reader) = pair();
     reader.set_on(true);
@@ -393,8 +342,6 @@ fn run(signal: &[f32], hop: usize, frames: usize, dt: f32) -> Vec<Vec<f32>> {
     out
 }
 
-/// Pink noise, from white noise through the usual seven-pole approximation
-/// (a test's own signal, not the product's DSP).
 fn pink(frames: usize) -> Vec<f32> {
     let mut state = 0x2F6E_2B5Du32;
     let mut b = [0.0f32; 7];

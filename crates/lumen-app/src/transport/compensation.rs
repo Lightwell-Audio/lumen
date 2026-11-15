@@ -1,24 +1,15 @@
-//! The delay compensation readout (M4 slice 6, the owner's D1, ADR-0041):
-//! nothing while no device adds latency; then the audio status ends with
-//! "12.4 ms compensation", and hovering it names the longest path in the
-//! info line. The audio panel always shows it.
-
 use lumen_engine::Compensation;
 use lumen_project::model::Project;
 use lumen_project::routing as rules;
 
-/// Milliseconds of `frames` at `rate`.
 pub(super) fn ms(frames: u32, rate: u32) -> f64 {
     f64::from(frames) * 1e3 / f64::from(rate.max(1))
 }
 
-/// What the audio status adds: `None` while nothing is compensated.
 pub(super) fn readout(frames: u32, rate: u32) -> Option<String> {
     (frames > 0).then(|| format!("{:.1} ms compensation", ms(frames, rate)))
 }
 
-/// The tracks along the longest path that add latency, first to last
-/// ("Kick → Drums → Master").
 pub(super) fn path(project: &Project, compensation: &Compensation) -> String {
     compensation
         .path
@@ -32,7 +23,6 @@ pub(super) fn path(project: &Project, compensation: &Compensation) -> String {
         .join(" → ")
 }
 
-/// What the info line says over the readout.
 pub(super) fn about(project: &Project, compensation: &Compensation, rate: u32) -> String {
     let ms = ms(compensation.frames, rate);
     let path = path(project, compensation);

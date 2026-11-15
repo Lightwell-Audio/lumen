@@ -1,40 +1,25 @@
-//! Finding VST3 modules on disk, in both layouts seen in the wild: a bundle
-//! folder holding the binary for each platform, and a bare library named
-//! `Name.vst3`. Only reads folder listings; nothing is loaded.
-
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use lumen_plugin_host::module::binary_path;
 
-/// How far below a root a module may sit (vendor folders inside the root).
 pub const MAX_DEPTH: usize = 4;
-/// The most modules one discovery returns, so a runaway folder cannot make
-/// a scan unbounded.
 pub const MAX_MODULES: usize = 4096;
 
-/// A module found on disk.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Module {
-    /// The `.vst3` bundle folder or file: what the user knows it by.
     pub path: PathBuf,
-    /// The library that is loaded: `path` itself, or inside the bundle.
     pub binary: PathBuf,
 }
 
-/// What a discovery found and could not use.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Discovered {
     pub modules: Vec<Module>,
-    /// Bundles with no binary for this platform (a bundle for another system).
     pub without_binary: Vec<PathBuf>,
-    /// Roots that do not exist or cannot be read.
     pub missing_roots: Vec<PathBuf>,
-    /// There were more than [`MAX_MODULES`] modules: the rest were left out.
     pub truncated: bool,
 }
 
-/// The folders VST3 plugins install to by default on this platform.
 pub fn standard_roots() -> Vec<PathBuf> {
     let mut roots = Vec::new();
     let var = |name: &str| std::env::var_os(name).map(PathBuf::from);
@@ -60,8 +45,6 @@ pub fn standard_roots() -> Vec<PathBuf> {
     roots
 }
 
-/// Every module under `roots`, sorted by path, each library once even when
-/// two roots (or a link) lead to it.
 pub fn discover(roots: &[PathBuf]) -> Discovered {
     let mut found = Discovered::default();
     let mut visited = HashSet::new();
@@ -104,7 +87,6 @@ fn walk(dir: &Path, depth: usize, visited: &mut HashSet<PathBuf>, out: &mut Disc
             out.truncated = true;
             return;
         }
-        // `is_dir` follows links, which some installers use for bundles.
         let is_dir = path.is_dir();
         if is_vst3(&path) {
             if is_dir {
@@ -119,7 +101,6 @@ fn walk(dir: &Path, depth: usize, visited: &mut HashSet<PathBuf>, out: &mut Disc
                 });
             }
         } else if is_dir && depth < MAX_DEPTH {
-            // A link back up the tree must not be followed forever.
             let Ok(real) = path.canonicalize() else {
                 continue;
             };
@@ -180,7 +161,6 @@ mod tests {
         }
     }
 
-    /// The path inside a bundle where this platform keeps its binary.
     fn inside(bundle: &str) -> String {
         let (arch, ext) = if cfg!(windows) {
             ("x86_64-win", "vst3")

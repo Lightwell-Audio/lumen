@@ -1,13 +1,3 @@
-//! Bounce (M7b slice E4): renders the selected tracks, with their own sound,
-//! into new audio files and puts them on the tracks or on new ones, as one
-//! undo step. The popover (a small window, like History) holds the owner's
-//! choices (B1 to B3): Replace or New track, Include effects, Include tail,
-//! remembered from one bounce to the next. What is bounced (B4) is the time
-//! range if there is one, else the selected clips' span, else the whole of
-//! each selected track. The render runs on a worker (`bounce::Render`) with
-//! progress in the toast and Esc to stop; the plugins are read first so the
-//! worker's own hosts start from their states as they are now.
-
 use std::time::Instant;
 
 use eframe::egui::{self, Align2, Key, RichText, pos2};
@@ -20,25 +10,19 @@ use crate::export::render_audio::RenderAudio;
 use crate::widgets::{self, Choice, Dialog, raised};
 use crate::{App, theme};
 
-/// How long the plugins are waited for before a bounce starts with the
-/// states it has.
 const PLUGIN_READ_WAIT: std::time::Duration = std::time::Duration::from_secs(4);
 
-/// A bounce while the plugins are being read.
 pub(crate) struct Waiting {
     parts: Vec<Part>,
     since: Instant,
 }
 
-/// A render under way.
 pub(crate) struct Running {
     render: Render,
     parts: Vec<Part>,
 }
 
 impl App {
-    /// What a bounce would take: the tracks, and what of them. A time range
-    /// first, then selected clips, then selected tracks.
     fn bounce_scope(&self) -> (Vec<Id>, Option<(Ticks, Ticks)>, Vec<Id>) {
         let project = self.document.project();
         if let Some(range) = &self.arrangement.range {
@@ -67,7 +51,6 @@ impl App {
         plan(self.document.project(), &tracks, scope, options)
     }
 
-    /// The tracks that a bounce would render now.
     pub(crate) fn bounce_targets(&self) -> Vec<Id> {
         let options = self.bounce_options();
         self.bounce_parts(options)
@@ -89,7 +72,6 @@ impl App {
         }
     }
 
-    /// The Bounce command: opens the popover with what will be bounced.
     pub(crate) fn open_bounce(&mut self) {
         if self.bouncing.is_some() || self.bounce_waiting.is_some() {
             self.say("Already bouncing".to_owned());
@@ -102,7 +84,6 @@ impl App {
         self.show_bounce = true;
     }
 
-    /// The popover. Call every frame.
     pub(crate) fn bounce_window(&mut self, ctx: &egui::Context) {
         if !self.show_bounce {
             return;
@@ -182,14 +163,12 @@ impl App {
         }
     }
 
-    /// Starts the bounce: reads the plugins first, when there are any.
     fn start_bounce(&mut self, ctx: &egui::Context) {
         let parts = self.bounce_parts(self.bounce_options());
         if parts.is_empty() {
             self.say("Nothing to bounce there".to_owned());
             return;
         }
-        // Audio has to be loaded for the clip player to render it.
         let audio = RenderAudio::of_tracks(
             &self.lanes,
             self.document.project(),
@@ -219,10 +198,7 @@ impl App {
         self.launch_bounce(parts, ctx);
     }
 
-    /// Hands the parts to the worker, with the project as the plugins hold it.
     fn launch_bounce(&mut self, parts: Vec<Part>, ctx: &egui::Context) {
-        // The files are made at the project's rate; the worker reads the
-        // audio again when the device runs at another.
         let audio = RenderAudio::of_tracks(
             &self.lanes,
             self.document.project(),
@@ -278,8 +254,6 @@ impl App {
         });
     }
 
-    /// Follows the bounce: waits for the plugins to be read, shows progress,
-    /// stops on Esc, and puts the files in when it is done. Call every frame.
     pub(crate) fn poll_bounce(&mut self, ctx: &egui::Context) {
         if let Some(waiting) = &self.bounce_waiting {
             if !self.typing && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
@@ -328,14 +302,11 @@ impl App {
         }
     }
 
-    /// Puts the rendered files into the project as one step, selects the
-    /// result, and says what happened.
     fn finish_bounce(&mut self, parts: Vec<Part>, made: Vec<Rendered>) {
         let timeline = self.transport.timeline.clone();
         let baked: Vec<Baked> = made
             .iter()
             .filter_map(|r| {
-                // The file's own rate: the project's, not the device's.
                 let rate = r.media.sample_rate;
                 let part = parts.iter().find(|p| p.track == r.track)?.clone();
                 let from = timeline.sample_at(part.end, rate);

@@ -1,10 +1,3 @@
-//! The engine's routing derived from the project (M4 slices 1 and 2,
-//! ADR-0035): one node per track and one for the master, with each track's
-//! input trim, polarity, volume, pan, whether it can be heard, its sends
-//! and its output (`lumen_project::routing::destination`: its group, the
-//! master, a group or return, or a device pair). Kept pure, so the
-//! translation is tested, as `lanes::engine_clips` is.
-
 use std::collections::{BTreeMap, BTreeSet};
 
 use lumen_core::pan::PanLaw;
@@ -19,36 +12,22 @@ use crate::lane_bake::{self, bake};
 use lumen_project::model::{Id, Output, Project, SidechainTap, Track, TrackKind};
 use lumen_project::routing::{self as rules, destination};
 
-/// What is cued and how loud (M4 slice 4, the owner's C1), and where the
-/// device's outputs are open (slice 5): session state, not part of the
-/// project.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Cue {
-    /// The master's switch is on Cue and a cue pair is open.
     pub on: bool,
     pub volume_db: f32,
-    /// The tracks cued with their headphone buttons.
     pub tracks: BTreeSet<Id>,
-    /// Where the device's output pairs sit in the stream.
     pub outputs: Outputs,
 }
 
-/// Where the device's output pairs sit among the stream's channels (M4
-/// slice 5, the owner's B6): the main pair first, the cue pair next, then
-/// every other pair something plays to. A track sent to a device pair that
-/// is not open (yet) is silent until it is.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Outputs {
-    /// The main pair's device pair (0 is outputs 1 and 2).
     pub main: Option<u16>,
     pub cue: Option<u16>,
-    /// Further device pairs, in the order they follow.
     pub extra: Vec<u16>,
 }
 
 impl Outputs {
-    /// The stream pair device pair `pair` plays on, when it is open: the
-    /// main pair is 0, the cue pair 1, further ones after them.
     fn stream_pair(&self, pair: u16) -> Option<u16> {
         if self.main == Some(pair) {
             return Some(0);
@@ -64,7 +43,6 @@ impl Outputs {
     }
 }
 
-/// The device pairs `project` sends tracks (or the master) to.
 pub fn device_pairs(project: &Project) -> BTreeSet<u16> {
     rules::all_tracks(project)
         .filter_map(|t| match t.output {
@@ -74,38 +52,20 @@ pub fn device_pairs(project: &Project) -> BTreeSet<u16> {
         .collect()
 }
 
-/// The cue pair's first channel as the engine sees it: after the main
-/// pair (the owner's O1).
 const CUE_CHANNEL: u16 = crate::settings::CUE_CHANNEL;
 
-/// What the session knows of devices on tracks that the project does not
-/// say: the engine's synthetic latent device, which end-to-end tests put on
-/// tracks to see delay compensation at work (`testing`, M4 slice 6), and the
-/// latency of each plugin effect (M6 slice 2c), and which lanes the user
-/// has taken over (M7 slice A4a).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Devices {
-    /// Frames of latency on each track that has some.
     pub latent: BTreeMap<Id, u32>,
-    /// Frames of latency of each plugin, by device: what it last
-    /// reported, or what the project saved while it loads or is missing.
     pub hosted: BTreeMap<Id, u32>,
-    /// Frames of latency of each built-in effect, by device (M8 slice B0).
     pub builtin: BTreeMap<Id, u32>,
-    /// The lanes the user has taken over (M7 slice A4a): they play nothing
-    /// and the control's own value is heard.
     pub overridden: Overrides,
 }
 
-/// Whether `track` plays mono material: an audio track whose clips are all
-/// mono files. Its pan follows the project's pan law; every other track
-/// balances (unity at the centre).
 fn plays_mono(project: &Project, track: &Track) -> bool {
     track.plays_mono(&project.media)
 }
 
-/// A track's lanes on the device's sample clock (M7 slices A0 and A3, D3).
-/// Only lanes that are on and drive something the track has are baked.
 fn automation(
     track: &Track,
     over: &Overrides,
@@ -129,9 +89,6 @@ fn automation(
             .iter()
             .map(|send| on(Target::Send { to: send.to }))
             .collect(),
-        // The parameters of the track's effects that lanes drive (slice A3;
-        // built-ins join them in M8 slice B0). Those of a plugin instrument go
-        // with the track's MIDI (`midi_play`).
         plugins: lane_bake::device_lanes(track, over, tempo, rate, |d| {
             (d.is_vst3() || crate::builtin::is_builtin(d)) && !d.is_instrument()
         })
@@ -142,20 +99,14 @@ fn automation(
     (!lanes.is_empty()).then_some(lanes)
 }
 
-/// Whether `track` has a mute lane that plays: the lane, not the track's
-/// own switch, then says when it is heard.
 fn mute_lane(track: &Track, over: &Overrides) -> bool {
     track
         .lane(Target::Mute)
         .is_some_and(|l| over.plays(track, l))
 }
 
-/// The routing that plays `project`, with `cue` and `devices`, its lanes
-/// baked for a device at `rate`.
 pub fn routing(project: &Project, cue: &Cue, devices: &Devices, rate: u32) -> Routing {
     let tempo = TempoMap::new(project.tempo.clone()).ok();
-    // A track with a mute lane is heard when its lane says so: what solo and
-    // the other tracks make of it is worked out as if its own switch were off.
     let unmuted;
     let rules_project =
         if rules::all_tracks(project).any(|t| t.mute && mute_lane(t, &devices.overridden)) {
@@ -175,17 +126,9 @@ pub fn routing(project: &Project, cue: &Cue, devices: &Devices, rate: u32) -> Ro
             project
         };
     let heard = lumen_project::solo::hearing(rules_project);
-    // What each built-in effect's parameters hold (M8 slice B0), by device.
     let builtin_values = crate::builtin::routing_values(project);
     let nodes = rules::all_tracks(project)
         .map(|track| {
-            // Only mono material pans by the project's law; stereo keeps
-            // its level at the centre
-            // (the owner's B, after M4 slice 7: a −3 dB centre on stereo
-            // tracks made every file play and measure 3 dB under its own
-            // level). Buses (groups, returns and the master) carry sound
-            // their tracks have already panned (owner, after MT-MIX-3 run
-            // 1), so they balance too.
             let law = if plays_mono(project, track) {
                 project.pan_law
             } else {
@@ -200,8 +143,6 @@ pub fn routing(project: &Project, cue: &Cue, devices: &Devices, rate: u32) -> Ro
                 audible: heard.of(track.id).output,
                 sends_audible: heard.of(track.id).sends,
                 cue: cue.on && cue.tracks.contains(&track.id),
-                // Silent sends stay in the routing, so turning one up glides
-                // rather than changing the routing's shape.
                 sends: track
                     .sends
                     .iter()
@@ -219,13 +160,6 @@ pub fn routing(project: &Project, cue: &Cue, devices: &Devices, rate: u32) -> Ro
                         listen: false,
                     })
                     .into_iter()
-                    // Every device in the chain, in the order the card shows
-                    // them (M8 slice B0, review M2): a plugin effect is named
-                    // for as long as the project holds it (the engine plays
-                    // the host where one is attached and the same time without
-                    // it, D1, D7), and a built-in effect runs in the audio
-                    // thread itself, found by its id. An instrument is not in
-                    // the chain.
                     .chain(track.devices.iter().filter_map(|d| {
                         if d.is_vst3() && !d.is_instrument() {
                             return Some(Device::Hosted {
@@ -233,9 +167,6 @@ pub fn routing(project: &Project, cue: &Cue, devices: &Devices, rate: u32) -> Ro
                                 latency: devices.hosted.get(&d.id).copied().unwrap_or(0),
                             });
                         }
-                        // A built-in's reported latency keeps every other path
-                        // lined up with it; its power button glides the node to
-                        // the dry fallback rather than being ignored.
                         (crate::builtin::is_builtin(d) && !d.is_instrument()).then(|| {
                             Device::Builtin {
                                 device: d.id.0,
@@ -245,23 +176,16 @@ pub fn routing(project: &Project, cue: &Cue, devices: &Devices, rate: u32) -> Ro
                         })
                     }))
                     .collect(),
-                // What each built-in's parameters hold, carried with the
-                // routing so a knob reaches the audio thread with the next
-                // block.
                 values: builtin_values
                     .iter()
                     .filter(|(device, _)| track.devices.iter().any(|d| d.id.0 == *device))
                     .cloned()
                     .collect(),
-                // A plugin instrument plays its notes as late as it last
-                // reported, and every other path waits for it (slice 6).
                 source: track
                     .devices
                     .iter()
                     .filter(|d| d.is_vst3() && d.is_instrument())
                     .map(|d| d.id)
-                    // An audio track that plays an instrument's output waits as
-                    // long as that instrument does.
                     .chain(track.plugin_output.map(|o| o.device))
                     .filter_map(|d| devices.hosted.get(&d).copied())
                     .max()
@@ -278,17 +202,10 @@ pub fn routing(project: &Project, cue: &Cue, devices: &Devices, rate: u32) -> Ro
             channel: CUE_CHANNEL,
             volume: db_to_gain(cue.volume_db),
         }),
-        // The loudness readout measures what the master plays (slice 5).
         measure: Some(project.master.id.0),
     }
 }
 
-/// The routing that renders `track` alone for a bounce (M7b E4, owner's B2):
-/// the track's own sound (devices, trim, polarity, fader, pan and its own
-/// lanes) into a master that does nothing. Not its sends, its group, mute and
-/// solo, the cue or the master's own fader and devices; a plugin keyed from
-/// another track is keyed from nothing. `None` if the track is not in the
-/// project.
 pub fn bounce_routing(
     project: &Project,
     track: lumen_project::model::Id,
@@ -314,9 +231,6 @@ pub fn bounce_routing(
     })
 }
 
-/// The sidechains into `track`: where each of its plugin effects is keyed
-/// from, once for each source and tap. A source that has been deleted plays
-/// nothing (the device keeps naming it, so undoing the delete restores it).
 fn sidechains(project: &Project, track: &Track) -> Vec<SidechainSpec> {
     let mut found: Vec<SidechainSpec> = Vec::new();
     for key in track.devices.iter().filter_map(|d| d.sidechain) {
@@ -339,7 +253,6 @@ fn sidechains(project: &Project, track: &Track) -> Vec<SidechainSpec> {
 }
 
 fn output(project: &Project, track: &Track, outputs: &Outputs) -> Destination {
-    // The master's Auto is the main pair, whichever device pair that is.
     if track.kind == TrackKind::Master && track.output == Output::Auto {
         return Destination::Hardware(0);
     }
@@ -454,7 +367,6 @@ mod tests {
         doc.set_sidechain(b, key(SidechainTap::PreFx)).unwrap();
         let routing = super::routing(doc.project(), &Cue::default(), &Devices::default(), RATE);
         assert_eq!(node(&routing, ids[0]).sidechains.len(), 2);
-        // A source that was deleted plays nothing, and the routing still compiles.
         doc.set_sidechain(
             a,
             Some(Sidechain {
@@ -468,7 +380,6 @@ mod tests {
         lumen_engine::compile_routing(&routing).unwrap();
     }
 
-    /// A track with a plugin of `kind` named `name` on it.
     fn with_plugin(
         doc: &mut Document,
         track: Id,
@@ -506,10 +417,8 @@ mod tests {
         let (host, lane) = &lanes.plugins[0];
         assert_eq!(*host, effect.0, "named by the device's id, as the host is");
         assert_eq!(lane.param, 9);
-        // 120 BPM at RATE: four quarters are two seconds.
         assert_eq!(lane.lane.points()[1].at, 2 * i64::from(RATE));
         lumen_engine::compile_routing(&routing).unwrap();
-        // Off: it plays nothing.
         doc.set_lane_enabled(ids[0], target, false).unwrap();
         let routing = super::routing(doc.project(), &Cue::default(), &Devices::default(), RATE);
         assert!(node(&routing, ids[0]).automation.is_none());
@@ -578,9 +487,6 @@ mod tests {
         );
     }
 
-    /// M2: a track's chain plays in the order its card shows, whatever kinds of
-    /// device are in it — a built-in before a plugin plays before it, and the
-    /// reverse.
     #[test]
     fn the_chain_plays_in_the_order_the_card_shows() {
         use lumen_project::model::{DeviceKind, PluginRef};
@@ -608,11 +514,9 @@ mod tests {
                 .collect()
         };
         assert_eq!(order(&doc), ["plugin", "builtin"]);
-        // The card shows them the other way round: so does the chain.
         doc.move_device(ids[0], builtin, ids[0], crate::document::Slot::At(0))
             .unwrap();
         assert_eq!(order(&doc), ["builtin", "plugin"]);
-        // And the routing compiles either way.
         lumen_engine::compile_routing(&super::routing(
             doc.project(),
             &Cue::default(),
@@ -621,7 +525,6 @@ mod tests {
         ))
         .unwrap();
         assert_ne!(plugin, builtin);
-        // A latent test device still comes first: it is the track's own.
         let mut devices = Devices::default();
         devices.latent.insert(ids[0], 12);
         let routing = super::routing(doc.project(), &Cue::default(), &devices, RATE);
@@ -670,7 +573,6 @@ mod tests {
             false,
         )
         .unwrap();
-        // 120 BPM: a quarter note is half a second.
         let routing = super::routing(doc.project(), &Cue::default(), &Devices::default(), RATE);
         let lanes = node(&routing, ids[0]).automation.as_ref().expect("lanes");
         let at: Vec<i64> = lanes
@@ -685,11 +587,9 @@ mod tests {
         assert!(lanes.pan.is_none() && lanes.trim.is_none() && lanes.mute.is_none());
         assert_eq!(lanes.sends.len(), 1);
         assert_eq!(lanes.sends[0].as_ref().unwrap().points()[0].at, 48_000);
-        // Another rate puts the points on its own samples.
         let routing = super::routing(doc.project(), &Cue::default(), &Devices::default(), 44_100);
         let lanes = node(&routing, ids[0]).automation.as_ref().unwrap();
         assert_eq!(lanes.volume.as_ref().unwrap().points()[1].at, 88_200);
-        // A track with no lanes has none.
         assert!(node(&routing, ids[1]).automation.is_none());
         lumen_engine::compile_routing(&routing).unwrap();
     }
@@ -716,7 +616,6 @@ mod tests {
         assert_eq!(last(&doc), 192_000);
         doc.set_tempo_at(lumen_core::time::Ticks::ZERO, 240.0, None);
         assert_eq!(last(&doc), 96_000);
-        // A change of tempo partway along: four quarters at 120, four at 240.
         doc.set_tempo_at(lumen_core::time::Ticks::ZERO, 120.0, None);
         doc.apply("tempo", None, |p| {
             p.tempo.push(lumen_core::time::TempoPoint {
@@ -739,7 +638,6 @@ mod tests {
             node(&plan, ids[0]).automation.is_none(),
             "a lane that is off plays nothing"
         );
-        // A lane left naming a send the track no longer makes is ignored.
         doc.set_send(ids[0], ids[1], lumen_project::model::Level(0.0))
             .unwrap();
         doc.set_lane(
@@ -783,14 +681,12 @@ mod tests {
         let all = lanes(&play(&doc)).expect("all three play");
         assert!(all.volume.is_some() && all.mute.is_some() && all.plugins.len() == 1);
 
-        // The fader and the plugin's knob are moved: those lanes let go.
         doc.set_volume(ids[0], -12.0);
         doc.override_lane(ids[0], param);
         let some = lanes(&play(&doc)).expect("the mute lane still plays");
         assert!(some.volume.is_none() && some.plugins.is_empty() && some.mute.is_some());
         assert_eq!(node(&play(&doc), ids[0]).volume, db_to_gain(-12.0));
 
-        // A mute lane taken over leaves the track's own switch to decide.
         doc.set_mute(&[ids[0]], false);
         let plan = play(&doc);
         assert!(lanes(&plan).is_none(), "nothing is left to play");
@@ -799,7 +695,6 @@ mod tests {
         assert!(!node(&play(&doc), ids[0]).audible, "its own switch: muted");
         lumen_engine::compile_routing(&play(&doc)).unwrap();
 
-        // Re-enabled, they play again.
         doc.reenable_all();
         let again = lanes(&play(&doc)).expect("back");
         assert!(again.volume.is_some() && again.mute.is_some() && again.plugins.len() == 1);
@@ -823,11 +718,9 @@ mod tests {
                 .mute
                 .is_some()
         );
-        // Solo still silences it: a mute lane is not a solo.
         doc.set_solo(&[ids[1]], true, false);
         let plan = routing(doc.project(), &Cue::default());
         assert!(!node(&plan, ids[0]).audible);
-        // Turned off, the switch is the track's again.
         doc.set_solo(&[ids[1]], false, false);
         doc.set_lane_enabled(ids[0], Target::Mute, false).unwrap();
         let plan = routing(doc.project(), &Cue::default());
@@ -848,7 +741,6 @@ mod tests {
         use lumen_core::automation::{Lane, Point, Shape};
         use lumen_core::curve::Curve;
         use lumen_core::time::{TempoMap, TempoPoint, Ticks};
-        // Two tempos, and lanes of every shape of segment.
         let tempo = TempoMap::new(vec![
             TempoPoint {
                 at: Ticks::ZERO,
@@ -873,8 +765,6 @@ mod tests {
             let mut at = 0i64;
             let points: Vec<Point> = (0..2 + case % 12)
                 .map(|_| {
-                    // At least a sixteenth apart, so a segment is not so steep that half
-                    // a sample of rounding moves its value.
                     at += lumen_core::time::PPQ / 4
                         + (next() * 4.0 * lumen_core::time::PPQ as f32) as i64;
                     let shape = match (next() * 3.0) as u32 {
@@ -889,8 +779,6 @@ mod tests {
             let baked = bake(&model, &tempo, RATE).unwrap();
             let end = tempo.sample_at(points.last().unwrap().at, RATE);
             for sample in (0..end + 5_000).step_by(37) {
-                // Within two samples of a point the two may be either side of
-                // it: skip those.
                 if baked.points().iter().any(|p| (p.at - sample).abs() < 3) {
                     continue;
                 }
@@ -937,7 +825,6 @@ mod tests {
         assert_eq!(heard(&doc), [false, false, true], "only the soloed track");
     }
 
-    /// Puts a clip of a file with `channels` on track `id`.
     fn with_file(doc: &mut Document, id: Id, channels: u16) {
         let media = doc.fresh_id();
         doc.import(vec![crate::document::Imported {
@@ -956,8 +843,6 @@ mod tests {
 
     #[test]
     fn only_mono_tracks_follow_the_pan_law_and_stereo_keeps_its_level() {
-        // The owner's B (after M4 slice 7): a −3 dB centre on stereo
-        // tracks played every file 3 dB under its own level.
         let (mut doc, ids) = doc_with(&[TrackKind::Audio; 4]);
         with_file(&mut doc, ids[0], 1);
         with_file(&mut doc, ids[1], 2);
@@ -975,7 +860,6 @@ mod tests {
 
     #[test]
     fn buses_are_unity_when_centred() {
-        // Owner, after MT-MIX-3 run 1: tracks in groups played quieter.
         let (doc, ids) = doc_with(&[TrackKind::Audio, TrackKind::Group, TrackKind::Return]);
         let routing = routing(doc.project(), &Cue::default());
         for bus in [ids[1], ids[2], doc.project().master.id] {
@@ -986,7 +870,6 @@ mod tests {
 
     #[test]
     fn solo_keeps_the_path_through_groups_open() {
-        // MT-MIX-3 run 1: soloing a track inside a group silenced it.
         let (mut doc, ids) = doc_with(&[TrackKind::Audio; 3]);
         let outer = doc.group_tracks(&ids[..2]).unwrap();
         let inner = doc.group_tracks(&ids[..1]).unwrap();
@@ -999,7 +882,6 @@ mod tests {
         );
         assert!(!heard(&doc, ids[1]), "its neighbour in the group is silent");
         assert!(!heard(&doc, ids[2]), "and the track outside");
-        // A soloed group: everything inside it is heard.
         doc.set_solo(&[outer], true, true);
         assert!(heard(&doc, ids[0]) && heard(&doc, ids[1]) && heard(&doc, inner));
         assert!(!heard(&doc, ids[2]));
@@ -1029,8 +911,6 @@ mod tests {
 
     #[test]
     fn a_soloed_return_reaches_the_engine_as_wet_only() {
-        // M4 slice 4, case 8: the sends into a soloed return play, the
-        // sending tracks' own outputs do not.
         let (mut doc, ids) = doc_with(&[TrackKind::Return, TrackKind::Audio]);
         doc.set_send(ids[1], ids[0], Level(-6.0)).unwrap();
         doc.set_solo(&ids[..1], true, true);
@@ -1059,7 +939,6 @@ mod tests {
         doc.set_trim(audio, 6.0);
         doc.set_pan_law(PanLaw::Linear);
         doc.set_output(master, Output::Device(1)).unwrap();
-        // Outputs 3 and 4 open after the main pair.
         let open = Cue {
             outputs: Outputs {
                 main: Some(0),
@@ -1085,7 +964,6 @@ mod tests {
 
     #[test]
     fn device_pairs_play_where_the_stream_opened_them() {
-        // The owner's B6: main, then cue, then further pairs in order.
         let outputs = Outputs {
             main: Some(0),
             cue: Some(1),
@@ -1121,7 +999,6 @@ mod tests {
             Destination::None,
             "silent until open"
         );
-        // The master's Auto is the main pair, whichever it is.
         let master = doc.project().master.id;
         assert_eq!(node(&routing, master).output, Destination::Hardware(0));
     }

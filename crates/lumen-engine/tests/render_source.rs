@@ -1,9 +1,3 @@
-//! Rendering a whole source without a device (M7b slice E4, ADR-0096): the
-//! mixer is played from a place on the timeline as fast as it goes, and what
-//! reaches the sink is what playback would have played there: no fade-in at
-//! the start, delay compensation followed, a tail that is left off where it
-//! is quiet.
-
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
@@ -23,11 +17,8 @@ const HOST: u64 = 7;
 
 #[derive(Clone, Copy)]
 enum Mode {
-    /// Half the input, delayed by the latency.
     Halve,
-    /// The input plus a feedback of its own output: it rings on.
     Feedback,
-    /// Never answers in time.
     Late,
 }
 
@@ -74,7 +65,6 @@ impl Hosted for FakeEffect {
                 }
             }
             if depth > 0 {
-                // Delay the output by the latency.
                 for (k, sample) in out.iter_mut().enumerate() {
                     let slot = channel * depth + (self.at + k) % depth;
                     *sample = std::mem::replace(&mut self.ring[slot], *sample);
@@ -121,7 +111,6 @@ type Rig = (
     lumen_engine::MixerHandle,
 );
 
-/// A track playing the ramp from the start, behind these devices.
 fn rig(devices: Vec<Device>) -> Rig {
     let samples = ramp();
     let audio = Arc::new(ClipAudio::Memory {
@@ -233,7 +222,6 @@ fn a_render_from_the_middle_of_a_clip_has_no_fade_in() {
 fn a_render_from_the_start_is_the_clip() {
     let r = go(Vec::new(), None, 0, 5_000);
     assert_eq!(r.left.len(), 5_000);
-    // The clip's own 2 ms edge fade is its start; after it, the audio.
     assert_ramp(
         &Rendered {
             left: r.left[200..].to_vec(),
@@ -286,7 +274,6 @@ fn a_tail_rings_until_it_is_quiet_and_no_longer() {
         latency: 0,
     }];
     let most = 10 * u64::from(RATE);
-    // Past the end of the clip (96,000 frames), so the input has stopped.
     let r = render(
         devices.clone(),
         Some(effect),
@@ -306,7 +293,6 @@ fn a_tail_rings_until_it_is_quiet_and_no_longer() {
         "the end is not silence"
     );
 
-    // Without a tail, only the span.
     let again = render(
         devices,
         Some(FakeEffect::new(Mode::Feedback, 0)),
@@ -319,7 +305,6 @@ fn a_tail_rings_until_it_is_quiet_and_no_longer() {
     assert_eq!(&again.left[..], &r.left[..6_000]);
 }
 
-/// A synth track with one note, half a second in.
 fn synth_mixer() -> (
     lumen_engine::Mixer<Layered<lumen_engine::ClipPlayer, lumen_engine::MidiPlayer>>,
     lumen_engine::MidiHandle,
@@ -364,7 +349,6 @@ fn synth_mixer() -> (
             measure: None,
         })
         .unwrap();
-    // The mixer takes the routing up at the first locate; keep the handles.
     let _ = routing;
     (source, midi, clips)
 }
@@ -401,8 +385,6 @@ fn an_instrument_renders_as_playback_plays_it() {
     let first = left.iter().position(|v| v.abs() > 0.0).expect("it sounds");
     assert_eq!(first, note, "the first sample of sound is the note's");
 
-    // The engine playing the same project from the start: the same audio,
-    // past its 2 ms play fade-in (the note comes much later).
     let (source, _midi, _clips) = synth_mixer();
     let (mut transport, mut engine) = engine(timeline, source, RATE);
     transport.send(Command::Play).unwrap();

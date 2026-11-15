@@ -1,20 +1,10 @@
-//! Time signatures and bar/beat positions.
-//!
-//! A [`MeterMap`] lists time-signature changes. Each change sits on a bar
-//! line of the meter before it, as in every mainstream DAW, so bars are
-//! always whole and numbering never jumps. Positions before zero extrapolate
-//! the first meter into negative bars (count-in, pre-roll).
-
 use serde::{Deserialize, Serialize};
 
 use crate::time::{PPQ, Ticks};
 
-/// A time signature, such as 4/4 or 7/8.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Meter {
-    /// Beats per bar, 1–99.
     pub numerator: u32,
-    /// Beat unit: 1, 2, 4, 8, 16, 32 or 64.
     pub denominator: u32,
 }
 
@@ -30,7 +20,6 @@ impl Meter {
             && self.denominator <= 64
     }
 
-    /// Length of one beat (the denominator's note value).
     pub fn beat(self) -> Ticks {
         Ticks(4 * PPQ / i64::from(self.denominator))
     }
@@ -46,20 +35,16 @@ impl std::fmt::Display for Meter {
     }
 }
 
-/// `meter` from `at` until the next point.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MeterPoint {
     pub at: Ticks,
     pub meter: Meter,
 }
 
-/// A position as bars, beats and ticks, all zero-based. Display adds one to
-/// bars and beats, so `Bbt { bar: 0, beat: 0, .. }` reads "1.1".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Bbt {
     pub bar: i64,
     pub beat: u32,
-    /// Ticks into the beat.
     pub ticks: Ticks,
 }
 
@@ -98,15 +83,6 @@ impl std::fmt::Display for MeterError {
 
 impl std::error::Error for MeterError {}
 
-/// Makes a list of time-signature changes into a valid map, moving as little
-/// as it can: sorted by position (the last of two at one position wins), the
-/// first at zero (a first change later than zero leaves 4/4 before it), each
-/// later change moved to the nearest bar line of the meter before it, and a
-/// change that lands on the bar of the one before it, or repeats its meter,
-/// dropped. Invalid meters are dropped.
-///
-/// Content never moves with a change: only the bar lines do, so the same
-/// list is what an edit, a file import and a migration all end up with.
 pub fn tidy(points: &[MeterPoint]) -> Vec<MeterPoint> {
     let mut sorted: Vec<MeterPoint> = points
         .iter()
@@ -114,7 +90,6 @@ pub fn tidy(points: &[MeterPoint]) -> Vec<MeterPoint> {
         .filter(|p| p.meter.is_valid())
         .collect();
     sorted.sort_by_key(|p| p.at);
-    // The last of several at one position wins.
     let mut single: Vec<MeterPoint> = Vec::with_capacity(sorted.len());
     for point in sorted {
         match single.last_mut() {
@@ -154,7 +129,6 @@ pub fn tidy(points: &[MeterPoint]) -> Vec<MeterPoint> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MeterMap {
     points: Vec<MeterPoint>,
-    /// Bar number at each point, precomputed for O(log n) lookups.
     bars: Vec<i64>,
 }
 
@@ -198,7 +172,6 @@ impl MeterMap {
         &self.points
     }
 
-    /// The meter in effect at `t`.
     pub fn meter_at(&self, t: Ticks) -> Meter {
         self.points[self.index_at(t)].meter
     }
@@ -221,7 +194,6 @@ impl MeterMap {
         }
     }
 
-    /// The tick at the start of `bar` (zero-based; negative before zero).
     pub fn bar_start(&self, bar: i64) -> Ticks {
         let i = self.bars.partition_point(|&b| b <= bar).saturating_sub(1);
         let point = self.points[i];
@@ -233,7 +205,6 @@ impl MeterMap {
         start + Ticks(i64::from(bbt.beat) * self.meter_at(start).beat().0) + bbt.ticks
     }
 
-    /// The bar line nearest `t`; half way goes to the later one.
     pub fn nearest_bar_start(&self, t: Ticks) -> Ticks {
         let bar = self.bbt_at(t).bar;
         let (before, after) = (self.bar_start(bar), self.bar_start(bar + 1));
@@ -244,7 +215,6 @@ impl MeterMap {
         }
     }
 
-    /// The first beat at or after `t`.
     pub fn next_beat(&self, t: Ticks) -> Ticks {
         let bbt = self.bbt_at(t);
         if bbt.ticks == Ticks::ZERO {
@@ -252,7 +222,6 @@ impl MeterMap {
         }
         let beat = self.meter_at(t).beat();
         let candidate = t + Ticks(beat.0 - bbt.ticks.0);
-        // A meter change lands on a bar line, which is also a beat.
         let i = self.index_at(t);
         match self.points.get(i + 1) {
             Some(next) if next.at < candidate => next.at,
@@ -294,7 +263,6 @@ mod tests {
 
     #[test]
     fn changes_continue_bar_numbering() {
-        // Two bars of 4/4, then 7/8 (bars of 3.5 quarters), then 3/4.
         let seven_eight = Ticks::quarters(8);
         let three_four = seven_eight + Ticks(PPQ * 7 / 2 * 2);
         let m = map(&[(0, 4, 4), (seven_eight.0, 7, 8), (three_four.0, 3, 4)]);
@@ -329,7 +297,6 @@ mod tests {
             m.next_beat(Ticks::quarters(2) + Ticks(1)),
             Ticks::quarters(3)
         );
-        // In 6/8 beats are eighths.
         let in_six_eight = Ticks::quarters(4) + Ticks(1);
         assert_eq!(
             m.next_beat(in_six_eight),
@@ -341,10 +308,8 @@ mod tests {
     fn the_nearest_bar_line_is_found_across_changes() {
         let m = map(&[(0, 4, 4), (Ticks::quarters(8).0, 6, 8)]);
         assert_eq!(m.nearest_bar_start(Ticks::quarters(1)), Ticks::ZERO);
-        // Half way (2 quarters into a 4-quarter bar) goes to the later line.
         assert_eq!(m.nearest_bar_start(Ticks::quarters(2)), Ticks::quarters(4));
         assert_eq!(m.nearest_bar_start(Ticks::quarters(7)), Ticks::quarters(8));
-        // 6/8 bars are 3 quarters long.
         assert_eq!(
             m.nearest_bar_start(Ticks::quarters(10)),
             Ticks::quarters(11)
@@ -373,13 +338,10 @@ mod tests {
                 denominator: d,
             },
         };
-        // 4/4 bars are 4 quarters: 5.2 quarters is closer to 4 than 8.
         let out = tidy(&[p(0, 4, 4), p(Ticks::quarters(5).0 + 200, 3, 4)]);
         assert_eq!(out[1].at, Ticks::quarters(4));
-        // 6 quarters is half way: the later bar line.
         let out = tidy(&[p(0, 4, 4), p(Ticks::quarters(6).0, 3, 4)]);
         assert_eq!(out[1].at, Ticks::quarters(8));
-        // The result is always a valid map.
         MeterMap::new(out).unwrap();
     }
 
@@ -392,19 +354,14 @@ mod tests {
                 denominator: d,
             },
         };
-        // Less than half a bar from the start, so on the first bar line.
         assert_eq!(tidy(&[p(0, 4, 4), p(PPQ, 3, 4)]).len(), 1);
-        // Repeating the meter before it adds nothing.
         assert_eq!(tidy(&[p(0, 4, 4), p(Ticks::quarters(8).0, 4, 4)]).len(), 1);
-        // The last of two at one place wins.
         let out = tidy(&[p(0, 4, 4), p(0, 3, 4)]);
         assert_eq!(out, vec![p(0, 3, 4)]);
-        // A first change after zero leaves 4/4 before it; none gives 4/4.
         let out = tidy(&[p(Ticks::quarters(8).0, 7, 8)]);
         assert_eq!(out[0], p(0, 4, 4));
         assert_eq!(out[1].at, Ticks::quarters(8));
         assert_eq!(tidy(&[]), vec![p(0, 4, 4)]);
-        // Invalid meters are dropped.
         assert_eq!(tidy(&[p(0, 4, 3)]), vec![p(0, 4, 4)]);
     }
 

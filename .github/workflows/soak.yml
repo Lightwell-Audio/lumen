@@ -1,9 +1,5 @@
 name: Soak
 
-# The long fault soak (crates/lumen-hosting/tests/soak.rs) and the disk
-# streaming soak (crates/lumen-app/src/disk/soak.rs). They cost Actions
-# minutes, so they run only when asked: Actions > Soak > Run workflow. The
-# ordinary pass of each runs in every CI test job.
 on:
   workflow_dispatch:
     inputs:

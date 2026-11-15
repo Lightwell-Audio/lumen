@@ -1,11 +1,3 @@
-//! Native ASIO backend (Windows, x86-64), grown from P-ASIO.
-//!
-//! The interface definitions in `ffi` are clean-room; shipping requires the
-//! signed Steinberg ASIO SDK agreement (ADR-0006, owner action).
-//!
-//! ASIO callbacks carry no user pointer, so the running stream lives in a
-//! process-wide slot: one ASIO stream per process, which is how ASIO works.
-
 mod driver;
 mod ffi;
 mod inflight;
@@ -36,18 +28,11 @@ static CALLBACKS: AsioCallbacks = AsioCallbacks {
     buffer_switch_time_info,
 };
 
-/// The running stream's state, owned by the driver thread while active.
 static ACTIVE: AtomicPtr<StreamState> = AtomicPtr::new(ptr::null_mut());
-/// The driver callbacks running now: a stream frees its state only once this
-/// is zero, so a late callback never reads freed memory.
 static IN_FLIGHT: InFlight = InFlight::new();
 static RESET_REQUESTED: AtomicBool = AtomicBool::new(false);
-/// The driver lost sync (its sample position jumps): the next block reports
-/// no position, so the jump is not counted as dropouts.
 static RESYNC_REQUESTED: AtomicBool = AtomicBool::new(false);
-/// A callback panicked and its block was silenced: the next poll reports it.
 static FAULTED: AtomicBool = AtomicBool::new(false);
-/// Buffers the driver said it missed since the last poll (an overload).
 static OVERLOADS: AtomicU64 = AtomicU64::new(0);
 
 struct Channel {
@@ -65,25 +50,19 @@ struct StreamState {
     output_buffer: Vec<f32>,
     callback: Box<dyn AudioCallback>,
     use_output_ready: bool,
-    /// Nanoseconds since `epoch` at the last callback, for the watchdog.
     last_callback_ns: AtomicU64,
     epoch: Instant,
 }
 
 unsafe extern "C" fn buffer_switch(index: i32, _direct: AsioBool) {
-    // Counted before the state is looked at: `close` waits for this count to
-    // reach zero before it frees anything, so a callback that finds a state
-    // keeps it alive until it is done with it.
     let _running = IN_FLIGHT.enter();
     let state = ACTIVE.load(Ordering::SeqCst);
     if state.is_null() {
         return;
     }
-    // SAFETY: only this driver thread touches the state while it is active.
     let state = unsafe { &mut *state };
     let mut position = ffi::AsioSamples::default();
     let mut stamp = ffi::AsioTimeStamp::default();
-    // SAFETY: live driver calling us.
     let ok = unsafe {
         ((*(*state.driver).vtbl).get_sample_position)(state.driver, &mut position, &mut stamp)
     } == ffi::ASE_OK;
@@ -103,31 +82,24 @@ unsafe extern "C" fn buffer_switch_time_info(
     let position = if params.is_null() {
         None
     } else {
-        // SAFETY: valid for the duration of the call.
         let info = unsafe { (*params).time_info };
         let flags = info.flags;
         let sample_position = info.sample_position;
         (flags & ffi::K_SAMPLE_POSITION_VALID != 0).then(|| sample_position.get())
     };
-    // SAFETY: as in `buffer_switch`.
     guarded(unsafe { &mut *state }, index, position);
     params
 }
 
 unsafe extern "C" fn sample_rate_did_change(_rate: f64) {
-    // A rate change invalidates the stream; treat it like a reset request. The
-    // body is wrapped because a panic must not cross into the driver.
     let _ = std::panic::catch_unwind(|| RESET_REQUESTED.store(true, Ordering::Release));
 }
 
 unsafe extern "C" fn asio_message(selector: i32, value: i32, _m: *mut c_void, _o: *mut f64) -> i32 {
-    // A panic anywhere in here would end the process on the way out to the
-    // driver: it is caught and answered with "not supported" instead.
     let body = std::panic::AssertUnwindSafe(|| match selector {
         ffi::K_ASIO_SELECTOR_SUPPORTED => i32::from(handles(value)),
         ffi::K_ASIO_ENGINE_VERSION => 2,
         ffi::K_ASIO_LATENCIES_CHANGED | ffi::K_ASIO_SUPPORTS_TIME_INFO => 1,
-        // Everything else is a request, answered with whether it was taken.
         _ => match request(selector) {
             Request::Reset => {
                 RESET_REQUESTED.store(true, Ordering::Release);
@@ -147,19 +119,11 @@ unsafe extern "C" fn asio_message(selector: i32, value: i32, _m: *mut c_void, _o
     std::panic::catch_unwind(body).unwrap_or(0)
 }
 
-/// What a driver message asks the running stream to do (sweep M5f).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Request {
-    /// Rebuild the stream: the driver was given another buffer size, or its
-    /// clock or rate changed. The new size is read from the driver when the
-    /// stream reopens, so the message's value is not kept.
     Reset,
-    /// The driver lost sync: the next block reports no position, so the jump
-    /// is not counted as dropouts.
     Resync,
-    /// The driver missed a buffer: audio goes on, and it counts as a dropout.
     Overload,
-    /// Nothing this stream acts on.
     Nothing,
 }
 
@@ -172,8 +136,6 @@ fn request(selector: i32) -> Request {
     }
 }
 
-/// Whether the stream answers `selector`, for the driver's
-/// `kAsioSelectorSupported` query.
 fn handles(selector: i32) -> bool {
     matches!(
         selector,
@@ -187,9 +149,6 @@ fn handles(selector: i32) -> bool {
     )
 }
 
-/// One driver block, with a panic kept inside the driver boundary: a panic
-/// unwinding into driver code would end the process (sweep M5e). Real-time
-/// safe: `catch_unwind` allocates nothing when nothing panics.
 fn guarded(state: &mut StreamState, index: i32, position: Option<u64>) {
     let body = std::panic::AssertUnwindSafe(|| process(state, index, position));
     if std::panic::catch_unwind(body).is_err() {
@@ -197,16 +156,12 @@ fn guarded(state: &mut StreamState, index: i32, position: Option<u64>) {
     }
 }
 
-/// A block whose callback panicked: the stream is reported as stalled by the
-/// next [`AsioStream::poll`], and the driver gets silence rather than the
-/// half-written block the panic left.
 fn faulted(state: &mut StreamState, index: i32) {
     FAULTED.store(true, Ordering::SeqCst);
     state.output_buffer.fill(0.0);
     let half = (index & 1) as usize;
     let frames = state.frames;
     for (i, channel) in state.outputs.iter().enumerate() {
-        // SAFETY: as in `process`, for each output's driver buffer.
         unsafe {
             write_samples(
                 channel.buffers[half],
@@ -217,13 +172,11 @@ fn faulted(state: &mut StreamState, index: i32) {
     }
 }
 
-/// The audio callback body. Real-time code.
 fn process(state: &mut StreamState, index: i32, position: Option<u64>) {
     let position = position.filter(|_| !RESYNC_REQUESTED.swap(false, Ordering::AcqRel));
     let half = (index & 1) as usize;
     let frames = state.frames;
     for (i, channel) in state.inputs.iter().enumerate() {
-        // SAFETY: driver buffers hold `frames` samples of `sample_type`.
         unsafe {
             read_samples(
                 channel.buffers[half],
@@ -244,7 +197,6 @@ fn process(state: &mut StreamState, index: i32, position: Option<u64>) {
     };
     state.callback.process(&mut block);
     for (i, channel) in state.outputs.iter().enumerate() {
-        // SAFETY: as above, for output buffers.
         unsafe {
             write_samples(
                 channel.buffers[half],
@@ -254,7 +206,6 @@ fn process(state: &mut StreamState, index: i32, position: Option<u64>) {
         }
     }
     if state.use_output_ready {
-        // SAFETY: live driver; allowed from the callback.
         unsafe { ((*(*state.driver).vtbl).output_ready)(state.driver) };
     }
     state
@@ -262,7 +213,6 @@ fn process(state: &mut StreamState, index: i32, position: Option<u64>) {
         .store(state.epoch.elapsed().as_nanos() as u64, Ordering::Relaxed);
 }
 
-/// Formats Lumen converts; anything else is rejected at open time.
 fn supported(sample_type: AsioSampleType) -> bool {
     matches!(
         sample_type,
@@ -278,7 +228,6 @@ fn supported(sample_type: AsioSampleType) -> bool {
     )
 }
 
-/// Full-scale value of a format's integer range.
 fn scale(sample_type: AsioSampleType) -> f64 {
     let bits = match sample_type {
         ffi::ST_INT16_LSB | ffi::ST_INT32_LSB16 => 16,
@@ -290,14 +239,9 @@ fn scale(sample_type: AsioSampleType) -> f64 {
     f64::from((1_u32 << (bits - 1)) - 1)
 }
 
-/// Converts `out.len()` driver samples to `f32`.
-///
-/// # Safety
-/// `buffer` must hold `out.len()` samples of `sample_type`.
 unsafe fn read_samples(buffer: *const c_void, sample_type: AsioSampleType, out: &mut [f32]) {
     let s = scale(sample_type);
     for (i, sample) in out.iter_mut().enumerate() {
-        // SAFETY: `i < out.len()`, within the buffer.
         *sample = unsafe {
             match sample_type {
                 ffi::ST_FLOAT32_LSB => buffer.cast::<f32>().add(i).read_unaligned(),
@@ -324,15 +268,10 @@ unsafe fn read_samples(buffer: *const c_void, sample_type: AsioSampleType, out: 
     }
 }
 
-/// Converts `f32` samples to the driver's format, clipping to ±1.
-///
-/// # Safety
-/// `buffer` must hold `source.len()` samples of `sample_type`.
 unsafe fn write_samples(buffer: *mut c_void, sample_type: AsioSampleType, source: &[f32]) {
     let s = scale(sample_type);
     for (i, &x) in source.iter().enumerate() {
         let x = f64::from(x.clamp(-1.0, 1.0));
-        // SAFETY: `i < source.len()`, within the buffer.
         unsafe {
             match sample_type {
                 ffi::ST_FLOAT32_LSB => buffer.cast::<f32>().add(i).write_unaligned(x as f32),
@@ -359,14 +298,7 @@ unsafe fn write_samples(buffer: *mut c_void, sample_type: AsioSampleType, source
     }
 }
 
-/// How a failed driver `init` reads to the user (sweep M5c).
-///
-/// ASIO's `init` answers only true or false, and the driver's own message is
-/// all it offers: one that names the device as taken means another
-/// application holds it, so it says so instead of reading as a missing
-/// device. Anything else is a plain driver error carrying that message.
 fn init_error(message: String) -> AudioError {
-    // The driver's words only: ASIO hands back no code to tell these apart.
     let said = message.to_lowercase();
     let busy = ["in use", "busy", "already open"]
         .iter()
@@ -378,8 +310,6 @@ fn init_error(message: String) -> AudioError {
     }
 }
 
-/// ASIO devices. Construct on the audio control thread: it enters a COM
-/// apartment that the drivers live in.
 pub struct AsioBackend {
     window: HiddenWindow,
     _com: ComApartment,
@@ -392,8 +322,6 @@ impl AsioBackend {
         Ok(Self { window, _com: com })
     }
 
-    /// Registered drivers, without loading any (loading can hang or crash;
-    /// full capability queries run sandboxed, see P-ASIO).
     pub fn registered() -> Vec<(DeviceId, String)> {
         registry::installed_drivers()
             .into_iter()
@@ -415,9 +343,6 @@ impl AsioBackend {
         Ok(driver)
     }
 
-    /// Loads one driver and reports what it offers. Loading runs driver
-    /// code, which can hang or crash when its hardware is missing: the app
-    /// runs this in a helper process (M2 slice 8).
     pub fn probe(&self, id: &DeviceId, name: String) -> Result<DeviceInfo, AudioError> {
         let mut info = DeviceInfo {
             id: id.clone(),
@@ -463,8 +388,6 @@ impl AsioBackend {
 }
 
 impl Backend for AsioBackend {
-    /// Loads each driver in-process. The device selector (slice 8) will run
-    /// this sandboxed, as P-ASIO did.
     fn devices(&mut self) -> Vec<DeviceInfo> {
         Self::registered()
             .into_iter()
@@ -488,7 +411,6 @@ impl Backend for AsioBackend {
     }
 }
 
-/// A driver with buffers created but not yet started.
 struct Prepared {
     driver: Driver,
     info: StreamInfo,
@@ -497,9 +419,6 @@ struct Prepared {
     use_output_ready: bool,
 }
 
-/// Runs `dispose` when dropped, unless disarmed: every way out of an open that
-/// has created the driver's buffers gives them back, so the driver is not left
-/// holding them for the next open to find busy (sweep M5b).
 struct DisposeOnDrop<F: FnMut()> {
     dispose: Option<F>,
 }
@@ -511,7 +430,6 @@ impl<F: FnMut()> DisposeOnDrop<F> {
         }
     }
 
-    /// Keeps the buffers: the stream owns them from here.
     fn disarm(mut self) {
         self.dispose = None;
     }
@@ -585,8 +503,6 @@ impl AsioBackend {
         driver
             .create_buffers(&mut infos, frames, &CALLBACKS)
             .map_err(asio)?;
-        // From here a failure leaves the driver without buffers, so the next
-        // open does not find it busy with the ones this one made (sweep M5b).
         let created = DisposeOnDrop::new(|| {
             let _ = driver.dispose_buffers();
         });
@@ -618,7 +534,6 @@ impl AsioBackend {
         let (inputs, outputs) = (inputs?, outputs?);
         for output in &outputs {
             for half in output.buffers {
-                // SAFETY: fresh driver buffers of `frames` samples.
                 unsafe { write_samples(half, output.sample_type, &vec![0.0; frames as usize]) };
             }
         }
@@ -685,50 +600,28 @@ struct AsioStream {
 }
 
 impl AsioStream {
-    /// No callback for this long means the driver has stopped delivering.
     fn watchdog(&self) -> Duration {
         let period = f64::from(self.info.buffer_frames) / f64::from(self.info.sample_rate.max(1));
         Duration::from_secs_f64((period * 50.0).max(0.5))
     }
 
-    /// Stops the driver and reclaims the state, waiting for a callback that is
-    /// still running to end first. Returns the callback; a silent one when a
-    /// callback would not end within the bound, in which case its state is
-    /// leaked rather than freed under it (sweep M5a).
-    ///
-    /// Runs once: the driver is taken, and a second call has nothing to do.
     fn shutdown(&mut self) -> Box<dyn AudioCallback> {
         let Some(driver) = self.driver.take() else {
             return crate::backend::silent();
         };
-        // A stop that fails is not fatal: the wait below is the proof that no
-        // callback is running, and a driver that would not stop is remembered
-        // in the fault flag the stream reports, rather than trusted silently.
         if driver.stop().is_err() {
             FAULTED.store(true, Ordering::SeqCst);
         }
-        // No callback that starts now can reach the state. One that already
-        // did is counted in `IN_FLIGHT`, and the wait lets it finish.
         ACTIVE.store(ptr::null_mut(), Ordering::SeqCst);
-        // A few periods is as long as a driver has ever taken to finish its
-        // last block; past it the state is leaked, which is safe, where
-        // freeing it is a use-after-free.
         let period = f64::from(self.info.buffer_frames) / f64::from(self.info.sample_rate.max(1));
         let bound = Duration::from_secs_f64(period * 3.0) + Duration::from_millis(10);
         if !IN_FLIGHT.wait(bound) {
-            // A callback is still running: its state, the driver's buffers and
-            // the driver itself are left alone for good. Leaking a few
-            // kilobytes keeps the session up; freeing them would crash the
-            // process. The callback cannot be handed back (a running block is
-            // using it), so a silent one stands in.
             std::mem::forget(driver);
             self.state = ptr::null_mut();
             return crate::backend::silent();
         }
         let _ = driver.dispose_buffers();
         drop(driver);
-        // SAFETY: the state came from `Box::into_raw`, no callback can reach
-        // it now, and it is taken out exactly once.
         let state = unsafe { Box::from_raw(self.state) };
         self.state = ptr::null_mut();
         state.callback
@@ -749,8 +642,6 @@ impl Stream for AsioStream {
 
     fn poll(&mut self) -> Option<StreamEvent> {
         if FAULTED.swap(false, Ordering::SeqCst) {
-            // A callback panicked, or the driver would not stop: the stream is
-            // not to be trusted, and the supervisor closes and reopens it.
             return Some(StreamEvent::Stalled);
         }
         if RESET_REQUESTED.swap(false, Ordering::AcqRel) {
@@ -758,14 +649,11 @@ impl Stream for AsioStream {
         }
         let overloads = OVERLOADS.swap(0, Ordering::Relaxed);
         if overloads > 0 {
-            // A buffer the driver missed: audio keeps playing, and the
-            // dropout counter shows it.
             return Some(StreamEvent::Dropped(overloads));
         }
         if self.failed_to_start {
             return Some(StreamEvent::Stalled);
         }
-        // SAFETY: the atomic may be read from any thread.
         let last_ns = unsafe { (*self.state).last_callback_ns.load(Ordering::Relaxed) };
         let since_start = self.started_at.elapsed();
         let since_last = since_start.saturating_sub(Duration::from_nanos(last_ns));
@@ -779,10 +667,6 @@ impl Stream for AsioStream {
 
 impl Drop for AsioStream {
     fn drop(&mut self) {
-        // A stream dropped without `close` (an early return, a failed open
-        // that already started, a panic) still stops its driver and reclaims
-        // its state instead of leaving the device running (sweep M5d). After
-        // `close` the driver is gone, so this has nothing left to do.
         drop(self.shutdown());
     }
 }

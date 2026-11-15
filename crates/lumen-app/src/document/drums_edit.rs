@@ -1,12 +1,3 @@
-//! The drum map's own edits (M8 slice D1): the fields the map editor changes
-//! in place that D0 did not need to name, plus the copy "Make unique" makes
-//! and the list an import adds to.
-//!
-//! Every method is one undo step, like D0's (`document/drums.rs`). A sound is
-//! found by its **input** note, as D0's methods find it; [`set_sound_input`]
-//! is the one that moves that key, and refuses a note another sound already
-//! answers to, so a map's input notes stay unique (the model's rule).
-
 use std::sync::Arc;
 
 use lumen_project::model::{Color, DrumMap, Id, Sound, TrackKind};
@@ -14,9 +5,6 @@ use lumen_project::model::{Color, DrumMap, Id, Sound, TrackKind};
 use super::Document;
 
 impl Document {
-    /// Moves the sound answering to `from` onto the note `to`. One undo step;
-    /// false when there is no such sound, when another one already answers to
-    /// `to`, or when `to` is past 127.
     pub fn set_sound_input(&mut self, map: Id, from: u8, to: u8) -> bool {
         if to > 127 {
             return false;
@@ -41,17 +29,12 @@ impl Document {
         true
     }
 
-    /// Sets a sound's colour in its map. One undo step; false when the map or
-    /// the sound is not there.
     pub fn set_sound_color(&mut self, map: Id, input: u8, color: Color) -> bool {
         self.edit_sound(map, input, "Change the drum sound's colour", |sound| {
             sound.color = color;
         })
     }
 
-    /// Adds `sound` to the map, after the sound answering to `after` when it
-    /// is given (else at the end, where the lanes draw it). One undo step;
-    /// false when the map is not there or another sound answers to the note.
     pub fn add_drum_sound(&mut self, map: Id, sound: Sound, after: Option<u8>) -> bool {
         let Some(held) = self.drum_map(map) else {
             return false;
@@ -73,8 +56,6 @@ impl Document {
         true
     }
 
-    /// Takes a sound out of the map: its clips keep their notes, which then
-    /// play as written (nothing is destructive here). One undo step.
     pub fn remove_drum_sound(&mut self, map: Id, input: u8) -> bool {
         let present = self.drum_map(map).is_some_and(|m| m.sound(input).is_some());
         if !present {
@@ -89,9 +70,6 @@ impl Document {
         true
     }
 
-    /// Moves the sound at `from` in the map's order to `to` (the lanes' and
-    /// the editor's order). One undo step; false when either is past the end
-    /// or the move changes nothing.
     pub fn move_drum_sound(&mut self, map: Id, from: usize, to: usize) -> bool {
         let Some(held) = self.drum_map(map) else {
             return false;
@@ -112,9 +90,6 @@ impl Document {
         true
     }
 
-    /// Gives `track` a copy of the map it names, with its own id, so edits to
-    /// it no longer reach the tracks that share the original (the owner's
-    /// "Make unique"). One undo step; `None` when the track has no map.
     pub fn make_drum_map_unique(&mut self, track: Id) -> Option<Id> {
         let held = self
             .project()
@@ -136,9 +111,6 @@ impl Document {
         Some(id)
     }
 
-    /// Adds `map` to the project under a new id, and gives it to every MIDI
-    /// track in `tracks` (an import: the file's own id means nothing here).
-    /// One undo step; gives the map's new id.
     pub fn import_drum_map(&mut self, map: DrumMap, tracks: &[Id]) -> Id {
         let id = self.fresh_id();
         let targets: Vec<Id> = tracks
@@ -175,7 +147,6 @@ mod tests {
 
     use super::*;
 
-    /// A document with one MIDI track on the 808-style map.
     fn kit() -> (Document, Id, Id) {
         let mut doc = Document::new(crate::empty_project());
         let track = doc.add_track(TrackKind::Midi, None);
@@ -206,7 +177,6 @@ mod tests {
             doc.redo().as_deref(),
             Some("Change the drum sound's colour")
         );
-        // The input note moves, and the sound is found by it afterwards.
         assert!(doc.set_sound_input(map, 36, 30));
         assert!(sound(&doc, map, 36).is_none());
         assert_eq!(sound(&doc, map, 30).map(|s| s.name), Some("Kick".into()));
@@ -238,7 +208,6 @@ mod tests {
         assert_eq!(doc.undo().as_deref(), Some("Add a drum sound"));
         assert_eq!(doc.drum_map(map).unwrap().sounds.len(), before);
         doc.redo();
-        // The order matters (the lanes'): move it to the front.
         let at = doc
             .drum_map(map)
             .unwrap()
@@ -255,7 +224,6 @@ mod tests {
         assert_eq!(doc.undo().as_deref(), Some("Move a drum sound"));
         assert!(!doc.move_drum_sound(map, 0, 0), "no change");
         assert!(!doc.move_drum_sound(map, 0, 99), "past the end");
-        // Removing the sound leaves every note alone: nothing is destructive.
         assert!(doc.remove_drum_sound(map, 60));
         assert_eq!(doc.drum_map(map).unwrap().sounds.len(), before);
         assert_eq!(doc.undo().as_deref(), Some("Remove a drum sound"));
@@ -281,13 +249,11 @@ mod tests {
             Some("808 style copy")
         );
         assert_eq!(doc.project().drum_maps.len(), 2);
-        // An edit to the copy leaves the original alone.
         assert!(doc.set_sound_mute(copy, 36, true));
         assert!(!doc.drum_map(map).unwrap().sound(36).unwrap().mute);
         assert_eq!(doc.undo().as_deref(), Some("Mute drum sound"));
         assert_eq!(doc.undo().as_deref(), Some("Make the drum map unique"));
         assert_eq!(doc.drum_map_of(track).map(|m| m.id), Some(map));
-        // An audio track has no map to copy.
         let audio = doc.add_track(TrackKind::Audio, None);
         assert!(doc.make_drum_map_unique(audio).is_none());
     }
@@ -303,7 +269,6 @@ mod tests {
         assert_eq!(doc.drum_map_of(track).map(|m| m.id), Some(imported));
         assert_eq!(doc.drum_map(imported).map(|m| m.sounds.len()), Some(47));
         assert_eq!(doc.history().steps().0.last(), Some(&"Import a drum map"));
-        // The notes were never touched.
         assert_eq!(lumen_project::validate(doc.project()), Ok(()));
         doc.undo();
         assert!(doc.drum_map(imported).is_none());
@@ -317,7 +282,6 @@ mod tests {
         assert!(doc.add_drum_sound(map, sound, None));
         let sounds = &doc.drum_map(map).unwrap().sounds;
         assert_eq!(sounds.last().unwrap().name, "Clave");
-        // A quantize and a length the map editor sets survive a save.
         assert!(doc.set_sound_quantize(
             map,
             61,

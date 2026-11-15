@@ -1,61 +1,24 @@
-//! A MIDI message of up to three bytes, shared by the engine, the devices
-//! and the app (M5 slice 1): channel messages, and the system messages of
-//! MIDI clock (M5 slice 7). Plain data: no allocation, so it can travel on
-//! the audio thread.
-
-/// Controller numbers Lumen's built-in devices answer to.
 pub mod cc {
-    /// Modulation wheel.
     pub const MODULATION: u8 = 1;
-    /// Bank select, most and least significant byte.
     pub const BANK_MSB: u8 = 0;
     pub const BANK_LSB: u8 = 32;
-    /// Sustain pedal: 64 and up is down.
     pub const SUSTAIN: u8 = 64;
-    /// Silence at once (no release tail).
     pub const ALL_SOUND_OFF: u8 = 120;
     pub const ALL_NOTES_OFF: u8 = 123;
 }
 
-/// A message: status byte (kind and channel), then up to two data bytes.
-/// Program change and channel pressure use one; the clock's real-time
-/// messages none; Song Position Pointer two.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Msg(pub [u8; 3]);
 
-/// What a [`Msg`] says, decoded. Note-on with velocity 0 reads as a
-/// note-off, as the MIDI standard has it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
-    NoteOff {
-        key: u8,
-        velocity: u8,
-    },
-    NoteOn {
-        key: u8,
-        velocity: u8,
-    },
-    /// Polyphonic key pressure.
-    KeyPressure {
-        key: u8,
-        value: u8,
-    },
-    Controller {
-        number: u8,
-        value: u8,
-    },
-    Program {
-        program: u8,
-    },
-    /// Channel pressure (aftertouch).
-    Pressure {
-        value: u8,
-    },
-    /// −8192 to 8191, 0 is centre.
-    PitchBend {
-        value: i16,
-    },
-    /// Anything else (system messages).
+    NoteOff { key: u8, velocity: u8 },
+    NoteOn { key: u8, velocity: u8 },
+    KeyPressure { key: u8, value: u8 },
+    Controller { number: u8, value: u8 },
+    Program { program: u8 },
+    Pressure { value: u8 },
+    PitchBend { value: i16 },
     Other,
 }
 
@@ -80,39 +43,29 @@ impl Msg {
         Self([0xD0 | (channel & 15), value & 127, 0])
     }
 
-    /// `value` is −8192 to 8191, 0 centre.
     pub fn pitch_bend(channel: u8, value: i16) -> Self {
         let raw = (i32::from(value.clamp(-8192, 8191)) + 8192) as u16;
         Self([0xE0 | (channel & 15), (raw & 127) as u8, (raw >> 7) as u8])
     }
 
-    /// MIDI clock: 24 a quarter note while the song plays.
     pub const CLOCK: Msg = Msg([0xF8, 0, 0]);
-    /// Start the song from its beginning, at the next clock.
     pub const START: Msg = Msg([0xFA, 0, 0]);
-    /// Carry on from the Song Position Pointer, at the next clock.
     pub const CONTINUE: Msg = Msg([0xFB, 0, 0]);
     pub const STOP: Msg = Msg([0xFC, 0, 0]);
 
-    /// Song Position Pointer: where the song is, in sixteenth notes (six
-    /// clocks each) from its start, up to 16,383.
     pub fn song_position(sixteenths: u16) -> Self {
         let at = sixteenths.min(0x3FFF);
         Self([0xF2, (at & 127) as u8, (at >> 7) as u8])
     }
 
-    /// Whether this is a system message (clock, transport, position) rather
-    /// than a channel's.
     pub fn is_system(self) -> bool {
         self.0[0] >= 0xF0
     }
 
-    /// The channel, 0 to 15.
     pub fn channel(self) -> u8 {
         self.0[0] & 15
     }
 
-    /// How many of the three bytes mean something.
     pub fn len(self) -> usize {
         match self.0[0] {
             0xF2 => 3,
@@ -163,10 +116,8 @@ impl Msg {
     }
 }
 
-/// A message at a frame within a block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Event {
-    /// Frames from the start of the block.
     pub offset: u32,
     pub msg: Msg,
 }

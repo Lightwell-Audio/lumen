@@ -1,7 +1,3 @@
-//! A minimal VST3 instrument host: load a module, instantiate its audio
-//! processor, play notes into stereo output, save and restore state.
-//! Controller, editor and parameters are out of scope for P-HOST.
-
 use std::ffi::c_char;
 use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
@@ -57,16 +53,12 @@ fn text(buf: &[c_char]) -> String {
 }
 
 impl Plugin {
-    /// Loads `path` and instantiates its first audio processor class (or
-    /// the one whose name contains `class_filter`).
     pub fn load(path: &Path, class_filter: Option<&str>) -> Result<Self, String> {
         let wide: Vec<u16> = path
             .as_os_str()
             .encode_wide()
             .chain(std::iter::once(0))
             .collect();
-        // SAFETY: NUL-terminated path. The module is never unloaded (some
-        // plugins crash on unload); the process owns it until exit.
         let module = unsafe {
             LoadLibraryExW(
                 wide.as_ptr(),
@@ -80,24 +72,19 @@ impl Plugin {
                 std::io::Error::last_os_error()
             ));
         }
-        // SAFETY: NUL-terminated export names; signatures per the VST3 module ABI.
         unsafe {
             if let Some(init) = GetProcAddress(module, c"InitDll".as_ptr().cast()) {
                 let init: unsafe extern "system" fn() -> bool = std::mem::transmute(init);
                 init();
             }
         }
-        // SAFETY: as above.
         let get_factory = unsafe { GetProcAddress(module, c"GetPluginFactory".as_ptr().cast()) }
             .ok_or("no GetPluginFactory export")?;
-        // SAFETY: the VST3 factory export signature.
         let get_factory: unsafe extern "system" fn() -> *mut IPluginFactory =
             unsafe { std::mem::transmute(get_factory) };
-        // SAFETY: returns an owned reference or null.
         let factory =
             unsafe { ComPtr::from_raw(get_factory()) }.ok_or("GetPluginFactory returned null")?;
 
-        // SAFETY: plain factory queries with valid out pointers.
         let (cid, name) = unsafe {
             (0..factory.countClasses())
                 .find_map(|i| {
@@ -114,16 +101,13 @@ impl Plugin {
         };
 
         let mut object = ptr::null_mut();
-        // SAFETY: valid class and interface ids; `object` receives an owned reference.
         let result = unsafe {
             factory.createInstance(cid.as_ptr(), IComponent::IID.as_ptr().cast(), &mut object)
         };
-        // SAFETY: on success `object` is an owned IComponent reference.
         let component = unsafe { ComPtr::from_raw(object.cast::<IComponent>()) }
             .filter(|_| result == kResultOk)
             .ok_or(format!("createInstance failed ({result})"))?;
         let host = com::host_application();
-        // SAFETY: the host context outlives the component (both owned by `Plugin`).
         let result = unsafe { component.initialize(host.as_ptr().cast()) };
         if result != kResultOk {
             return Err(format!("initialize failed ({result})"));
@@ -145,15 +129,12 @@ impl Plugin {
             events,
             events_ptr,
             params,
-            // SAFETY: plain C struct; zero is a valid "nothing known" context.
             context: unsafe { std::mem::zeroed() },
             active: false,
         })
     }
 
-    /// Stereo output, event input, real-time processing at `rate` and `block`.
     pub fn activate(&mut self, rate: f64, block: i32) -> Result<(), String> {
-        // SAFETY: valid pointers to locals for the duration of each call.
         unsafe {
             let mut outputs: [SpeakerArrangement; 1] = [SpeakerArr::kStereo];
             self.processor
@@ -183,7 +164,6 @@ impl Plugin {
         Ok(())
     }
 
-    /// Renders one block into `left`/`right` with `notes` at their sample offsets.
     pub fn process(
         &mut self,
         notes: &[(i32, Note)],
@@ -216,7 +196,6 @@ impl Plugin {
             outputEvents: ptr::null_mut(),
             processContext: &mut self.context,
         };
-        // SAFETY: every pointer in `data` refers to live locals or owned objects.
         let result = unsafe { self.processor.process(&mut data) };
         self.context.projectTimeSamples += left.len() as i64;
         if result == kResultOk {
@@ -226,10 +205,8 @@ impl Plugin {
         }
     }
 
-    /// The processor's state blob.
     pub fn state(&self) -> Result<Vec<u8>, String> {
         let stream = MemoryStream::open(Vec::new());
-        // SAFETY: live stream object.
         let result = unsafe { self.component.getState(stream.as_ptr()) };
         if result != kResultOk {
             return Err(format!("getState failed ({result})"));
@@ -239,7 +216,6 @@ impl Plugin {
 
     pub fn set_state(&self, state: &[u8]) -> Result<(), String> {
         let stream = MemoryStream::open(state.to_vec());
-        // SAFETY: live stream object.
         let result = unsafe { self.component.setState(stream.as_ptr()) };
         if result == kResultOk {
             Ok(())
@@ -251,7 +227,6 @@ impl Plugin {
 
 impl Drop for Plugin {
     fn drop(&mut self) {
-        // SAFETY: shutdown sequence on live objects.
         unsafe {
             if self.active {
                 self.processor.setProcessing(0);

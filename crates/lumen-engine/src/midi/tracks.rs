@@ -1,7 +1,3 @@
-//! One track's part of a block: reading its clips, handing a hosted
-//! instrument its block early, and rendering the instrument into the track's
-//! bus.
-
 use std::time::{Duration, Instant};
 
 use lumen_core::midi::Event;
@@ -15,11 +11,8 @@ use crate::source::{Mode, RenderContext};
 
 use super::InstrumentSpec;
 
-/// What a block with no lane to play says to a hosted instrument.
 static NO_PARAMS: ParamBlock = ParamBlock::none();
 
-/// A part's first half for one track: reads its clips into the track's event
-/// queue, in order.
 pub(super) fn gather_track(
     track: &mut MidiTrack,
     cx: &RenderContext<'_>,
@@ -39,12 +32,6 @@ pub(super) fn gather_track(
         );
     }
     hold::sort_events(&mut track.state.events);
-    // The parameters the track's lanes change in this block go to the
-    // instrument with it — a plugin's own, and a built-in's (M8 slice B4) —
-    // and the tempo a synced part of it follows. An instrument keeps the
-    // block it was last given, so a block with no lanes (they are gone, or
-    // the song is not playing) says so: a lane taken away must not go on
-    // setting its last value.
     if let Some(spec) = track.instrument.as_mut() {
         let bpm = cx
             .timeline
@@ -64,9 +51,6 @@ pub(super) fn gather_track(
     }
 }
 
-/// Hands a hosted instrument its block now, so its host works while the
-/// engine renders the clips (ADR-0069). A built-in instrument is left to
-/// [`play_track`].
 pub(super) fn start_host(track: &mut MidiTrack, cx: &RenderContext<'_>, frames: usize) {
     let events: &[Event] = match track.target {
         Target::Instrument => &track.state.events,
@@ -79,8 +63,6 @@ pub(super) fn start_host(track: &mut MidiTrack, cx: &RenderContext<'_>, frames: 
     }
 }
 
-/// A part's second half for one track: sends hardware events out, and renders
-/// the instrument into the track's bus (or collects it, when it began early).
 pub(super) fn play_track(
     track: &mut MidiTrack,
     cx: &RenderContext<'_>,
@@ -99,9 +81,6 @@ pub(super) fn play_track(
     }
 }
 
-/// Renders the track's instrument into its bus: with the queued events when
-/// `events`, otherwise only what still rings. An instrument that began early
-/// is collected, waiting for its host until `deadline`.
 pub(super) fn render_instrument(
     track: &mut MidiTrack,
     id: u64,
@@ -160,8 +139,6 @@ pub(super) fn render_instrument(
     }
 }
 
-/// Plays the release of an instrument the track no longer has into its bus,
-/// while anything of it still sounds.
 fn ring_out(track: &mut MidiTrack, id: u64, (frames, rate): (usize, u32), buses: &mut Buses<'_>) {
     let Some(spec) = track.leaving.as_mut().filter(|s| s.instrument.active()) else {
         return;
@@ -179,9 +156,6 @@ fn ring_out(track: &mut MidiTrack, id: u64, (frames, rate): (usize, u32), buses:
     }
 }
 
-/// Adds each of the instrument's other outputs that is on to the bus of the
-/// track that plays it, for the block just rendered. A track the routing does
-/// not have hears nothing.
 pub(super) fn play_outputs(
     outputs: &[(u32, u64)],
     spec: &mut InstrumentSpec,
@@ -207,8 +181,6 @@ pub(super) fn play_outputs(
     }
 }
 
-/// Adds the next frames of what the track's instrument sounds now to its
-/// bus, without moving the instrument on.
 pub(super) fn preview_instrument(
     track: &mut MidiTrack,
     id: u64,

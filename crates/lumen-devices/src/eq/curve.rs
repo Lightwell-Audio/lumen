@@ -1,44 +1,13 @@
-//! The curve a face draws: the whole EQ's response on a log frequency axis,
-//! dense enough that a line between two points has no visible corner, with
-//! extra points where a band's own shape turns (M8 slice B1, the owner's
-//! review OR-7).
-//!
-//! The response is the filter's own — every band's sections, evaluated at
-//! `z = e^{jw}` of the coefficients the sound runs — worked out as two
-//! quadratics in `cos w` a section (`bands::Ratio`), so a point is one cosine
-//! and a handful of products whatever the bands are.
-//!
-//! # Why it is adaptive
-//!
-//! A bell of Q 8 at 8 kHz is a needle 1.1 % of an octave wide: on a 700-pixel
-//! screen that is under a quarter of a pixel of the axis, and a fixed grid
-//! either misses it or draws it as one corner. [`Curve::path`] therefore takes
-//! a base grid half a device pixel apart and subdivides it eight times inside
-//! each band's own turn (two octaves for a shelf or a cut, about `1.5/Q`
-//! octaves for a bell), which is where the curvature is. Between bands the
-//! curve is nearly straight and needs nothing more.
-//!
-//! The path is the same arithmetic as [`super::response`]: a test holds it to a
-//! hundredth of a decibel of the sections added up directly.
-
 use super::bands::{Kind, MOST_SECTIONS, Section, Setting};
 use super::{BANDS, HIGH_HZ, LOW_HZ};
 
-/// The closest two points of a path come, in device pixels.
 pub const STEP_PX: f32 = 0.5;
-/// How many times closer the points are inside a band's own turn.
 pub const REFINE: usize = 8;
-/// The most points a path takes, whatever the screen's width: a screen wider
-/// than this gets a half-pixel grid's worth and no more.
 pub const MOST: usize = 2048;
 
-/// How far either side of its centre a shelf or a cut turns, in octaves.
 const TURN_OCTAVES: f32 = 2.0;
-/// A bell's or a notch's turn, in octaves, is this over its Q.
 const BELL_TURN_OCTAVES: f32 = 2.0;
 
-/// One point of a path: how far across the frequency axis (0 at [`LOW_HZ`], 1
-/// at [`HIGH_HZ`]) and the response there in decibels.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Sample {
     pub share: f32,
@@ -54,8 +23,6 @@ impl Default for Sample {
     }
 }
 
-/// One band as the curve reads it: its sections, worked out once, and the
-/// stretch of the axis its own shape turns on (empty when it is off).
 #[derive(Debug, Clone, Copy)]
 struct Band {
     sections: [Section; MOST_SECTIONS],
@@ -73,26 +40,20 @@ impl Default for Band {
     }
 }
 
-/// Where a frequency is on the axis: 0 at the low end, 1 at the high.
 fn share_of(hz: f32) -> f32 {
     super::axis(hz)
 }
 
-/// The whole EQ's response on the axis the face draws, from settings worked
-/// out once. Made on the interface side, once a frame.
 #[derive(Debug, Clone)]
 pub struct Curve {
     bands: [Band; BANDS],
     output: f32,
     rate: u32,
     low: f32,
-    /// `ln(high / low)`: the axis is `low · e^(share · span)`.
     span: f64,
 }
 
 impl Curve {
-    /// The curve of `settings` (a band and whether it is on), with `output`
-    /// decibels added, at `rate`.
     pub fn new(settings: [(Setting, bool); BANDS], output: f32, rate: u32) -> Self {
         let rate = rate.max(1);
         let mut bands = [Band::default(); BANDS];
@@ -101,8 +62,6 @@ impl Curve {
                 continue;
             }
             band.count = setting.sections(rate, &mut band.sections);
-            // How far either side of its centre the band's own shape turns:
-            // a shelf and a cut over octaves, a bell and a notch by its width.
             let octaves = match setting.kind {
                 Kind::Bell | Kind::Notch => BELL_TURN_OCTAVES / setting.q.max(1e-3),
                 _ => TURN_OCTAVES,
@@ -121,17 +80,14 @@ impl Curve {
         }
     }
 
-    /// The response at `share` of the way across the axis, in decibels.
     pub fn db_at(&self, share: f32) -> f32 {
         self.db_at_hz(self.hz_at(share))
     }
 
-    /// The frequency at `share` of the way across the axis.
     pub fn hz_at(&self, share: f32) -> f32 {
         (f64::from(self.low) * (self.span * f64::from(share)).exp()) as f32
     }
 
-    /// The response at `hz`, in decibels: one cosine, then every section.
     pub fn db_at_hz(&self, hz: f32) -> f32 {
         let w = std::f64::consts::TAU * f64::from(hz.max(0.0)) / f64::from(self.rate);
         let cos = w.cos();
@@ -145,8 +101,6 @@ impl Curve {
         db as f32 + self.output
     }
 
-    /// Fills `out` with the response at points spread evenly across the axis:
-    /// `out.len()` of them from the low end to the high.
     pub fn uniform(&self, out: &mut [f32]) {
         let last = out.len().saturating_sub(1).max(1) as f32;
         for (i, point) in out.iter_mut().enumerate() {
@@ -154,9 +108,6 @@ impl Curve {
         }
     }
 
-    /// Fills `out` with the path a face draws across `width_px` device pixels,
-    /// and answers how many points it wrote: a point every half pixel, and
-    /// eight times as many across each band's own turn, up to [`MOST`].
     pub fn path(&self, width_px: f32, out: &mut [Sample]) -> usize {
         let cap = out.len().min(MOST);
         if cap == 0 {
@@ -167,8 +118,6 @@ impl Curve {
             return 1;
         }
         let width = width_px.max(1.0);
-        // The base grid: as fine as a half pixel, coarser only when that plus
-        // the turns' extra points would take more than a path holds.
         let coverage = self.coverage();
         let room = (cap as f32 / (1.0 + (REFINE as f32 - 1.0) * coverage)).floor() as usize;
         let room = room.clamp(2, cap);
@@ -187,8 +136,6 @@ impl Curve {
                 continue;
             }
             let next = (i + 1) as f32 / last;
-            // An extra point or three between the grid's own: the stretch is
-            // inside a band's turn, where the curve bends.
             if self.turns_between(share, next) {
                 for k in 1..REFINE {
                     let at = share + (next - share) * k as f32 / REFINE as f32;
@@ -200,8 +147,6 @@ impl Curve {
         count
     }
 
-    /// Whether any band's own turn overlaps the stretch of the axis from `from`
-    /// to `to`: where a straight line between two points would show a corner.
     fn turns_between(&self, from: f32, to: f32) -> bool {
         self.bands
             .iter()
@@ -212,8 +157,6 @@ impl Curve {
             })
     }
 
-    /// How much of the axis is inside some band's turn, 0 to 1: how much of a
-    /// path may need the finer step.
     fn coverage(&self) -> f32 {
         let mut total = 0.0;
         for (a, b) in self.bands.iter().filter_map(|band| band.turn) {
@@ -239,8 +182,6 @@ mod tests {
     use super::super::bands::band_db;
     use super::*;
 
-    /// A patch of bands: a low cut, two bells and a high shelf, in their own
-    /// units, all on.
     fn patch() -> ([(Setting, bool); BANDS], f32) {
         let flat = Setting {
             kind: Kind::Bell,
@@ -294,10 +235,8 @@ mod tests {
     }
 
     const RATE: u32 = 48_000;
-    /// The face's own scale: 5.5 points a decibel.
     const PT_PER_DB: f32 = 5.5;
 
-    /// The curve is the bands added up: a hundredth of a decibel, everywhere.
     #[test]
     fn the_curve_is_the_sections_added_up() {
         let (settings, output) = patch();
@@ -318,8 +257,6 @@ mod tests {
         }
     }
 
-    /// The path is dense where a band turns and no denser than it needs to be
-    /// away from them: a half-pixel base, subdivided four times at a peak.
     #[test]
     fn the_path_is_denser_where_a_band_turns() {
         let side = Setting {
@@ -347,7 +284,6 @@ mod tests {
         let path = &path[..count];
         assert_eq!(path[0].share, 0.0);
         assert_eq!(path[count - 1].share, 1.0);
-        // No point twice, and every one in order.
         for pair in path.windows(2) {
             assert!(pair[1].share > pair[0].share, "{:?}", pair);
         }
@@ -371,10 +307,6 @@ mod tests {
         );
     }
 
-    /// A line between two points of the path is within a tenth of a point of
-    /// the curve it stands for: there is no corner to see, even on a screen
-    /// twice as sharp as a 350-point card at 200 %. The same picture on the
-    /// ninety-six points the face drew before misses by points, at the peaks.
     #[test]
     fn the_path_has_no_corner_a_pen_could_show() {
         let width = 704.0;
@@ -412,7 +344,6 @@ mod tests {
                 "Q {q} {gain} dB: {worst} points off the curve"
             );
 
-            // The same bell on a fixed ninety-six points, as B1 drew it.
             let mut old = [0.0f32; 96];
             curve.uniform(&mut old);
             let last = (old.len() - 1) as f32;
@@ -434,9 +365,6 @@ mod tests {
         }
     }
 
-    /// Near a peak the sampled curve bends by no more than a twentieth of a
-    /// decibel from one point to the next: the second difference along the log
-    /// axis is bounded. At ninety-six points a Q 4 bell bent by decibels.
     #[test]
     fn the_second_difference_near_a_peak_is_bounded() {
         let side = Setting {
@@ -470,7 +398,6 @@ mod tests {
         assert!(bent(&old) > 1.0, "{} dB", bent(&old));
     }
 
-    /// A curve of silence is flat, and a band that is off is not in it.
     #[test]
     fn a_flat_patch_draws_a_straight_line() {
         let flat = Setting {
@@ -488,8 +415,6 @@ mod tests {
         }
     }
 
-    /// A path that may not hold a half-pixel grid still covers the axis and
-    /// fits the buffer: a narrow card and a small buffer both draw.
     #[test]
     fn a_small_buffer_or_a_narrow_screen_still_covers_the_axis() {
         let (settings, output) = patch();
@@ -505,8 +430,6 @@ mod tests {
         }
     }
 
-    /// A measurement, not a test: what a path costs a frame at the widest
-    /// screen a card is drawn on and at a third of it, with four bands on.
     #[test]
     #[ignore = "a measurement: prints times, asserts only a generous bound"]
     fn the_cost_of_a_path() {
@@ -514,7 +437,6 @@ mod tests {
         let curve = Curve::new(settings, output, RATE);
         let mut path = [Sample::default(); MOST];
         for width in [176.0, 352.0, 704.0] {
-            // Warm the caches, then measure a hundred frames.
             let mut count = curve.path(width, &mut path);
             let mut times = Vec::new();
             for _ in 0..100 {

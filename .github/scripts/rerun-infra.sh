@@ -1,22 +1,6 @@
 #!/usr/bin/env bash
-# Decides whether a failed run of CI or Docs failed only for reasons outside
-# the code, and if so reruns its failed jobs, once (ADR-0122; rerun.yml).
-#
-#   rerun-infra.sh                 the run $RUN_ID of $GITHUB_REPOSITORY
-#   rerun-infra.sh --classify F    prints `infrastructure` or `code` for the
-#                                  jobs JSON in F (the API's jobs list), to
-#                                  test the rule by hand
-#
-# A failed job is the infrastructure's when:
-#   - it has no steps (it never got a runner), or
-#   - it failed with no failed step (the runner was lost), or
-#   - every step that failed is a setup step: getting the runner ready, the
-#     checkout, a cache, an install.
-# A job cancelled with steps run is a hang that reached the job's timeout,
-# which is the code's. Any failed test, check or build is the code's.
 set -euo pipefail
 
-# The setup steps, by the names GitHub and ci.yml give them.
 setup='^(Set up job|Initialize containers|Run actions/checkout|Run Swatinem/rust-cache|Run taiki-e/install-action|Install |Post |Complete job)'
 
 classify() {
@@ -41,8 +25,6 @@ fi
 
 : "${RUN_ID:?the run to look at}" "${GITHUB_REPOSITORY:?owner/name}"
 jobs=$(mktemp)
-# One page holds every job of these workflows (CI has 15); per_page is the
-# API's largest.
 gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/attempts/1/jobs?per_page=100" > "$jobs"
 
 jq -r '.jobs[] | select(.conclusion != "success" and .conclusion != "skipped")

@@ -1,14 +1,8 @@
-//! Changing shortcuts (M3 slice 7c): the Keyboard shortcuts window (record
-//! a chord, clashes reassigned or cancelled, reset), rebinding from the
-//! palette with Ctrl+Enter, and saved shortcuts used at start.
-
 use eframe::egui::{Event, Key, Modifiers};
 
 use super::properties::with_two_clips;
 use super::{Lumen, keys};
 
-/// Opens the Keyboard shortcuts window from the palette and searches its
-/// list for `query`.
 fn open_and_search(lumen: &mut Lumen, query: &str) {
     lumen.key(Modifiers::COMMAND, Key::K);
     lumen
@@ -40,7 +34,6 @@ fn a_shortcut_recorded_in_the_window_runs_and_is_kept() {
     lumen.key(Modifiers::NONE, Key::Escape);
     assert!(!lumen.app().shortcuts_open(), "Esc closes the window");
 
-    // Zoomed in, the new chord fits the song again; W alone no longer does.
     let fitted = lumen.app().view().zoom;
     lumen.key(Modifiers::NONE, Key::Plus);
     lumen.frames(30);
@@ -51,7 +44,6 @@ fn a_shortcut_recorded_in_the_window_runs_and_is_kept() {
     assert_eq!(lumen.app().view().zoom, zoomed, "W is free now");
     lumen.key(Modifiers::ALT, Key::W);
     lumen.frames(30);
-    // Fitting a short song can zoom in or out: it changes the view.
     assert_ne!(lumen.app().view().zoom, zoomed, "Alt+W fits");
 }
 
@@ -60,7 +52,6 @@ fn a_clash_is_reassigned_or_cancelled_and_reset_restores() {
     let mut lumen = Lumen::start("shortcut-clash");
     open_and_search(&mut lumen, "fit song");
     lumen.click("Change Fit song to width shortcut W");
-    // Esc while recording cancels the recording, not the window.
     lumen.key(Modifiers::NONE, Key::Escape);
     assert!(lumen.app().shortcuts_open());
     assert_eq!(lumen.app().shortcuts_of("Fit song to width"), ["W"]);
@@ -80,7 +71,6 @@ fn a_clash_is_reassigned_or_cancelled_and_reset_restores() {
     );
     assert!(lumen.app().shortcuts_of("Duplicate").is_empty());
 
-    // Reset all puts both back, and nothing is left to save.
     lumen.click("Reset all");
     assert_eq!(lumen.app().shortcuts_of("Duplicate"), [keys("Ctrl+D")]);
     assert_eq!(lumen.app().shortcuts_of("Fit song to width"), ["W"]);

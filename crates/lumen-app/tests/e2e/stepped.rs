@@ -1,10 +1,3 @@
-//! Stepped parameters on a card's strip (M6 slice 5g, the owner's A): a
-//! parameter with two states is a switch, one with a few named choices is a
-//! chooser (click for the next, the arrow for the list), and every click is one
-//! undo step that lands at once. A continuous parameter stays a knob. The
-//! plugin is the test instrument with its programs (`Presets`): its Wave is a
-//! two-state parameter and its Program has three named choices.
-
 use eframe::egui::{Key, Modifiers};
 use egui_kittest::kittest::Queryable;
 use lumen_project::model::Id;
@@ -38,7 +31,6 @@ fn launch(name: &str) -> Lumen {
     lumen.wait_for("the plugin's parameters", |app| {
         app.device_programs(PLUGIN).len() == 1
     });
-    // Level (continuous), Wave (two states) and Program (three choices).
     lumen
         .app_mut()
         .show_on_strip(PLUGIN, &[LEVEL, WAVE, PROGRAM]);
@@ -49,7 +41,6 @@ fn launch(name: &str) -> Lumen {
 #[test]
 fn each_kind_of_parameter_gets_the_control_that_fits_it() {
     let lumen = launch("kinds");
-    // Continuous: a knob (a slider to the accessibility tree).
     assert!(
         lumen.shows("Level, parameter: 50 %")
             || lumen
@@ -57,10 +48,8 @@ fn each_kind_of_parameter_gets_the_control_that_fits_it() {
                 .query_by_label_contains("Level, parameter")
                 .is_some()
     );
-    // Two states: a switch, named for the parameter, off.
     assert!(lumen.shows("Wave"));
     assert!(!lumen.is_on("Wave"));
-    // A short list: the plugin's own word, and the arrow that lists them.
     assert!(lumen.shows("Choose Program"));
     assert!(
         lumen
@@ -79,7 +68,6 @@ fn a_switch_is_one_undo_step_a_click_and_lands_at_once() {
     });
     assert!(lumen.is_on("Wave"));
     assert_eq!(lumen.app().undo_label(), Some("Change Wave"));
-    // A second click is a step of its own.
     lumen.click("Wave");
     lumen.wait_for("it to go back", |app| {
         app.device_param_known(PLUGIN, WAVE) == Some(0.0)
@@ -139,7 +127,6 @@ fn the_arrow_lists_every_choice_and_a_row_picks_it() {
     lumen.wait_for("the last choice", |app| {
         app.device_param_known(PLUGIN, PROGRAM) == Some(1.0)
     });
-    // Picking closes the list.
     lumen.frames(30);
     assert!(!lumen.shows("Square, quiet"));
 }

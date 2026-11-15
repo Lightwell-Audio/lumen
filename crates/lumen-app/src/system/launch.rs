@@ -1,105 +1,50 @@
-//! How Lumen was started: from the command line (`run`), or by a test (the
-//! end-to-end suite in `tests/e2e/`, through `testing`), which starts the same `App` with its own
-//! settings, autosave folder and the silent test device, so it never touches
-//! the user's.
-
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::{audio, bench, callback_bench, settings};
 
-/// Everything start-up needs to know.
 pub struct Launch {
     pub(crate) started: Instant,
     pub(crate) settings: settings::Settings,
-    /// A problem reading the settings, shown once started.
     pub(crate) settings_warning: Option<String>,
-    /// Where settings are saved; `None` never saves them.
     pub(crate) settings_path: Option<PathBuf>,
     pub(crate) audio: audio::Choice,
-    /// Where MIDI ports come from (`--midi`).
     pub(crate) midi: crate::midi::Source,
-    /// Where plugins come from (`--plugins`, `--plugin-roots`).
     pub(crate) plugins: crate::plugins::Source,
-    /// Where autosaves go; `None` turns autosave off.
     pub(crate) autosave_dir: Option<PathBuf>,
-    /// The folder the person's own projects and templates are kept in
-    /// (`--user-dir`; `Documents/Lumen` by default). A run with its own
-    /// `--autosave-dir` is an isolated one and has none, so it never reads or
-    /// writes the owner's files; `None` leaves templates beside the settings.
     pub(crate) user_dir: Option<PathBuf>,
     pub(crate) autosave_after: Option<Duration>,
-    /// Where crash reports go (`--crash-dir`); `None`: nowhere.
     pub(crate) crash_dir: Option<PathBuf>,
-    /// `--crash-test` (a panic) or `--crash-test-memory` (a failed
-    /// allocation) on the first frame, to check crash reports.
     pub(crate) crash_test: Option<crate::crash::Test>,
-    /// A project to open (`lumen song.lumen`).
     pub(crate) open: Option<PathBuf>,
-    /// `--open-audio`: an audio file added at bar 1.
     pub(crate) open_audio: Option<PathBuf>,
-    /// `--stress`: the generated quality-bar project.
     pub(crate) stress: bool,
-    /// `--bench-lanes`: with `--stress`, every track has a volume lane of
-    /// 200 points and shows it (the frame benchmark with lanes, M7 slice A1).
     pub(crate) bench_lanes: bool,
-    /// `--audio-settings`: the audio settings window open at start.
     pub(crate) audio_settings: bool,
-    /// `--recover-latest` (tests): press Recover at once.
     pub(crate) recover_latest: bool,
-    /// `--scale` and `--appearance`: one-off overrides, not saved.
     pub(crate) scale: Option<f32>,
     pub(crate) appearance: Option<String>,
-    /// `--smoke-test`: render a few frames, report, close.
     pub(crate) smoke_test: bool,
-    /// `--screenshot`: render, save a screenshot, close.
     pub(crate) screenshot: Option<PathBuf>,
-    /// `--bench-frames`: the frame-time benchmark, and `--bench-size`.
     pub(crate) bench: Option<bench::Bench>,
     pub(crate) bench_size: Option<(f32, f32)>,
-    /// `--bench-callback <out.json>` with `--bench-seconds`: the callback
-    /// benchmark (M6 slice 7c).
     pub(crate) callback_bench: Option<callback_bench::Callback>,
-    /// `--autoplay-ms`: toggle play and stop this often (latency tests).
     pub(crate) autoplay: Option<Duration>,
-    /// `--test-latency <ms>`: the engine's synthetic latent device on the
-    /// first track, to try delay compensation before devices exist (M4
-    /// slice 6).
     pub(crate) test_latency: Option<f64>,
-    /// Tests: the disk thread waits this long before each page it reads, so
-    /// streamed audio arrives late (M9 slice R6).
     pub(crate) slow_disk: Option<Duration>,
-    /// `--safe-mode`: no plugin is scanned, loaded or hosted (M6 slice 5e).
     pub(crate) safe_mode: bool,
-    /// Where preset files are kept, when the caller chose (tests); the
-    /// standard folders when plugins come from this machine.
     pub(crate) preset_places: Option<crate::preset_files::Places>,
-    /// Where the marker of a start that did not finish loading plugins is
-    /// kept: beside the settings.
     pub(crate) plugin_marker: Option<PathBuf>,
-    /// `--save-as` (tests): save once imports are done, then close.
     pub(crate) save_as: Option<PathBuf>,
-    /// Tests: file dialogs are answered by the test, never shown.
     pub(crate) scripted_dialogs: bool,
-    /// `--first-run`: the first-run window opens even in a run that never
-    /// shows it otherwise (a screenshot, a test), whatever the settings say.
     pub(crate) first_run: bool,
-    /// Tests: the first-run window follows the settings as on a real start
-    /// (it opens while setup is not done), though the run drives itself.
     pub(crate) first_start_rule: bool,
-    /// The single instance this start took (M9 R8); `None` runs alone.
     pub(crate) instance: Option<crate::instance::Instance>,
-    /// Where the file association is written: the registry only on a
-    /// normal start, never in a run kept away from the user's files.
     pub(crate) association: crate::association::Source,
-    /// `--quit-after-ms` (smoke tests): close after this long, saying the
-    /// project that is open.
     pub(crate) quit_after: Option<Duration>,
 }
 
 impl Launch {
-    /// Where this run's settings are: `--settings` (tests) keeps a run away
-    /// from the user's settings.
     pub(crate) fn settings_path(args: &[String]) -> Option<PathBuf> {
         args.iter()
             .position(|a| a == "--settings")
@@ -108,8 +53,6 @@ impl Launch {
             .or_else(settings::default_path)
     }
 
-    /// The project named on the command line: the first argument ending
-    /// in `.lumen` (opening a project from the file manager).
     pub(crate) fn project_arg(args: &[String]) -> Option<PathBuf> {
         args.iter()
             .skip(1)
@@ -117,7 +60,6 @@ impl Launch {
             .map(PathBuf::from)
     }
 
-    /// From the command line (see the list at the top of `main.rs`).
     pub fn from_args() -> Self {
         let args: Vec<String> = std::env::args().collect();
         let value = |flag: &str| {
@@ -131,8 +73,6 @@ impl Launch {
             .as_deref()
             .map(settings::load)
             .unwrap_or_default();
-        // `--audio` is a one-off choice; otherwise the saved device,
-        // otherwise the system default.
         let audio = match value("--audio") {
             Some(arg) => audio::Choice::parse(&arg).unwrap_or_else(|e| {
                 eprintln!("{e}; using the default output");

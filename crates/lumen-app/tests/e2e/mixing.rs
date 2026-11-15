@@ -1,5 +1,3 @@
-//! The mixer (M4): what a track's controls do to what is heard.
-
 use std::time::Duration;
 
 use eframe::egui::{Key, Modifiers, vec2};
@@ -8,18 +6,14 @@ use lumen_core::time::Ticks;
 
 use super::{Lumen, wav};
 
-/// The test tone's peak (`wav`): 3,000 of 32,768.
 const TONE: f32 = 3_000.0 / 32_768.0;
 
-/// A playing project with one track holding a long tone; returns the
-/// track's name.
 fn playing(name: &str) -> (Lumen, String) {
     let mut lumen = Lumen::start(name);
     let file = wav(&lumen.dir().join("tone.wav"), 20.0);
     lumen.drop_files(&[file]);
     lumen.frames(5);
     let track = lumen.track_names()[0].clone();
-    // Unfolded, the header shows volume and pan once the row has grown.
     lumen.click(&format!("Fold {track}"));
     lumen.run_until(&format!("{track}'s pan"), |l| {
         l.harness
@@ -31,8 +25,6 @@ fn playing(name: &str) -> (Lumen, String) {
     (lumen, track)
 }
 
-/// Lets `ms` of audio play (past any glide), then returns the loudest
-/// left and right samples of the next `ms`.
 fn levels(lumen: &mut Lumen, ms: u64) -> (f32, f32) {
     let heard = lumen.listen(Duration::from_millis(ms), 1_000);
     heard.iter().fold((0.0f32, 0.0f32), |(l, r), f| {
@@ -47,12 +39,9 @@ fn near(got: f32, want: f32) -> bool {
 #[test]
 fn a_tracks_pan_and_mute_are_heard_through_the_mixer() {
     let (mut lumen, track) = playing("mixer-pan-mute");
-    // Centred, a stereo track keeps its level on both sides (the owner's
-    // B, after M4 slice 7; the pan law is for mono tracks).
     let (left, right) = levels(&mut lumen, 150);
     assert!(near(left, TONE) && near(right, TONE), "{left} {right}");
 
-    // Pan hard left: the left side at full level, the right silent.
     let pan = lumen
         .harness
         .get_by_label_contains(&format!("Pan {track}:"))
@@ -66,7 +55,6 @@ fn a_tracks_pan_and_mute_are_heard_through_the_mixer() {
     let (left, right) = levels(&mut lumen, 150);
     assert!(near(left, TONE) && right < 1e-4, "{left} {right}");
 
-    // Mute: silence.
     lumen.click(&format!("Mute {track}"));
     let (left, right) = levels(&mut lumen, 150);
     assert!(left < 1e-4 && right < 1e-4, "{left} {right}");
@@ -77,8 +65,6 @@ fn a_tracks_pan_and_mute_are_heard_through_the_mixer() {
 fn mixer_changes_while_playing_never_click() {
     let (mut lumen, track) = playing("mixer-no-click");
     lumen.app_mut().heard();
-    // Volume and pan dragged back and forth, mute and solo toggled, a step
-    // per screen frame.
     let volume = lumen
         .harness
         .get_by_label_contains(&format!("Volume {track}:"))
@@ -108,11 +94,6 @@ fn mixer_changes_while_playing_never_click() {
     let heard = lumen.app_mut().heard();
     assert!(lumen.app().is_playing());
     assert!(heard.len() > 2_000, "heard {} frames", heard.len());
-    // A sine at level `a` moves by at most a × 0.05 a frame. The volume
-    // drag raises the level above the file's (by how much depends on the
-    // machine's frame timing: macOS CI went past +2 dB), so the bound
-    // follows the loudest level heard. A stepped level change would jump
-    // by a large share of the level, far more than this.
     let loudest = heard
         .iter()
         .map(|&(l, r)| l.abs().max(r.abs()))
@@ -128,7 +109,6 @@ fn mixer_changes_while_playing_never_click() {
     );
 }
 
-/// A mono WAV of the test tone (as `wav`, one channel).
 fn mono_wav(path: &std::path::Path, seconds: f32) -> std::path::PathBuf {
     let frames = (seconds * 48_000.0) as usize;
     let data: Vec<u8> = (0..frames)
@@ -152,9 +132,6 @@ fn mono_wav(path: &std::path::Path, seconds: f32) -> std::path::PathBuf {
     path.to_path_buf()
 }
 
-/// The owner's B (after M4 slice 7): the pan law is for mono material. A
-/// mono file centred plays 3 dB down per side by default, and follows the
-/// project's law; a stereo file beside it keeps its level.
 #[test]
 fn a_mono_track_follows_the_pan_law_and_a_stereo_one_keeps_its_level() {
     let mut lumen = Lumen::start("mixer-mono-law");
@@ -167,7 +144,6 @@ fn a_mono_track_follows_the_pan_law_and_a_stereo_one_keeps_its_level() {
     let (left, right) = levels(&mut lumen, 150);
     assert!(near(left, centre) && near(right, centre), "{left} {right}");
 
-    // At 0 dB, balance: both sides at the file's level.
     lumen.key(Modifiers::COMMAND, Key::K);
     lumen
         .harness

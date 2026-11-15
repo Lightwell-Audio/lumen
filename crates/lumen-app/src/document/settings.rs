@@ -1,25 +1,13 @@
-//! The project's own settings (M9 slice R4): its sample rate, its notes and
-//! the colour new tracks take. Each is one undo step; typing in the notes
-//! merges into one. The pan law and automatic crossfades, which the settings
-//! window shows too, have their setters beside the controls that first needed
-//! them (`mixer`, `crossfades`).
-
 use lumen_project::model::{Color, MOST_NOTES_BYTES};
 
 use super::Document;
 
-/// The rates the settings window offers. The model accepts any rate from
-/// 8 kHz to 384 kHz; these are the ones interfaces run at.
 pub const RATES: [u32; 6] = [44_100, 48_000, 88_200, 96_000, 176_400, 192_000];
 
-/// What the model accepts (`lumen_project::validate`).
 const LOWEST_RATE: u32 = 8_000;
 const HIGHEST_RATE: u32 = 384_000;
 
 impl Document {
-    /// Sets the rate of the files Lumen makes for this project and the
-    /// default of Export. A rate outside what the model accepts changes
-    /// nothing. Returns whether the project changed.
     pub fn set_sample_rate(&mut self, rate: u32) -> bool {
         if !(LOWEST_RATE..=HIGHEST_RATE).contains(&rate) {
             return false;
@@ -29,8 +17,6 @@ impl Document {
         })
     }
 
-    /// Sets the project's notes. Text past the limit is cut at a character
-    /// boundary. Typing is one step (a merge key), however many keys.
     pub fn set_notes(&mut self, text: &str) {
         let mut end = text.len().min(MOST_NOTES_BYTES);
         while !text.is_char_boundary(end) {
@@ -43,7 +29,6 @@ impl Document {
             });
     }
 
-    /// Chooses the colour new tracks take, or none to cycle the palette.
     pub fn set_new_track_color(&mut self, color: Option<Color>) {
         self.history
             .apply("Change new track color", None, |project| {
@@ -67,7 +52,6 @@ mod tests {
         use crate::empty_project_at;
         assert_eq!(empty_project_at(Some(44_100)).sample_rate, 44_100);
         assert_eq!(empty_project_at(Some(192_000)).sample_rate, 192_000);
-        // Not known yet (no device open), or not a rate a project can hold.
         for odd in [None, Some(0), Some(7_999), Some(384_001)] {
             assert_eq!(empty_project_at(odd).sample_rate, 48_000, "{odd:?}");
         }
@@ -126,7 +110,6 @@ mod tests {
     #[test]
     fn notes_past_the_limit_are_cut_on_a_character_boundary() {
         let mut doc = document();
-        // Two-byte letters: the limit falls inside one.
         let long = "é".repeat(MOST_NOTES_BYTES);
         doc.set_notes(&long);
         let kept = &doc.project().notes;

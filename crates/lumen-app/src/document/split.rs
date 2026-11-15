@@ -1,5 +1,3 @@
-//! Splitting selected clips at arrangement times.
-
 use lumen_core::time::Ticks;
 use lumen_project::edit::split;
 use lumen_project::model::Id;
@@ -7,12 +5,6 @@ use lumen_project::model::Id;
 use super::Document;
 
 impl Document {
-    /// Splits selected unlocked clips at each interior tick in `at`.
-    ///
-    /// Each source clip keeps its id on the first part; later parts get fresh
-    /// ids. The returned ids cover the resulting parts in timeline order.
-    /// Cuts on clip boundaries and clips that cannot be found are ignored.
-    /// All splits are one undo step.
     pub fn split_clips(&mut self, ids: &[Id], at: &[Ticks]) -> Vec<Id> {
         if ids.is_empty() || at.is_empty() {
             return Vec::new();

@@ -1,5 +1,3 @@
-//! The card's tests.
-
 use super::body::kilobytes;
 use super::*;
 
@@ -88,10 +86,6 @@ fn saved_settings_are_counted_in_whole_kilobytes_rounded_up() {
     assert_eq!(kilobytes(14 * 1024 + 1), "15 KB");
 }
 
-/// What drawing a set piece costs a frame (run in release: `cargo test
-/// --release -p lumen-app --lib set_piece_cost -- --ignored --nocapture`).
-/// Prints the average and the slowest frame, per step, with the screen idle
-/// and loud; the bar is 0.3 ms a frame.
 #[test]
 #[ignore = "a measurement: prints times, asserts only a generous bound"]
 fn set_piece_cost() {
@@ -101,8 +95,6 @@ fn set_piece_cost() {
 
     let ctx = Context::default();
     crate::fonts::install(&ctx);
-    // Prism, and Iris with its analyser's mist: the dearest drawing is the one
-    // the budget is read from.
     let devices: [(&str, &[lumen_devices::params::ParamInfo], Color32); 6] = [
         (
             lumen_devices::utility::NAME,
@@ -204,11 +196,9 @@ fn set_piece_cost() {
                         let rect = eframe::egui::Rect::from_min_size(pos2(10.0, 10.0), size);
                         let _ = paint(ui, rect, eframe::egui::Id::new("cost"), &look);
                     });
-                    // The tessellation is part of what a frame pays.
                     let _ = ctx.tessellate(output.shapes, output.pixels_per_point);
                     times.push(started.elapsed().as_secs_f64() * 1000.0);
                 }
-                // The first frames lay out fonts: leave them out.
                 let steady = &times[40..];
                 let mean = steady.iter().sum::<f64>() / steady.len() as f64;
                 let worst = steady.iter().cloned().fold(0.0, f64::max);

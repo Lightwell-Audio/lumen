@@ -1,7 +1,3 @@
-//! A plugin's parameters in the app (M6 slice 4): the strip's knobs filled
-//! from the plugin, what they do, and the panel with every parameter (the
-//! owner's L1: one list, group chips, a star to put a parameter on the strip).
-
 use std::time::Instant;
 
 use eframe::egui::{self, Align2, FontId, Key, Rect, Sense, Ui, pos2, vec2};
@@ -14,25 +10,17 @@ use crate::widgets::param::{ParamLook, param_bar};
 use crate::widgets::{self, Dialog, pill_toggle};
 use crate::{App, theme};
 
-/// Which parameters the panel lists.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Chip {
     All,
-    /// One group of the plugin's.
     Unit(i32),
-    /// The ones on the strip.
     Starred,
 }
 
-/// The open panel.
-/// What the panel's rows asked for in a frame.
 #[derive(Default)]
 struct RowOut {
-    /// A bar was moved.
     set: Option<(u32, f64)>,
-    /// Text typed for a parameter, for the plugin to read.
     typed: Option<(u32, String)>,
-    /// What a row's menu asked about its lane or controller.
     ask: Option<(u32, widgets::Ask)>,
 }
 
@@ -41,11 +29,8 @@ pub(crate) struct Panel {
     pub device: Id,
     search: String,
     chip: Chip,
-    /// The search field takes the keyboard when the panel opens.
     focus_search: bool,
-    /// The row Enter stars.
     cursor: usize,
-    /// Opened from an empty slot: say what to do.
     fill: bool,
 }
 
@@ -63,22 +48,16 @@ impl Panel {
 }
 
 use crate::motion::{TEXT_AGAIN, TEXT_EVERY};
-/// A row of the list.
 const ROW: f32 = 28.0;
 
-/// What one row of the panel shows.
 struct RowLook<'a> {
     device: &'a Device,
     p: &'a ParamInfo,
     units: &'a [UnitInfo],
-    /// Whether the parameter is on the strip: `None` for a device that draws a
-    /// face and has no strip.
     starred_now: Option<bool>,
     under_cursor: bool,
 }
 
-/// The name of a group: the plugin's, or "General" for the root and
-/// "Group n" for one it did not name.
 pub(crate) fn unit_name(units: &[UnitInfo], id: i32) -> String {
     match units.iter().find(|u| u.id == id) {
         Some(u) if !u.name.trim().is_empty() && u.id != 0 => u.name.trim().to_owned(),
@@ -87,9 +66,6 @@ pub(crate) fn unit_name(units: &[UnitInfo], id: i32) -> String {
     }
 }
 
-/// The parameters the panel lists for `search` and `chip`, as indexes into
-/// `list`: never hidden ones; the words of the search all have to be in the
-/// name or the group's.
 pub(crate) fn filter(
     list: &[ParamInfo],
     units: &[UnitInfo],
@@ -114,8 +90,6 @@ pub(crate) fn filter(
         .collect()
 }
 
-/// The chips: all, one for each group with something to list, and the
-/// starred, each with how many it holds.
 pub(crate) fn chips(
     list: &[ParamInfo],
     units: &[UnitInfo],
@@ -129,7 +103,6 @@ pub(crate) fn chips(
             groups.push(p.unit);
         }
     }
-    // More than one group, or the chips say nothing the list does not.
     if groups.len() > 1 {
         for u in groups {
             let n = offered.iter().filter(|p| p.unit == u).count();
@@ -144,10 +117,6 @@ pub(crate) fn chips(
 }
 
 impl App {
-    /// The parameters of `d`: a plugin's as its host lists them, a built-in's
-    /// from its static table (M8 slice B0). The same shape either way, so the
-    /// strip, All parameters, lanes, MIDI learn and overrides are one code
-    /// path.
     pub(crate) fn device_parameters(&self, d: &Device) -> &[ParamInfo] {
         if crate::builtin::has_table(d) {
             self.builtin.parameters(d.id)
@@ -156,7 +125,6 @@ impl App {
         }
     }
 
-    /// The groups `d`'s parameters sit in: a built-in has one, unnamed.
     pub(crate) fn device_units(&self, d: &Device) -> Vec<UnitInfo> {
         if crate::builtin::has_table(d) {
             Vec::new()
@@ -165,7 +133,6 @@ impl App {
         }
     }
 
-    /// The words of each step of a stepped parameter of `d`.
     pub(crate) fn parameter_choices(&self, d: &Device, id: u32) -> Vec<String> {
         if crate::builtin::has_table(d) {
             crate::builtin::choices(d, id)
@@ -174,12 +141,6 @@ impl App {
         }
     }
 
-    /// The knobs of `d`'s strip, and how many parameters it lists.
-    ///
-    /// A built-in whose picture is its idea draws a face instead (M8 slice
-    /// B2), and its strip is the four parameters the face draws: the compact
-    /// card folds back to exactly those, and every other parameter is in All
-    /// parameters.
     pub(super) fn strip_of(&self, d: &Device) -> (Vec<Option<Slot>>, usize) {
         let list = self.device_parameters(d);
         let count = list.iter().filter(|p| strip::offered(p)).count();
@@ -198,9 +159,6 @@ impl App {
         (slots, count)
     }
 
-    /// The drawing of a built-in that has one (M8; `chain/face/mod.rs`) with a
-    /// slot for each parameter it reads or has a control for, in
-    /// [`face::Drawing::params`] order.
     pub(super) fn drawing_of(&self, d: &Device) -> Option<super::view::DrawingRow> {
         let lumen_project::model::PluginRef::Builtin { name } = &d.plugin else {
             return None;
@@ -215,9 +173,6 @@ impl App {
                 ids.push(*id);
             }
         }
-        // A drawing with parts reads every part's values but words only the
-        // picked part's: the rest are bare (value, default, steps), so a frame
-        // formats a handful of texts and not every parameter's.
         let parted = parts.is_some();
         let mut slots = ids
             .into_iter()
@@ -244,8 +199,6 @@ impl App {
                 .copied()
                 .unwrap_or_else(|| (parts.first)(&values))
                 .min(parts.count - 1);
-            // The dials: each control's own parameter, and the one it is aimed
-            // at on the picked part, in words.
             let mut wordy: Vec<u32> = Vec::new();
             for (index, control) in drawing.controls.iter().enumerate() {
                 wordy.push(control.param);
@@ -285,8 +238,6 @@ impl App {
         })
     }
 
-    /// A slot with a parameter's value and nothing to say: what a drawing reads
-    /// of a part it does not put in words.
     fn bare_slot_of(&self, d: &Device, p: &ParamInfo) -> Slot {
         Slot {
             id: p.id,
@@ -326,15 +277,10 @@ impl App {
         }
     }
 
-    /// A parameter's value now: what the project holds, else what the plugin
-    /// has as far as Lumen knows, else its default. While a timing parameter is
-    /// being dragged, the value the hand is on (M8 slice B2, review N4).
     fn parameter_value(&self, d: &Device, p: &ParamInfo) -> f64 {
         if let Some(&value) = self.chain.deferred.get(&(d.id, p.id)) {
             return value;
         }
-        // A lane that plays drives it: the control shows the lane's value at
-        // the playhead (M7 slice A4a, D5).
         if let Some(track) = self.track_of_device(d.id)
             && let Some(v) = self.arrangement.auto.following(
                 self.document.overrides(),
@@ -353,13 +299,11 @@ impl App {
             .or_else(|| self.hosting.value(d.id, p.id))
             .unwrap_or(p.default)
     }
-    /// The track that holds `device`.
     fn track_of_device(&self, device: Id) -> Option<&lumen_project::model::Track> {
         let (id, _) = crate::document::find_device(self.document.project(), device)?;
         lumen_project::routing::all_tracks(self.document.project()).find(|t| t.id == id)
     }
 
-    /// The controller (channel, number) mapped to `p`, if one is.
     fn parameter_mapping(&self, d: &Device, p: &ParamInfo) -> Option<(u8, u8)> {
         let track = self.track_of_device(d.id)?.id;
         self.document
@@ -373,7 +317,6 @@ impl App {
             .map(|m| (m.channel, m.number))
     }
 
-    /// Whether `p` waits for a controller to move, to be mapped.
     fn parameter_waiting(&self, d: &Device, p: &ParamInfo) -> bool {
         self.track_of_device(d.id).is_some_and(|t| {
             self.controllers.learning
@@ -387,7 +330,6 @@ impl App {
         })
     }
 
-    /// Does what a parameter's menu asked about its lane or controller.
     pub(super) fn answer_ask(&mut self, device: Id, param: u32, ask: widgets::Ask) {
         let Some((track, _)) = crate::document::find_device(self.document.project(), device) else {
             return;
@@ -406,7 +348,6 @@ impl App {
         }
     }
 
-    /// Whether the user has taken over the lane that drives `p`.
     fn parameter_taken_over(&self, d: &Device, p: &ParamInfo) -> bool {
         self.track_of_device(d.id).is_some_and(|t| {
             self.document.overrides().contains(
@@ -419,12 +360,6 @@ impl App {
         })
     }
 
-    /// The device's own words for a value. A built-in reads its table at once;
-    /// a plugin is asked when the value changes (not faster than every
-    /// [`TEXT_EVERY`]); until it answers, the answer to the nearest value kept
-    /// stands, or a percentage. A value asked about and not answered (its
-    /// answer pushed out by other values', a lane's among them) is asked again
-    /// after [`TEXT_AGAIN`].
     fn parameter_text(&self, d: &Device, p: &ParamInfo, value: f64) -> String {
         if crate::builtin::has_table(d) {
             return crate::builtin::text(d, p.id, value)
@@ -435,8 +370,6 @@ impl App {
         }
         let device = d.id;
         let mut asked = self.chain.text_asked.borrow_mut();
-        // A plugin's words were forgotten (it named its controls anew):
-        // what was asked before is asked again.
         let forgotten = self.hosting.texts_forgotten();
         if self.chain.texts_seen.replace(forgotten) != forgotten {
             asked.clear();
@@ -446,7 +379,6 @@ impl App {
             ((v - value).abs() < 1e-9 && when.elapsed() < TEXT_AGAIN) || when.elapsed() < TEXT_EVERY
         });
         if recent {
-            // Waiting on a frame to ask again, if the value moved on.
             if asked
                 .get(&key)
                 .is_some_and(|(v, _)| (v - value).abs() >= 1e-9)
@@ -462,14 +394,12 @@ impl App {
             .map_or_else(|| format!("{:.0} %", value * 100.0), str::to_owned)
     }
 
-    /// Applies what a strip's knob or button asked for.
     pub(super) fn apply_strip(&mut self, device: Id, output: strip::Output) {
         match output {
             strip::Output::Set(id, value) => self.set_parameter(device, id, value, "strip"),
             strip::Output::Moved(values) => self.move_parameters(device, &values),
             strip::Output::Reset(values) => self.reset_parameters(device, &values),
             strip::Output::Choose(id, value) => {
-                // A click on a switch or a choice is a change of its own.
                 self.document.seal();
                 let title = self
                     .device_parameters_of(device)
@@ -499,23 +429,18 @@ impl App {
         }
     }
 
-    /// The ids on `device`'s strip now.
     pub(crate) fn strip_ids(&self, device: Id) -> Vec<u32> {
         let found = crate::document::find_device(self.document.project(), device);
         let list = found.map(|(_, d)| self.device_parameters(d)).unwrap_or(&[]);
         strip::resolve(list, self.chain.shown.get(&device).map(Vec::as_slice))
     }
 
-    /// A device's parameters by its id, for the callers that have only that.
     pub(crate) fn device_parameters_of(&self, device: Id) -> Vec<ParamInfo> {
         crate::document::find_device(self.document.project(), device)
             .map(|(_, d)| self.device_parameters(d).to_vec())
             .unwrap_or_default()
     }
 
-    /// A value typed for a parameter: a plugin reads it and answers in a
-    /// moment; a built-in reads its own table at once, as one undo step (M8
-    /// slice B0).
     fn type_parameter(&mut self, device: Id, id: u32, text: String) {
         let Some((_, d)) = crate::document::find_device(self.document.project(), device) else {
             return;
@@ -534,14 +459,6 @@ impl App {
         }
     }
 
-    /// Sets a parameter as one undo step per drag. `from` keeps the strip's
-    /// drag and the panel's apart.
-    ///
-    /// A parameter that is the device's *timing* (the limiter's lookahead,
-    /// M8 slice B2) is held until its drag ends: the audio keeps the delay it
-    /// has while the knob moves, so the routing is re-timed once rather than
-    /// every frame, and its lanes are not automatable. A value typed in
-    /// applies at once.
     fn set_parameter(&mut self, device: Id, id: u32, value: f64, from: &str) {
         let timing =
             crate::document::find_device(self.document.project(), device).is_some_and(|(_, d)| {
@@ -555,14 +472,9 @@ impl App {
         self.commit_parameter(device, id, value, from);
     }
 
-    /// A timing parameter's held change, applied once its drag has ended: one
-    /// undo step, and the only time the routing hears the new number.
     fn commit_parameter(&mut self, device: Id, id: u32, value: f64, from: &str) {
-        // A value typed in (or one a preset or a panel set) is the answer now:
-        // a drag still pending for the same parameter is dropped (review N5).
         self.chain.deferred.remove(&(device, id));
         let title = self.parameter_title(device, id);
-        // Moving a control a lane drives takes the lane over (M7 slice A4a).
         self.document.override_param(device, id);
         let merge = if from == "look" {
             None
@@ -577,10 +489,6 @@ impl App {
         );
     }
 
-    /// Applies the timing changes whose drags have ended — the pointer is up —
-    /// called once a frame before the drawing. A knob can also be moved by the
-    /// wheel or the keys, which are single clicks with no pointer down, so they
-    /// are applied at once.
     pub(crate) fn apply_deferred(&mut self, ctx: &egui::Context) {
         if self.chain.deferred.is_empty() || ctx.input(|i| i.pointer.any_down()) {
             return;
@@ -597,9 +505,6 @@ impl App {
         }
     }
 
-    /// Several parameters moved together by a face (M8 slice B1): a point
-    /// drags its band's frequency and gain at once, and the whole drag is one
-    /// undo step.
     fn move_parameters(&mut self, device: Id, values: &[(u32, f64)]) {
         let Some(&(first, _)) = values.first() else {
             return;
@@ -616,7 +521,6 @@ impl App {
         );
     }
 
-    /// A face put a band back to its defaults: one undo step of its own.
     fn reset_parameters(&mut self, device: Id, values: &[(u32, f64)]) {
         let Some(&(first, _)) = values.first() else {
             return;
@@ -631,7 +535,6 @@ impl App {
             .set_device_params(device, values, &format!("Reset {title}"), None);
     }
 
-    /// What a parameter is called, for a step's label.
     fn parameter_title(&self, device: Id, id: u32) -> String {
         self.device_parameters_of(device)
             .iter()
@@ -639,8 +542,6 @@ impl App {
             .map_or_else(|| "parameter".to_owned(), |p| p.title.clone())
     }
 
-    /// Puts a parameter on the strip, or takes it off. Says why when it
-    /// cannot (the strip holds eight).
     fn star(&mut self, device: Id, id: u32) {
         let mut ids = self.strip_ids(device);
         if let Some(at) = ids.iter().position(|i| *i == id) {
@@ -654,35 +555,28 @@ impl App {
         self.chain.shown.insert(device, ids);
     }
 
-    /// Whether the chosen device lists parameters (a running plugin's, or a
-    /// built-in's table).
     pub(crate) fn chosen_has_parameters(&self) -> bool {
         self.chain
             .selected
             .is_some_and(|d| !self.device_parameters_of(d).is_empty())
     }
 
-    /// Whether the chosen device is a plugin that is running, so it has a
-    /// window to ask for.
     pub(crate) fn chosen_has_editor(&self) -> bool {
         self.chain
             .selected
             .is_some_and(|d| matches!(self.hosting.state(d), Some(crate::hosting::State::Ready)))
     }
 
-    /// Opens the panel for the chosen device (the command).
     pub(crate) fn open_parameters(&mut self) {
         if let Some(device) = self.chain.selected {
             self.chain.panel = Some(Panel::new(device, false));
         }
     }
 
-    /// The panel with every parameter of one plugin, when open.
     pub(crate) fn parameters_panel(&mut self, ctx: &egui::Context) {
         let Some(mut panel) = self.chain.panel.take() else {
             return;
         };
-        // Gone with its device.
         let Some(device) = crate::document::find_device(self.document.project(), panel.device)
             .map(|(_, d)| d.clone())
         else {
@@ -691,10 +585,6 @@ impl App {
         let list: Vec<ParamInfo> = self.device_parameters(&device).to_vec();
         let units: Vec<UnitInfo> = self.device_units(&device);
         let shown = self.strip_ids(device.id);
-        // A built-in whose picture is its idea draws its own four controls
-        // (M8 slice B2): there is no strip to star a parameter onto, so the
-        // panel says where they are instead of offering a star that would do
-        // nothing.
         let face = crate::chain::face::drawing_of(crate::builtin::name_of(&device)).is_some();
         let title = format!("{} parameters", crate::document::device_name(&device));
         let mut starred: Vec<u32> = Vec::new();
@@ -790,7 +680,6 @@ impl App {
                                 device: &device,
                                 p,
                                 units: &units,
-                                // A face keeps no strip to star a parameter onto.
                                 starred_now: (!face).then(|| shown.contains(&p.id)),
                                 under_cursor: r == panel.cursor,
                             };
@@ -826,8 +715,6 @@ impl App {
         }
     }
 
-    /// The star, the name and its group, the bar. `starred_now` is `None` for
-    /// a device that draws a face: it has no strip, so no star.
     fn parameter_row(
         &self,
         ui: &mut Ui,
@@ -852,8 +739,6 @@ impl App {
         let star =
             Rect::from_center_size(pos2(row.left() + 11.0, row.center().y), vec2(20.0, 20.0));
         let id = egui::Id::new(("parameter row", device.id.0, p.id));
-        // A face device has no strip to put a parameter on: no star at all, and
-        // the name starts where the star would have been (M8 slice B2).
         let mut text_left = star.right() + 6.0;
         match starred_now {
             Some(on) => {
@@ -931,7 +816,6 @@ impl App {
                 selected: false,
             },
         );
-        // A lane the user has taken over (M7 slice A4a), as on the strip's knob.
         if self.parameter_taken_over(device, p) {
             crate::arrangement::follow::ring(ui, bar);
         }
@@ -1022,12 +906,10 @@ mod tests {
         let (l, u) = (list(), units());
         let all = filter(&l, &u, &[], "", Chip::All);
         assert_eq!(all, [0, 1, 2, 4], "the hidden one is left out");
-        // The name, in any case; the group's name counts too.
         assert_eq!(filter(&l, &u, &[], "CUT", Chip::All), [0]);
         assert_eq!(filter(&l, &u, &[], "filter", Chip::All), [0, 1]);
         assert_eq!(filter(&l, &u, &[], "filter res", Chip::All), [1]);
         assert!(filter(&l, &u, &[], "filter level", Chip::All).is_empty());
-        // The hidden one cannot be found either.
         assert!(filter(&l, &u, &[], "hidden", Chip::All).is_empty());
     }
 
@@ -1036,7 +918,6 @@ mod tests {
         let (l, u) = (list(), units());
         assert_eq!(filter(&l, &u, &[], "", Chip::Unit(1)), [0, 1]);
         assert_eq!(filter(&l, &u, &[3, 5], "", Chip::Starred), [2, 4]);
-        // A chip and a search together.
         assert_eq!(filter(&l, &u, &[], "res", Chip::Unit(1)), [1]);
         assert!(filter(&l, &u, &[], "res", Chip::Unit(0)).is_empty());
     }
@@ -1056,7 +937,6 @@ mod tests {
                 ("On the strip", 1)
             ]
         );
-        // One group, nothing on the strip: just "All".
         let one = vec![p(1, "A", 0, 1), p(2, "B", 0, 1)];
         let c = chips(&one, &[], &[]);
         assert_eq!(c.len(), 1);

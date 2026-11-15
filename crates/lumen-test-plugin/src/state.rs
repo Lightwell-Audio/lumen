@@ -1,6 +1,3 @@
-//! The saved state of a component: a tag, the plugin kind and every
-//! parameter's normalized value.
-
 use crate::params::Kind;
 
 const MAGIC: [u8; 4] = *b"LTP1";
@@ -18,8 +15,6 @@ pub fn encode(kind: Kind, values: [f64; 2]) -> [u8; LEN] {
     out
 }
 
-/// The values saved by `encode` for the same kind, or `None` for anything
-/// else (wrong tag, wrong plugin, wrong length, values that are not numbers).
 pub fn decode(kind: Kind, bytes: &[u8]) -> Option<[f64; 2]> {
     if bytes.len() != LEN || bytes[..4] != MAGIC {
         return None;

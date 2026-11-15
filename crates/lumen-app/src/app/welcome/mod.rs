@@ -1,18 +1,8 @@
-//! The first-run window (M9 slice R7b, ADR-0115; the owner's F A, S A, T A,
-//! D A, P A, M A and W A): a `Dialog` over the empty song with three steps,
-//! Sound, Plugins and Ready. The song behind stays usable; ✕, Esc and Skip
-//! setup close it and keep what was set. It opens on a first start until it
-//! is finished or closed, and from "Set up Lumen…". Its state and the rules
-//! the window shows are `rules.rs`; the device and folder rows are the
-//! Preferences pages' own.
-
 mod plugins;
 mod ready;
 mod rules;
 mod sound;
 
-/// The window's state and the rules it shows, as `crate::welcome` (the name
-/// startup and `App` still use).
 pub(crate) use self::rules::{Welcome, opens_at_start};
 
 use eframe::egui::{self, Align, Key, Layout, RichText, Ui, pos2, vec2};
@@ -30,18 +20,11 @@ use crate::{App, fonts, theme, widgets};
 
 use self::rules::{AsioOffer, Health, Mark, Step};
 
-/// How much of a short window's height the window's top sits below the
-/// app's (at most `size::PREFERENCES_TOP`), as Preferences does.
 const TOP_SHARE: f32 = 0.12;
-/// The Plugins step when this run was started without plugins.
 const OFF_THIS_RUN: &str = "This run started with plugins off. Start again normally to load them.";
-/// How strong a lit light's ring is at silence; it reaches full at the
-/// chime's peak.
 const RING_LEAST: f32 = 0.38;
-/// What the footer's hint says.
 const KEYS_HINT: &str = "Tab moves between controls \u{b7} Esc skips";
 
-/// What the footer asked for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Footer {
     Skip,
@@ -50,7 +33,6 @@ enum Footer {
     Finish,
 }
 
-/// Which of Lumi's poses a step shows.
 #[derive(Debug, Clone, Copy)]
 enum Pose {
     Waving,
@@ -59,13 +41,10 @@ enum Pose {
 }
 
 impl App {
-    /// Each frame: draws the window while it is open.
     pub(crate) fn welcome_window(&mut self, ctx: &egui::Context) {
         if !self.welcome.open {
             return;
         }
-        // Esc goes to an open menu, a field or another window first; only
-        // then does it skip setup.
         let escape = ctx.input(|i| i.key_pressed(Key::Escape)) && !self.welcome.esc_for_child;
         let content = ctx.content_rect();
         let margins = ctx.global_style().spacing.window_margin.sum().x + 2.0 * theme::space::M;
@@ -109,16 +88,12 @@ impl App {
             egui::Popup::is_any_open(ctx) || ctx.text_edit_focused() || self.other_window_open();
     }
 
-    /// Closes the window in any way: setup counts as done, and the settings
-    /// are written at once. The keyboard goes back to the song.
     fn finish_welcome(&mut self, ctx: &egui::Context) {
         if !self.welcome.open {
             return;
         }
         self.welcome.open = false;
         self.transport.audio.stop_sound_check();
-        // The Ready step's switch (M9 R8): a copy registered elsewhere is
-        // left for the Preferences row's "Use this copy".
         if self.welcome.step == Step::Ready && crate::association::Association::supported() {
             use crate::association::State;
             let wish = self.settings.projects.associate_files;
@@ -138,7 +113,6 @@ impl App {
         ctx.request_repaint();
     }
 
-    /// How the Sound step stands.
     fn sound_health(&self) -> Health {
         let audio = &self.transport.audio;
         if audio.changing().is_some() || !audio.can_change() {
@@ -151,7 +125,6 @@ impl App {
         }
     }
 
-    /// How the Plugins step stands.
     fn plugins_health(&self) -> Health {
         if self.safe.on || self.plugins.is_off() {
             return Health::Needs;
@@ -173,8 +146,6 @@ impl App {
         }
     }
 
-    /// The step, scrolling between the head and the footer, then the
-    /// footer, so the pills and Next are always in reach.
     fn welcome_body(&mut self, ui: &mut Ui, room: f32) -> Option<Footer> {
         let footer = theme::size::CONTROL + 2.0 * theme::space::M + theme::stroke::HAIRLINE;
         let body = (room - footer).max(theme::size::PREFERENCES_LEAST_PAGE);
@@ -193,7 +164,6 @@ impl App {
         self.welcome_footer(ui)
     }
 
-    /// Lumi (when there is room), the step's display title and one line.
     fn welcome_intro(&mut self, ui: &mut Ui, title: &str, line: &str, pose: Option<Pose>) {
         let ctx = ui.ctx().clone();
         let roomy = ui.available_width() >= theme::size::WELCOME_NARROW;
@@ -208,7 +178,6 @@ impl App {
         ui.add_space(theme::space::S);
         ui.horizontal_top(|ui| {
             if let Some(texture) = picture {
-                // Decorative: Lumi has no accessible name.
                 ui.add(egui::Image::new(egui::load::SizedTexture::new(
                     texture,
                     vec2(theme::size::LUMI, theme::size::LUMI),
@@ -234,12 +203,6 @@ impl App {
         ui.add_space(theme::space::S);
     }
 
-    // ── Sound ───────────────────────────────────────────────────────────
-
-    /// Skip setup or Back at the left, the keys at the middle, and the
-    /// window's one filled button at the right: Next, or Start making
-    /// music on Ready. Enter means Next only when nothing has the keyboard
-    /// and no menu is open.
     fn welcome_footer(&mut self, ui: &mut Ui) -> Option<Footer> {
         let step = self.welcome.step;
         let mut asked = None;
@@ -289,8 +252,6 @@ impl App {
     }
 }
 
-/// The step pills in the title row: each can be clicked, and shows ✓ when
-/// its step is good or the warning shape when it needs something.
 fn step_pills(ui: &mut Ui, step: Step, marks: [Mark; 3], picked: &mut Option<Step>) {
     for (i, s) in Step::ALL.into_iter().enumerate() {
         let label = format!("{} {}", i + 1, s.name());

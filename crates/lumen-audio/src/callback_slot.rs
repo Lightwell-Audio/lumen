@@ -1,71 +1,39 @@
-//! The audio callback handed between the audio thread and the control thread
-//! without a lock (sweep M6).
-//!
-//! A driver model may want the callback by value (the portable backend does),
-//! while the stream has to be able to take it back when it closes. Holding it
-//! behind a lock makes the audio thread's `try_lock` fail whenever the other
-//! side is in the way, and the block it wanted to fill becomes silence.
-//!
-//! Instead the slot holds a boxed callback behind an atomic pointer. The audio
-//! thread swaps it out for null, runs it and stores it back; the control
-//! thread takes it out once the stream has stopped, waiting, bounded, for a
-//! block that is still finishing. Boxing and unboxing happen only at open and
-//! close: nothing here allocates, frees, locks or blocks on the audio thread.
-
 use std::ptr;
 use std::sync::atomic::{AtomicPtr, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::types::AudioCallback;
 
-/// How often [`CallbackSlot::take_waiting`] looks again.
 const WAIT_STEP: Duration = Duration::from_millis(1);
 
-/// One audio callback, held in an atomic slot.
 pub(crate) struct CallbackSlot {
-    /// A `Box<dyn AudioCallback>` as a raw pointer; null while a block runs,
-    /// and after the callback has been taken.
     inner: AtomicPtr<Box<dyn AudioCallback>>,
 }
 
 impl CallbackSlot {
-    /// A slot holding `callback`. Boxes: call off the audio thread.
     pub(crate) fn new(callback: Box<dyn AudioCallback>) -> Self {
         Self {
             inner: AtomicPtr::new(Box::into_raw(Box::new(callback))),
         }
     }
 
-    /// Runs `run` with the callback and puts it back, unless a block is
-    /// already running or the callback has been taken: `None` then, so the
-    /// caller plays silence instead of waiting. Real-time safe: no lock, no
-    /// allocation, no deallocation.
     pub(crate) fn with<R>(&self, run: impl FnOnce(&mut dyn AudioCallback) -> R) -> Option<R> {
         let raw = self.inner.swap(ptr::null_mut(), Ordering::Acquire);
         if raw.is_null() {
             return None;
         }
-        // Back in the slot however `run` ends, a panic included.
         let _back = Return { slot: self, raw };
-        // SAFETY: `raw` came from `Box::into_raw` in `new`, and the swap above
-        // proves no other thread holds it.
         Some(run(unsafe { &mut **raw }))
     }
 
-    /// Takes the callback out for good. `None` while a block is running, so
-    /// the caller can look again: [`CallbackSlot::take_waiting`] does.
     pub(crate) fn take(&self) -> Option<Box<dyn AudioCallback>> {
         let raw = self.inner.swap(ptr::null_mut(), Ordering::Acquire);
         if raw.is_null() {
             return None;
         }
-        // SAFETY: `raw` came from `Box::into_raw` in `new`, and the swap above
-        // proves no block is using it.
         Some(unsafe { *Box::from_raw(raw) })
     }
 
-    /// Takes the callback out, waiting up to `bound` for a block that is still
-    /// running to end. Called on the control thread, once the stream stopped.
     pub(crate) fn take_waiting(&self, bound: Duration) -> Option<Box<dyn AudioCallback>> {
         let started = Instant::now();
         loop {
@@ -82,21 +50,15 @@ impl CallbackSlot {
 }
 
 impl Drop for CallbackSlot {
-    /// Frees a callback that was never taken: a stream dropped without
-    /// `close` leaks nothing.
     fn drop(&mut self) {
         let raw = *self.inner.get_mut();
         if raw.is_null() {
             return;
         }
-        // SAFETY: `raw` came from `Box::into_raw` in `new` and was not taken;
-        // this is its last owner.
         drop(unsafe { Box::from_raw(raw) });
     }
 }
 
-/// Puts the callback back when it goes out of scope: a block that ends,
-/// normally or by panicking, must not leave the slot empty.
 struct Return<'a> {
     slot: &'a CallbackSlot,
     raw: *mut Box<dyn AudioCallback>,
@@ -118,7 +80,6 @@ mod tests {
 
     use crate::types::Block;
 
-    /// A block of nothing, for the callbacks that only need to be run.
     fn block(outputs: &mut [f32]) -> Block<'_> {
         Block {
             sample_rate: 48_000,
@@ -131,8 +92,6 @@ mod tests {
         }
     }
 
-    /// A block never waits, never allocates and runs the callback it took
-    /// (sweep M6).
     #[test]
     fn a_block_runs_without_a_lock_or_an_allocation() {
         assert!(
@@ -156,9 +115,6 @@ mod tests {
         assert!(outputs.iter().all(|&x| x == 1.0));
     }
 
-    /// A block that arrives while another runs does not wait for it: it finds
-    /// nothing to run and the caller plays silence, where a lock would have
-    /// held the audio thread (sweep M6).
     #[test]
     fn a_block_that_is_running_is_not_waited_for() {
         let slot = CallbackSlot::new(Box::new(|_: &mut Block<'_>| {}));
@@ -174,8 +130,6 @@ mod tests {
         );
     }
 
-    /// `close` waits, bounded, for a block that is still finishing, and gets
-    /// the callback back after it (sweep M6).
     #[test]
     fn taking_the_callback_waits_for_a_running_block() {
         let slot = Arc::new(CallbackSlot::new(Box::new(|_: &mut Block<'_>| {})));
@@ -204,8 +158,6 @@ mod tests {
         drop(callback);
     }
 
-    /// A block that panics leaves the callback in the slot, not lost with the
-    /// unwind (sweep M6).
     #[test]
     fn a_panicking_block_leaves_the_callback_in_the_slot() {
         let slot = CallbackSlot::new(Box::new(|_: &mut Block<'_>| {}));
@@ -221,7 +173,6 @@ mod tests {
         assert!(slot.with(|_| ()).is_none(), "a taken slot runs nothing");
     }
 
-    /// Dropping the slot frees a callback nobody took.
     #[test]
     fn dropping_the_slot_frees_the_callback() {
         let slot = CallbackSlot::new(Box::new(|_: &mut Block<'_>| {}));

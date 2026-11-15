@@ -1,12 +1,3 @@
-//! The browser's list: vendor headers, device rows and the blocked section,
-//! painted and answered row by row. Only the rows in view are laid out, so
-//! a thousand plugins cost what a dozen do. It decides nothing: what was
-//! clicked goes back in an [`Out`] for the app to apply.
-//!
-//! Rows are clickable but not Tab stops: a library of hundreds would take
-//! hundreds of Tabs to cross. The list is one stop, the pane's own (F6), and
-//! the arrows move through it (`panel.rs`).
-
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -25,42 +16,30 @@ use crate::{fonts, motion, theme, widgets};
 
 const DEVICE_H: f32 = 28.0;
 const VENDOR_H: f32 = 26.0;
-/// Room inside a row, either side.
 const PAD: f32 = 6.0;
-/// Below this width a row drops its category tag (the header says it).
 const TAG_MIN_WIDTH: f32 = 200.0;
-/// A row's icon and star; the search field's magnifier matches it.
 pub(super) const ICON: f32 = 16.0;
 
-/// What the list is showing.
 pub(crate) struct Input<'a> {
     pub catalog: &'a Catalog,
     pub rows: &'a Rows,
     pub selected: Option<&'a Selection>,
     pub favorites: &'a HashSet<String>,
-    /// One flat list (Recent): rows say their vendor, as no header does.
     pub flat: bool,
-    /// Bring the selected row into view this frame (a key moved it).
     pub scroll_to_selected: bool,
-    /// What choosing an instrument and an effect does, as a menu row
-    /// ("Add to Bass"), in that order.
     pub adds: [&'a str; 2],
 }
 
-/// What the pointer did.
 #[derive(Default)]
 pub(crate) struct Out {
     pub select: Option<Selection>,
-    /// Double-clicked or Enter on a device: choose it.
     pub choose: Option<String>,
     pub toggle_fold: Option<String>,
     pub toggle_blocked: bool,
     pub favorite: Option<String>,
-    /// A module to forget and scan again.
     pub retry: Option<String>,
     pub reveal: Option<PathBuf>,
     pub copy: Option<String>,
-    /// What the pointer is over, for the info line.
     pub hover: Option<Hover>,
 }
 
@@ -78,15 +57,12 @@ fn height(row: &Row, note: f32) -> f32 {
     }
 }
 
-/// A line of `text` cut with "…" to fit `width`.
 fn fit(painter: &Painter, text: &str, font: FontId, colour: Color32, width: f32) -> Arc<Galley> {
     let mut job = LayoutJob::single_section(text.to_owned(), TextFormat::simple(font, colour));
     job.wrap = TextWrapping::truncate_at_width(width.max(1.0));
     painter.layout_job(job)
 }
 
-/// The words on a blocked module's card: what happened, what it printed,
-/// and what Lumen will do.
 fn note_text(blocked: &Blocked) -> (String, Option<String>) {
     (
         blocked.reason.headline(),
@@ -94,7 +70,6 @@ fn note_text(blocked: &Blocked) -> (String, Option<String>) {
     )
 }
 
-/// How tall the card under a blocked module is at `width`.
 fn note_height(painter: &Painter, blocked: &Blocked, width: f32) -> f32 {
     let wrap = width - 2.0 * theme::space::M;
     let body = FontId::proportional(theme::size::CAPTION);
@@ -108,11 +83,9 @@ fn note_height(painter: &Painter, blocked: &Blocked, width: f32) -> f32 {
         .layout(WHEN_RETRIED.into(), body, ink, wrap)
         .size()
         .y;
-    // Padding, the gaps between paragraphs, and the buttons.
     text + 2.0 * theme::space::S + theme::space::XS + theme::size::CONTROL + theme::space::S
 }
 
-/// Draws the list in `rect` and returns what happened.
 pub(crate) fn show(ui: &mut Ui, rect: Rect, input: &Input<'_>) -> Out {
     let mut out = Out::default();
     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
@@ -122,7 +95,6 @@ pub(crate) fn show(ui: &mut Ui, rect: Rect, input: &Input<'_>) -> Out {
         selection_of(input.catalog, r).as_ref() == input.selected && input.selected.is_some()
     });
 
-    // Heights, so the rows in view can be found without laying out the rest.
     let painter = child.painter().clone();
     let note = |row: &Row| match row {
         Row::BlockedNote(i) => {
@@ -163,7 +135,6 @@ pub(crate) fn show(ui: &mut Ui, rect: Rect, input: &Input<'_>) -> Out {
     out
 }
 
-/// Room kept at the right for the scroll bar.
 fn scroll_room() -> f32 {
     theme::space::XS
 }
@@ -210,7 +181,6 @@ fn draw_row(ui: &mut Ui, rect: Rect, row: &Row, input: &Input<'_>, out: &mut Out
     }
 }
 
-/// What a header shows and what choosing it means.
 struct Header<'a> {
     rect: Rect,
     id: Id,
@@ -222,7 +192,6 @@ struct Header<'a> {
     hover: Hover,
 }
 
-/// A header the pointer folds: an arrow that turns, a name, a count.
 fn draw_header(ui: &mut Ui, header: Header<'_>, fold: impl FnOnce(&mut Out), out: &mut Out) {
     let Header {
         rect,
@@ -277,7 +246,6 @@ fn draw_header(ui: &mut Ui, header: Header<'_>, fold: impl FnOnce(&mut Out), out
         FontId::monospace(theme::size::MONO_SMALL),
         palette.text_hint,
     );
-    // The count is centred on the device rows' star column (B6).
     let right = rect.right() - PAD - ICON / 2.0 - count_galley.size().x / 2.0;
     let label_left = rect.left() + PAD + 16.0;
     let label = fit(
@@ -319,7 +287,6 @@ fn draw_device(
     let selected = input.selected == Some(&Selection::Device(device.id.clone()));
     let favorite = input.favorites.contains(&device.id);
     let response = ui.interact(rect, id, Sense::click_and_drag());
-    // Dragged onto the Devices tab it is added where the line shows.
     response.dnd_set_drag_payload(crate::chain::Dragged(device.id.clone()));
     if response.dragged() {
         crate::chain::paint_drag_ghost(ui.ctx(), &device.name);
@@ -336,7 +303,6 @@ fn draw_device(
             format!("{}, {}, {kind}", device.name, device.vendor),
         )
     });
-    // The star sits over the row's right end and takes its own clicks.
     let star = Rect::from_center_size(
         pos2(rect.right() - PAD - ICON / 2.0, rect.center().y),
         vec2(ICON + 8.0, DEVICE_H),
@@ -391,11 +357,6 @@ fn draw_device(
         ink,
     ));
 
-    // Right to left: the star, then what the row says of itself. At rest
-    // a row is its name alone (in Recent, its vendor too, below), a
-    // favourite keeping its star; the tag and
-    // star show under the pointer and on the selected row (the interface
-    // audit's B4), so names get the width.
     let shown = hovered || selected;
     let mut right = rect.right() - PAD;
     if favorite || shown {
@@ -415,7 +376,6 @@ fn draw_device(
         ));
         right = star.left() - theme::space::XS;
     }
-    // A flat list (Recent) always says the vendor, as no header does.
     let caption = if input.flat {
         Some(device.vendor.as_str())
     } else if shown && rect.width() >= TAG_MIN_WIDTH {
@@ -458,8 +418,6 @@ fn draw_device(
     if response.double_clicked() && !star_response.hovered() {
         out.choose = Some(device.id.clone());
     }
-    // The owner's A (the interface audit's B7): what choosing it does
-    // first, then favouring it, then its file.
     widgets::Menu::context(&response).show(|ui| {
         if crate::chain::placeable(device) {
             let add = match device.kind {
@@ -494,10 +452,6 @@ fn draw_device(
     });
 }
 
-/// A small outlined word at the row's right, ending at `right`; returns
-/// where it starts. `plain` drops the outline; on a `selected` row the
-/// word and outline step up to `text_secondary`, as the hint grey would
-/// all but vanish there (the interface audit's B5).
 fn tag(
     painter: &Painter,
     text: &str,
@@ -603,8 +557,6 @@ fn draw_blocked(
     });
 }
 
-/// The "Blocked" word at the row's right, in the warning colour; returns
-/// where it starts. The colour never stands alone: the word says it.
 fn tag_blocked(painter: &Painter, rect: Rect, palette: &theme::Palette) -> f32 {
     let galley = painter.layout_no_wrap(
         "Blocked".into(),
@@ -634,13 +586,9 @@ fn tag_blocked(painter: &Painter, rect: Rect, palette: &theme::Palette) -> f32 {
     tag.left() - theme::space::XS
 }
 
-/// The card under the selected blocked module: why, what Lumen does, and
-/// the two things to do about it.
 fn draw_note(ui: &mut Ui, rect: Rect, blocked: &Blocked, out: &mut Out) {
     let palette = *theme::p();
     let card = rect.shrink2(vec2(0.0, theme::space::XS));
-    // The card's words are painted, which assistive technology cannot read:
-    // the card says them as one labelled thing.
     let (headline, detail) = note_text(blocked);
     let spoken = match &detail {
         Some(detail) => format!("{headline} {detail} {WHEN_RETRIED}"),

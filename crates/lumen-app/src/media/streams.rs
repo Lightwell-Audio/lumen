@@ -1,13 +1,3 @@
-//! Stream files by id (M9 slice R6, ADR-0109). The library gives every file
-//! it streams an id of its own, never reused, and registers the stream file's
-//! path under it. Whoever holds a [`StreamAudio`] can then read it: the disk
-//! thread into the live pool, a render into its own pool, a scan or a
-//! deep-zoom strip into a buffer. Ids are unique in the process, so several
-//! apps in one test process never share one.
-//!
-//! Every read here blocks on the disk: for workers, never the UI or audio
-//! thread.
-
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -21,25 +11,20 @@ use super::warped::{Origin, Rendering, Warped};
 
 static NEXT: AtomicU64 = AtomicU64::new(1);
 static FILES: LazyLock<Mutex<HashMap<u64, PathBuf>>> = LazyLock::new(Default::default);
-/// Streams that are computed, not read (warped clips, M9.5 S4b), by id.
 static WARPED: LazyLock<Mutex<HashMap<u64, Arc<Warped>>>> = LazyLock::new(Default::default);
 
-/// Pages of a render's own pool: 8 MB, which a render reuses as it goes.
 const RENDER_PAGES: u32 = 256;
 
 fn files() -> std::sync::MutexGuard<'static, HashMap<u64, PathBuf>> {
     FILES.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Registers the stream file `path`, returning its new id.
 pub fn register(path: PathBuf) -> u64 {
     let id = NEXT.fetch_add(1, Ordering::Relaxed);
     files().insert(id, path);
     id
 }
 
-/// Registers a stream computed from other streams or audio, returning its new
-/// id.
 pub fn register_warped(warped: Arc<Warped>) -> u64 {
     let id = NEXT.fetch_add(1, Ordering::Relaxed);
     warped_streams().insert(id, warped);
@@ -50,44 +35,31 @@ fn warped_streams() -> std::sync::MutexGuard<'static, HashMap<u64, Arc<Warped>>>
     WARPED.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// The warped stream registered as `id`.
 pub fn warped(id: u64) -> Option<Arc<Warped>> {
     warped_streams().get(&id).cloned()
 }
 
-/// Forgets a file or a warped stream no longer played. Readers already open
-/// keep reading.
 pub fn forget(id: u64) {
     files().remove(&id);
     warped_streams().remove(&id);
 }
 
-/// The stream files registered now: those playing, which the cache keeps.
 pub fn in_use() -> Vec<PathBuf> {
     files().values().cloned().collect()
 }
 
-/// The stream file registered as `id`.
 pub fn path(id: u64) -> Option<PathBuf> {
     files().get(&id).cloned()
 }
 
-/// Open stream files, by id, read with blocking reads.
 #[derive(Default)]
 pub struct Readers {
     open: HashMap<u64, Reader>,
-    /// Warped streams being rendered (M9.5 S4b), by id.
     rendering: HashMap<u64, Rendering>,
-    /// Paths and warped streams fixed when the readers were made
-    /// ([`Readers::fixed`]), else the registry is asked.
     fixed: Option<Fixed>,
-    /// A reader that must not wait (the disk thread's): a stream whose audio
-    /// needs work in the background answers [`MediaError::NotReady`] instead
-    /// of waiting for it.
     polling: bool,
 }
 
-/// What [`Readers::fixed`] keeps of the registry.
 #[derive(Default)]
 struct Fixed {
     paths: HashMap<u64, PathBuf>,
@@ -95,8 +67,6 @@ struct Fixed {
 }
 
 impl Readers {
-    /// Readers that never wait for background work: the disk thread's, which
-    /// has other streams to serve.
     pub fn polling() -> Self {
         Self {
             polling: true,
@@ -104,8 +74,6 @@ impl Readers {
         }
     }
 
-    /// Readers of the files registered now, by path, so a file forgotten
-    /// later (another rate) still reads for a render already under way.
     pub fn fixed(ids: impl IntoIterator<Item = u64>) -> Self {
         let files = files();
         let streams = warped_streams();
@@ -115,7 +83,6 @@ impl Readers {
                 fixed.paths.insert(id, path.clone());
             }
             if let Some(warped) = streams.get(&id) {
-                // The file a warped stream plays is fixed with it.
                 if let Origin::File(inner) = &warped.origin
                     && let Some(path) = files.get(inner)
                 {
@@ -130,7 +97,6 @@ impl Readers {
         }
     }
 
-    /// The path of stream file `id`.
     fn path_of(&self, id: u64) -> Option<PathBuf> {
         match &self.fixed {
             Some(fixed) => fixed.paths.get(&id).cloned(),
@@ -138,7 +104,6 @@ impl Readers {
         }
     }
 
-    /// The warped stream `id`, if it is one.
     fn warped_of(&self, id: u64) -> Option<Arc<Warped>> {
         match &self.fixed {
             Some(fixed) => fixed.warped.get(&id).cloned(),
@@ -146,7 +111,6 @@ impl Readers {
         }
     }
 
-    /// Opens the rendering of warped stream `warped`.
     fn open_rendering(&self, warped: Arc<Warped>) -> Result<Rendering, MediaError> {
         let file = match &warped.origin {
             Origin::Memory(_) => None,
@@ -161,9 +125,6 @@ impl Readers {
             .ok_or_else(|| MediaError::Io("a warped stream has no audio to play".into()))
     }
 
-    /// Reads `audio` from frame `from` into `left` and, for a file of two
-    /// channels, `right` (all one length; a mono file leaves `right` alone).
-    /// Returns the frames that came from the file; the rest are silence.
     pub fn read(
         &mut self,
         audio: &StreamAudio,
@@ -189,8 +150,6 @@ impl Readers {
         }
     }
 
-    /// The rendering of `id`, opened now if it is a warped stream not yet
-    /// open; `None` for a plain file.
     fn rendering_of(&mut self, id: u64) -> Result<Option<&mut Rendering>, MediaError> {
         if !self.rendering.contains_key(&id) {
             let Some(warped) = self.warped_of(id) else {
@@ -202,7 +161,6 @@ impl Readers {
         Ok(self.rendering.get_mut(&id))
     }
 
-    /// Closes the files not among `streams`.
     pub fn keep(&mut self, streams: &[StreamAudio]) {
         self.open
             .retain(|id, _| streams.iter().any(|s| s.id() == *id));
@@ -211,8 +169,6 @@ impl Readers {
     }
 }
 
-/// The samples of `audio`, every channel it plays, whole: a copy of audio in
-/// memory, or the stream file read from disk. Blocks.
 pub fn read_all(audio: &ClipAudio) -> Result<Vec<Vec<f32>>, MediaError> {
     match audio {
         ClipAudio::Memory { channels, .. } => Ok(channels.clone()),
@@ -232,15 +188,7 @@ pub fn read_all(audio: &ClipAudio) -> Result<Vec<Vec<f32>>, MediaError> {
     }
 }
 
-/// `clips` with every streamed file read whole into memory, each file once.
-/// For a real-time export, whose blocks the audio callback plays: a page
-/// missing from memory would be read on the audio thread. An offline export
-/// does not need it: it renders on a worker and loads pages as it reads
-/// (`export::render`). Blocks on the disk.
 pub fn in_memory(clips: Vec<Clip>) -> Result<Vec<Clip>, String> {
-    // A warped stream is the whole song up to its last clip: only the frames
-    // its clips play are read. The clips of a stream that overlap or touch
-    // share one copy; clips far apart each get a copy of their own.
     let mut windows: HashMap<u64, Vec<(i64, i64)>> = HashMap::new();
     for clip in &clips {
         if let ClipAudio::Stream(stream) = &*clip.audio
@@ -264,7 +212,6 @@ pub fn in_memory(clips: Vec<Clip>) -> Result<Vec<Clip>, String> {
         }
         *list = merged;
     }
-    // Each copy read once, by the stream and where it begins.
     let mut read: HashMap<(u64, i64), Arc<ClipAudio>> = HashMap::new();
     clips
         .into_iter()
@@ -297,8 +244,6 @@ pub fn in_memory(clips: Vec<Clip>) -> Result<Vec<Clip>, String> {
         .collect()
 }
 
-/// The frames `window` of `stream` (all of it when `None`), every channel it
-/// plays. Blocks.
 fn read_window(
     stream: &StreamAudio,
     window: Option<(i64, i64)>,
@@ -317,21 +262,15 @@ fn read_window(
     })
 }
 
-/// What an offline render could not read from disk, shared by its loader
-/// and its worker. A page that cannot be read plays silence, so the worker
-/// asks [`Unread::check`] before it keeps what it made: a render with a
-/// hole in it fails rather than leave a file that sounds wrong.
 #[derive(Clone, Default)]
 pub struct Unread(Arc<Mutex<Option<String>>>);
 
 impl Unread {
-    /// Keeps the first failure.
     fn note(&self, why: String) {
         let mut first = self.0.lock().unwrap_or_else(PoisonError::into_inner);
         first.get_or_insert(why);
     }
 
-    /// `Err` with a message for the user when a page could not be read.
     pub fn check(&self) -> Result<(), String> {
         match &*self.0.lock().unwrap_or_else(PoisonError::into_inner) {
             Some(why) => Err(why.clone()),
@@ -340,11 +279,6 @@ impl Unread {
     }
 }
 
-/// `clips` as an offline render plays them: each streamed file gets a table
-/// in a pool of the render's own, filled from disk on the render's thread
-/// when the clip player reaches a page (so a render never starves). Clips
-/// in memory are left as they are. Does not touch the disk itself. What
-/// cannot be read is noted in `unread`.
 pub fn offline(clips: Vec<Clip>, unread: &Unread) -> Vec<Clip> {
     let streams: Vec<StreamAudio> = clips
         .iter()
@@ -368,14 +302,11 @@ pub fn offline(clips: Vec<Clip>, unread: &Unread) -> Vec<Clip> {
                     crate::trace::log(|| {
                         format!("render: stream {} unreadable: {why}", audio.id())
                     });
-                    // The stream file may be a cache copy with a hashed
-                    // name, so the message names no file.
                     unread.note(format!("An audio file could not be read from disk ({why})"));
                 })
                 .ok()
         }),
     );
-    // One table per file, shared by every clip that plays it.
     let mut tables: HashMap<u64, Arc<ClipAudio>> = HashMap::new();
     clips
         .into_iter()
@@ -397,7 +328,6 @@ mod tests {
 
     use lumen_media::wav::{Sample, Spec, Writer};
 
-    /// A float WAV of `channels`, removed when the guard drops.
     struct Removed(PathBuf);
 
     impl Drop for Removed {
@@ -490,8 +420,6 @@ mod tests {
         clips[0].audio.stream().expect("streamed")
     }
 
-    /// A page that cannot be read plays silence, so the render must hear of
-    /// it and fail rather than keep the file (review of slice R6).
     #[test]
     fn a_render_that_cannot_read_a_page_is_told() {
         let (_dir, path, _) = wav(3 * PAGE, 2);

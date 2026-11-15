@@ -1,14 +1,3 @@
-//! The recorder (USER_DOCS.md §6.3): steps the app, saves each frame cut to
-//! the scene's crop, and adds what a screen recording would have: the
-//! pointer in the shape Lumen asks for, a ring where it presses, the keys
-//! pressed as keycaps, human pacing and, for walkthroughs, the sound the
-//! test device played, frame by frame. Encoded clips are cached by the hash
-//! of what went in, so an unchanged scene is not encoded again.
-//!
-//! Without `DOCS_MEDIA` the scenes only check (§8.3): each runs once, in the
-//! dark theme, and nothing is rendered, written or encoded, so a pull
-//! request learns quickly that a scene can no longer reach its state.
-
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
@@ -26,23 +15,16 @@ use lumen_audio::fake::Pace;
 
 use crate::pointer;
 
-/// The scale every picture is rendered at: crisp on high-density screens.
 pub const SCALE: f32 = 2.0;
-/// The harness steps at 60 a second; clips play at [`pace::FPS`].
 const STEPS_PER_FRAME: usize = 2;
-/// The test device's rate: what it plays, frame by frame.
 const RATE: usize = 48_000;
-/// The test device's block, in frames.
 const BLOCK: u64 = 128;
-/// Changes when the encoding changes, so cached clips are made again.
 const RECORDER_VERSION: u64 = 1;
 
 thread_local! {
-    /// Where the scene's time went, by phase, for [`phases`].
     static PHASES: RefCell<BTreeMap<&'static str, (Duration, u64)>> = RefCell::default();
 }
 
-/// Runs `f`, adding its time to `phase`.
 pub fn timed<T>(phase: &'static str, f: impl FnOnce() -> T) -> T {
     let started = Instant::now();
     let out = f();
@@ -55,8 +37,6 @@ pub fn timed<T>(phase: &'static str, f: impl FnOnce() -> T) -> T {
     out
 }
 
-/// The phases so far, longest first with how many times each ran, in one
-/// line, and starts again.
 pub fn phases() -> String {
     PHASES.with(|p| {
         let mut all: Vec<_> = std::mem::take(&mut *p.borrow_mut()).into_iter().collect();
@@ -68,31 +48,18 @@ pub fn phases() -> String {
     })
 }
 
-/// Human pacing, in one place as the app's motion is in `motion.rs`
-/// (§6.3). In video frames.
 pub mod pace {
-    /// Video frames a second.
     pub const FPS: usize = 30;
-    /// Held before and after each change: about 400 ms.
     pub const SETTLE: usize = 12;
-    /// The result, held before the loop starts again: over a second.
     pub const RESULT: usize = 36;
-    /// A hand's speed across the screen, in points a second.
     pub const SPEED: f32 = 520.0;
-    /// The shortest and longest move, however near or far.
     pub const GLIDE: (usize, usize) = (10, 28);
-    /// How long a click's ring grows and fades.
     pub const RING: usize = 12;
-    /// How long keycaps show, and how far in the keys are pressed.
     pub const KEYS: usize = 46;
     pub const KEYS_LEAD: usize = 10;
-    /// The least a walkthrough's caption shows: time to read a sentence.
     pub const READ: usize = 45;
 }
 
-/// Whether the app, after the frame it just drew, asked to be drawn again
-/// soon (an animation, a sound playing, work arriving). When it did not, the
-/// next frame is the same unless something is sent to it.
 fn at_rest(h: &Harness<'static, App>) -> bool {
     h.output()
         .viewport_output
@@ -100,22 +67,14 @@ fn at_rest(h: &Harness<'static, App>) -> bool {
         .is_some_and(|v| !v.repaint_delay.is_zero())
 }
 
-/// `DOCS_VERIFY_REUSE` set: draw the frames that would be reused, and count
-/// the ones that came out different (the scene's phases say how many).
 fn verifying() -> bool {
     std::env::var_os("DOCS_VERIFY_REUSE").is_some()
 }
 
-/// Whether the scenes make media (`DOCS_MEDIA` is set) or only check.
 pub fn rendering() -> bool {
     std::env::var_os("DOCS_MEDIA").is_some()
 }
 
-/// The themes the scenes run in: both when they make media, as every
-/// screenshot and loop is made in both; Lumen's default when they check.
-/// `DOCS_THEME` (`dark` or `light`) makes the media of that theme only: the
-/// deploy renders each theme of a scene in a job of its own, and the two
-/// folders together are what both themes would have written.
 pub fn themes() -> &'static [&'static str] {
     if !rendering() {
         return &["dark"];
@@ -129,21 +88,14 @@ pub fn themes() -> &'static [&'static str] {
 }
 
 thread_local! {
-    /// The files this thread's scene wrote, or would write when it only
-    /// checks, for [`written`].
     static WRITTEN: RefCell<BTreeSet<String>> = RefCell::default();
-    /// The controls marked on each of its screenshots, for [`marked`].
     static MARKED: RefCell<BTreeMap<String, Vec<String>>> = RefCell::default();
 }
 
-/// The files written since the last call, by name. A scene that only checks
-/// names the files it would have written, so a scene that drifts from
-/// `scenes.rs` fails on the pull request, not at the deploy.
 pub fn written() -> BTreeSet<String> {
     WRITTEN.with(|w| std::mem::take(&mut *w.borrow_mut()))
 }
 
-/// The controls marked on each screenshot since the last call.
 pub fn marked() -> BTreeMap<String, Vec<String>> {
     MARKED.with(|m| std::mem::take(&mut *m.borrow_mut()))
 }
@@ -161,9 +113,6 @@ fn would_write(name: String) {
     WRITTEN.with(|w| w.borrow_mut().insert(name));
 }
 
-/// A screenshot, `<id>-<theme>.webp`, cut to `crop` (points). With
-/// `callouts`, `<id>.callouts.json` holds their bounds as fractions of the
-/// picture, for the page to mark (shortcodes/shot.html).
 pub fn still(
     h: &mut Harness<'static, App>,
     crop: Rect,
@@ -220,45 +169,29 @@ pub fn still(
     }
 }
 
-/// A clip or walkthrough being recorded.
 pub struct Take {
-    /// The file name without its extension: `split-lead-dark`.
     name: String,
     crop: Rect,
-    /// Where the action is, across (the page's `focus`): phones show a 4:3
-    /// window there, so the keycaps are placed inside it.
     focus: f32,
     at: Pos2,
     icon: CursorIcon,
     frames: usize,
     since_click: Option<usize>,
-    /// The keys shown, and the frames they show from and to.
     keycaps: Vec<(String, usize, usize)>,
     raw_path: PathBuf,
-    /// The frames, while the scene makes media.
     raw: Option<BufWriter<File>>,
     hash: DefaultHasher,
     size: (u32, u32),
     last: Vec<u8>,
     clock: Clock,
     sound: Option<Sound>,
-    /// The last frame as the app drew it (no pointer), for [`Take::picture`]
-    /// to reuse while the app is at rest.
     base: Option<image::RgbaImage>,
-    /// Whether the app asked for no repaint after the previous frame.
     idle: bool,
 }
 
-/// The test device, run a video frame's time for each frame and not at all
-/// in between (§6.3). The engine then answers a click or a key in the same
-/// frame however slowly the frames render, so an unchanged scene makes the
-/// same frames and its clip comes from the cache, and a walkthrough's sound
-/// is exactly what played while its frames showed.
 struct Clock {
     device: InputDeviceTurn,
-    /// The device's pace and delivery before the take, put back after it.
     was: (Option<Pace>, u32),
-    /// Blocks granted since the take began, and the frames heard of them.
     granted: u64,
     heard: u64,
 }
@@ -272,8 +205,6 @@ impl Clock {
             d.allowance = Some(0);
             d.deliver_every = 1;
         });
-        // What played before the take, still on its way, is not part of
-        // it: drained until the device has been quiet for five of its polls.
         h.run_steps(2);
         let started = Instant::now();
         let mut quiet_since = Instant::now();
@@ -295,8 +226,6 @@ impl Clock {
         }
     }
 
-    /// Runs the device to the end of video frame `frame` (from 0), and
-    /// returns what it played meanwhile.
     fn tick(&mut self, h: &mut Harness<'static, App>, frame: usize) -> Vec<(f32, f32)> {
         let want = ((frame as u64 + 1) * (RATE / pace::FPS) as u64).div_ceil(BLOCK);
         let more = want - self.granted;
@@ -323,7 +252,6 @@ impl Clock {
         played
     }
 
-    /// Lets the device run freely again.
     fn stop(&self) {
         let (pace, deliver_every) = self.was;
         self.device.set(|d| {
@@ -334,20 +262,14 @@ impl Clock {
     }
 }
 
-/// A walkthrough's sound and text: what the test device played, and the
-/// captions and chapters.
 struct Sound {
     track: Vec<(f32, f32)>,
-    /// Cues as (first frame, id, text).
     captions: Vec<(usize, Option<String>, String)>,
     chapters: Vec<(usize, Option<String>, String)>,
-    /// Per frame: the playhead in quarters while playing.
     playhead: Vec<Option<f64>>,
 }
 
 impl Take {
-    /// A silent loop for a page (`<id>-<theme>.mp4` with its poster), the
-    /// pointer starting at `at`.
     pub fn clip(
         h: &mut Harness<'static, App>,
         device: InputDeviceTurn,
@@ -361,8 +283,6 @@ impl Take {
         Self::new(format!("{id}-{theme}"), crop, focus, at, clock, None)
     }
 
-    /// A walkthrough (`<id>.mp4`, its poster, captions and chapters), with
-    /// the sound the test device plays from now on.
     pub fn walk(
         h: &mut Harness<'static, App>,
         device: InputDeviceTurn,
@@ -414,11 +334,6 @@ impl Take {
         }
     }
 
-    /// One frame: the test device plays the frame's time, then the app
-    /// draws it.
-    ///
-    /// `quiet` is a frame in which nothing was sent to the app, and nothing
-    /// was done to it since the last frame (the rest of a hold).
     fn frame(&mut self, h: &mut Harness<'static, App>, quiet: bool) {
         let played = timed("device", || self.clock.tick(h, self.frames));
         if let Some(sound) = &mut self.sound {
@@ -448,14 +363,7 @@ impl Take {
         self.frames += 1;
     }
 
-    /// The frame as the reader sees it: the pointer and its click ring
-    /// drawn in, cut to the crop.
     fn picture(&mut self, h: &mut Harness<'static, App>, quiet: bool) -> image::RgbaImage {
-        // Rendering is the cost of a clip (the GPU is a software one, so
-        // that the pictures are the same everywhere). A frame in which
-        // nothing was sent to the app, after one in which it asked for no
-        // repaint, and asking for none now, is the frame before it:
-        // DOCS_VERIFY_REUSE draws it anyway and says if that was not so.
         let rest = quiet && self.idle && at_rest(h) && self.base.is_some();
         let mut image = match (&self.base, rest && !verifying()) {
             (Some(base), true) => {
@@ -485,12 +393,8 @@ impl Take {
         timed("cut", || cut(&image, self.crop))
     }
 
-    /// Holds still for `frames`.
     pub fn hold(&mut self, h: &mut Harness<'static, App>, frames: usize) {
         for i in 0..frames {
-            // The first frame sends the pointer's place (and follows
-            // whatever the scene did to the app since the last frame); the
-            // others send nothing, and may be the frame before them.
             if i == 0 {
                 h.hover_at(self.at);
             }
@@ -498,18 +402,14 @@ impl Take {
         }
     }
 
-    /// The pause before and after a change.
     pub fn settle(&mut self, h: &mut Harness<'static, App>) {
         self.hold(h, pace::SETTLE);
     }
 
-    /// The result, held before the loop starts again.
     pub fn result(&mut self, h: &mut Harness<'static, App>) {
         self.hold(h, pace::RESULT);
     }
 
-    /// Moves the pointer to `to` at a hand's speed, easing in and out. A
-    /// pressed button stays pressed, so this drags.
     pub fn move_to(&mut self, h: &mut Harness<'static, App>, to: Pos2) {
         let from = self.at;
         let seconds = from.distance(to) / pace::SPEED;
@@ -532,25 +432,20 @@ impl Take {
         self.frame(h, false);
     }
 
-    /// Presses the button where the pointer is (the start of a drag).
     pub fn press(&mut self, h: &mut Harness<'static, App>) {
         self.since_click = Some(0);
         self.button(h, true, Modifiers::NONE);
     }
 
-    /// Lets the button go.
     pub fn release(&mut self, h: &mut Harness<'static, App>) {
         self.button(h, false, Modifiers::NONE);
     }
 
-    /// Clicks where the pointer is.
     pub fn click(&mut self, h: &mut Harness<'static, App>) {
         self.press(h);
         self.release(h);
     }
 
-    /// Shows `label` ("Ctrl+E") as keycaps for [`pace::KEYS`] frames,
-    /// pressing the keys (`press`) [`pace::KEYS_LEAD`] frames in.
     pub fn keys(
         &mut self,
         h: &mut Harness<'static, App>,
@@ -564,14 +459,11 @@ impl Take {
         self.keycaps.push((label.into(), from, from + pace::KEYS));
     }
 
-    /// A walkthrough's caption from now until the next one.
     pub fn caption(&mut self, text: &str) {
         let at = self.frames;
         self.sound_mut().captions.push((at, None, text.into()));
     }
 
-    /// A walkthrough's chapter from now, called `title`: `id` is the
-    /// anchor of the page's step heading it shows (shortcodes/video.html).
     pub fn chapter(&mut self, id: &str, title: &str) {
         let at = self.frames;
         self.sound_mut()
@@ -585,8 +477,6 @@ impl Take {
             .expect("captions and chapters are for walkthroughs")
     }
 
-    /// Encodes the take, or takes it from the cache when nothing changed,
-    /// and gives the test device back for the scene's next take.
     pub fn finish(mut self) -> InputDeviceTurn {
         self.encode();
         self.clock.device
@@ -612,8 +502,6 @@ impl Take {
         let (w, h) = self.size;
         let filters = self.keycap_filters();
         self.hash.write(filters.as_bytes());
-        // How it is encoded, and by which ffmpeg: a change to either makes
-        // the clips again.
         for setting in VIDEO.iter().chain(&AUDIO).chain(&POSTER) {
             self.hash.write(setting.as_bytes());
         }
@@ -667,7 +555,6 @@ impl Take {
                 let mut frames = File::open(&raw_path).expect("read the frames");
                 std::io::copy(&mut frames, stdin).expect("write the frames");
             });
-            // The poster is the last frame: the result.
             let mut args = raw_input(w, h, None);
             args.extend(POSTER.map(String::from));
             ffmpeg(&args, &dir.join(&outputs[1]), |stdin| {
@@ -678,8 +565,6 @@ impl Take {
                 std::fs::copy(dir.join(o), cache.join(o)).expect("fill the cache");
             }
         }
-        // Marks the entry as used by this run: the deploy drops the ones no
-        // scene used (.github/workflows/pages.yml).
         std::fs::write(cache.join("used"), "").expect("mark the cache entry");
         let _ = std::fs::remove_file(&self.raw_path);
         if let Some(pcm) = pcm {
@@ -687,10 +572,6 @@ impl Take {
         }
     }
 
-    /// The keycaps, one per key in the palette's keycap style (a filled
-    /// cap with a rim, thicker below), drawn by ffmpeg near the bottom
-    /// right of the window a phone shows (4:3 at the focus). Martian Mono's
-    /// letters are 0.73 of its size wide.
     fn keycap_filters(&self) -> String {
         let (w, h) = (self.size.0 as f32, self.size.1 as f32);
         let shown = w.min(h * 4.0 / 3.0);
@@ -744,7 +625,6 @@ impl Take {
 }
 
 impl Sound {
-    /// Every caption stays up long enough to read ([`pace::READ`]).
     fn check_captions(&self, end: usize) {
         for (i, (from, _, text)) in self.captions.iter().enumerate() {
             let to = self.captions.get(i + 1).map_or(end, |c| c.0);
@@ -756,9 +636,6 @@ impl Sound {
         }
     }
 
-    /// Proves picture and sound line up (§6.3): the first sound comes with
-    /// the first frame that plays, and the playhead moves a frame's time
-    /// per frame, so the two never drift apart.
     fn check_sync(&self) {
         let frame = 1.0 / pace::FPS as f64;
         let Some(first) = self.playhead.iter().position(Option::is_some) else {
@@ -783,7 +660,6 @@ impl Sound {
             .map_while(|(i, q)| q.map(|q| (i, q)))
             .collect();
         let ((i0, q0), (i1, q1)) = (playing[0], playing[playing.len() - 1]);
-        // The demo song is at 120 BPM: half a second a quarter.
         let moved = (q1 - q0) * 0.5;
         let took = (i1 - i0) as f64 * frame;
         assert!(
@@ -793,7 +669,6 @@ impl Sound {
     }
 }
 
-/// WebVTT cues from `(first frame, id, text)`, each lasting until the next.
 fn vtt(cues: &[(usize, Option<String>, String)], end: usize) -> String {
     let stamp = |frame: usize| {
         let ms = frame * 1000 / pace::FPS;
@@ -817,7 +692,6 @@ fn vtt(cues: &[(usize, Option<String>, String)], end: usize) -> String {
     out
 }
 
-/// `image` cut to `crop` (points), with even sizes for the video encoder.
 fn cut(image: &image::RgbaImage, crop: Rect) -> image::RgbaImage {
     let (w, h) = (image.width(), image.height());
     let x = ((crop.left() * SCALE).max(0.0) as u32).min(w - 2);
@@ -827,8 +701,6 @@ fn cut(image: &image::RgbaImage, crop: Rect) -> image::RgbaImage {
     image::imageops::crop_imm(image, x, y, cw, ch).to_image()
 }
 
-/// ffmpeg's arguments for raw RGBA frames of `w` by `h` on its input, at
-/// `rate` frames a second when they are a video.
 fn raw_input(w: u32, h: u32, rate: Option<usize>) -> Vec<String> {
     let mut args: Vec<String> = [
         "-f",
@@ -851,7 +723,6 @@ fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-/// Where the media goes: `DOCS_MEDIA`, from the repository's root.
 pub fn media_dir() -> PathBuf {
     let named = PathBuf::from(std::env::var("DOCS_MEDIA").expect("DOCS_MEDIA names a folder"));
     let dir = repo().join(named);
@@ -859,22 +730,17 @@ pub fn media_dir() -> PathBuf {
     dir
 }
 
-/// Encoded clips by the hash of their frames, sound, keycaps and encoding:
-/// `DOCS_MEDIA_CACHE`, or `target/docs-media-cache`. The deploy keeps it
-/// outside `target/`, which the Rust cache cleans.
 fn cache_dir() -> PathBuf {
     std::env::var_os("DOCS_MEDIA_CACHE")
         .map_or_else(|| repo().join("target/docs-media-cache"), PathBuf::from)
 }
 
-/// A clip's video and sound, and its poster, as ffmpeg encodes them (§6.4).
 const VIDEO: [&str; 8] = [
     "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "slow", "-crf", "24",
 ];
 const AUDIO: [&str; 5] = ["-c:a", "aac", "-b:a", "128k", "-shortest"];
 const POSTER: [&str; 6] = ["-frames:v", "1", "-c:v", "libwebp", "-quality", "85"];
 
-/// The first line of `ffmpeg -version`.
 fn ffmpeg_version() -> String {
     let out = Command::new("ffmpeg")
         .arg("-version")

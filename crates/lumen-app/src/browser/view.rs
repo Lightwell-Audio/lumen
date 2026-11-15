@@ -1,10 +1,5 @@
-//! What the browser is showing: the search words, the type and category
-//! filters, which vendors are folded and what is selected. Pure state; the
-//! rows it makes are `rows.rs`.
-
 use std::collections::HashSet;
 
-/// Which kind of device to show (the owner's "filter on types").
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum TypeFilter {
     #[default]
@@ -24,7 +19,6 @@ impl TypeFilter {
     }
 }
 
-/// The chip chosen under the search box. One at a time.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) enum Chip {
     #[default]
@@ -34,16 +28,11 @@ pub(crate) enum Chip {
     Category(String),
 }
 
-/// What is selected in the list.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Selection {
-    /// A vendor's header, by lower-cased name.
     Vendor(String),
-    /// The header of the blocked section.
     BlockedHeader,
-    /// A device, by id.
     Device(String),
-    /// A blocked module, by path.
     Blocked(String),
 }
 
@@ -52,9 +41,7 @@ pub(crate) struct View {
     pub text: String,
     pub kind: TypeFilter,
     pub chip: Chip,
-    /// Vendors folded shut, lower-cased.
     pub folded: HashSet<String>,
-    /// The blocked section is folded shut.
     pub blocked_folded: bool,
     pub selected: Option<Selection>,
 }
@@ -64,7 +51,6 @@ impl View {
         self.folded.contains(&vendor.to_lowercase())
     }
 
-    /// Folds a vendor shut or opens it; true if it is folded now.
     pub(crate) fn toggle_fold(&mut self, vendor: &str) -> bool {
         let key = vendor.to_lowercase();
         if self.folded.remove(&key) {
@@ -75,12 +61,10 @@ impl View {
         }
     }
 
-    /// Whether any filter or search is narrowing the list.
     pub(crate) fn is_filtering(&self) -> bool {
         !self.text.trim().is_empty() || self.kind != TypeFilter::All || self.chip != Chip::All
     }
 
-    /// Back to everything: no words, no filters. Folds and selection stay.
     pub(crate) fn clear_filters(&mut self) {
         self.text.clear();
         self.kind = TypeFilter::All;

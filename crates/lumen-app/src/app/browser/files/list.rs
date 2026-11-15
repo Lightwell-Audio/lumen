@@ -1,7 +1,3 @@
-//! The file list as the app runs it (audit M12): drawing the rows in view,
-//! the list's keys, and applying what a row or a key asked for. The items a
-//! tab shows and the list's layout are `crate::browser::files::list`.
-
 use std::path::Path;
 use std::sync::Arc;
 
@@ -20,7 +16,6 @@ use crate::browser::files::{saved, strip};
 use crate::{App, theme, widgets};
 
 impl App {
-    /// Draws a file tab in `body`, under the tab strip.
     pub(crate) fn files_tab(&mut self, ui: &mut Ui, body: Rect) {
         let ctx = ui.ctx().clone();
         self.files_ready(&ctx);
@@ -32,9 +27,6 @@ impl App {
         ui.add_space(theme::space::XS);
 
         let items = self.items(tab);
-        // A read that found files and also met a folder it could not read
-        // says so above what it found, in full (an empty list says it in
-        // its designed state instead).
         let error = self.browser.files.listing(tab).error.clone();
         if let Some(error) = error.filter(|_| !items.is_empty()) {
             egui::Frame::NONE
@@ -46,8 +38,6 @@ impl App {
         let top = ui.cursor().top();
         let split = (body.bottom() - strip_height).max(top);
         let area = Rect::from_min_max(pos2(body.left(), top), pos2(body.right(), split));
-        // An empty folder still takes Left and Backspace, and Esc still
-        // stops a preview.
         let moved = self.files_keys(&ctx, tab, &items);
         if items.is_empty() {
             self.files_empty(ui, area, tab);
@@ -61,8 +51,6 @@ impl App {
         }
     }
 
-    /// The rows the open tab shows. Made again only when what they come
-    /// from changes, so a frame of a long list copies nothing.
     fn items(&mut self, tab: Tab) -> Arc<[Item]> {
         let words = self.browser.files.words(tab).trim().to_owned();
         if tab == Tab::Places && words.is_empty() && self.browser.files.at == At::Top {
@@ -93,8 +81,6 @@ impl App {
         items
     }
 
-    /// The list's keys while the pane has the keyboard. Returns whether the
-    /// selection moved (to bring it into view).
     fn files_keys(&mut self, ctx: &egui::Context, tab: Tab, items: &[Item]) -> bool {
         let had_keys = std::mem::replace(
             &mut self.browser.files.had_keys,
@@ -108,20 +94,14 @@ impl App {
         }
         let rows: Vec<&Entry> = items.iter().filter_map(Item::entry).collect();
         let last = rows.len().checked_sub(1);
-        // The list has the keys while the pane does, or one of its rows
-        // (reached with Tab).
         let row_focused = ctx
             .memory(egui::Memory::focused)
             .is_some_and(|f| rows.iter().any(|r| row_id(&r.path) == f));
-        // Esc drops egui's focus before the list sees it: what counts is
-        // whether the pane had it the frame before.
         let escaped = ctx.input(|i| i.key_pressed(Key::Escape));
         let pane = panes::focused(ctx) == Some(Pane::Browser) || (escaped && had_keys);
         if !pane && !row_focused {
             return false;
         }
-        // The strip's waveform and level keep their arrow keys while they
-        // have the keyboard.
         let strip = [
             egui::Id::new(strip::WELL_ID),
             egui::Id::new(strip::LEVEL_ID),
@@ -166,8 +146,6 @@ impl App {
         {
             self.folder_up();
         } else if self.previewing() && key(Modifiers::NONE, Key::Escape) {
-            // The first Esc stops the preview and keeps the keyboard here;
-            // the next gives it back.
             self.stop_preview();
             panes::focus(ctx, Pane::Browser);
         } else if key(Modifiers::SHIFT, Key::F10)
@@ -185,8 +163,6 @@ impl App {
         }
     }
 
-    /// A row was chosen (a click or the arrows): it is selected, and with
-    /// Auto on a sound plays (the owner's P A).
     fn choose_row(&mut self, tab: Tab, row: &Entry) {
         self.browser.files.selected.insert(tab, row.path.clone());
         match row.kind {
@@ -196,8 +172,6 @@ impl App {
         }
     }
 
-    /// Enter or a double-click: Computer and folders open, the rest as
-    /// [`App::open_row`].
     fn open_entry(&mut self, ctx: &egui::Context, row: &Entry) {
         if row.path == Path::new(saved::COMPUTER) {
             self.browser.files.at = At::Computer;
@@ -207,7 +181,6 @@ impl App {
         self.open_row(row, ctx);
     }
 
-    /// The rows in view, painted one by one.
     fn files_list(
         &mut self,
         ui: &mut Ui,
@@ -226,9 +199,6 @@ impl App {
                 row_h
             }
         };
-        // Only Projects has headings, and a list that has any starts with
-        // one: every other list's rows are one height, and only the rows in
-        // view are visited.
         let uniform = !matches!(items.first(), Some(Item::Heading(_)));
         let total: f32 = if uniform {
             row_h * items.len() as f32
@@ -237,7 +207,6 @@ impl App {
         };
         let selected = self.browser.files.selected.get(&tab).cloned();
         let scroll = moved || std::mem::take(&mut self.browser.files.scroll_to);
-        // Looked for only when it is to be brought into view.
         let wanted = selected.as_ref().filter(|_| scroll).and_then(|s| {
             items
                 .iter()

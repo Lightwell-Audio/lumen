@@ -1,9 +1,3 @@
-//! MIDI learn (M7 slice A5): a control waits for a controller, the next one
-//! moved is mapped to it, and from then on the controller moves the control as
-//! a hand on it would: one undo step per sweep, taking its lane over, and
-//! written into the lane by a track in Touch. The mapping is saved with the
-//! project. The scenarios send controller messages through a fake port.
-
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
@@ -21,11 +15,8 @@ use super::lane_view::{points, run_command};
 use super::midi_from::switch_on_for_tracks;
 use super::{Lumen, wav};
 
-/// A driver stamp that keeps moving on, in microseconds.
 static STAMP: AtomicU64 = AtomicU64::new(1_000);
 
-/// A project with one track holding a tone, selected, and a controller "Pad"
-/// that is switched on.
 fn launch(name: &str) -> (Lumen, FakeControl, Id) {
     let fake = FakeControl::new();
     fake.plug(Direction::Input, "Pad");
@@ -42,7 +33,6 @@ fn launch(name: &str) -> (Lumen, FakeControl, Id) {
     (lumen, fake, track)
 }
 
-/// Sends controller `number` on `channel` (0 to 15) at `value`.
 pub(super) fn cc(fake: &FakeControl, channel: u8, number: u8, value: u8) {
     let stamp = STAMP.fetch_add(5_000, Ordering::Relaxed);
     assert!(fake.send_to_input("Pad", stamp, &[0xB0 | channel, number, value]));
@@ -52,7 +42,6 @@ fn gain(lumen: &Lumen) -> f32 {
     lumen.app().project().tracks[0].gain_db
 }
 
-/// Shows the volume lane and waits for a controller to map to it.
 fn learn_volume(lumen: &mut Lumen, fake: &FakeControl, track: Id, channel: u8, number: u8) {
     lumen.key(Modifiers::NONE, Key::A);
     lumen.frames(5);
@@ -67,7 +56,6 @@ fn learn_volume(lumen: &mut Lumen, fake: &FakeControl, track: Id, channel: u8, n
     assert_eq!(lumen.app().controller_learning(), None);
 }
 
-/// Lets a controller's hold run out, so its moves are sealed into one step.
 pub(super) fn let_go(lumen: &mut Lumen) {
     for _ in 0..8 {
         lumen.frames(2);
@@ -107,13 +95,11 @@ fn a_mapped_controller_moves_the_control_and_a_sweep_is_one_undo_step() {
     lumen.wait_for("the fader at the bottom", |app| {
         app.project().tracks[0].gain_db < -50.0
     });
-    // Another controller number, or the same on another channel, is not it.
     cc(&fake, 0, 8, 127);
     cc(&fake, 1, 7, 127);
     lumen.frames(10);
     assert!(gain(&lumen) < -50.0);
     let_go(&mut lumen);
-    // The whole sweep is one step: one undo returns to where it began.
     lumen.key(Modifiers::COMMAND, Key::Z);
     lumen.frames(3);
     assert_eq!(gain(&lumen), 0.0);
@@ -184,7 +170,6 @@ fn the_controls_right_click_menu_learns_and_clears() {
     );
     cc(&fake, 0, 7, 50);
     lumen.wait_for("the mapping", |app| app.project().mappings.len() == 1);
-    // Now the menu offers to clear it, and to open the list.
     lumen.right_click(slider.center());
     assert!(lumen.shows("Clear controller 7 on channel 1"));
     assert!(lumen.shows("Controller mappings\u{2026}"));
@@ -236,7 +221,6 @@ fn a_track_in_touch_writes_a_controller_sweep_into_its_lane() {
         std::thread::sleep(Duration::from_millis(30));
         lumen.frames(2);
     }
-    // Let go: the controller is quiet and the lane takes the pass.
     let_go(&mut lumen);
     lumen.key(Modifiers::NONE, Key::Space);
     lumen.frames(10);
@@ -268,7 +252,6 @@ fn a_take_and_a_controller_sweep_are_recorded_together() {
     let mut lumen = launch("together", &project, &fake);
     let keys = Keys::new(&fake);
     let id = Id(1);
-    // The controller moves the track's volume, which Touch writes.
     let lane = Lane::new(vec![
         Point::new(Ticks::ZERO, -6.0).with_shape(Shape::Linear),
     ])
@@ -299,7 +282,6 @@ fn a_take_and_a_controller_sweep_are_recorded_together() {
     keys.on(64, 100);
     reach(&mut lumen, beats(2.5));
     keys.off(64);
-    // Let the controller's hold run out before stopping.
     let_go(&mut lumen);
     stop(&mut lumen);
     assert_eq!(
@@ -334,11 +316,9 @@ fn recording_leaves_a_mode_the_user_chose_and_a_track_with_no_mapped_control_alo
     let project = lumen_project::testing::project_of("Modes", vec![track(None, true)]);
     let mut lumen = launch("modes", &project, &fake);
     let id = Id(1);
-    // Armed, but nothing is mapped to it: Read stays Read.
     record(&mut lumen);
     assert_eq!(lumen.app().automation_mode(id), "Read");
     stop(&mut lumen);
-    // Mapped, and the user chose Touch: it stays Touch, before and after.
     lumen
         .app_mut()
         .give_mapping(id, Target::Volume, 0, 7)
@@ -359,7 +339,6 @@ fn a_take_with_a_controller_writes_a_lane_that_did_not_exist_yet() {
     let mut lumen = launch("new-lane", &project, &fake);
     let keys = Keys::new(&fake);
     let id = Id(1);
-    // Learned, but the track has no volume lane and none is shown.
     lumen
         .app_mut()
         .give_mapping(id, Target::Volume, 0, 7)

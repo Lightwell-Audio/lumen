@@ -1,17 +1,3 @@
-//! Automation lanes (M7 slice A0, D1): a value that changes along the
-//! timeline, as points joined by segments.
-//!
-//! A [`Point`] holds a position in ticks, a value in the target's own units
-//! and the [`Shape`] of the segment that leaves it, so a lane reads left to
-//! right: each point says how the value gets to the next one. Segment shapes
-//! are the same [`Curve`]s fades use. Before the first point the lane holds
-//! the first value, and after the last it holds the last.
-//!
-//! This module is pure: the engine plays a lane baked to samples (the
-//! `lumen-engine` mixer), and the interface reads [`Lane::value_at`] to show
-//! a control where the lane puts it. Both use [`Shape::between`], so they
-//! agree.
-
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
@@ -19,30 +5,20 @@ use serde::{Deserialize, Serialize};
 use crate::curve::Curve;
 use crate::time::Ticks;
 
-/// A level lane's value at or below this is silence, in dB. Fader, trim and
-/// send lanes run from here up, so a fade to silence ends silent and a lane
-/// is always a finite number in a file.
 pub const FLOOR_DB: f32 = -100.0;
 
-/// The most points one lane holds. A crafted file past it is refused.
 pub const MAX_POINTS: usize = 1 << 16;
 
-/// How a segment gets from its point's value to the next point's.
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Shape {
-    /// Holds the point's value, then jumps at the next point.
     Step,
-    /// A straight line, in the target's own units.
     #[default]
     Linear,
-    /// Along a [`Curve`] between the two values.
     Curve(Curve),
 }
 
 impl Shape {
-    /// The value `x` of the way (0 to 1) from `from` to `to` along a segment
-    /// of this shape.
     pub fn between(self, from: f32, to: f32, x: f32) -> f32 {
         match self {
             Shape::Step => from,
@@ -56,18 +32,15 @@ impl Shape {
     }
 }
 
-/// One point of a lane.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Point {
     pub at: Ticks,
     pub value: f32,
-    /// The segment leaving this point. Written only when not linear.
     #[serde(default, skip_serializing_if = "Shape::is_linear")]
     pub shape: Shape,
 }
 
 impl Point {
-    /// A point whose segment to the next is a straight line.
     pub fn new(at: Ticks, value: f32) -> Self {
         Self {
             at,
@@ -76,21 +49,15 @@ impl Point {
         }
     }
 
-    /// The same point, leaving along `shape`.
     pub fn with_shape(self, shape: Shape) -> Self {
         Self { shape, ..self }
     }
 }
 
-/// Why a list of points is not a lane.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LaneError {
-    /// A value or curve control point is not a finite number, or a curve
-    /// leaves its square.
     BadValue { index: usize },
-    /// Two points share a position, or one comes before the one before it.
     NotIncreasing { index: usize },
-    /// More than [`MAX_POINTS`].
     TooMany,
 }
 
@@ -108,7 +75,6 @@ impl fmt::Display for LaneError {
 
 impl std::error::Error for LaneError {}
 
-/// Points in time order, one to a position. Saved as the list of points.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(try_from = "Vec<Point>", into = "Vec<Point>")]
 pub struct Lane {
@@ -130,8 +96,6 @@ impl From<Lane> for Vec<Point> {
 }
 
 impl Lane {
-    /// A lane of `points`, which must be in time order with one to a
-    /// position and hold only finite numbers.
     pub fn new(points: Vec<Point>) -> Result<Self, LaneError> {
         if points.len() > MAX_POINTS {
             return Err(LaneError::TooMany);
@@ -163,7 +127,6 @@ impl Lane {
         self.points.len()
     }
 
-    /// The lane's value at `t`; `None` for a lane with no points.
     pub fn value_at(&self, t: Ticks) -> Option<f32> {
         let after = self.points.partition_point(|p| p.at <= t);
         let Some(&before) = after.checked_sub(1).and_then(|i| self.points.get(i)) else {
@@ -176,12 +139,6 @@ impl Lane {
         Some(before.shape.between(before.value, next.value, x as f32))
     }
 
-    /// The lane with every point that a straight line between its
-    /// neighbours replaces to within `tolerance` (in the lane's own units)
-    /// taken out, for a freehand drawing or a recorded move. Only runs of
-    /// straight segments are thinned; a step or a curve and the points
-    /// either side of it stay, and so do the first and last point. The
-    /// result is never further than `tolerance` from this lane anywhere.
     pub fn simplify(&self, tolerance: f32) -> Lane {
         let points = &self.points;
         let n = points.len();
@@ -207,12 +164,6 @@ impl Lane {
     }
 }
 
-/// Ramer–Douglas–Peucker over `points[from..=to]`, all joined by straight
-/// segments: clears `keep` for the points between that the chord replaces
-/// within `tolerance`. The deviation is measured upright, at the point's own
-/// time, which is exactly how far the two lines are apart there; two lines
-/// of straight pieces are furthest apart at a piece's end, so no time
-/// between is further than the points checked.
 fn thin(points: &[Point], from: usize, to: usize, tolerance: f64, keep: &mut [bool]) {
     let mut ranges = vec![(from, to)];
     while let Some((a, b)) = ranges.pop() {
@@ -332,14 +283,12 @@ mod tests {
             text.contains("\"step\"") && text.contains("\"curve\""),
             "{text}"
         );
-        // A linear point carries no shape.
         assert_eq!(text.matches("shape").count(), 2, "{text}");
         assert_eq!(serde_json::from_str::<Lane>(&text).unwrap(), l);
         let backwards = r#"[{"at":5,"value":0.0},{"at":2,"value":1.0}]"#;
         assert!(serde_json::from_str::<Lane>(backwards).is_err());
     }
 
-    /// A small deterministic generator, so a failing case can be replayed.
     struct Rng(u64);
     impl Rng {
         fn next(&mut self) -> u64 {
@@ -378,7 +327,6 @@ mod tests {
     fn simplifying_never_moves_the_lane_further_than_the_tolerance() {
         let mut rng = Rng(7);
         for case in 0..200 {
-            // Dense freehand-like lanes thin the most.
             let mut points = Vec::new();
             let mut v = 0.0f32;
             for k in 0..(50 + rng.next() % 200) as i64 {
@@ -409,8 +357,6 @@ mod tests {
         for _ in 0..100 {
             let l = random_lane(&mut rng, false);
             let thin = l.simplify(1.0);
-            // The shape of every segment that is not straight survives, and
-            // so does the point it ends on.
             for (i, p) in l.points().iter().enumerate() {
                 if p.shape != Shape::Linear {
                     assert!(thin.points().contains(p), "kept {i}");
