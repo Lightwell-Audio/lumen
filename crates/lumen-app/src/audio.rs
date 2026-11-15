@@ -642,6 +642,10 @@ impl Audio {
     }
 }
 
+pub fn heard_latency(output: u32, compensation: u32, rate: u32) -> f32 {
+    (u64::from(output) + u64::from(compensation)) as f32 / rate.max(1) as f32
+}
+
 impl Drop for Audio {
     fn drop(&mut self) {
         if !self.waiting() {
@@ -686,6 +690,14 @@ mod tests {
             other => panic!("expected Off, got {other:?}"),
         }
         assert!(audio.settings().is_none());
+    }
+
+    #[test]
+    fn the_heard_latency_is_the_device_s_plus_the_project_s_at_its_rate() {
+        assert!((heard_latency(256, 0, 48_000) - 5.333_333e-3).abs() < 1e-7);
+        assert!((heard_latency(256, 480, 48_000) - 15.333_333e-3).abs() < 1e-7);
+        assert_eq!(heard_latency(0, 0, 48_000), 0.0);
+        assert_eq!(heard_latency(64, 0, 0), 64.0);
     }
 
     #[test]
