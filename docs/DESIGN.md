@@ -1830,7 +1830,7 @@ strength follows the reduction. **At rest** (the track's level under `SILENCE_DB
 no history: a dashed line near the foot, "waiting for signal" and a dash in the plate. **Reduce motion:** the same
 picture, no history and no flash; while the device hears something, the live level is a still bar at the right
 edge (the output, with the pressed part above it). The screen's own wash is painted by the face, as in the
-specimen, because the card's screen background is darker than the specimen's (ADR-XXXX). **Playable:** one
+specimen, because the card's screen background is darker than the specimen's (ADR-0157). **Playable:** one
 handle, the **ceiling line** (a grab of 8 pt either side, inset 14 pt from the edges so the card's corners stay
 free): dragging sets Ceiling, one undo step, a chip ("ceiling −0.3 dB"), a Tab stop ("Ceiling line (Ceiling):
 −0.3 dB"). Dials: **Ceiling** (a bare number, "−0.3"), **Release** and **Look** (the lookahead, a device timing

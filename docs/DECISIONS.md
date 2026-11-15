@@ -15101,7 +15101,7 @@ cadence; no face is redesigned (F1 onwards).
   picture adds it from `cadence::wake`'s return); no GPU or hand check of the
   timing at 120 Hz.
 
-## ADR-XXXX — Horizon's Skyline face (M8 round 4, F1)
+## ADR-0157 — Horizon's Skyline face (M8 round 4, F1)
 
 **Context.** The owner found Horizon's graph always on, even with nothing
 reaching the track, and the sun boring (OR-2). Round 4 chose **A, Skyline**
