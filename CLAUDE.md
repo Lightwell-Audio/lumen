@@ -835,7 +835,7 @@ per slice and move what is no longer current out of it.
   mapped clips, gathered only for the visible part and cached per clip. Two
   review rounds; the bench gate is lanes p95 within 1.15x + 1 ms of the
   roll's.
-- **Branch `m8-or1-browser-data`: OR-1's data side is built** (ADR-XXXX, the
+- **Branch `m8-or1-browser-data`: OR-1's data side is built** (ADR-0158, the
   parent numbers it; no format change). All seven built-ins are in the
   catalog with their kind tag, one-line description, tip, kind group and
   personality colour token; the browser lists them first in a Lumen section
