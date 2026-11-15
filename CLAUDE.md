@@ -835,6 +835,20 @@ per slice and move what is no longer current out of it.
   mapped clips, gathered only for the visible part and cached per clip. Two
   review rounds; the bench gate is lanes p95 within 1.15x + 1 ms of the
   roll's.
+- **Branch `m8-or1-browser-data`: OR-1's data side is built** (ADR-XXXX, the
+  parent numbers it; no format change). All seven built-ins are in the
+  catalog with their kind tag, one-line description, tip, kind group and
+  personality colour token; the browser lists them first in a Lumen section
+  grouped by kind (fold keys `lumen:<group>`); `View.lumen_only` is the filter
+  and composes with the type switch, a category and the search, which now
+  reads the kind tag; `plugin_ref` accepts every built-in, so drag,
+  double-click and the new `devices.add_device` all add an effect, and
+  `Document::fresh_device` fills a built-in's defaults for every path;
+  Flare's five presets are `Choice::Factory` under its Preset menu's Factory
+  heading (Flare's card now has the preset field). New commands
+  `devices.filter_lumen` and `devices.add_device`, tagged `@m8`. No tiles:
+  the interface waits for the faces. Not run here: the WSL perf gate and the
+  macOS cross-clippy (no audio path changed).
 - **Done:** M1 to M6; M5 and M6 were signed off on 2026-10-26.
 - **Open with the owner:** the M7 approval. The manual tests of M5 and M6 that
   are not signed off (MT-MIDI-7 to 9, MT-VST-3 to 7 and the ADR-0069 callback

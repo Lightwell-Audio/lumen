@@ -369,7 +369,9 @@ impl App {
             | Command::AddDelay
             | Command::AddReverb
             | Command::AddCompressor
-            | Command::AddLimiter => Ok(()),
+            | Command::AddLimiter
+            | Command::FilterLumen
+            | Command::AddDevice => Ok(()),
             Command::TransposeClipUp | Command::TransposeClipDown => self.transpose_unavailable(),
             Command::SetTempoFromClip | Command::DoubleClipTempo | Command::HalveClipTempo => {
                 self.warped_unavailable()

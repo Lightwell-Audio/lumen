@@ -68,10 +68,22 @@ pub(crate) fn is_folded(rows: &Rows, vendor: &str) -> bool {
     )
 }
 
+pub(crate) fn is_group_folded(rows: &Rows, key: &str) -> bool {
+    rows.list
+        .iter()
+        .any(|r| matches!(r, Row::Group { key: known, folded, .. } if known == key && *folded))
+}
+
 pub(crate) fn vendor_listed(rows: &Rows, selection: &Selection) -> bool {
     rows.list.iter().any(|r| {
         matches!((r, selection), (Row::Vendor { name, .. }, Selection::Vendor(s)) if &name.to_lowercase() == s)
     })
+}
+
+pub(crate) fn group_listed(rows: &Rows, selection: &Selection) -> bool {
+    rows.list.iter().any(
+        |r| matches!((r, selection), (Row::Group { key, .. }, Selection::Group(s)) if key == s),
+    )
 }
 
 fn tab_icon(tab: Tab) -> fn(&egui::Painter, egui::Pos2, egui::Color32) {

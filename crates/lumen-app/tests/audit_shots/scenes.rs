@@ -311,12 +311,12 @@ fn mixer_and_devices() {
         }
         s.steps(10);
         s.snap("devices-midi-empty");
-        if let Some(r) = s.find("Synth, Lumen, instrument") {
+        if let Some(r) = s.find("Flare, Lumen, instrument") {
             double_click(&mut s.h, r.center());
             s.steps(30);
         }
         s.snap("devices-synth");
-        for (n, label) in ["Synth, Lumen", "Bypass", "Preset", "Parameters"]
+        for (n, label) in ["Flare, Lumen", "Bypass", "Preset", "Parameters"]
             .iter()
             .enumerate()
         {

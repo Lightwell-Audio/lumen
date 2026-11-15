@@ -123,7 +123,7 @@ const IDENTITIES: &[(&str, Identity)] = &[
             name: "Prism",
             kind: "Utility",
             subtitle: "Utility \u{00B7} gain, width, mono",
-            colour: theme::personality::UTILITY,
+            colour: theme::personality::of(lumen_plugin_catalog::catalog::Colour::Utility),
             timing: &utility::DESCRIPTION,
         },
     ),
@@ -133,7 +133,7 @@ const IDENTITIES: &[(&str, Identity)] = &[
             name: "Iris",
             kind: "Parametric EQ",
             subtitle: "Parametric EQ",
-            colour: theme::personality::EQ,
+            colour: theme::personality::of(lumen_plugin_catalog::catalog::Colour::Eq),
             timing: &eq::DESCRIPTION,
         },
     ),
@@ -143,7 +143,7 @@ const IDENTITIES: &[(&str, Identity)] = &[
             name: "Parallax",
             kind: "Stereo delay",
             subtitle: "Stereo delay",
-            colour: theme::personality::DELAY,
+            colour: theme::personality::of(lumen_plugin_catalog::catalog::Colour::Delay),
             timing: &lumen_devices::delay::DESCRIPTION,
         },
     ),
@@ -153,7 +153,7 @@ const IDENTITIES: &[(&str, Identity)] = &[
             name: "Afterglow",
             kind: "Reverb",
             subtitle: "Reverb",
-            colour: theme::personality::REVERB,
+            colour: theme::personality::of(lumen_plugin_catalog::catalog::Colour::Reverb),
             timing: &lumen_devices::reverb::DESCRIPTION,
         },
     ),
@@ -163,7 +163,7 @@ const IDENTITIES: &[(&str, Identity)] = &[
             name: "Gravity",
             kind: "Compressor",
             subtitle: "Compressor",
-            colour: theme::personality::GRAVITY,
+            colour: theme::personality::of(lumen_plugin_catalog::catalog::Colour::Gravity),
             timing: &compressor::DESCRIPTION,
         },
     ),
@@ -173,7 +173,7 @@ const IDENTITIES: &[(&str, Identity)] = &[
             name: "Horizon",
             kind: "Limiter",
             subtitle: "Limiter",
-            colour: theme::personality::HORIZON,
+            colour: theme::personality::of(lumen_plugin_catalog::catalog::Colour::Horizon),
             timing: &limiter::DESCRIPTION,
         },
     ),
@@ -184,7 +184,7 @@ const IDENTITIES: &[(&str, Identity)] = &[
             name: "Test timer",
             kind: "Test",
             subtitle: "Test",
-            colour: theme::personality::UTILITY,
+            colour: theme::personality::of(lumen_plugin_catalog::catalog::Colour::Utility),
             timing: &TEST_TIMING,
         },
     ),
@@ -196,7 +196,7 @@ const INSTRUMENTS: &[(&str, Identity)] = &[(
         name: "Flare",
         kind: "Polysynth",
         subtitle: "Polysynth",
-        colour: theme::personality::SYNTH,
+        colour: theme::personality::of(lumen_plugin_catalog::catalog::Colour::Synth),
         timing: &lumen_devices::synth::params::DESCRIPTION,
     },
 )];
@@ -870,6 +870,39 @@ mod tests {
                     "{name} is not a device"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn the_catalog_and_the_personalities_name_the_same_devices() {
+        let devices = lumen_plugin_catalog::catalog::builtin_devices();
+        assert_eq!(devices.len(), 7);
+        for device in &devices {
+            let name = device
+                .id
+                .strip_prefix("builtin:")
+                .expect("a built-in id names its device");
+            let identity = identity(name).unwrap_or_else(|| panic!("{name} has no personality"));
+            assert_eq!(identity.name, device.name);
+            assert_eq!(identity.kind, device.tag);
+            assert_eq!(
+                Some(identity.colour),
+                device.colour.map(theme::personality::of)
+            );
+            assert_eq!(
+                device.kind == lumen_plugin_catalog::catalog::Kind::Instrument,
+                INSTRUMENTS.iter().any(|(known, _)| *known == name)
+            );
+            assert!(device.group.is_some(), "{} has no group", device.name);
+        }
+        for (name, _) in IDENTITIES.iter().chain(INSTRUMENTS) {
+            if *name == TEST_DEVICE {
+                continue;
+            }
+            assert!(
+                devices.iter().any(|d| d.id == format!("builtin:{name}")),
+                "{name} is missing from the catalog"
+            );
         }
     }
 

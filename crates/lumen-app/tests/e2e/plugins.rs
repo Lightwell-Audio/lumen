@@ -192,18 +192,19 @@ fn a_startup_scan_lists_the_installed_plugins_by_vendor() {
         "the vendor's header"
     );
     assert!(
-        lumen.shows_row("Lumen, 1 device, open"),
+        lumen.shows_row("Instruments, 1 device, open"),
         "Lumen's own devices come first"
     );
-    assert!(lumen.shows_row("Synth, Lumen, instrument"));
+    assert!(lumen.shows_row("Flare, Lumen, instrument"));
     assert!(lumen.shows("Search devices"));
     assert!(lumen.shows("Rescan"), "the scan is over");
 }
 
 #[test]
-fn without_plugins_the_browser_lists_only_the_synth_and_says_plugins_are_off() {
+fn without_plugins_the_browser_lists_only_the_built_ins_and_says_plugins_are_off() {
     let lumen = Lumen::start("plugins-off");
-    assert!(lumen.shows_row("Synth, Lumen, instrument"));
+    assert!(lumen.shows_row("Flare, Lumen, instrument"));
+    assert!(lumen.shows_row("Gravity, Lumen, effect"));
     assert!(lumen.app().plugin_names().is_empty());
     assert!(lumen.shows("Plugins are off for this run"));
 }
@@ -225,6 +226,7 @@ fn a_crashing_and_a_hanging_plugin_are_blocked_with_their_reasons_and_the_rest_s
     assert!(lumen.shows_row("will not try again until its file changes"));
     assert!(lumen.shows("Retry"));
     assert!(lumen.shows("Show in folder"));
+    lumen.type_in_search("hang");
     lumen.click_row("Hang, blocked");
     assert!(lumen.shows_row("It did not respond within 2 seconds"));
     assert!(
@@ -241,6 +243,7 @@ fn retry_loads_a_blocked_module_again_and_it_joins_the_list_once_it_works() {
     assert_eq!(lumen.app().blocked_plugins(), ["Mended"]);
     assert!(lumen.app().plugin_names().is_empty());
 
+    lumen.type_in_search("mended");
     lumen.click_row("Mended, blocked");
     lumen.click("Retry");
     lumen.settled();
@@ -352,18 +355,18 @@ fn words_the_type_switch_and_chips_narrow_the_list_and_clear_filters_brings_it_b
     lumen.type_in_search("effect");
     assert!(lumen.shows_row(&format!("{EFFECT}, Test Vendor, effect")));
     assert!(!lumen.shows_row(&format!("{INSTRUMENT}, ")));
-    assert!(!lumen.shows_row("Synth, Lumen"));
+    assert!(!lumen.shows_row("Flare, Lumen"));
     lumen.click("Clear search");
     assert!(lumen.shows_row(&format!("{INSTRUMENT}, ")));
 
     lumen.click("Instruments only");
     assert!(lumen.shows_row(&format!("{INSTRUMENT}, ")));
-    assert!(lumen.shows_row("Synth, Lumen"));
+    assert!(lumen.shows_row("Flare, Lumen"));
     assert!(!lumen.shows_row(&format!("{EFFECT}, ")));
     lumen.click("Effects only");
     assert!(lumen.shows_row(&format!("{EFFECT}, ")));
     assert!(!lumen.shows_row(&format!("{INSTRUMENT}, ")));
-    assert!(!lumen.shows_row("Synth, Lumen"));
+    assert!(!lumen.shows_row("Flare, Lumen"));
 
     lumen.click("Favorites filter");
     assert!(lumen.shows_row("No devices match"));
@@ -461,7 +464,14 @@ fn the_keyboard_alone_walks_the_list_stars_and_chooses() {
     let ctx = lumen.harness.ctx.clone();
     assert_eq!(lumen.app().focused_pane(&ctx).as_deref(), Some("Browser"));
 
-    for _ in 0..4 {
+    for _ in 0..40 {
+        if lumen
+            .app()
+            .selected_device()
+            .is_some_and(|id| id.starts_with("vst3:"))
+        {
+            break;
+        }
         lumen.key(Modifiers::NONE, Key::ArrowDown);
     }
     let effect = lumen.app().selected_device().expect("a device is selected");

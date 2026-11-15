@@ -95,6 +95,11 @@ fn the_outputs_menu_keeps_its_width_when_an_output_is_switched_on() {
             .harness
             .query_all_by_role(eframe::egui::accesskit::Role::CheckBox)
             .filter(|n| n.rect().top() >= below)
+            .filter(|n| {
+                n.accesskit_node()
+                    .label()
+                    .is_some_and(|label| !label.starts_with("Favorite "))
+            })
             .map(|n| {
                 (
                     n.accesskit_node().label().unwrap_or_default(),
@@ -159,6 +164,11 @@ fn menu_switches(lumen: &Lumen) -> Vec<String> {
         .harness
         .query_all_by_role(eframe::egui::accesskit::Role::CheckBox)
         .filter(|n| n.rect().top() >= below)
+        .filter(|n| {
+            n.accesskit_node()
+                .label()
+                .is_some_and(|label| !label.starts_with("Favorite "))
+        })
         .map(|n| n.accesskit_node().label().unwrap_or_default())
         .collect()
 }

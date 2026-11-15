@@ -292,7 +292,7 @@ fn place(order: &[String], name: &str) -> usize {
 fn tab_walks_the_window_in_reading_order() {
     let (mut lumen, _, _) = with_two_clips("access-tab");
     let mut order = Vec::new();
-    for _ in 0..60 {
+    for _ in 0..90 {
         lumen.key(Modifiers::NONE, Key::Tab);
         order.push(focused(&lumen).unwrap_or_default());
     }
