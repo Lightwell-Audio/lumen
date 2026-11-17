@@ -41,7 +41,7 @@ naga = { version = "30", features = ["wgsl-in"] }
 winit = "0.30"
 pollster = "0.4"
 rfd = "0.17"
-trash = "5.2"
+trash = { version = "5.2", default-features = false, features = ["coinit_apartmentthreaded"] }
 raw-window-handle = "0.6"
 parley = "0.11"
 accesskit = "0.24"
