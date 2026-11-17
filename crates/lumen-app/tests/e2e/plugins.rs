@@ -192,7 +192,7 @@ fn a_startup_scan_lists_the_installed_plugins_by_vendor() {
         "the vendor's header"
     );
     assert!(
-        lumen.shows_row("Instruments, 1 device, open"),
+        lumen.shows_row("Instruments, 2 devices, open"),
         "Lumen's own devices come first"
     );
     assert!(lumen.shows_row("Flare, Lumen, instrument"));
@@ -214,6 +214,9 @@ fn a_crashing_and_a_hanging_plugin_are_blocked_with_their_reasons_and_the_rest_s
     let mut lumen = start("blocked", &["Good", "Crash", "Hang"]);
     assert_eq!(lumen.app().plugin_names(), [EFFECT, INSTRUMENT]);
     assert_eq!(lumen.app().blocked_plugins(), ["Crash", "Hang"]);
+    lumen.click_row("Instruments, 2 devices, open");
+    lumen.frames(30);
+    assert!(lumen.shows_row("Instruments, 2 devices, folded"));
     assert!(lumen.shows_row("Crash, blocked"));
     assert!(lumen.shows_row("Hang, blocked"));
     assert!(
