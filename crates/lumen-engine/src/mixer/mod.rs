@@ -560,6 +560,7 @@ impl<T: TrackSource> Source for Mixer<T> {
                     let mut hosting = Hosting {
                         pool: Some(&mut self.hosts),
                         builtins: Some(&mut self.builtins),
+                        fading: None,
                         deadline: part_cx.deadline,
                     };
                     let pass = Pass {
@@ -587,6 +588,7 @@ impl<T: TrackSource> Source for Mixer<T> {
                     let mut hosting = Hosting {
                         pool: Some(&mut self.hosts),
                         builtins: Some(&mut self.builtins),
+                        fading: None,
                         deadline: part_cx.deadline,
                     };
                     let pass = Pass {
@@ -601,8 +603,13 @@ impl<T: TrackSource> Source for Mixer<T> {
                         ramp: Ramp::Fade(&fade_out[..n]),
                         ..pass
                     };
-                    swap.old
-                        .process(&mut part, pass, None, &mut Hosting::none());
+                    let mut fading = Hosting {
+                        pool: None,
+                        builtins: Some(&mut self.builtins),
+                        fading: Some(&self.plan),
+                        deadline: part_cx.deadline,
+                    };
+                    swap.old.process(&mut part, pass, None, &mut fading);
                     if advance {
                         swap.done += n;
                     }

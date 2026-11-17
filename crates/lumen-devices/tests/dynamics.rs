@@ -1752,3 +1752,392 @@ fn the_parameter_tables_are_pinned_by_id_name_and_default() {
         }
     }
 }
+
+fn tone(frames: usize, frequency: f32, amplitude: f32) -> (Vec<f32>, Vec<f32>) {
+    let sample =
+        |k: usize| amplitude * (std::f32::consts::TAU * frequency * k as f32 / RATE as f32).sin();
+    (
+        (0..frames).map(sample).collect(),
+        (0..frames).map(sample).collect(),
+    )
+}
+
+fn loudest(samples: &[f32]) -> f32 {
+    samples.iter().fold(0.0f32, |m, s| m.max(s.abs()))
+}
+
+fn curve_set(threshold: f32, ratio: f32, knee: f32) -> Vec<(u32, f32)> {
+    vec![
+        (
+            compressor::THRESHOLD,
+            at(compressor::TABLE, compressor::THRESHOLD, threshold),
+        ),
+        (
+            compressor::RATIO,
+            at(compressor::TABLE, compressor::RATIO, ratio),
+        ),
+        (
+            compressor::KNEE,
+            at(compressor::TABLE, compressor::KNEE, knee),
+        ),
+        (compressor::MAKEUP, 0.0),
+    ]
+}
+
+#[test]
+fn a_steady_tone_follows_the_curve_within_a_tenth_of_a_decibel() {
+    let frames = 96_000;
+    for input_db in [-30.0f32, -21.0, -18.0, -15.0, -12.0, -6.0, -1.0] {
+        for (ratio, knee) in [(4.0f32, 6.0f32), (4.0, 0.0), (12.0, 6.0), (1.5, 12.0)] {
+            let amplitude = 10f32.powf(input_db / 20.0);
+            let (mut left, mut right) = tone(frames, 997.0, amplitude);
+            let mut device = Compressor::new();
+            let mut set = curve_set(-18.0, ratio, knee);
+            set.push((
+                compressor::DETECT,
+                at(compressor::TABLE, compressor::DETECT, 1.0),
+            ));
+            run(
+                &mut device,
+                &mut left,
+                &mut right,
+                compressor::TABLE,
+                256,
+                &set,
+                &[],
+                None,
+            );
+            let rms = loudest(&left[frames - 2_000..]) / std::f32::consts::SQRT_2;
+            let got_db = db_of(rms);
+            let want_db = compressor::curve_db(input_db - 3.01, -18.0, ratio, knee);
+            assert!(
+                (got_db - want_db).abs() < 0.1,
+                "{input_db} dB at {ratio}:1, {knee} dB knee: {got_db} against {want_db}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_peak_detector_reads_the_wave_and_that_is_its_curve() {
+    let frames = 96_000;
+    let mut worst = 0.0f32;
+    let mut worst_at = 0.0f32;
+    for input_db in [-30.0f32, -21.0, -18.0, -15.0, -12.0, -6.0, -1.0] {
+        for (ratio, knee) in [(4.0f32, 6.0f32), (4.0, 0.0), (12.0, 6.0), (1.5, 12.0)] {
+            let amplitude = 10f32.powf(input_db / 20.0);
+            let (mut left, mut right) = tone(frames, 997.0, amplitude);
+            let mut device = Compressor::new();
+            run(
+                &mut device,
+                &mut left,
+                &mut right,
+                compressor::TABLE,
+                256,
+                &curve_set(-18.0, ratio, knee),
+                &[],
+                None,
+            );
+            let got_db = db_of(loudest(&left[frames - 2_000..]));
+            let want_db = compressor::curve_db(input_db, -18.0, ratio, knee);
+            if (got_db - want_db).abs() > worst {
+                worst = (got_db - want_db).abs();
+                worst_at = input_db;
+            }
+            if input_db < -18.0 - knee - 3.0 {
+                assert!(
+                    (got_db - want_db).abs() < 0.02,
+                    "below the knee at {input_db} dB: {got_db} against {want_db}"
+                );
+            }
+        }
+    }
+    assert!(
+        worst < 1.2,
+        "the peak detector is {worst} dB off the curve at {worst_at} dB"
+    );
+}
+
+#[test]
+fn sweeping_through_the_knee_does_not_step_the_level() {
+    let frames = 96_000;
+    let (mut left, mut right) = (vec![0.0f32; frames], vec![0.0f32; frames]);
+    for k in 0..frames {
+        let db = -30.0 + 24.0 * (k as f32 / frames as f32);
+        let x =
+            10f32.powf(db / 20.0) * (std::f32::consts::TAU * 997.0 * k as f32 / RATE as f32).sin();
+        left[k] = x;
+        right[k] = x;
+    }
+    let mut device = Compressor::new();
+    run(
+        &mut device,
+        &mut left,
+        &mut right,
+        compressor::TABLE,
+        256,
+        &curve_set(-18.0, 4.0, 12.0),
+        &[],
+        None,
+    );
+    let step = RATE as usize / 1_000;
+    let settled = 50 * step;
+    let levels: Vec<f32> = left[settled..]
+        .chunks(step)
+        .map(|span| db_of(loudest(span)))
+        .collect();
+    let worst = levels
+        .windows(2)
+        .fold(0.0f32, |m, pair| m.max((pair[1] - pair[0]).abs()));
+    assert!(
+        worst < 0.1,
+        "the level steps by {worst} dB in a millisecond"
+    );
+}
+
+fn settle_settings(device: &mut Compressor, set: &[(u32, f32)]) {
+    let (mut left, mut right) = level(RATE as usize / 40, 0.0);
+    run(
+        device,
+        &mut left,
+        &mut right,
+        compressor::TABLE,
+        256,
+        set,
+        &[],
+        None,
+    );
+}
+
+#[test]
+fn the_attack_and_release_reach_63_percent_in_their_own_time() {
+    let set = |attack_ms: f32, release_ms: f32| {
+        let mut values = curve_set(-30.0, 20.0, 0.0);
+        values.push((
+            compressor::ATTACK,
+            at(compressor::TABLE, compressor::ATTACK, attack_ms),
+        ));
+        values.push((
+            compressor::RELEASE,
+            at(compressor::TABLE, compressor::RELEASE, release_ms),
+        ));
+        values
+    };
+    let full = (20.0 * 0.5f32.log10() + 30.0) * (1.0 - 1.0 / 20.0);
+
+    for attack_ms in [1.0f32, 5.0, 20.0, 100.0] {
+        let tau = (attack_ms / 1000.0 * RATE as f32) as usize;
+        let (mut left, mut right) = level(tau + 64, 0.5);
+        let mut device = Compressor::new();
+        settle_settings(&mut device, &set(attack_ms, 2_000.0));
+        run(
+            &mut device,
+            &mut left,
+            &mut right,
+            compressor::TABLE,
+            16,
+            &set(attack_ms, 2_000.0),
+            &[],
+            None,
+        );
+        let reduction = -db_of(left[tau] / 0.5);
+        let want = 0.632 * full;
+        assert!(
+            (reduction - want).abs() < 0.1 * full,
+            "attack {attack_ms} ms: {reduction} dB of {full} (63 % is {want})"
+        );
+    }
+
+    for release_ms in [20.0f32, 120.0, 500.0] {
+        let mut settled = level(96_000, 0.5);
+        let mut device = Compressor::new();
+        settle_settings(&mut device, &set(0.05, release_ms));
+        run(
+            &mut device,
+            &mut settled.0,
+            &mut settled.1,
+            compressor::TABLE,
+            256,
+            &set(0.05, release_ms),
+            &[],
+            None,
+        );
+        let before = -db_of(settled.0[settled.0.len() - 1] / 0.5);
+        let tau = (release_ms / 1000.0 * RATE as f32) as usize;
+        let mut quiet = level(tau + 64, 0.02);
+        run(
+            &mut device,
+            &mut quiet.0,
+            &mut quiet.1,
+            compressor::TABLE,
+            16,
+            &set(0.05, release_ms),
+            &[],
+            None,
+        );
+        let after = -db_of(quiet.0[tau] / 0.02);
+        let want = 0.368 * before;
+        assert!(
+            (after - want).abs() < 0.1 * before,
+            "release {release_ms} ms: {after} dB of {before} (37 % is {want})"
+        );
+    }
+}
+
+#[test]
+fn automatic_make_up_is_what_the_loud_end_lost() {
+    for (threshold, ratio, want_db) in [
+        (-18.0f32, 4.0f32, 0.0f32),
+        (-18.0, 2.0, 0.0),
+        (-6.0, 20.0, 0.0),
+        (-30.0, 4.0, 0.0),
+        (-60.0, 20.0, -33.0),
+    ] {
+        let frames = 48_000;
+        let (mut left, mut right) = level(frames, 1.0);
+        let mut device = Compressor::new();
+        run(
+            &mut device,
+            &mut left,
+            &mut right,
+            compressor::TABLE,
+            256,
+            &[
+                (
+                    compressor::THRESHOLD,
+                    at(compressor::TABLE, compressor::THRESHOLD, threshold),
+                ),
+                (
+                    compressor::RATIO,
+                    at(compressor::TABLE, compressor::RATIO, ratio),
+                ),
+                (compressor::KNEE, 0.0),
+            ],
+            &[],
+            None,
+        );
+        let got = db_of(left[frames - 1]);
+        assert!(
+            (got - want_db).abs() < 0.2,
+            "{threshold} dB at {ratio}:1: a full-scale signal leaves at {got} dB, not {want_db}"
+        );
+    }
+}
+
+#[test]
+fn the_sides_share_one_gain() {
+    for detect in [0.0f32, 1.0] {
+        let frames = 48_000;
+        let (mut left, mut right) = (vec![0.0f32; frames], vec![0.0f32; frames]);
+        for k in 0..frames {
+            let phase = std::f32::consts::TAU * 997.0 * k as f32 / RATE as f32;
+            left[k] = 0.5 * phase.sin();
+            right[k] = 0.05 * phase.sin();
+        }
+        let mut device = Compressor::new();
+        run(
+            &mut device,
+            &mut left,
+            &mut right,
+            compressor::TABLE,
+            256,
+            &[
+                (
+                    compressor::THRESHOLD,
+                    at(compressor::TABLE, compressor::THRESHOLD, -20.0),
+                ),
+                (
+                    compressor::RATIO,
+                    at(compressor::TABLE, compressor::RATIO, 4.0),
+                ),
+                (compressor::KNEE, 0.0),
+                (compressor::MAKEUP, 0.0),
+                (compressor::DETECT, detect),
+            ],
+            &[],
+            None,
+        );
+        let span = frames - 2_000..;
+        let gain =
+            |samples: &[f32], amplitude: f32| db_of(loudest(&samples[span.clone()]) / amplitude);
+        let (left_gain, right_gain) = (gain(&left, 0.5), gain(&right, 0.05));
+        assert!(
+            (left_gain - right_gain).abs() < 0.05,
+            "detect {detect}: {left_gain} dB on the left against {right_gain} on the right"
+        );
+        assert!(left_gain < -6.0, "and it is really pulling them down");
+    }
+}
+
+#[test]
+fn the_meter_says_the_gain_that_was_applied() {
+    for input_db in [-24.0f32, -12.0, -3.0] {
+        let frames = 48_000;
+        let amplitude = 10f32.powf(input_db / 20.0);
+        let (mut left, mut right) = level(frames, amplitude);
+        let mut device = Compressor::new();
+        let meter = device.meter();
+        run(
+            &mut device,
+            &mut left,
+            &mut right,
+            compressor::TABLE,
+            256,
+            &curve_set(-18.0, 4.0, 6.0),
+            &[],
+            None,
+        );
+        let applied = -db_of(left[frames - 1] / amplitude);
+        let shown = meter.take().reduction_db;
+        assert!(
+            (applied - shown).abs() < 0.05,
+            "{input_db} dB: the samples lost {applied} dB, the face shows {shown}"
+        );
+    }
+}
+
+#[test]
+fn a_long_silence_leaves_nothing_behind() {
+    let quiet = 48_000 * 5;
+    let frames = quiet + 48_000;
+    let mut input = vec![0.0f32; frames];
+    for (k, s) in input.iter_mut().enumerate().skip(quiet) {
+        *s = 0.25 * (std::f32::consts::TAU * 997.0 * k as f32 / RATE as f32).sin();
+    }
+    let set = curve_set(-18.0, 4.0, 6.0);
+    let render = |device: &mut Compressor| {
+        let (mut left, mut right) = (input.clone(), input.clone());
+        run(
+            device,
+            &mut left,
+            &mut right,
+            compressor::TABLE,
+            256,
+            &set,
+            &[],
+            None,
+        );
+        left
+    };
+    let after_silence = render(&mut Compressor::new());
+    assert!(after_silence.iter().all(|s| s.is_finite()));
+    let mut fresh = Compressor::new();
+    let mut warm = vec![0.0f32; quiet];
+    let mut warm_r = warm.clone();
+    run(
+        &mut fresh,
+        &mut warm,
+        &mut warm_r,
+        compressor::TABLE,
+        256,
+        &set,
+        &[],
+        None,
+    );
+    let reachable = render(&mut fresh);
+    let from = quiet + 24_000;
+    let worst = (from..frames).fold(0.0f32, |m, k| {
+        m.max((after_silence[k] - reachable[k]).abs())
+    });
+    assert!(worst < 1e-4, "the silence left {worst} behind");
+}

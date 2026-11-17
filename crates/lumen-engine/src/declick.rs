@@ -10,6 +10,9 @@ pub struct Declick {
     tail_len: usize,
     tail_channels: usize,
     tail_done: usize,
+    pending: Vec<f32>,
+    pending_len: usize,
+    pending_channels: usize,
     fade_in_left: usize,
     fade_len: usize,
 }
@@ -21,6 +24,9 @@ impl Default for Declick {
             tail_len: 0,
             tail_channels: 0,
             tail_done: 0,
+            pending: vec![0.0; MAX_FADE * MAX_CHANNELS],
+            pending_len: 0,
+            pending_channels: 0,
             fade_in_left: 0,
             fade_len: 1,
         }
@@ -31,6 +37,18 @@ impl Declick {
     pub fn tail_buffer(&mut self, channels: usize) -> Option<&mut [f32]> {
         if channels > MAX_CHANNELS {
             return None;
+        }
+        self.pending_len = 0;
+        if self.tail_done < self.tail_len {
+            let frames = self.tail_len - self.tail_done;
+            let channels = channels.min(self.tail_channels);
+            for c in 0..channels {
+                let from = c * MAX_FADE + self.tail_done;
+                self.pending[c * MAX_FADE..c * MAX_FADE + frames]
+                    .copy_from_slice(&self.tail[from..from + frames]);
+            }
+            self.pending_len = frames;
+            self.pending_channels = channels;
         }
         let buffer = &mut self.tail[..channels * MAX_FADE];
         buffer.fill(0.0);
@@ -44,7 +62,15 @@ impl Declick {
                 *sample *= fade_out(k, frames);
             }
         }
-        self.tail_len = frames;
+        let cut = self.pending_len;
+        for c in 0..self.pending_channels.min(channels) {
+            for k in 0..cut {
+                self.tail[c * MAX_FADE + k] += self.pending[c * MAX_FADE + k];
+            }
+        }
+        self.pending_len = 0;
+        self.pending_channels = 0;
+        self.tail_len = frames.max(cut);
         self.tail_channels = channels;
         self.tail_done = 0;
     }
@@ -57,6 +83,7 @@ impl Declick {
     pub fn clear(&mut self) {
         self.tail_len = 0;
         self.tail_done = 0;
+        self.pending_len = 0;
         self.fade_in_left = 0;
     }
 
@@ -145,5 +172,29 @@ mod tests {
     #[test]
     fn too_many_channels_get_no_tail() {
         assert!(Declick::default().tail_buffer(MAX_CHANNELS + 1).is_none());
+    }
+
+    #[test]
+    fn a_second_jump_keeps_what_the_first_one_left() {
+        let mut declick = Declick::default();
+        let tail = declick.tail_buffer(1).unwrap();
+        tail[..4].fill(0.25);
+        declick.tail_rendered(1, 4);
+        let mut data = vec![0.0; 2];
+        declick.apply(&mut data, 2, 1, 0, 2);
+        assert_eq!(data[0], 0.25 * fade_out(0, 4));
+        let tail = declick.tail_buffer(1).unwrap();
+        tail[..2].fill(0.5);
+        declick.tail_rendered(1, 2);
+        let mut data = vec![0.0; 2];
+        declick.apply(&mut data, 2, 1, 0, 2);
+        assert_eq!(
+            data,
+            [
+                0.25 * fade_out(2, 4) + 0.5 * fade_out(0, 2),
+                0.25 * fade_out(3, 4) + 0.5 * fade_out(1, 2)
+            ],
+            "the first tail's last frames play under the second one's"
+        );
     }
 }
