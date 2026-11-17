@@ -23,6 +23,9 @@ pub struct Slot {
     quiet: u64,
     asked: bool,
     was_off: bool,
+    echo: Box<[f32]>,
+    echo_len: usize,
+    echo_fresh: bool,
 }
 
 impl Slot {
@@ -32,7 +35,28 @@ impl Slot {
             quiet: u64::MAX,
             asked: false,
             was_off: false,
+            echo: vec![0.0; 2 * CHUNK].into_boxed_slice(),
+            echo_len: 0,
+            echo_fresh: false,
         })
+    }
+
+    fn keep(&mut self, left: &[f32], right: &[f32]) {
+        let frames = left.len().min(right.len()).min(CHUNK);
+        self.echo[..frames].copy_from_slice(&left[..frames]);
+        self.echo[CHUNK..CHUNK + frames].copy_from_slice(&right[..frames]);
+        self.echo_len = frames;
+        self.echo_fresh = true;
+    }
+
+    fn replay(&self, (left, right): (&mut [f32], &mut [f32]), dry: (&[f32], &[f32]), wet: f32) {
+        let frames = left.len().min(self.echo_len);
+        for k in 0..frames {
+            left[k] = dry.0[k] + (self.echo[k] - dry.0[k]) * wet;
+            right[k] = dry.1[k] + (self.echo[CHUNK + k] - dry.1[k]) * wet;
+        }
+        left[frames..].copy_from_slice(&dry.0[frames..]);
+        right[frames..].copy_from_slice(&dry.1[frames..]);
     }
 
     fn heard(&mut self, left: &[f32], right: &[f32]) {
@@ -67,6 +91,14 @@ impl BuiltinPool {
             .flatten()
             .find(|(slot, _)| *slot == id)
             .map(|(_, slot)| slot.as_mut())
+    }
+
+    #[allow(dead_code)]
+    pub fn holds(&self, id: u64) -> bool {
+        if self.used == 0 {
+            return false;
+        }
+        self.slots.iter().flatten().any(|(slot, _)| *slot == id)
     }
 
     pub fn insert(&mut self, id: u64, slot: Box<Slot>) -> Result<Option<Box<Slot>>, Box<Slot>> {
@@ -161,12 +193,21 @@ pub(super) fn run(
         right.copy_from_slice(dry_right);
         return;
     };
-    if !advance {
-        left.copy_from_slice(dry_left);
-        right.copy_from_slice(dry_right);
+    let shared = hosting
+        .fading
+        .is_some_and(|next| next.has_builtin(dev.builtin));
+    if shared {
+        if slot.echo_fresh && slot.echo_len >= n {
+            let wet = dev.wet.value();
+            slot.replay((left, right), (dry_left, dry_right), wet);
+        } else {
+            left.copy_from_slice(dry_left);
+            right.copy_from_slice(dry_right);
+        }
         slot.asked = true;
         return;
     }
+    slot.echo_fresh = false;
     if dev.bypass && dev.wet.settled() && dev.wet.value() == 0.0 {
         dev.values_last.fill(f32::NAN);
         slot.was_off = true;
@@ -174,7 +215,7 @@ pub(super) fn run(
         right.copy_from_slice(dry_right);
         return;
     }
-    if slot.was_off {
+    if advance && slot.was_off {
         slot.effect.reset();
         slot.was_off = false;
         slot.quiet = u64::MAX;
@@ -198,6 +239,7 @@ pub(super) fn run(
         );
         slot.asked = true;
         slot.heard(left, right);
+        slot.keep(left, right);
         return;
     }
     let (wet_left, wet_right) = scratch.wet.split_at_mut(CHUNK);
@@ -222,13 +264,14 @@ pub(super) fn run(
     );
     slot.asked = true;
     slot.heard(wet_left, wet_right);
+    slot.keep(wet_left, wet_right);
     dev.wet.set(if dev.bypass { 0.0 } else { 1.0 });
     if dev.wet.settled() {
         left.copy_from_slice(wet_left);
         right.copy_from_slice(wet_right);
     } else {
         let gain = &mut scratch.gain[..n];
-        dev.wet.fill(gain, rate, true);
+        dev.wet.fill(gain, rate, advance);
         for k in 0..n {
             left[k] = dry_left[k] + (wet_left[k] - dry_left[k]) * gain[k];
             right[k] = dry_right[k] + (wet_right[k] - dry_right[k]) * gain[k];

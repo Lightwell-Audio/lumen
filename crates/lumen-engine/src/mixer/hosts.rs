@@ -4,7 +4,7 @@ use lumen_devices::{Guard, Outcome, ParamBlock};
 
 use super::builtins::BuiltinPool;
 use super::delay::Lines;
-use super::plan::{CHUNK, Dev};
+use super::plan::{CHUNK, Dev, Plan};
 
 pub const MAX_HOSTS: usize = 256;
 
@@ -103,14 +103,17 @@ impl HostPool {
 pub(super) struct Hosting<'a> {
     pub pool: Option<&'a mut HostPool>,
     pub builtins: Option<&'a mut BuiltinPool>,
+    pub fading: Option<&'a Plan>,
     pub deadline: Option<Instant>,
 }
 
 impl Hosting<'static> {
+    #[allow(dead_code)]
     pub fn none() -> Self {
         Self {
             pool: None,
             builtins: None,
+            fading: None,
             deadline: None,
         }
     }

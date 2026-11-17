@@ -483,12 +483,7 @@ impl Effect for Reverb {
         let pre_capacity = PREDELAY_CAPACITY as f32 - 2.0;
         let early_len = self.early_line.len();
         let mut out = [0.0f32; 8];
-        let (mut pre_ms, mut early_x, mut width_x, mut mix_x) = (
-            curve_value(PREDELAY, curves.predelay[0]),
-            curves.early[0].clamp(0.0, 1.0),
-            curve_value(WIDTH, curves.width[0]) / 100.0,
-            curve_value(MIX, curves.mix[0]) / 100.0,
-        );
+        let mut pre_ms = curve_value(PREDELAY, curves.predelay[0]);
 
         for frame in 0..frames {
             for line in &mut self.place {
@@ -516,9 +511,6 @@ impl Effect for Reverb {
                     line.gain = decay_gain(line.length / rate as f32, decay);
                     line.damp = damp_now;
                 }
-                early_x = curves.early[frame].clamp(0.0, 1.0);
-                width_x = curve_value(WIDTH, curves.width[frame]) / 100.0;
-                mix_x = curve_value(MIX, curves.mix[frame]) / 100.0;
             }
             let pre_target = (pre_ms / 1000.0 * rate as f32).clamp(0.0, pre_capacity);
             if pre_target != self.pre_target {
@@ -585,18 +577,18 @@ impl Effect for Reverb {
                 self.pre_write = 0;
             }
 
-            let early_mix = early_x;
+            let early_mix = curves.early[frame].clamp(0.0, 1.0);
             let late_mix = 1.0 - early_mix;
             let late_left = 0.5 * (out[0] - out[1] + out[2] - out[3]);
             let late_right = 0.5 * (out[4] - out[5] + out[6] - out[7]);
             let mut wet_left = early_pair[0] * early_mix + late_left * late_mix;
             let mut wet_right = early_pair[1] * early_mix + late_right * late_mix;
-            let width = width_x;
+            let width = curve_value(WIDTH, curves.width[frame]) / 100.0;
             let mid = 0.5 * (wet_left + wet_right);
             let side = 0.5 * (wet_left - wet_right) * width;
             wet_left = mid + side;
             wet_right = mid - side;
-            let mix = mix_x;
+            let mix = curve_value(MIX, curves.mix[frame]) / 100.0;
             let dry = 1.0 - mix;
             left[frame] = flush(left[frame] * dry + wet_left * mix);
             right[frame] = flush(right[frame] * dry + wet_right * mix);

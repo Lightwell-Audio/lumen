@@ -128,7 +128,7 @@ pub(super) fn compile_metered(
 
         let first_device = devices.len() as u32;
         for (index, device) in spec.devices.iter().enumerate() {
-            device.hash(&mut hasher);
+            shape(device, &mut hasher);
             let (listen, host, builtin, bypass, values) = match *device {
                 super::spec::Device::Delay { listen, .. } => {
                     (listen, NO_HOST, NO_BUILTIN, false, &[][..])
@@ -437,6 +437,28 @@ impl Arrival {
 
 pub(super) fn finite(gain: f32) -> f32 {
     if gain.is_finite() { gain } else { 0.0 }
+}
+
+fn shape(device: &super::spec::Device, hasher: &mut impl Hasher) {
+    match *device {
+        super::spec::Device::Delay { frames, listen } => {
+            0u8.hash(hasher);
+            frames.hash(hasher);
+            listen.hash(hasher);
+        }
+        super::spec::Device::Hosted { host, latency } => {
+            1u8.hash(hasher);
+            host.hash(hasher);
+            latency.hash(hasher);
+        }
+        super::spec::Device::Builtin {
+            device, latency, ..
+        } => {
+            2u8.hash(hasher);
+            device.hash(hasher);
+            latency.hash(hasher);
+        }
+    }
 }
 
 #[cfg(test)]
