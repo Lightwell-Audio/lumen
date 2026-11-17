@@ -15614,3 +15614,181 @@ use them.
   display; the smoke test `a_failed_allocation_leaves_a_crash_report` fails in a
   build with `CARGO_PROFILE_DEV_DEBUG=0` (known, KNOWN_ISSUES), the other twelve
   smoke tests passed.
+## ADR-0154 — The built-in pops (OR-4)
+
+**Status.** Proposed (M8, owner review round 1, OR-4; the parent assigns the
+number). Brief: M8.md §10 OR-4. Contracts: ADR-0145 (the built-in effect path),
+ADR-0148 (Parallax and Afterglow), ADR-0151 (Gravity and Horizon), ADR-0041
+(sidechains and delay compensation) and ADR-0025 (the mixer's glides).
+
+**Context.** The owner heard "a lot of audio popping with Gravity", and asked
+whether every built-in pops or only Gravity, and whether the compressor
+compresses correctly. Nothing had measured a built-in's output for
+discontinuities: the devices' tests check what they do to a level, a curve and a
+block size, and the engine's check that a device is reached at all, but no test
+ever asked "does this step, click or zip".
+
+**The measurement (a harness first).** Two harnesses, both kept.
+`lumen-devices/tests/pops.rs` drives each built-in at its defaults through a
+steady 997 Hz tone at −12 dBFS, a 55 Hz tone and pink noise at −18 dBFS RMS, in
+blocks of 64, 128, 256 and an uneven 333 (played 256 then 77, which is what an
+odd buffer size does), and runs each event of OR-4's list: nothing at all; every
+parameter stepped one at a time in one block; the interface repeating every
+value every block; and a reset mid-stream. `lumen-engine/tests/builtin_pops.rs`
+does the same from the engine: the power switched off and on, the device taken
+out of and put back into a playing chain, the routing rewritten every block, the
+transport stopped and played and located, and a sidechain key connected and
+disconnected — each with and without a device in the chain, so a click can be
+blamed on the right one.
+
+The metric is the worst **second difference** `|x[n] − 2x[n−1] + x[n−2]|` over
+the two thousand frames either side of the event, as a fraction of the wave's
+own level around it, against the same measure of the clean tone. A tone whose
+level changes smoothly reads near zero (it bends by `ω²` a frame); a step in the
+gain reads the step. The first difference is reported beside it, and the same
+figure against the device's own steady state isolates the event from the device.
+`the_harness_sees_a_click_it_is_given` holds the detector itself: a clean tone
+reads 0.0 dB, and the same tone with one sample stepped by 8 % of its amplitude
+reads +14.3.
+
+**What the measurement found, before.** The compressor's own path is smooth:
+every parameter stepped on a tone, noise, or the 55 Hz worst case, and the
+interface repeating its values, read 0.0 dB on the tone. The clicks were in the
+engine's path, and one in the reverb:
+
+| Event | Before | After |
+|---|---|---|
+| Gravity: every parameter stepped, a steady tone, the interface repeating its values, blocks 64–333 | 0.0 dB | 0.0 dB |
+| Gravity: the key connected / disconnected, blocks 64–256 | **+26.2 to +32.0 dB** | 0.0 dB |
+| Gravity: the power switched off mid-play, blocks 64–256 | **+26.2 to +32.0 dB** | 0.0 dB |
+| Gravity: taken out of / put back into a playing chain | **+26.2 to +32.1 dB** (out) | 0.0 dB |
+| Gravity: the same routing rewritten every block | 0.0 dB | 0.0 dB |
+| Gravity: stop then play again, block 64 | **+21.5 dB** | 0.0 dB |
+| Gravity: a locate while playing, block 128 | **+32.0 dB** | +4.1 dB (the transport's own floor, the same with no device) |
+| Afterglow: Mix stepped 100 % → 0 % in one block | **+22.5 dB** | 0.0 dB |
+| Every other built-in, every event | ≤ 3.7 dB (a filter changing the spectrum) | ≤ 3.7 dB |
+
+**Four causes, and their fixes.**
+
+1. **A built-in's *tail* played the dry signal** (`builtins::run`). The engine
+   renders two milliseconds ahead of a jump into a crossfade buffer so the jump
+   can fade out. The device was not asked for those frames — "the device must
+   not hear it" — so the node played its fallback, which is the input delayed by
+   the device's latency, i.e. the **dry** signal. A compressor at +9.5 dB of
+   make-up therefore dropped 9.5 dB at the first frame of every locate and every
+   stop, and the fade then faded *that*. The tail is the song's own
+   continuation: the device is now asked for it, exactly as for any other block,
+   and the fade-out is its own output. (The cost is two milliseconds of audio
+   the device sees twice when a stop is followed by a play from the same place;
+   it is inaudible and nothing else changes.) The `was_off` reset, which starts
+   a device from nothing when its power comes back, stays on real blocks.
+2. **A plan fading out played its built-ins' fallbacks** (`mixer/mod.rs`,
+   `builtins.rs`). Any change to the routing's shape mid-play crossfades the old
+   plan out over 20 ms beside the new. The old plan was given no pools — a host
+   must not be asked twice for one block — so every built-in in it played dry:
+   the track stepped from wet to dry at the first frame and the crossfade ramped
+   back. It now keeps Lumen's own effects. A device the plan that plays on also
+   names must not be *asked* twice either (a delay line would advance twice for
+   one frame of the song), so a `Slot` keeps the block it last made and the
+   fading plan plays that, blended by its own wet; a device only the fading plan
+   names is asked as usual, which is what makes a device taken out of a chain
+   fade out as itself.
+3. **The power switch crossfaded the whole plan** (`compile.rs`). `bypass` was
+   part of the routing's shape hash, so pressing it re-planned and crossfaded
+   everything — which, with cause 2, was a pop in proportion to what the device
+   does. A power switch is a *level*, and the mixer already fades it in place
+   through the device's own 20 ms wet glide (B0, review M1). The shape now hashes
+   a device's identity and its latency, not its power.
+4. **The reverb's mix was read at the automation knots** (`reverb/mod.rs`), one
+   value every 32 frames, like the decay and the filter corners, which need it
+   because they are expensive. A mix that crosses in one block therefore crossed
+   in a staircase of one-frame-down, 31-frames-flat steps — a zip. The mix, the
+   width and the early/late split are read every frame now; the corners and the
+   decay stay at the knots, where the reading is a coefficient and must not
+   move.
+
+**One more, in the transport.** A stop and a play within two milliseconds of
+each other (`declick.rs`) cut the first jump's fade short: the new tail's buffer
+replaced the frames the old one had not played yet, and the output stepped from
+the old signal to silence. The frames a jump cuts short are now kept and mixed
+under the one that replaced it, so two jumps' fades add as they did before
+either happened. Found by this measurement, fixed here, pinned by
+`a_second_jump_keeps_what_the_first_one_left`.
+
+**Gravity against the maths.** New tests in `lumen-devices/tests/dynamics.rs`:
+
+- **The static curve on a tone, RMS mode**: within 0.1 dB at seven levels, four
+  ratios and three knees. **Peak mode**: exact below the knee (0.02 dB) and up
+  to 0.87 dB **short** of the curve just above the threshold (0.4 dB at 4:1,
+  0.87 at 12:1 and −1 dBFS). A peak detector reads the wave, and its gain
+  ballistics average that over a cycle: the samples below the threshold pull the
+  gain back up between peaks. The shortfall is pinned by
+  `a_peak_detector_reads_the_wave_and_that_is_its_curve`, and it is the one
+  thing here that is a **question for the owner** (below).
+- **Attack and release**: 63 % of the gain change within a tenth of the time, at
+  1, 5, 20 and 100 ms of attack and 20, 120 and 500 ms of release. (The
+  measurement settles the parameter glides first; measured straight after a
+  setting is sent, the 20 ms glide of the setting itself is what moves.)
+- **Automatic make-up**: a full-scale signal leaves at full scale at every
+  ratio, and at −33 dBFS when the 24 dB clamp bites — what the ADR says.
+- **The knee is a join**: a tone swept through a 12 dB knee has no step in its
+  own level (under 0.1 dB a millisecond).
+- **The sides are linked**: −6 dBFS left and −26 dBFS right leave with the same
+  gain, within 0.05 dB, in both detection modes.
+- **The meter is the gain**: the reduction the face shows equals what the
+  samples lost, within 0.05 dB, at three levels.
+- **Silence leaves nothing behind**: after five seconds of it, a tone is
+  bit-for-bit what a device that never saw it plays.
+
+The sidechain and its high-pass were already covered
+(`a_key_ducks_the_input_and_listen_plays_the_key`,
+`the_key_high_pass_takes_the_low_end_out_of_the_key`) and still hold.
+
+**Flare**, the instrument, is not on the mixer's effect path, so (c) to (g) do
+not apply to it; its parameters arrive the same way while it plays, so
+`flare_does_not_click_when_its_values_move` plays a note and steps every one of
+them. None jumps from one frame to the next (under 6 dB against the sound it was
+making); a filter shape crosses over for 20 ms from a filter of its own state, as
+B4 left it, and the two summed read a little steeper in the second difference —
+a change of timbre, not a step.
+
+**What is left, and why it was not changed.** Gravity's peak-mode curve
+shortfall could be removed by detecting on a peak *envelope* instead of the
+wave, but every envelope that holds a 20 Hz wave's peak needs a hold of 25 ms or
+more, and the release would then be that much late: at the bottom of the
+release range (5 ms) the 63 % time would be several times the setting. The
+detector's topology is therefore a trade the owner should choose, not a defect:
+(a) as it is, exact below the knee and up to 0.87 dB short above it; (b) a fixed
+5 ms peak hold, exact at a tone's peak from 1 kHz up, with the release up to a
+quarter late at 20 ms; (c) RMS only. Nothing was changed.
+
+Two parameters do not pass OR-4's `(b)` and are not clicks: the limiter's
+**Look** is its latency, and a change re-times the routing and clears the line
+it held (ADR-0151 §4, ADR-0041's skip or repeat; the interface applies a drag
+once, at its end), and Afterglow's **Pre** slides its read head 150 ms in 20 ms,
+which is a fast pitch glide through the room (its sample-to-sample jump is 2.5 dB
+above the wave's own, against 30 for a click). Both are in KNOWN_ISSUES with
+what they are.
+
+**Also measured, not fixed: the default make-up.** Gravity at its defaults has a
+−18 dB threshold at 4:1, so automatic make-up adds 13.5 dB. A track at −12 dBFS
+therefore leaves at **+1.1 dBFS** (measured: the engine's output peaks at 1.140
+with the device at its defaults where the tone is 0.25), and one at 0 dBFS
+leaves at +13.5 dBFS. That is what ADR-0151 §8 says automatic make-up does ("so
+the loudness of a mix does not change when the ratio does"), and it is a default
+value, so it is the owner's: a mix with Gravity on a track can clip a converter
+that has no headroom. Recorded as a question in KNOWN_ISSUES.
+
+**Tests added.** `lumen-devices/tests/pops.rs` (the harness,
+`no_built_in_clicks_on_a_tone_when_anything_moves` and
+`flare_does_not_click_when_its_values_move`), `lumen-engine/tests/
+builtin_pops.rs` (the harness, `nothing_the_engine_does_to_a_chain_clicks`,
+`connecting_a_key_does_not_click`, `the_harness_sees_a_click_it_is_given`,
+`an_unattached_device_plays_the_wave_through`), `lumen-engine/src/declick.rs`
+(`a_second_jump_keeps_what_the_first_one_left`), and eight in
+`lumen-devices/tests/dynamics.rs` listed above.
+
+**What is not run here.** The performance gate (no WSL distribution on this
+machine) and the macOS cross-target clippy. The golden renders are untouched:
+no pinned device's sound changed, and the reverb's pinned render has no mix
+movement inside a block.

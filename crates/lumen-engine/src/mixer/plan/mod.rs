@@ -211,6 +211,10 @@ impl Plan {
         }
     }
 
+    pub(in crate::mixer) fn has_builtin(&self, id: u64) -> bool {
+        self.devices.iter().any(|dev| dev.builtin == id)
+    }
+
     pub(super) fn idle_meters(&self, rate: u32, frames: usize) {
         let Some(meters) = self.meters.as_deref() else {
             return;
