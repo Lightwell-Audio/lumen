@@ -2640,9 +2640,9 @@ fn builtin_eq() {
         let tag = format!("{tag}-{appearance}-{}", (scale * 100.0) as u32);
         save(&mut h, &format!("iris-{tag}"));
 
-        let spectrum: Vec<f32> = (0..96)
+        let spectrum: Vec<f32> = (0..lumen_devices::analyzer::POINTS)
             .map(|i| {
-                let t = i as f32 / 95.0;
+                let t = i as f32 / (lumen_devices::analyzer::POINTS - 1) as f32;
                 let loud = 0.5 + 0.22 * (t * 9.0).sin() + 0.1 * (t * 33.0).sin() - t * 0.42;
                 -84.0 + 78.0 * loud.max(0.04)
             })

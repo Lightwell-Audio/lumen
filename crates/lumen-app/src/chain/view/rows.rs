@@ -103,6 +103,7 @@ impl App {
             }
         }
         let App { builtin, chain, .. } = self;
+        let dt = ctx.input(|input| input.stable_dt);
         for id in builtin.spectrum_ids() {
             let on = live.contains(&id);
             let Some(reader) = builtin.spectrum(id) else {
@@ -114,14 +115,15 @@ impl App {
                 continue;
             }
             let picture = chain.analyzers.entry(id).or_insert_with(|| {
-                vec![lumen_devices::analyzer::MIN_DB; crate::chain::face::eq::POINTS]
+                lumen_devices::analyzer::Display::new((
+                    crate::chain::face::eq::LOW,
+                    crate::chain::face::eq::HIGH,
+                ))
             });
             if reader.read() == lumen_devices::Read::Window {
-                reader.points(
-                    rate.max(1),
-                    (crate::chain::face::eq::LOW, crate::chain::face::eq::HIGH),
-                    picture,
-                );
+                picture.update(reader.spectrum(), rate.max(1), dt);
+            } else {
+                picture.advance(dt);
             }
         }
         if !live.is_empty() && self.chain.pretend_spectrum.is_none() {
