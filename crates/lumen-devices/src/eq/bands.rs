@@ -20,20 +20,28 @@ impl Section {
 
     pub fn db(&self, hz: f32, rate: u32) -> f32 {
         let w = std::f64::consts::TAU * f64::from(hz.max(0.0)) / f64::from(rate.max(1));
-        let (sin1, cos1) = (w.sin(), w.cos());
-        let (sin2, cos2) = ((2.0 * w).sin(), (2.0 * w).cos());
-        let (b0, b1, b2) = (f64::from(self.b0), f64::from(self.b1), f64::from(self.b2));
-        let (a1, a2) = (f64::from(self.a1), f64::from(self.a2));
-        let num = (b0 + b1 * cos1 + b2 * cos2, -(b1 * sin1 + b2 * sin2));
-        let den = (1.0 + a1 * cos1 + a2 * cos2, -(a1 * sin1 + a2 * sin2));
-        let magnitude = (num.0 * num.0 + num.1 * num.1).sqrt()
-            / (den.0 * den.0 + den.1 * den.1)
-                .sqrt()
-                .max(f64::MIN_POSITIVE);
-        if magnitude <= 0.0 {
+        let power = self.ratio().power(w.cos());
+        if power <= 0.0 || !power.is_finite() {
             -200.0
         } else {
-            (20.0 * magnitude.log10()) as f32
+            (10.0 * power.log10()) as f32
+        }
+    }
+
+    pub fn ratio(&self) -> Ratio {
+        let (b0, b1, b2) = (f64::from(self.b0), f64::from(self.b1), f64::from(self.b2));
+        let (a1, a2) = (f64::from(self.a1), f64::from(self.a2));
+        Ratio {
+            num: [
+                b0 * b0 + b1 * b1 + b2 * b2 - 2.0 * b0 * b2,
+                2.0 * (b0 * b1 + b1 * b2),
+                4.0 * b0 * b2,
+            ],
+            den: [
+                1.0 + a1 * a1 + a2 * a2 - 2.0 * a2,
+                2.0 * (a1 + a1 * a2),
+                4.0 * a2,
+            ],
         }
     }
 
@@ -53,6 +61,24 @@ impl Section {
             b2: mix(from.b2, to.b2),
             a1: mix(from.a1, to.a1),
             a2: mix(from.a2, to.a2),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Ratio {
+    num: [f64; 3],
+    den: [f64; 3],
+}
+
+impl Ratio {
+    pub fn power(&self, cos: f64) -> f64 {
+        let poly = |p: &[f64; 3]| p[0] + p[1] * cos + p[2] * cos * cos;
+        let den = poly(&self.den);
+        if den <= 0.0 {
+            0.0
+        } else {
+            (poly(&self.num) / den).max(0.0)
         }
     }
 }
@@ -361,6 +387,67 @@ mod tests {
         assert!(band_db(&notch, RATE, 1_000.0) < -40.0);
         assert!(band_db(&notch, RATE, 100.0).abs() < 0.1);
         assert!(band_db(&notch, RATE, 10_000.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn the_ratio_is_the_section_s_own_response() {
+        for setting in [
+            Setting {
+                kind: Kind::Bell,
+                freq: 1_000.0,
+                gain: 9.0,
+                q: 3.0,
+                slope: 12.0,
+            },
+            Setting {
+                kind: Kind::HighShelf,
+                freq: 4_000.0,
+                gain: -6.5,
+                q: 0.7,
+                slope: 12.0,
+            },
+            Setting {
+                kind: Kind::LowCut,
+                freq: 120.0,
+                gain: 0.0,
+                q: 0.7,
+                slope: 48.0,
+            },
+            Setting {
+                kind: Kind::Notch,
+                freq: 900.0,
+                gain: 0.0,
+                q: 6.0,
+                slope: 12.0,
+            },
+        ] {
+            let mut sections = [Section::FLAT; MOST_SECTIONS];
+            let count = setting.sections(RATE, &mut sections);
+            for hz in [
+                20.0f32, 55.0, 120.0, 440.0, 900.0, 1_000.0, 4_000.0, 19_000.0,
+            ] {
+                let w = 2.0 * std::f64::consts::PI * f64::from(hz) / 48_000.0;
+                let (s1, c1) = (w.sin(), w.cos());
+                let (s2, c2) = ((2.0 * w).sin(), (2.0 * w).cos());
+                let mut direct = 1.0f64;
+                let mut ratio = 1.0f64;
+                for section in &sections[..count] {
+                    let (b0, b1, b2) = (
+                        f64::from(section.b0),
+                        f64::from(section.b1),
+                        f64::from(section.b2),
+                    );
+                    let (a1, a2) = (f64::from(section.a1), f64::from(section.a2));
+                    let num = (b0 + b1 * c1 + b2 * c2, -(b1 * s1 + b2 * s2));
+                    let den = (1.0 + a1 * c1 + a2 * c2, -(a1 * s1 + a2 * s2));
+                    direct *= (num.0 * num.0 + num.1 * num.1) / (den.0 * den.0 + den.1 * den.1);
+                    ratio *= section.ratio().power(c1);
+                }
+                let want = (10.0 * direct.log10()).max(-120.0);
+                let got = (10.0 * ratio.log10()).max(-120.0);
+                assert!((got - want).abs() < 1e-3, "{hz} Hz: {got} against {want}");
+            }
+        }
     }
 
     #[test]

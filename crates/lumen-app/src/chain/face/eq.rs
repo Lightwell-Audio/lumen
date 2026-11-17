@@ -9,7 +9,7 @@ use crate::theme::personality::card;
 
 pub(crate) const LOW: f32 = eq::LOW_HZ;
 pub(crate) const HIGH: f32 = eq::HIGH_HZ;
-pub(crate) const POINTS: usize = 96;
+const MOST: usize = eq::curve::MOST;
 
 const VIEW_DB: f32 = 16.0;
 const OFF_SCREEN: f32 = 40.0;
@@ -421,28 +421,22 @@ fn flat() -> eq::bands::Setting {
     }
 }
 
-fn response(scene: &Scene<'_>, out: &mut [f32; POINTS]) {
+fn response(scene: &Scene<'_>) -> eq::Curve {
     let values = &scene.values;
     let mut settings = [(flat(), false); eq::BANDS];
     for (index, slot) in settings.iter_mut().enumerate() {
         let band = band(values, index);
         *slot = (band.setting(), band.on);
     }
-    let output = values.plain(eq::OUTPUT);
-    let rate = scene.rate.max(1);
-    for (i, point) in out.iter_mut().enumerate() {
-        let hz = LOW * (HIGH / LOW).powf(i as f32 / (POINTS - 1) as f32);
-        let mut db = output;
-        for (setting, on) in &settings {
-            if *on {
-                db += eq::band_db(setting, rate, hz);
-            }
-        }
-        *point = db;
-    }
+    eq::Curve::new(settings, values.plain(eq::OUTPUT), scene.rate.max(1))
 }
 
-fn ribbon(mesh: &mut Mesh, line: &[Pos2], profile: &[(f32, f32)], colour: impl Fn(f32) -> Color32) {
+fn ribbon(
+    mesh: &mut Mesh,
+    line: &[Pos2],
+    profile: &[(f32, f32)],
+    colour: impl Fn(Pos2) -> Color32,
+) {
     let count = line.len();
     let width = profile.len() as u32;
     for (i, point) in line.iter().enumerate() {
@@ -454,8 +448,7 @@ fn ribbon(mesh: &mut Mesh, line: &[Pos2], profile: &[(f32, f32)], colour: impl F
         } else {
             vec2(0.0, 1.0)
         };
-        let share = i as f32 / (count - 1).max(1) as f32;
-        let ink = colour(share);
+        let ink = colour(*point);
         let first = mesh.vertices.len() as u32;
         for (distance, strength) in profile {
             mesh.colored_vertex(*point + normal * *distance, ink.gamma_multiply(*strength));
@@ -479,16 +472,17 @@ fn draw(scene: &Scene<'_>) {
         grid(scene, rect);
         mist(scene, rect);
     }
-    let mut db = [0.0; POINTS];
-    response(scene, &mut db);
-    let mut line = [Pos2::ZERO; POINTS];
-    for (i, point) in line.iter_mut().enumerate() {
-        *point = pos2(
-            rect.left() + rect.width() * i as f32 / (POINTS - 1) as f32,
-            y_free(rect, db[i]),
+    let mut path = [eq::Sample::default(); MOST];
+    let mut line = [Pos2::ZERO; MOST];
+    let width = rect.width() * scene.painter.ctx().pixels_per_point();
+    let count = response(scene).path(width, &mut path);
+    for (i, sample) in path[..count].iter().enumerate() {
+        line[i] = pos2(
+            rect.left() + rect.width() * sample.share,
+            y_free(rect, sample.db),
         );
     }
-    curve(scene, rect, &line, scale, band_only);
+    curve(scene, rect, &line[..count], scale, band_only);
     let picked = scene.picked.min(eq::BANDS - 1);
     for index in (0..eq::BANDS)
         .filter(|index| *index != picked)
@@ -580,15 +574,15 @@ fn mist(scene: &Scene<'_>, rect: Rect) {
 }
 
 fn curve(scene: &Scene<'_>, rect: Rect, line: &[Pos2], scale: f32, thin: bool) {
-    let sweep = |share: f32| scene.ink(sweep_at(share));
+    let share_of = |point: Pos2| ((point.x - rect.left()) / rect.width().max(1.0)).clamp(0.0, 1.0);
+    let sweep = |point: Pos2| scene.ink(sweep_at(share_of(point)));
     let mut mesh = Mesh::default();
-    mesh.reserve_vertices(POINTS * 7);
-    mesh.reserve_triangles(POINTS * 12);
+    mesh.reserve_vertices(line.len() * 7);
+    mesh.reserve_triangles(line.len() * 12);
     if !thin {
         let middle = rect.center().y;
-        for (i, point) in line.iter().enumerate() {
-            let share = i as f32 / (POINTS - 1) as f32;
-            let ink = sweep(share).gamma_multiply(WASH_ALPHA);
+        for point in line {
+            let ink = sweep(*point).gamma_multiply(WASH_ALPHA);
             let first = mesh.vertices.len() as u32;
             mesh.colored_vertex(*point, ink);
             mesh.colored_vertex(pos2(point.x, middle), ink);

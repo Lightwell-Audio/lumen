@@ -50,7 +50,7 @@ pub(crate) struct Chain {
     pub compact: bool,
     pub steps: HashMap<Id, geometry::Step>,
     pub bands: HashMap<Id, usize>,
-    pub analyzers: BTreeMap<Id, Vec<f32>>,
+    pub analyzers: BTreeMap<Id, lumen_devices::analyzer::Display>,
     pub pretend_spectrum: Option<(Id, Vec<f32>)>,
     pub pretend_level: Option<f32>,
     pub least: f32,

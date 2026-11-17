@@ -127,7 +127,7 @@ fn set_piece_cost() {
             crate::theme::personality::HORIZON,
         ),
     ];
-    let mist: Vec<f32> = (0..crate::chain::face::eq::POINTS)
+    let mist: Vec<f32> = (0..lumen_devices::analyzer::POINTS)
         .map(|i| -60.0 + 40.0 * (i as f32 / 9.0).sin().abs())
         .collect();
     for (name, table, hue) in devices {
