@@ -593,8 +593,6 @@ pub mod personality {
 
     pub const SCREEN_TINT: f32 = 0.20;
 
-    pub const PRISM_FAN: f32 = 0.12;
-
     pub const READOUT_SIZE: f32 = 9.0;
     pub const READOUT_INSET: f32 = 10.0;
 

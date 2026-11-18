@@ -285,7 +285,7 @@ mod tests {
         assert_eq!(plan.screen.size(), vec2(272.0, 136.0));
         assert_eq!(plan.screen.min - plan.card.min, vec2(14.0, 60.0));
         let cell = plan.cell(prism(), 2).expect("a cell");
-        assert_eq!(cell.center() - plan.card.min, vec2(156.0, 236.0));
+        assert_eq!(cell.center() - plan.card.min, vec2(150.0, 236.0));
         let pill = plan.cell(prism(), 4).expect("a cell");
         assert!(pill.left() > cell.right());
     }

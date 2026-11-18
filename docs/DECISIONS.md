@@ -16350,3 +16350,70 @@ WSL performance gate and the macOS cross-target clippy were not run on this
 machine. The interface's Makeup control now has three positions; the face
 agent's rebuild reads the parameter's choices, so no face code was changed
 on this branch.
+
+## ADR-XXXX — Prism's Fan face (M8 round 4, F3)
+
+**Context.** The owner found Prism's beams weak and poorly designed (OR-6).
+Round 4 chose **A, Fan** (`docs/specimens/m8/round4.html`, `PrismA`, which is
+the specification; `round4-notes.md` for the rest picture and Reduce motion).
+F0 (ADR-0155) built the motion vocabulary and the repaint cadence, F1 and F2
+(ADR-0157, ADR-0161) the first two faces on it. This is the third.
+
+**Decision.**
+1. **The face** is the specimen's: a glass triangle on the left third of the
+   screen, a white beam entering it, and five coloured wedges leaving it from
+   one root. Width is the angle between neighbouring wedges (0 to 0.17 rad, so
+   0 % folds them to one white beam and 200 % opens the outer two to 0.34 rad);
+   Pan shifts the glass up and down by 12 points; Bass mono is the length of
+   the stem between the glass and the root (4 to 38 points). Gain scales the
+   light (`(10^(dB/20))^0.6`, clamped to .25 to 1.4). Every number comes from
+   the device's parameters; nothing is invented.
+2. **The code** is a folder, `chain/face/prism/`: `geometry.rs` (the frame:
+   scale, glass, root, tips, the grab bands and the tip-to-width map, pure),
+   `light.rs` (the state), `picture.rs` (the painting) and `tests.rs`.
+   `prism.rs` is gone and so is the colour token `PRISM_FAN`.
+3. **Live data is the track's level** that every face already receives. It is
+   read as an amplitude (`10^(dB/20)` of the level's dB reading), not as the
+   dB-linear 0 to 1 the dials' meters use, because the specimen's
+   `live = .14 + .6 awake + .3 awake level` was written against an amplitude.
+   No device data was added and Prism's sound is untouched.
+4. **Rest.** The notes say a rest picture has no beams; the specimen shows them
+   dim. We follow the specimen: at rest the five wedges stay visible at
+   `.14` of their brightness (`awake` 0), so the card is never a blank screen,
+   and the packets, the tip glows' pulse and the bloom are gone. The face asks
+   for no repaint at rest and a 16 ms one while signal flows (`cadence`),
+   exactly as Gravity does. With Reduce motion the level is 0 (the framework's
+   `seen`), so the picture is the still rest picture with the packets, flash
+   and bloom absent.
+5. **Handles.** Two, on the same parameter: the upper and lower outer tips,
+   named "Beam spread, upper" and "Beam spread, lower", each a drag of the
+   Width dial (the framework's own: Shift is a tenth, Alt is free, the wheel,
+   double-click for the default, arrow keys, one undo step merged while
+   dragging). A pointer's distance from the root becomes a width through the
+   angle's arcsine, so the tip stays under the pointer. When a tip would leave
+   the screen (extreme Pan, or Compact) its grab band is held inside the
+   screen, so it can always be reached. They are off at Compact, where the
+   picture is 22 points high. A hover ring on the tip is ours, beyond the
+   specimen, because the specimen has no hover.
+6. **Compact** compresses the fan's vertical reach so that 200 % still sits
+   inside the band (`Frame::fit`), and the Whole and Short pictures are never
+   compressed.
+7. **Controls** sit where the specimen puts them (dials at 44, 97, 150 and 203
+   points, the polarity pill at 236, 226), not where the old Prism had them, so
+   the third dial moved from 156 to 150 and one plan test was updated.
+8. **Shared pieces.** `paint::glow_into` is the mesh half of `glow_ladder`
+   (the face draws all its light into one additive mesh); `Spring::raise`
+   adds to a spring's position under a cap (the bloom). The bloom's rate is
+   per second (6/s), where the specimen's is per frame, so it does not depend
+   on the frame rate; a sustained loud signal settles at a bloom of about 0.1,
+   which is the specimen's own equilibrium.
+9. **Cost** (`face_bench`, debug build, whole UI per frame, mean / p95 / worst
+   in ms): rest 2.411 / 2.452 / 2.519, live 2.633 / 2.871 / 3.410. Before: rest
+   2.401 / 2.522 / 2.815, live 2.450 / 2.682 / 3.344. Horizon (this run) rest
+   2.415, live 2.719; Gravity rest 2.994, live 3.094. The face alone,
+   tessellated, is 0.163 ms at rest and 0.285 ms live.
+
+**What is left.** Nothing has been heard or seen by the owner yet
+(MT-PRISM-1). The wide fan's "stereo" word can sit over the outer wedge at
+200 %, as in the specimen. The WSL performance gate and the macOS cross-target
+clippy were not run on this machine; no audio path changed.

@@ -2803,6 +2803,118 @@ fn dynamics_card() {
 
 #[test]
 #[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
+fn prism_card() {
+    use egui_kittest::kittest::Queryable;
+    use lumen_devices::utility;
+    use lumen_project::model::{Color, Device, Id, PluginRef, Track, TrackKind};
+
+    let mut cases: Vec<(&str, f32, eframe::egui::Vec2, &str, f32)> = Vec::new();
+    for appearance in ["dark", "light"] {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            for (tag, detail) in [("whole", 460.0), ("short", 365.0), ("compact", 300.0)] {
+                cases.push((appearance, scale, vec2(1280.0, 900.0), tag, detail));
+            }
+        }
+    }
+    let only = std::env::var("SHOT_FILTER").unwrap_or_default();
+    let norm = |id: u32, plain: f32| {
+        f64::from(
+            lumen_devices::params::find(utility::TABLE, id)
+                .expect("a utility parameter")
+                .normalised(plain),
+        )
+    };
+    for (appearance, scale, size, tag, detail) in cases {
+        if !format!("{appearance}-{scale}-{tag}").contains(&only) {
+            continue;
+        }
+        let dir = TempDir::new(&format!("shots-prism-{appearance}-{scale}-{tag}"));
+        let mut keys = Track::new(Id(1), "Keys".to_owned(), TrackKind::Audio, Color(0x5E8C6A));
+        keys.devices = vec![Device::new(
+            Id(10),
+            PluginRef::Builtin {
+                name: utility::NAME.to_owned(),
+            },
+            false,
+            Vec::new(),
+        )];
+        let project = lumen_project::testing::project_of("Face", vec![keys]);
+        let path = dir.path().join("song.lumen");
+        lumen_project::save(&project, &path, &Default::default()).expect("save");
+        let launch = Launch::for_test(dir.path())
+            .appearing(appearance)
+            .opening(path);
+        let mut h = Harness::builder()
+            .with_size(size)
+            .with_pixels_per_point(scale)
+            .with_theme(if appearance == "light" {
+                eframe::egui::Theme::Light
+            } else {
+                eframe::egui::Theme::Dark
+            })
+            .with_step_dt(1.0 / 60.0)
+            .wgpu()
+            .build_eframe(|cc| {
+                lumen_app::testing::install_renderer(cc).expect("the GPU renderer");
+                App::new(cc, launch)
+            });
+        h.run_steps(30);
+        h.state_mut().select_tracks(&[Id(1)]);
+        h.run_steps(4);
+        h.get_all_by_label("Devices tab")
+            .last()
+            .expect("the tabs")
+            .click();
+        h.run_steps(4);
+        h.state_mut().set_detail_size(detail);
+        h.run_steps(30);
+        h.state_mut()
+            .set_device_param_at_rest(Id(10), utility::WIDTH, norm(utility::WIDTH, 130.0));
+        h.state_mut().set_device_param_at_rest(
+            Id(10),
+            utility::BASS_MONO,
+            norm(utility::BASS_MONO, 120.0),
+        );
+        h.run_steps(20);
+        let at = format!("{tag}-{appearance}-{}", (scale * 100.0) as u32);
+
+        save(&mut h, &format!("prism-rest-{at}"));
+
+        h.state_mut().pretend_track_level(Some(-6.0));
+        h.run_steps(120);
+        save(&mut h, &format!("prism-{at}"));
+        h.state_mut().pretend_track_level(Some(-0.5));
+        h.run_steps(8);
+        save(&mut h, &format!("prism-hit-{at}"));
+        h.state_mut().pretend_track_level(Some(-6.0));
+        h.run_steps(60);
+        if tag != "whole" {
+            continue;
+        }
+
+        h.get_by_label_contains("Beam spread, upper").hover();
+        h.run_steps(20);
+        save(&mut h, &format!("prism-hover-{at}"));
+
+        h.state_mut()
+            .set_device_param_at_rest(Id(10), utility::WIDTH, norm(utility::WIDTH, 0.0));
+        h.run_steps(30);
+        save(&mut h, &format!("prism-mono-{at}"));
+        h.state_mut()
+            .set_device_param_at_rest(Id(10), utility::WIDTH, norm(utility::WIDTH, 200.0));
+        h.run_steps(30);
+        save(&mut h, &format!("prism-wide-{at}"));
+
+        h.state_mut().fold_device(Id(10));
+        h.run_steps(10);
+        save(&mut h, &format!("prism-folded-{at}"));
+        h.state_mut().fold_device(Id(10));
+        h.run_steps(10);
+    }
+}
+
+#[test]
+#[ignore = "renders PNGs for a visual check; needs a GPU and SHOTS"]
 fn device_chain() {
     use egui_kittest::kittest::Queryable;
     use lumen_core::time::Ticks;

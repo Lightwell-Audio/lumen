@@ -99,6 +99,7 @@ mod pops;
 mod preferences;
 mod preset_menu;
 mod presets;
+mod prism_face;
 mod project_settings;
 mod properties;
 mod quantize;
