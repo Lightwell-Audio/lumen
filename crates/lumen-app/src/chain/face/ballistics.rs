@@ -1,7 +1,6 @@
 use crate::motion::{self, SpringKind};
 use crate::theme::personality::card as c;
 
-#[allow(dead_code)]
 const SPRING_SETTLED: f32 = 0.001;
 const ASLEEP_BELOW: f32 = 0.005;
 
@@ -10,14 +9,12 @@ pub(crate) fn step_of(dt: f32) -> f32 {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[allow(dead_code)]
 pub(crate) struct Spring {
     kind: SpringKind,
     at: f32,
     speed: f32,
 }
 
-#[allow(dead_code)]
 impl Spring {
     pub(crate) fn new(kind: SpringKind, at: f32) -> Self {
         Self {

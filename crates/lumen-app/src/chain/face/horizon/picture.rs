@@ -1,21 +1,21 @@
-use eframe::egui::{Align2, Color32, CornerRadius, FontId, Mesh, Pos2, Rect, Shape, Stroke, pos2};
+use eframe::egui::{
+    Align2, Color32, CornerRadius, FontId, Mesh, Pos2, Rect, Shape, Stroke, pos2, vec2,
+};
 
 use super::super::paint::{self, dashed_line, mesh_for};
 use super::super::{Scene, meter};
 use super::geometry::{self, GRID_DB, Readout};
 use super::history::{Heard, Skyline};
-use crate::chain::card::gradient_panel;
+use crate::chain::geometry::Step;
 use crate::fonts;
 use crate::motion;
 use crate::theme;
 use crate::theme::glow as ladder;
 use crate::theme::personality as p;
-use crate::theme::personality::card;
 
 const MINUS: char = '\u{2212}';
 const BASELINE_DROP: f32 = 0.22;
 
-const WASH_SCALE: f32 = 0.9;
 const WALL_ALPHA: f32 = 0.30;
 const DUSK_DEPTH: f32 = 78.0;
 const DUSK_FLASH: f32 = 0.30;
@@ -49,6 +49,9 @@ const GAP_REACH: f32 = 4.0;
 const GAP_LEAST: f32 = 0.1;
 
 const PLATE_RADIUS: f32 = 10.0;
+const WORDS_BACKING: (f32, f32) = (4.0, 1.5);
+const WORDS_BACKING_RADIUS: f32 = 3.0;
+const WORDS_BACKING_ALPHA: f32 = 0.82;
 const HERO_QUIET: f32 = 0.45;
 const HERO_FULL_DB: f32 = 1.2;
 const SUB_SIZE: f32 = p::READOUT_SIZE;
@@ -79,19 +82,9 @@ fn band(scene: &Scene<'_>, x: (f32, f32), y: (f32, f32), colours: (Color32, Colo
     scene.painter.add(Shape::mesh(mesh));
 }
 
-fn wash(scene: &Scene<'_>, at: Pos2) -> Color32 {
-    let rect = scene.rect;
-    let reach = card::SCREEN_REACH * WASH_SCALE * rect.width();
-    let t = ((at - pos2(rect.center().x, rect.top())).length() / reach).clamp(0.0, 1.0);
-    let hue = scene.ink(scene.hue);
-    let deep = scene.ink(p::HORIZON_DEEP);
-    let alpha = card::SCREEN_GLOW * (1.0 - t) + t;
-    deep.lerp_to_gamma(hue, (1.0 - t) * alpha)
-}
-
 pub(super) fn backdrop(scene: &Scene<'_>, y: f32, flash: f32, awake: f32, (top, foot): (f32, f32)) {
     let rect = scene.rect;
-    gradient_panel(scene.painter, rect, top, foot, |at| wash(scene, at));
+    paint::wash(scene, p::HORIZON_DEEP, (top, foot));
     let wall = Rect::from_min_max(
         rect.min,
         pos2(rect.right(), y.clamp(rect.top(), rect.bottom())),
@@ -279,15 +272,24 @@ pub(super) fn ceiling_words(scene: &Scene<'_>, y: f32, db_text: &str) {
             Align2::LEFT_BOTTOM,
         )
     };
-    scene.painter.text(
-        pos2(rect.left() + WORDS_INSET, at),
-        align,
-        format!("ceiling {db_text}"),
-        mono(WORDS_SIZE),
+    let colour = scene
+        .ink(p::HORIZON_WORDS)
+        .gamma_multiply(WORDS_ALPHA * scene.settle);
+    let galley =
         scene
-            .ink(p::HORIZON_WORDS)
-            .gamma_multiply(WORDS_ALPHA * scene.settle),
-    );
+            .painter
+            .layout_no_wrap(format!("ceiling {db_text}"), mono(WORDS_SIZE), colour);
+    let place = align.anchor_size(pos2(rect.left() + WORDS_INSET, at), galley.size());
+    if scene.step == Step::Short {
+        scene.painter.rect_filled(
+            place.expand2(vec2(WORDS_BACKING.0, WORDS_BACKING.1)),
+            WORDS_BACKING_RADIUS,
+            scene
+                .ink(p::HORIZON_DEEP)
+                .gamma_multiply(WORDS_BACKING_ALPHA),
+        );
+    }
+    scene.painter.galley(place.min, galley, colour);
 }
 
 pub(super) fn readout(scene: &Scene<'_>, sky: &Skyline, awake: f32, at: &Readout) {

@@ -39,7 +39,7 @@ fn launched(name: &str, command: &str, saved: &str) -> (Lumen, Id, Id) {
 }
 
 #[track_caller]
-fn at(lumen: &Lumen, label: &str) -> Pos2 {
+pub(super) fn at(lumen: &Lumen, label: &str) -> Pos2 {
     lumen.harness.get_by_label_contains(label).rect().center()
 }
 
@@ -50,7 +50,7 @@ fn heard(lumen: &mut Lumen) -> f32 {
         .fold(0.0f32, |m, f| m.max(f[0].abs()))
 }
 
-fn param(lumen: &Lumen, device: Id, id: u32) -> Option<f64> {
+pub(super) fn param(lumen: &Lumen, device: Id, id: u32) -> Option<f64> {
     lumen
         .app()
         .device_params(device)
@@ -483,7 +483,7 @@ fn the_device_trays_menu_adds_gravity_and_horizon() {
     lumen.key(Modifiers::NONE, Key::Escape);
 }
 
-fn whole(file: &str, command: &str, saved: &str) -> (Lumen, Id) {
+pub(super) fn whole(file: &str, command: &str, saved: &str) -> (Lumen, Id) {
     let (mut lumen, _, device) = launched(file, command, saved);
     lumen.wait_for("the audio thread to have it", |app| {
         app.builtin_attached(device)
@@ -494,7 +494,7 @@ fn whole(file: &str, command: &str, saved: &str) -> (Lumen, Id) {
 }
 
 #[track_caller]
-fn undone_once(lumen: &mut Lumen, added: &str) {
+pub(super) fn undone_once(lumen: &mut Lumen, added: &str) {
     assert!(
         lumen
             .app()

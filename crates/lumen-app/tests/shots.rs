@@ -2759,10 +2759,27 @@ fn dynamics_card() {
                     h.run_steps(2);
                 }
             } else {
+                h.state_mut().pretend_track_level(Some(-6.0));
                 h.state_mut().pretend_reduction(Id(10), 4.1, -8.0);
                 h.run_steps(120);
             }
             save(&mut h, &format!("{short}-{at}"));
+            if short == "horizon" {
+                for _ in 0..320_u32 {
+                    h.state_mut().pretend_reduction(Id(10), 3.2, 3.0);
+                    h.run_steps(2);
+                }
+                save(&mut h, &format!("{short}-loud-{at}"));
+            } else {
+                h.state_mut().pretend_reduction(Id(10), 0.0, -60.0);
+                h.run_steps(240);
+                h.state_mut().pretend_reduction(Id(10), 9.0, -3.0);
+                h.run_steps(4);
+                save(&mut h, &format!("{short}-hit-{at}"));
+                h.run_steps(240);
+                h.state_mut().pretend_reduction(Id(10), 4.1, -8.0);
+                h.run_steps(120);
+            }
             if tag != "whole" {
                 continue;
             }

@@ -16098,3 +16098,103 @@ narrow-pane fallback, the Lumen chip, the kind tag's and description's row
 layout, the tooltip, the dash Add device slot, and removing the track menu's
 Add rows and Instrument submenu. Shutter is not merged, so it has no entry;
 it joins Instruments with one table row when B5 lands.
+
+## ADR-0161 — Gravity's Well face, and each face paints its own screen (M8 round 4, F2)
+
+**Context.** The owner found Gravity's face lifeless (OR-5). Round 4 chose **A,
+Well** (`docs/specimens/m8/round4.html`, `GravityA`, which is the
+specification; `round4-notes.md` for the rest picture and Reduce motion). F0
+(ADR-0155) built the motion vocabulary and the repaint cadence, F1 (ADR-0157)
+the first face; this is the second. The owner also decided, on 2026-11-17, the
+**screen background: A, each face paints its own**; the shared `glass::screen`
+is not changed.
+
+**Decision.**
+1. **The face** is the specimen's membrane: 23 x 12 cells of a simulated sheet
+   (`h' = 1500 lap(h) - 42 (h - well) - 5 v`, fixed 1/120 s steps with an owed
+   time accumulator and at most 8 steps a frame, so a slow frame cannot blow it
+   up), drawn in the specimen's perspective (`x = 176 + (i - 11) x 15.5 x s(t)`,
+   `y = 22 + 150 t^1.35 - h x 40 x (0.45 + 0.55 t)`), rows and columns lit by how
+   far they are pressed. A rise in the reduction faster than 42 dB/s kicks the
+   centre (2.4 per dB, at most 24 dB), so the rings follow the hits and not the
+   frame rate; the flash is the same rise as a rate (14 per dB over 0.05 at 60
+   fps). The ball is the specimen's lit sphere, stretched by the speed of the
+   sheet's centre and dropped by 12 pt when the face is at rest; the ring is the
+   dashed ellipse of the threshold (`rx = 54 + 40 x (-threshold / 45)`, `ry =
+   0.3 rx`). The readout is "-4.1 / dB pulled", "0.0 / dB · at rest" and, on the
+   whole card at rest, "nothing to pull". Files: `chain/face/gravity/`
+   (`geometry.rs` the maps, `well.rs` the state and `advance`, `picture.rs` the
+   drawing, `mod.rs` the controls).
+2. **The screen is still a control.** The ring (outside) is Pull, the ball is
+   Ratio, with the chips "pull -18 dB" and "ratio 4.0 : 1", Shift for fine, Alt
+   for free, double-click for the default, the arrow keys, and **the wheel**
+   (new for every handle: `handles.rs` reads `wheel::steps`, as the dials do).
+   Each drag is the same `Output::Set` as its dial and one undo step. The
+   accessible names are unchanged ("Threshold ring (Pull): -18.0 dB", "Body
+   weight (Ratio): 4.0:1").
+3. **Rest and wake** are Horizon's: `awake` from the card, the state dropped
+   when idle and asleep, `cadence::again` while anything still moves (a ringing
+   sheet keeps its 16 ms after the signal stops, until it settles), and nothing
+   at rest. **Reduce motion**: no kicks, no flash, no squash, the sheet held at
+   its settled depth (`HELD_SHARE`, tested equal to the live rest), the ball
+   not lifting; `awake` is whether the track is sounding.
+4. **Each face paints its own screen** (owner, 2026-11-17). Horizon's wash moved
+   to `paint::wash(scene, deep, corners)` taking the device's deep colour and the
+   scene's hue, with `paint::corners(step)`; Horizon calls it unchanged (a
+   pixel comparison of every Horizon shot at 100 and 150 %, both themes, before
+   and after: identical below the toolbar for Whole, Compact, folded and All
+   parameters) and Gravity uses it with `GRAVITY_DEEP`. `glass::screen` is not
+   touched.
+5. **Horizon's Short ceiling words** (ADR-0157 item 6c) sit on a backing in the
+   screen's colour (0.82 alpha, 4 x 1.5 pt around the text) in the Short step, so
+   a loud history cannot cross them. The Whole card is unchanged. The shots have
+   a loud history (`horizon-loud-...`).
+6. **Dead code.** `Spring`, `SPRING_SETTLED`, `glow_ladder` and `motion::POP`
+   lost their `allow(dead_code)`; `paint::glow` and `meter::pulled` were removed
+   with the old face.
+
+**Where it differs from the specimen, and why.**
+- The specimen's steady depth is small (the sheet is pinned at the border and
+  the hold is weak: about 0.11 of the pull at its centre), so the well's depth
+  reads mostly through the rings, the glow and the ring's light. This is the
+  specimen's own sheet, kept; it is not deepened.
+- The ring does not follow the ball's press as the specimen's does: it stays at
+  the threshold, so the handle under the pointer does not move while it is
+  dragged.
+- The specimen has no handles, no Short step and no Compact band. The ball and
+  the ring are the handles because the dials link to them; Short is the
+  specimen's picture at 204 x 102 and Compact a band of the same picture scaled
+  to 0.3 (the ball not below 0.4 of its size so it stays a ball).
+- The specimen's dB scale is a simulation (`D = reduction / 16`); the face reads
+  the compressor's real gain reduction (the input level is not drawn: the
+  compressor does not publish it for this picture). Ratio shows as the ball's
+  weight (its radius).
+- The dials keep their positions (44 to 284 pt) because of the All-parameters
+  link.
+
+**Consequences.**
+- **Measured** (release, 300 frames, no GPU; the face's own draw plus
+  tessellation, `gravity::tests`, ignored): live mean 0.10 ms, p95 0.23 ms,
+  worst 0.5 to 1.4 ms; rest mean 0.20 ms. A whole frame in the E2E bench
+  (`face_bench`, noisy this session; Horizon's own figure moved from 0.24 to
+  0.33): Gravity rest mean 0.37 to 0.44 ms and live 0.38 to 0.39 ms against
+  Horizon's 0.33 to 0.36 and 0.36 to 0.41, so about 0.05 ms above Horizon; ADR-0155's
+  old Gravity was 0.22 to 0.27 on a quieter run. The notes' estimate of about
+  1,200 vertices is exceeded (the grid alone is 35 smoothed lines, about 3,200);
+  it is a fraction of a millisecond. The rest frame is dearer than the live one
+  in the unit bench because the state is rebuilt each frame; nothing repaints at
+  rest, so it is not a running cost.
+- A rest Gravity asks for no frame and a pulling one asks 16 ms
+  (`gravity_face::gravity_rests_asks_for_the_face_frame_while_pulling_and_rests_again`).
+- The format, the host protocol and the DSP are unchanged.
+- Tests: unit (the maps and their inverses, the ring and the ball's boxes, the
+  sheet bounded at any frame time, the same settling at 30 and 120 fps, a kick
+  that dies away, the held well equal to the live one, the flash alike at 30 and
+  120 fps, rest and wake, every step drawn at rest, live and still) and E2E
+  `gravity_face` (a fine drag a tenth of a free one, double-click on the ring and
+  the ball, the wheel, the arrow keys, ring and dial one edit, the cadence), with
+  the existing `dynamics` drags and names.
+- Not done: the manual test MT-GRAVITY-1 waits for the owner; no check on a 120
+  Hz display or the Focusrite; Reduce motion is covered by unit tests, not by
+  E2E (the setting is process-wide); the WSL perf gate and the macOS
+  cross-target clippy were not run here.

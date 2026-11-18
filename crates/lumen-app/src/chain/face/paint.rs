@@ -1,9 +1,37 @@
 use eframe::egui::{Color32, Mesh, Painter, Pos2, Shape, Stroke, pos2, vec2};
 
+use super::Scene;
+use crate::chain::card::gradient_panel;
+use crate::chain::geometry::Step;
 use crate::theme::glow as ladder;
+use crate::theme::personality::card as c;
 
 const FEATHER: f32 = 0.6;
 const SIDES: usize = 28;
+const WASH_SCALE: f32 = 0.9;
+
+pub(super) fn corners(step: Step) -> (f32, f32) {
+    (
+        c::SCREEN_RADIUS,
+        if step == Step::Short {
+            0.0
+        } else {
+            c::SCREEN_RADIUS
+        },
+    )
+}
+
+pub(super) fn wash(scene: &Scene<'_>, deep: Color32, (top, foot): (f32, f32)) {
+    let rect = scene.rect;
+    let reach = c::SCREEN_REACH * WASH_SCALE * rect.width();
+    let hue = scene.ink(scene.hue);
+    let deep = scene.ink(deep);
+    gradient_panel(scene.painter, rect, top, foot, |at| {
+        let t = ((at - pos2(rect.center().x, rect.top())).length() / reach).clamp(0.0, 1.0);
+        let alpha = c::SCREEN_GLOW * (1.0 - t) + t;
+        deep.lerp_to_gamma(hue, (1.0 - t) * alpha)
+    });
+}
 
 pub(super) fn mesh_for(lines: usize, points: usize) -> Mesh {
     let mut mesh = Mesh::default();
@@ -90,17 +118,6 @@ pub(super) fn disc(
     }
 }
 
-pub(super) fn glow(painter: &Painter, centre: Pos2, radius: f32, colour: Color32) {
-    let mut mesh = Mesh::default();
-    disc(&mut mesh, centre, radius, 4, |at| {
-        let t = ((at - centre).length() / radius).clamp(0.0, 1.0);
-        let fall = (1.0 - t * t).powi(2);
-        colour.gamma_multiply(fall)
-    });
-    painter.add(Shape::mesh(mesh));
-}
-
-#[allow(dead_code)]
 pub(super) fn glow_ladder(
     painter: &Painter,
     centre: Pos2,
