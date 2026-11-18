@@ -25,6 +25,16 @@ const RMS_SECONDS: f32 = 0.010;
 
 const MOST_MAKEUP_DB: f32 = 24.0;
 
+const FIXED_MAKEUP_DB: f32 = 6.0;
+
+const PEAK_FALL: f32 = 0.05;
+
+const PEAK_MOST_SECONDS: f64 = 0.030;
+
+const PEAK_HOLD_MARGIN: f64 = 0.05;
+
+const PEAK_HOLD_LEAST: f64 = 2.0;
+
 const KNOT: i64 = 32;
 
 #[allow(clippy::too_many_arguments)]
@@ -129,11 +139,11 @@ pub static TABLE: &[ParamInfo] = &[
         0.0,
         1.0,
         Taper::Linear,
-        1.0,
-        1,
-        &["Off", "Auto"],
-        off_auto_text,
-        off_auto_parse,
+        0.5,
+        2,
+        &["Off", "+6 dB", "Auto"],
+        makeup_text,
+        makeup_parse,
     ),
     param(
         MIX,
@@ -221,6 +231,12 @@ fn auto_makeup_db(threshold: f32, ratio: f32) -> f32 {
     (-threshold * (1.0 - 1.0 / ratio.max(1.0))).clamp(0.0, MOST_MAKEUP_DB)
 }
 
+fn makeup_gain(choice: f32, auto_db: f32) -> f32 {
+    let fixed = (1.0 - (choice - 0.5).abs() * 2.0).clamp(0.0, 1.0);
+    let automatic = ((choice - 0.5) * 2.0).clamp(0.0, 1.0);
+    fixed * FIXED_MAKEUP_DB + automatic * auto_db
+}
+
 fn db_parse(text: &str) -> Option<f32> {
     super::number_in(text, &["db"]).filter(|db| (FLOOR..=0.0).contains(db))
 }
@@ -247,12 +263,25 @@ fn knee_parse(text: &str) -> Option<f32> {
     super::number_in(&t, &["db"])
 }
 
-fn off_auto_text(value: f32) -> String {
-    word_text(value, "Off", "Auto")
+fn makeup_text(value: f32) -> String {
+    if value >= 0.75 {
+        "Auto".to_owned()
+    } else if value >= 0.25 {
+        "+6 dB".to_owned()
+    } else {
+        "Off".to_owned()
+    }
 }
 
-fn off_auto_parse(text: &str) -> Option<f32> {
-    word_of(text, &["Off", "Auto"])
+fn makeup_parse(text: &str) -> Option<f32> {
+    let t = text.trim().to_lowercase();
+    if t.starts_with("off") {
+        return Some(0.0);
+    }
+    if t.starts_with("auto") {
+        return Some(1.0);
+    }
+    t.contains('6').then_some(0.5)
 }
 
 fn peak_rms_text(value: f32) -> String {
@@ -347,6 +376,64 @@ impl HighPass {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct Peak {
+    level: f32,
+    candidate: f32,
+    candidate_at: f64,
+    last_peak_at: f64,
+    hold_until: f64,
+    interval: f64,
+    now: f64,
+    armed: bool,
+}
+
+impl Default for Peak {
+    fn default() -> Self {
+        Self {
+            level: 0.0,
+            candidate: 0.0,
+            candidate_at: 0.0,
+            last_peak_at: f64::NEG_INFINITY,
+            hold_until: -1.0,
+            interval: PEAK_HOLD_LEAST,
+            now: 0.0,
+            armed: false,
+        }
+    }
+}
+
+impl Peak {
+    fn run(&mut self, sample: f32, most: f64) -> f32 {
+        let now = self.now;
+        if sample > self.candidate {
+            self.candidate = sample;
+            self.candidate_at = now;
+            self.armed = true;
+        } else if self.armed
+            && sample < self.candidate * (1.0 - PEAK_FALL)
+            && now - self.candidate_at <= most
+        {
+            self.interval = if now - self.last_peak_at <= most {
+                (self.candidate_at - self.last_peak_at).clamp(PEAK_HOLD_LEAST, most)
+            } else {
+                PEAK_HOLD_LEAST
+            };
+            self.last_peak_at = self.candidate_at;
+            self.hold_until = now + self.interval * (1.0 + PEAK_HOLD_MARGIN) + PEAK_HOLD_LEAST;
+            self.level = flush(self.level.max(self.candidate));
+            self.candidate = sample;
+            self.candidate_at = now;
+            self.armed = false;
+        }
+        if sample >= self.level || now >= self.hold_until {
+            self.level = flush(sample);
+        }
+        self.now += 1.0;
+        self.level
+    }
+}
+
 pub struct Compressor {
     threshold: Glide,
     ratio: Glide,
@@ -361,6 +448,7 @@ pub struct Compressor {
     curves: Box<Curves>,
     gain_db: f32,
     mean_square: f32,
+    peak: Peak,
     key_filter: [HighPass; 2],
     key_tuning: (f32, f32),
     meter: Reduction,
@@ -386,6 +474,7 @@ impl Compressor {
             curves: Curves::new(),
             gain_db: 0.0,
             mean_square: 0.0,
+            peak: Peak::default(),
             key_filter: [HighPass::default(); 2],
             key_tuning: (0.0, 0.0),
             meter: Reduction::new(),
@@ -485,9 +574,9 @@ impl Effect for Compressor {
         );
 
         let mean_keep = 1.0 - reach(RMS_SECONDS, rate);
+        let most = (f64::from(rate) * PEAK_MOST_SECONDS).max(PEAK_HOLD_LEAST);
         let (mut hpf, mut key_coef) = self.key_tuning;
-        let (mut last_threshold, mut threshold, mut makeup_db, mut last_makeup) =
-            (f32::NAN, 0.0f32, 0.0f32, f32::NAN);
+        let (mut last_threshold, mut threshold, mut makeup_db) = (f32::NAN, 0.0f32, 0.0f32);
         let mut last_ratio = f32::NAN;
         let (mut last_attack, mut attack) = (f32::NAN, 1.0f32);
         let (mut last_release, mut release) = (f32::NAN, 1.0f32);
@@ -526,10 +615,7 @@ impl Effect for Compressor {
                 knee = knee_now;
                 last_knee = knee_now;
             }
-            let makeup = curves.makeup[frame];
-            if makeup != last_makeup {
-                last_makeup = makeup;
-            }
+            let makeup = makeup_gain(curves.makeup[frame], makeup_db);
 
             let (sample_l, sample_r) = match key {
                 Some(key) if frame < key.left.len() && frame < key.right.len() => (
@@ -538,7 +624,7 @@ impl Effect for Compressor {
                 ),
                 _ => (left[frame], right[frame]),
             };
-            let peak = sample_l.abs().max(sample_r.abs());
+            let peak = self.peak.run(sample_l.abs().max(sample_r.abs()), most);
             let mean = 0.5 * (sample_l * sample_l + sample_r * sample_r);
             mean_square = flush(mean_square * mean_keep + mean * (1.0 - mean_keep));
             let rms = mean_square.sqrt();
@@ -559,7 +645,7 @@ impl Effect for Compressor {
                 mix = value(TABLE, MIX, mix_now) / 100.0;
                 last_mix = mix_now;
             }
-            let gain = super::gain_of(gain_db + makeup_db * makeup);
+            let gain = super::gain_of(gain_db + makeup);
             let mut l = left[frame];
             let mut r = right[frame];
             l += (left[frame] * gain - l) * mix;
@@ -595,6 +681,7 @@ impl Effect for Compressor {
         }
         self.gain_db = 0.0;
         self.mean_square = 0.0;
+        self.peak = Peak::default();
         self.key_filter = [HighPass::default(); 2];
         self.key_tuning = (0.0, 0.0);
     }
@@ -672,6 +759,20 @@ mod tests {
         assert_eq!(auto_makeup_db(0.0, 4.0), 0.0);
         assert_eq!(auto_makeup_db(-60.0, 20.0), MOST_MAKEUP_DB);
         assert_eq!(auto_makeup_db(-18.0, 1.0), 0.0);
+    }
+
+    #[test]
+    fn the_makeup_choice_is_off_six_decibels_or_automatic() {
+        assert_eq!(makeup_gain(0.0, 13.5), 0.0);
+        assert!((makeup_gain(0.5, 13.5) - FIXED_MAKEUP_DB).abs() < 1e-6);
+        assert!((makeup_gain(1.0, 13.5) - 13.5).abs() < 1e-6);
+        assert!((makeup_gain(0.25, 13.5) - 3.0).abs() < 1e-6);
+        assert_eq!(makeup_text(0.0), "Off");
+        assert_eq!(makeup_text(0.5), "+6 dB");
+        assert_eq!(makeup_text(1.0), "Auto");
+        assert_eq!(makeup_parse("off"), Some(0.0));
+        assert_eq!(makeup_parse("+6 dB"), Some(0.5));
+        assert_eq!(makeup_parse("auto"), Some(1.0));
     }
 
     #[test]

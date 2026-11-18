@@ -16098,3 +16098,156 @@ narrow-pane fallback, the Lumen chip, the kind tag's and description's row
 layout, the tooltip, the dash Add device slot, and removing the track menu's
 Add rows and Instrument submenu. Shutter is not merged, so it has no entry;
 it joins Instruments with one table row when B5 lands.
+
+## ADR-XXXX — Gravity's peak curve and its default make-up (M8, OR-4 follow-up)
+
+**Status.** Proposed (the owner's choices on 2026-11-17: "Fix it" and "About
++6 dB"). Branch `fix/gravity-peak-makeup`, from `origin/main`. Brief:
+`docs/milestones/M8.md` §10 OR-4. Contracts: ADR-0151 (Gravity), ADR-0154
+(the built-in pops, and the two questions it recorded).
+
+**Context.** ADR-0154 measured Gravity against its own static curve and found
+two things it left for the owner. In **peak mode** the curve was exact below
+the knee but short just above the threshold: 0.4 dB at 4:1 and 0.87 dB at
+12:1 at −1 dBFS, because a detector that reads `|x|` also reads the wave's
+troughs, and the gain ballistics average that lower reading over a cycle; the
+gain computer's curve is not linear, so the average of the curve is not the
+curve of the average. In **the default make-up**, the −18 dB threshold at
+4:1 made automatic make-up add 13.5 dB, so a −12 dBFS track left at +1.1 dBFS
+(measured: output peak 1.140 where the tone was 0.25) and a 0 dBFS one at
++13.5 dBFS. The owner chose to fix both.
+
+**Peak mode: what was tried.**
+
+1. **Leave it.** Exact below the knee, up to 0.87 dB short above it. What the
+   owner rejected.
+2. **RMS only.** Within 0.1 dB everywhere (measured in ADR-0154), but it
+   removes a detection mode and changes what the control says.
+3. **A fixed peak hold.** Measured in the same harness: a 2 ms hold is 0.369 dB
+   short at 100 Hz (it cannot span a 5 ms half-cycle) and a 5 ms hold is
+   0.166 dB short at 100 Hz (the sampled peak arrives a sample or two after
+   the hold ends, and the envelope has already fallen). At a 20 ms release
+   on a constant level the 2 ms hold is 3.9 points of the change late and the
+   5 ms hold 10.4 points — just outside the "within a tenth" the existing
+   test asks for. The adaptive hold below is the 5 ms hold with its timing
+   taken from the signal instead of a constant.
+4. **A hold equal to the time since the last peak, capped.** This cannot tell
+   a steady tone (where the next peak is due) from a constant level (where no
+   peak is coming): at a constant level's step the hold has grown to the cap,
+   so the release is the cap late and the timing test fails by about 0.6 of
+   the change. Rejected.
+5. **Chosen: an adaptive peak hold on `|x|`, with the attack and release
+   ballistics on the gain in dB, as before.** A peak is confirmed when the
+   wave falls 5 % below its running candidate; the interval between two
+   confirmed peaks is the hold, clamped to 2 samples and 30 ms (30 ms spans a
+   20 Hz half-cycle). The envelope holds the peak for that interval plus 5 %
+   and then follows the wave again. A constant level and a long plateau never
+   confirm a peak, so their hold is two samples and their release starts at
+   once; a tone's peaks arrive while the hold still covers them, so the gain
+   computer sees the peak and not the troughs. The state is a `Copy` struct of
+   scalars: no allocation, no lock, and `reset` clears it.
+
+**Measured after.** Static curve on a tone, peak mode, with make-up off, 7
+levels from −30 to −1 dBFS, four ratio/knee pairs (4:1/6 dB, 4:1/0, 12:1/6 dB,
+1.5:1/12 dB):
+
+| Tone | Worst error before | Worst error after |
+|---|---|---|
+| 997 Hz (the old test) | 0.87 dB (12:1, −1 dBFS) | 0.0014 dB |
+| 440 Hz | (not measured) | 0.0014 dB |
+| 137 Hz | (not measured) | 0.0014 dB |
+| 100 Hz | (not measured) | 0.0014 dB |
+| 50 Hz | (not measured) | 0.0014 dB |
+| 20 Hz | (not measured) | 0.0014 dB |
+
+The new test is `a_peak_detector_holds_the_wave_and_reaches_the_curve`, which
+replaces `a_peak_detector_reads_the_wave_and_that_is_its_curve` (that test
+pinned the shortfall: a worst of 1.2 dB).
+
+**Timing after** (63 % of the change; the constant-level points are the
+existing test's, unchanged):
+
+| Attack | Reached |
+|---|---|
+| 1 ms | 64.0 % |
+| 5 ms | 63.4 % |
+| 20 ms | 63.2 % |
+| 100 ms | 63.2 % |
+
+| Release, constant level | Reached at the set time |
+|---|---|
+| 5 ms | 36.6 % |
+| 20 ms | 36.8 % |
+| 120 ms | 36.8 % |
+| 500 ms | 36.8 % |
+
+| Release on a tone | 5 ms | 20 ms | 120 ms | 500 ms |
+|---|---|---|---|---|
+| 100 Hz | 8.8 ms (1.77×) | 23.8 ms (1.19×) | 123.8 ms (1.03×) | 503.7 ms (1.01×) |
+| 50 Hz | 11.2 ms (2.23×) | 27.2 ms (1.36×) | 127.2 ms (1.06×) | 507.0 ms (1.01×) |
+| 20 Hz | 21.8 ms (4.37×) | 35.8 ms (1.79×) | 135.8 ms (1.13×) | 516.8 ms (1.03×) |
+
+A tone's release therefore pays about half its period, plus the 5 % margin:
+the minimum 5 ms release is 3.8 ms late at 100 Hz and 16.8 ms late at 20 Hz.
+That is the price of reading a wave at its peak, and it is recorded in
+`KNOWN_ISSUES.md`; the constant-level points, which are what the existing
+test measures, are exact. `the_peak_hold_costs_a_little_release_time_on_a_low_tone`
+pins four of these points (100 Hz at 20 and 5 ms, 20 Hz at 20 and 5 ms) so a
+future change to the hold is measured, not felt.
+
+**The default make-up: what was tried.**
+
+- **(a) Change the default threshold/ratio** so the automatic make-up
+  (−threshold × (1 − 1/ratio)) comes to 6 dB — −12 dB at 2:1, or −18 dB at
+  1.5:1. Rejected: it changes how a fresh Gravity compresses when the owner
+  asked about its gain, and the face's ring is drawn for the specimen's −18 dB
+  threshold (`face/gravity/tests.rs` asserts the ring at the default), so the
+  default threshold cannot move without changing that drawing.
+- **(b) Keep the defaults and change how automatic make-up is computed.**
+  Rejected: every saved project with Makeup on Auto would change its sound,
+  and there is no per-device law stored to migrate against; the brief asks
+  that saved projects sound exactly as before.
+- **(c) Chosen: a fixed default make-up, with automatic make-up still one
+  step away.** Makeup is now a three-way choice, `Off` / `+6 dB` / `Auto`, in
+  that order, and its default is `+6 dB`. A saved value of 0 is still Off and
+  a saved value of 1 is still Auto, because they are stored normalized and
+  the new middle choice is 0.5 (nothing an older project could hold). Auto
+  keeps ADR-0151 §8's meaning ("what the loud end lost"). The gain crossfades
+  between neighbouring choices over the parameter's 20 ms glide, so a switch
+  never steps.
+
+**Measured after.** A fresh device's make-up is **6.0 dB** (a −30 dBFS level,
+below the knee, comes out at −24 dBFS; the test allows 6 ± 0.1). A −12 dBFS
+997 Hz tone through a fresh Gravity leaves at **−10.5 dBFS** (peak 0.2988),
+where before it left at +1.1 dBFS. Even a 0 dBFS input leaves at −7.5 dBFS at
+the defaults. The test is
+`a_fresh_gravity_leaves_a_loud_track_below_full_scale` in
+`lumen-devices/tests/dynamics.rs`.
+
+**What this changes in saved work.** Nothing is lost and nothing needs a
+migration. A project stores each built-in parameter's normalized value
+(ADR-0151 §10); 0 and 1 keep meaning Off and Auto, so the make-up of every
+saved project is exactly what it was. Peak mode does change what a saved
+project sounds like when the device is in peak mode: that is the curve fix the
+owner asked for, and it is at most 0.87 dB more reduction just above the
+threshold. The parameter table pin now records Makeup's default as
+0.5 (`the_parameter_tables_are_pinned_by_id_name_and_default`). Two tests
+that used the default as if it were Auto now name Auto explicitly
+(`automatic_make_up_keeps_the_loud_end_where_it_was` and
+`automatic_make_up_is_what_the_loud_end_lost`), and
+`at_its_defaults_every_parameter_names_its_bounds` now expects the 6 dB
+make-up. The golden render `a_golden_render_of_automated_gravity_is_pinned_to_its_samples`
+uses a fresh device, so its pins were regenerated for the new detector and
+the new default; it is still a bit-for-bit pin of the same automation.
+
+**What is left.** The release on low tones is late by half a period plus 5 %
+(the table above), which is the trade the adaptive hold makes; it is in
+`docs/KNOWN_ISSUES.md`. The 30 ms cap means tones below 20 Hz are held for
+30 ms and then droop between their peaks; nothing was measured below 20 Hz.
+Complex material is covered only by OR-4's pink noise and the 55 Hz worst
+case in `pops.rs`, which still pass; no musical programme was measured. The
+WSL performance gate and the macOS cross-target clippy were not run on this
+machine. The interface's Makeup control now has three positions; the face
+agent's rebuild reads the parameter's choices, so no face code was changed
+on this branch.
+
