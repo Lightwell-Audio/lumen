@@ -531,3 +531,30 @@ fn hide_unmapped_keys_folds_the_roll_to_the_maps_sounds() {
     assert!(!lumen.app().hiding_unmapped_keys());
     assert_eq!(lumen.app().note_editor_rows(), Some(128));
 }
+
+#[test]
+fn learn_hears_a_note_from_the_computer_keyboard() {
+    let (mut lumen, map) = editor("drums-learn-keys");
+    lumen.frames(5);
+    lumen.click("Computer keyboard plays notes");
+    lumen.frames(3);
+    assert!(lumen.app().computer_keyboard_on());
+    lumen
+        .harness
+        .query_all_by_label_contains("learn it from the next note played")
+        .next()
+        .expect("a Learn button")
+        .click();
+    lumen.frames(3);
+    assert_eq!(lumen.app().drum_map_learning(), Some(35));
+    lumen.key(Modifiers::NONE, Key::X);
+    lumen.key(Modifiers::NONE, Key::X);
+    lumen.key(Modifiers::NONE, Key::A);
+    lumen.frames(3);
+    assert_eq!(lumen.app().drum_map_learning(), None, "learning ended");
+    assert!(map_of(&lumen, map).sound(35).is_none(), "it left note 35");
+    assert!(
+        map_of(&lumen, map).sound(84).is_some(),
+        "the sound answers to the note the keyboard played"
+    );
+}

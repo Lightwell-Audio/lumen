@@ -165,6 +165,9 @@ impl App {
 
     fn send_keyboard(&mut self, msgs: Vec<Msg>) {
         for msg in msgs {
+            if let Kind::NoteOn { key, .. } = msg.kind() {
+                self.drum_map_heard(key);
+            }
             if !self.play_key(msg) && matches!(msg.kind(), Kind::NoteOff { .. }) {
                 self.keyboard.owed.push(msg);
             }
