@@ -16099,7 +16099,7 @@ layout, the tooltip, the dash Add device slot, and removing the track menu's
 Add rows and Instrument submenu. Shutter is not merged, so it has no entry;
 it joins Instruments with one table row when B5 lands.
 
-## ADR-XXXX — Gravity's peak curve and its default make-up (M8, OR-4 follow-up)
+## ADR-0160 — Gravity's peak curve and its default make-up (M8, OR-4 follow-up)
 
 **Status.** Proposed (the owner's choices on 2026-11-17: "Fix it" and "About
 +6 dB"). Branch `fix/gravity-peak-makeup`, from `origin/main`. Brief:
