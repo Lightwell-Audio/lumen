@@ -1,7 +1,7 @@
 use eframe::egui::{CursorIcon, Pos2, Rect, Vec2, pos2, vec2};
 use lumen_devices::dynamics::limiter as device;
 
-use super::{Control, Drawing, Handle, Scene, Values};
+use super::{Control, Drawing, Handle, Scene, Values, paint};
 use crate::chain::geometry::Step;
 use crate::theme::personality as p;
 use crate::theme::personality::card;
@@ -87,24 +87,13 @@ fn ceiling_at(values: &Values<'_>, pointer: Pos2, rect: Rect) -> f64 {
     values.norm_of(device::CEILING, geometry::level_at(pointer.y, rect))
 }
 
-fn corners(step: Step) -> (f32, f32) {
-    (
-        card::SCREEN_RADIUS,
-        if step == Step::Short {
-            0.0
-        } else {
-            card::SCREEN_RADIUS
-        },
-    )
-}
-
 fn draw(scene: &Scene<'_>) {
     let rect = scene.rect;
     let ceiling = scene.values.plain(device::CEILING);
     let y = geometry::y_of(ceiling, rect);
     let heard = scene.reading.map_or(Heard::SILENT, Heard::of);
     let sky = history::advance(scene, heard);
-    let (top, foot) = corners(scene.step);
+    let (top, foot) = paint::corners(scene.step);
     let awake = if scene.still {
         f32::from(u8::from(heard.sounding()))
     } else {

@@ -66,7 +66,6 @@ pub const SNAP: SpringKind = SpringKind {
     omega: 46.0,
     zeta: 0.55,
 };
-#[allow(dead_code)]
 pub const POP: SpringKind = SpringKind {
     omega: 34.0,
     zeta: 0.38,

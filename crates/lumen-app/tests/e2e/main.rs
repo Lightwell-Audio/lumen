@@ -54,6 +54,7 @@ mod files;
 mod first_run;
 mod follow_tempo;
 mod freeze;
+mod gravity_face;
 mod grid;
 mod groups;
 mod hidden_notes;
