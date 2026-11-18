@@ -127,7 +127,7 @@ pub(super) fn interact(
                 handle.name, slot.name, other.name
             ),
             None => format!(
-                "{} ({}). Drag, Shift for fine, double-click for the default",
+                "{} ({}). Drag, scroll, Shift for fine, double-click for the default",
                 handle.name, slot.name
             ),
         };
@@ -197,6 +197,13 @@ fn moved(
         }
         if up {
             next = Some(step_by(base, 1.0, fine, slot.steps));
+        }
+    }
+    if keys != Keys::Up {
+        let notches = crate::widgets::wheel::steps(ui, drag.with("wheel"), response.rect);
+        if notches != 0.0 {
+            let base = next.unwrap_or(slot.value);
+            next = Some(step_by(base, f64::from(notches), fine, slot.steps));
         }
     }
     if response.double_clicked() {
