@@ -16099,7 +16099,7 @@ layout, the tooltip, the dash Add device slot, and removing the track menu's
 Add rows and Instrument submenu. Shutter is not merged, so it has no entry;
 it joins Instruments with one table row when B5 lands.
 
-## ADR-XXXX — Gravity's Well face, and each face paints its own screen (M8 round 4, F2)
+## ADR-0161 — Gravity's Well face, and each face paints its own screen (M8 round 4, F2)
 
 **Context.** The owner found Gravity's face lifeless (OR-5). Round 4 chose **A,
 Well** (`docs/specimens/m8/round4.html`, `GravityA`, which is the
