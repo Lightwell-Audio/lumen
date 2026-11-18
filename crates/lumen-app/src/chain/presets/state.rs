@@ -8,6 +8,7 @@ pub(crate) struct FieldLook {
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum Source {
     Program { list: usize, index: usize },
+    Factory { id: &'static str },
     File { path: PathBuf, user: bool },
 }
 
@@ -26,6 +27,9 @@ pub(super) enum Choice {
         name: String,
         group: Option<String>,
     },
+    Factory {
+        preset: lumen_devices::Preset,
+    },
     File {
         path: PathBuf,
         user: bool,
@@ -38,18 +42,21 @@ impl Choice {
     pub(super) fn name(&self) -> &str {
         match self {
             Self::Program { name, .. } | Self::File { name, .. } => name,
+            Self::Factory { preset } => preset.name(),
         }
     }
 
     pub(super) fn group(&self) -> Option<&str> {
         match self {
             Self::Program { group, .. } | Self::File { group, .. } => group.as_deref(),
+            Self::Factory { .. } => None,
         }
     }
 
     pub(super) fn heading(&self) -> String {
         let (base, group) = match self {
             Self::Program { group, .. } => ("Factory", group),
+            Self::Factory { .. } => ("Factory", &None),
             Self::File {
                 user: true, group, ..
             } => ("Your presets", group),
@@ -66,6 +73,7 @@ impl Choice {
             (Self::Program { list, index, .. }, Source::Program { list: l, index: i }) => {
                 list == l && index == i
             }
+            (Self::Factory { preset }, Source::Factory { id }) => preset.id() == *id,
             (Self::File { path, .. }, Source::File { path: p, .. }) => path == p,
             _ => false,
         }
@@ -174,6 +182,18 @@ impl Presets {
             Current {
                 name: name.to_owned(),
                 source: Source::Program { list, index },
+                baseline: None,
+                rev,
+            },
+        );
+    }
+
+    pub(crate) fn chose_factory(&mut self, device: Id, preset: lumen_devices::Preset, rev: u32) {
+        self.current.insert(
+            device,
+            Current {
+                name: preset.name().to_owned(),
+                source: Source::Factory { id: preset.id() },
                 baseline: None,
                 rev,
             },

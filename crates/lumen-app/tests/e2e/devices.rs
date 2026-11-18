@@ -496,7 +496,7 @@ fn every_control_on_every_card_face_has_a_name_and_tab_reaches_them() {
     lumen.app_mut().pretend_device_state(FIRST, "failed");
     lumen.frames(5);
     let mut seen = Vec::new();
-    for _ in 0..80 {
+    for _ in 0..140 {
         lumen.key(Modifiers::NONE, Key::Tab);
         let focused = focused(&lumen);
         if let Some(name) = focused {

@@ -13,6 +13,7 @@ mod automation;
 mod barfit;
 mod bench_callback;
 mod bounce;
+mod browser_builtins;
 mod browser_files;
 mod builtins;
 mod capture_midi;

@@ -15984,3 +15984,117 @@ needed: it is three pixels at 200 % and the mist is a sixteenth of the
 screen's alpha). The WSL performance gate and the macOS cross-target clippy
 cannot run here; nothing on the audio thread changed, so the gate should not
 move (the fold runs on the interface side, once a window, per card).
+
+## ADR-0158 - The browser's built-ins, the data side (M8 OR-1)
+
+**Status.** Proposed (M8 OR-1's data side; the parent numbers it). Brief:
+`docs/milestones/M8.md` §10, "OR-1 options" and "OR-1: the browser's look,
+chosen"; the data model in `docs/specimens/m8/browser-notes.md` §§1 to 9 is the
+specification. The interface is built after the faces.
+
+**Context.** OR-1 found the track menu listing every built-in and asked for
+them in the browser, with a one-click filter and an easy search. The owner
+chose option A, and **C Tiles** for its look, whose interface waits for the
+round-4 faces. This slice builds everything behind that look: the seven
+devices in the catalog, the paths that add them, the filter, the search and
+Flare's factory presets. The browser still draws shelves and kind headers, not
+tiles.
+
+**Options.**
+
+- **Where the built-in list lives.** (A) A descriptor table in
+  `lumen-plugin-catalog`, which `builtin_devices()` builds from; the app's
+  `builtin::identity` keeps the timing and the palette and a test holds the two
+  together. (B) The catalog takes its devices from the app, so the app owns
+  what the catalog lists. (C) Move `Identity` into the catalog: it holds a
+  colour, which is an interface type, and the catalog may not depend on the
+  app or on egui.
+- **Where a personality colour comes from.** (A) The catalog carries a token
+  (`Colour`) and `theme::personality::of` maps it to the palette's constant.
+  (B) The catalog carries `Color32` (an egui type in a lower crate).
+  (C) The identity table keeps its own colours, as it did, and the catalog's
+  token is not used.
+- **How built-ins group.** (A) A `Lumen` section label, then a header per kind
+  group (Instruments, Dynamics, EQ, Time, Utility), with fold keys
+  `lumen:<group>`. (B) Keep the vendor grouping, with `Lumen` as a vendor
+  (the old shape): a kind tag then belongs on hover, and "Lumen Dynamics" is
+  impossible. (C) One flat Lumen list sorted by name.
+- **The Lumen filter.** (A) `View.lumen_only`, carried into the catalog query as
+  `Query::source`. (B) A chip that is one of the one-at-a-time category chips
+  (then it cannot combine with `Dynamics`). (C) A special case in `rows()`.
+- **Factory presets.** (A) A `Choice::Factory` entry for each of the synth's
+  five presets, under the existing "Factory" heading, loaded through
+  `Document::set_instrument`. (B) New preset files in the presets folder.
+  (C) A fake plugin program list.
+- **Defaults for a built-in added from the browser.** (A) `Document::fresh_device`
+  fills a built-in effect's table defaults, so every add path stores them.
+  (B) The browser path passes values, the palette path passes values, and a
+  third caller forgets.
+
+**Choices.**
+
+1. **A descriptor table is the one source of display data.** `catalog::BUILTINS`
+   lists seven entries; `Device` gained `group`, `tag`, `blurb`, `tip` and
+   `colour`, and `builtin_devices()` plus `builtin(id)` build from it. Ids are
+   `builtin:synth` (Flare keeps it, so saved favourites and recents still
+   name it) and `builtin:<the device's project name>` for the six effects. A
+   test in `builtin` proves the catalog's name, kind tag, colour and
+   instrument/effect agree with `identity`, so neither table can drift.
+2. **The colour is a token, mapped by the theme.** `theme::personality::of` is
+   a `const fn` over `Colour`, so the identity table stays a `const` and the
+   catalog stays free of interface types.
+3. **Built-ins list first, by kind, then the plugins by vendor.** `Row` gained
+   `Section` (a label, not a stop) and `Group` (a foldable header with its own
+   selection). Group order is fixed; names are alphabetical inside a group;
+   `Recent` stays one flat list. Blocked modules stay last and are hidden by
+   the Lumen filter.
+4. **The Lumen filter is a view flag that composes.** It is `View.lumen_only`,
+   counted by `is_filtering`, cleared by `clear_filters`, and passed to the
+   catalog as a source filter, so it narrows the same set the type switch, a
+   category chip and the search narrow. It is not persisted, as the other
+   filter state is not.
+5. **Search reads the kind tag, the group and the description.** `rank` gained
+   the tag (a whole word start first), the group and the description, after
+   the name and before the instrument/effect word. "comp" finds Gravity,
+   "reverb" finds Afterglow and "eq" finds Iris, which the row's tag then
+   explains.
+6. **Adding a built-in works from every path.** `plugin_ref` maps any
+   `builtin:` id to `PluginRef::Builtin`, rather than refusing every effect.
+   `Document::fresh_device` fills a built-in effect's defaults, so the drag,
+   the double-click, `devices.add_device` and the palette all store the same
+   values as the old Add rows. Each add stays one `Document` step ("Add
+   Gravity"), undoable in one press.
+7. **Flare's five presets are factory presets of its card.** `Choice::Factory`
+   is offered for a synth before its files, so the Preset menu shows
+   "Factory" (Poly, Keys, Bass, Pluck, Pad) above "Your presets", and choosing
+   one is `Instrument: <name>` in one undo step. `field_look` now offers the
+   preset field to any built-in with a parameter table, which is what gives
+   Flare the menu (it had none). The five palette commands stay, as the brief
+   asks; only the interface slice removes the track menu's rows.
+8. **Two commands, at the end of `ALL`.** `devices.filter_lumen` ("Show only
+   Lumen's devices") toggles the filter and opens the tab;
+   `devices.add_device` ("Add device…") opens the Devices tab with the search
+   focused. Both are tagged `@m8` in `site/docs/data/undocumented.txt`. They
+   are the keyboard and E2E route to the filter and to the menu row the
+   interface slice will draw.
+
+**Consequences.** No project or settings format change: a built-in is still
+`PluginRef::Builtin { name }`, the five presets are still the synth's `state`
+id over its parameter values, and the catalog is not saved. A project made
+with the track menu's presets opens unchanged. The `Lumen` vendor header is
+gone from the list; the section labels and kind headers replace it, and the
+browser's device rows show the kind tag. Files: `lumen-plugin-catalog/src/
+catalog.rs`; `browser/{view,rows,list,panel}.rs`; `app/browser/panel.rs`;
+`chain/actions.rs`; `chain/presets/{state,choose}.rs`; `document/devices.rs`;
+`design/theme.rs`; `builtin/mod.rs`. Tests: the catalog's seven, groups,
+tags, colours, description search and source filter; `rows` order, folding,
+filter combinations, kind-tag search, favorites/recents mixing; preset
+choices and headings; `chain::actions`' mapping; the catalog/identity
+agreement; E2E `browser_builtins` (six: double-click and drag for every
+effect, the filter with a category, "comp", Add device…, the factory presets).
+Not run here: the WSL perf gate and the macOS cross-target clippy (nothing in
+the audio path changed). Left for the interface slice: Tiles and the
+narrow-pane fallback, the Lumen chip, the kind tag's and description's row
+layout, the tooltip, the dash Add device slot, and removing the track menu's
+Add rows and Instrument submenu. Shutter is not merged, so it has no entry;
+it joins Instruments with one table row when B5 lands.

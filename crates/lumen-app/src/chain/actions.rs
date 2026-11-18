@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use lumen_plugin_catalog::catalog::{Device as Listed, Kind, Source};
-use lumen_project::model::{DeviceKind, Id, PluginRef, SYNTH};
+use lumen_project::model::{DeviceKind, Id, PluginRef};
 
 use super::place::{Place, place};
 use lumen_project::routing::all_tracks;
@@ -17,10 +17,12 @@ pub(crate) fn placeable(listed: &Listed) -> bool {
 
 pub(super) fn plugin_ref(listed: &Listed) -> Option<PluginRef> {
     match listed.source {
-        Source::Builtin if listed.id == "builtin:synth" => {
-            Some(PluginRef::Builtin { name: SYNTH.into() })
+        Source::Builtin => {
+            let builtin = lumen_plugin_catalog::catalog::builtin(&listed.id)?;
+            Some(PluginRef::Builtin {
+                name: builtin.id.strip_prefix("builtin:")?.to_owned(),
+            })
         }
-        Source::Builtin => None,
         Source::Vst3 => Some(PluginRef::Vst3 {
             class_id: listed.id.strip_prefix("vst3:")?.to_owned(),
             name: listed.name.clone(),
@@ -390,11 +392,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_built_in_synth_is_named_and_a_plugin_keeps_its_class_and_kind() {
-        let synth = builtin_devices().remove(0);
+    fn every_built_in_listing_maps_to_its_device_and_a_plugin_keeps_its_class_and_kind() {
+        for listed in builtin_devices() {
+            let name = listed.id.strip_prefix("builtin:").unwrap().to_owned();
+            assert_eq!(
+                plugin_ref(&listed),
+                Some(PluginRef::Builtin { name }),
+                "{}",
+                listed.name
+            );
+        }
         assert_eq!(
-            plugin_ref(&synth),
-            Some(PluginRef::Builtin { name: SYNTH.into() })
+            plugin_ref(&builtin_devices()[0]),
+            Some(PluginRef::Builtin {
+                name: lumen_project::model::SYNTH.into()
+            })
         );
         let listed = Listed {
             id: "vst3:ABCDEF0123456789ABCDEF0123456789".into(),
@@ -405,6 +417,11 @@ mod tests {
             categories: Vec::new(),
             version: String::new(),
             module: None,
+            group: None,
+            tag: "Effect",
+            blurb: "",
+            tip: "",
+            colour: None,
         };
         assert_eq!(
             plugin_ref(&listed),

@@ -4,7 +4,7 @@ use super::*;
 impl App {
     pub(crate) fn field_look(&self, device: Id) -> Option<FieldLook> {
         let (_, d) = find_device(self.document.project(), device)?;
-        let usable = crate::builtin::is_builtin(d)
+        let usable = crate::builtin::has_table(d)
             || (d.is_vst3() && matches!(self.hosting.state(device), Some(State::Ready)));
         if !usable {
             return None;
@@ -65,6 +65,13 @@ impl App {
                 });
             }
         }
+        if find_device(self.document.project(), device).is_some_and(|(_, d)| d.is_synth()) {
+            out.extend(
+                lumen_devices::Preset::ALL
+                    .into_iter()
+                    .map(|preset| Choice::Factory { preset }),
+            );
+        }
         if let Some(files) = self.chain.presets.listed.get(&device) {
             out.extend(files.iter().map(|e| Choice::File {
                 path: e.path.clone(),
@@ -87,6 +94,15 @@ impl App {
                 self.chain
                     .presets
                     .chose_program(device, &name, list, index, rev);
+            }
+            Choice::Factory { preset } => {
+                let Some((track, _)) = find_device(self.document.project(), device) else {
+                    return;
+                };
+                self.document.set_instrument(&[track], Some(preset));
+                let rev =
+                    find_device(self.document.project(), device).map_or(0, |(_, d)| d.state_rev);
+                self.chain.presets.chose_factory(device, preset, rev);
             }
             Choice::File {
                 path, user, name, ..

@@ -511,6 +511,20 @@ pub const CLIP_MUTED: Color32 = Color32::from_rgb(0x6C, 0x70, 0x78);
 pub mod personality {
     use super::Color32;
 
+    pub const fn of(token: lumen_plugin_catalog::catalog::Colour) -> Color32 {
+        use lumen_plugin_catalog::catalog::Colour;
+        match token {
+            Colour::Synth => SYNTH,
+            Colour::Utility => UTILITY,
+            Colour::Eq => EQ,
+            Colour::Delay => DELAY,
+            Colour::Reverb => REVERB,
+            Colour::Gravity => GRAVITY,
+            Colour::Horizon => HORIZON,
+            Colour::Shutter => SHUTTER,
+        }
+    }
+
     pub const UTILITY: Color32 = Color32::from_rgb(0x9A, 0xA0, 0xAC);
 
     pub const SYNTH: Color32 = Color32::from_rgb(0xFF, 0xC2, 0x3D);

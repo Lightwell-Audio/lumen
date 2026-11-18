@@ -31,6 +31,154 @@ pub enum Source {
     Vst3,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Group {
+    Instruments,
+    Dynamics,
+    Eq,
+    Time,
+    Utility,
+}
+
+impl Group {
+    pub const ALL: [Group; 5] = [
+        Group::Instruments,
+        Group::Dynamics,
+        Group::Eq,
+        Group::Time,
+        Group::Utility,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Group::Instruments => "Instruments",
+            Group::Dynamics => "Dynamics",
+            Group::Eq => "EQ",
+            Group::Time => "Time",
+            Group::Utility => "Utility",
+        }
+    }
+
+    pub fn key(self) -> &'static str {
+        match self {
+            Group::Instruments => "instruments",
+            Group::Dynamics => "dynamics",
+            Group::Eq => "eq",
+            Group::Time => "time",
+            Group::Utility => "utility",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Colour {
+    Synth,
+    Utility,
+    Eq,
+    Delay,
+    Reverb,
+    Gravity,
+    Horizon,
+    Shutter,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Builtin {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub kind: Kind,
+    pub group: Group,
+    pub tag: &'static str,
+    pub blurb: &'static str,
+    pub tip: &'static str,
+    pub colour: Colour,
+}
+
+pub const BUILTINS: &[Builtin] = &[
+    Builtin {
+        id: "builtin:synth",
+        name: "Flare",
+        kind: Kind::Instrument,
+        group: Group::Instruments,
+        tag: "Polysynth",
+        blurb: "Two oscillators, filter, 16 voices",
+        tip: "A warm polysynth: two oscillators, a filter and up to 16 voices. \
+              Five factory presets.",
+        colour: Colour::Synth,
+    },
+    Builtin {
+        id: "builtin:sampler",
+        name: "Shutter",
+        kind: Kind::Instrument,
+        group: Group::Instruments,
+        tag: "Sampler",
+        blurb: "One sample, zones, or drum pads",
+        tip: "A sampler: one sample across the keys, key and velocity zones, \
+              or a pad per sound of the track's drum map.",
+        colour: Colour::Shutter,
+    },
+    Builtin {
+        id: "builtin:compressor",
+        name: "Gravity",
+        kind: Kind::Effect,
+        group: Group::Dynamics,
+        tag: "Compressor",
+        blurb: "Pulls peaks down; sidechain-ready",
+        tip: "A compressor that pulls peaks into a well. Sidechain from any track.",
+        colour: Colour::Gravity,
+    },
+    Builtin {
+        id: "builtin:limiter",
+        name: "Horizon",
+        kind: Kind::Effect,
+        group: Group::Dynamics,
+        tag: "Limiter",
+        blurb: "A ceiling the peaks cannot pass",
+        tip: "A limiter: the ceiling is the horizon. Look-ahead, with its latency reported.",
+        colour: Colour::Horizon,
+    },
+    Builtin {
+        id: "builtin:eq",
+        name: "Iris",
+        kind: Kind::Effect,
+        group: Group::Eq,
+        tag: "Parametric EQ",
+        blurb: "Eight bands and a live analyzer",
+        tip: "Eight bands (cuts, shelves, bells, notches) with a live analyzer.",
+        colour: Colour::Eq,
+    },
+    Builtin {
+        id: "builtin:delay",
+        name: "Parallax",
+        kind: Kind::Effect,
+        group: Group::Time,
+        tag: "Stereo delay",
+        blurb: "Stereo echoes in notes or ms",
+        tip: "A stereo delay in notes that follow the tempo, or in milliseconds. Ping-pong.",
+        colour: Colour::Delay,
+    },
+    Builtin {
+        id: "builtin:reverb",
+        name: "Afterglow",
+        kind: Kind::Effect,
+        group: Group::Time,
+        tag: "Reverb",
+        blurb: "A tail that lingers and fades",
+        tip: "A reverb: pre-delay, size, and a decay the tail really takes.",
+        colour: Colour::Reverb,
+    },
+    Builtin {
+        id: "builtin:utility",
+        name: "Prism",
+        kind: Kind::Effect,
+        group: Group::Utility,
+        tag: "Utility",
+        blurb: "Gain, pan, width and polarity",
+        tip: "Gain, pan, width, mono below a frequency, polarity, swap and a DC block.",
+        colour: Colour::Utility,
+    },
+];
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Device {
     pub id: String,
@@ -41,6 +189,11 @@ pub struct Device {
     pub categories: Vec<String>,
     pub version: String,
     pub module: Option<PathBuf>,
+    pub group: Option<Group>,
+    pub tag: &'static str,
+    pub blurb: &'static str,
+    pub tip: &'static str,
+    pub colour: Option<Colour>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,16 +205,28 @@ pub struct Blocked {
 }
 
 pub fn builtin_devices() -> Vec<Device> {
-    vec![Device {
-        id: "builtin:synth".into(),
-        name: "Synth".into(),
-        vendor: "Lumen".into(),
-        kind: Kind::Instrument,
-        source: Source::Builtin,
-        categories: vec!["Synth".into()],
-        version: String::new(),
-        module: None,
-    }]
+    BUILTINS
+        .iter()
+        .map(|builtin| Device {
+            id: builtin.id.into(),
+            name: builtin.name.into(),
+            vendor: "Lumen".into(),
+            kind: builtin.kind,
+            source: Source::Builtin,
+            categories: vec![builtin.group.name().into()],
+            version: String::new(),
+            module: None,
+            group: Some(builtin.group),
+            tag: builtin.tag,
+            blurb: builtin.blurb,
+            tip: builtin.tip,
+            colour: Some(builtin.colour),
+        })
+        .collect()
+}
+
+pub fn builtin(id: &str) -> Option<&'static Builtin> {
+    BUILTINS.iter().find(|builtin| builtin.id == id)
 }
 
 fn classify(subcategories: &str) -> (Kind, Vec<String>) {
@@ -90,6 +255,7 @@ pub struct Query<'a> {
     pub text: &'a str,
     pub kind: Option<Kind>,
     pub only: Option<&'a HashSet<String>>,
+    pub source: Option<Source>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -127,6 +293,11 @@ impl Catalog {
                             categories,
                             version: class.version.clone(),
                             module: Some(PathBuf::from(&entry.path)),
+                            group: None,
+                            tag: kind.name(),
+                            blurb: "",
+                            tip: "",
+                            colour: None,
                         });
                     }
                 }
@@ -165,6 +336,7 @@ impl Catalog {
             .devices
             .iter()
             .filter(|d| query.kind.is_none_or(|k| d.kind == k))
+            .filter(|d| query.source.is_none_or(|s| d.source == s))
             .filter(|d| query.only.is_none_or(|only| only.contains(&d.id)))
             .filter_map(|d| rank(d, &words).map(|score| (score, d)))
             .collect();
@@ -192,25 +364,35 @@ fn rank(device: &Device, words: &[String]) -> Option<u32> {
     let name = device.name.to_lowercase();
     let vendor = device.vendor.to_lowercase();
     let categories = device.categories.join(" ").to_lowercase();
+    let tag = device.tag.to_lowercase();
+    let blurb = device.blurb.to_lowercase();
     let kind = match device.kind {
         Kind::Instrument => "instrument",
         Kind::Effect => "effect fx",
+    };
+    let starts = |text: &str, word: &str| {
+        text.split(|c: char| !c.is_alphanumeric())
+            .any(|w| w.starts_with(word))
     };
     let mut total = 0;
     for word in words {
         let score = if name.starts_with(word.as_str()) {
             0
-        } else if name
-            .split(|c: char| !c.is_alphanumeric())
-            .any(|w| w.starts_with(word.as_str()))
-        {
+        } else if starts(&name, word) {
             1
         } else if name.contains(word.as_str()) {
             2
-        } else if vendor.contains(word.as_str()) || categories.contains(word.as_str()) {
+        } else if tag.starts_with(word.as_str()) || starts(&tag, word) {
             3
-        } else if kind.contains(word.as_str()) {
+        } else if vendor.contains(word.as_str())
+            || categories.contains(word.as_str())
+            || tag.contains(word.as_str())
+        {
             4
+        } else if blurb.contains(word.as_str()) {
+            5
+        } else if kind.contains(word.as_str()) {
+            6
         } else {
             return None;
         };
@@ -314,7 +496,19 @@ mod tests {
         let catalog = sample();
         assert_eq!(
             names(catalog.devices().iter().collect()),
-            ["Bus Compressor", "Plate Reverb", "Synth", "Warm Synth"]
+            [
+                "Afterglow",
+                "Bus Compressor",
+                "Flare",
+                "Gravity",
+                "Horizon",
+                "Iris",
+                "Parallax",
+                "Plate Reverb",
+                "Prism",
+                "Shutter",
+                "Warm Synth"
+            ]
         );
         assert!(catalog.find("builtin:synth").is_some());
         assert!(
@@ -327,6 +521,54 @@ mod tests {
                 .find(&format!("vst3:{}", class_id(&[3; 16])))
                 .is_none()
         );
+    }
+
+    #[test]
+    fn every_built_in_carries_its_kind_group_description_and_colour() {
+        let builtins = builtin_devices();
+        for d in &builtins {
+            assert_eq!(d.source, Source::Builtin);
+            assert_eq!(d.vendor, "Lumen");
+            assert!(!d.tag.is_empty(), "{} has no kind tag", d.name);
+            assert!(!d.blurb.is_empty(), "{} has no description", d.name);
+            assert!(!d.tip.is_empty(), "{} has no tip", d.name);
+            assert!(d.colour.is_some(), "{} has no colour", d.name);
+            assert_eq!(d.categories, [d.group.unwrap().name()]);
+        }
+        assert_eq!(builtins.len(), 8);
+        let found = |name: &str| builtins.iter().find(|d| d.name == name).unwrap();
+        assert_eq!(found("Flare").kind, Kind::Instrument);
+        assert_eq!(found("Shutter").kind, Kind::Instrument);
+        assert_eq!(found("Shutter").group, Some(Group::Instruments));
+        assert_eq!(found("Shutter").tag, "Sampler");
+        assert_eq!(found("Flare").group, Some(Group::Instruments));
+        assert_eq!(found("Gravity").tag, "Compressor");
+        assert_eq!(found("Gravity").group, Some(Group::Dynamics));
+        assert_eq!(found("Horizon").group, Some(Group::Dynamics));
+        assert_eq!(found("Iris").tag, "Parametric EQ");
+        assert_eq!(found("Iris").group, Some(Group::Eq));
+        assert_eq!(found("Parallax").group, Some(Group::Time));
+        assert_eq!(found("Afterglow").tag, "Reverb");
+        assert_eq!(found("Prism").group, Some(Group::Utility));
+        assert_eq!(
+            Group::ALL.map(Group::name),
+            ["Instruments", "Dynamics", "EQ", "Time", "Utility"]
+        );
+        assert_eq!(
+            BUILTINS.iter().map(|b| b.id).collect::<Vec<_>>(),
+            [
+                "builtin:synth",
+                "builtin:sampler",
+                "builtin:compressor",
+                "builtin:limiter",
+                "builtin:eq",
+                "builtin:delay",
+                "builtin:reverb",
+                "builtin:utility"
+            ]
+        );
+        assert_eq!(builtin("builtin:eq").map(|b| b.name), Some("Iris"));
+        assert!(builtin("builtin:nothing").is_none());
     }
 
     #[test]
@@ -384,15 +626,75 @@ mod tests {
         };
         assert_eq!(
             find(""),
-            ["Bus Compressor", "Plate Reverb", "Synth", "Warm Synth"]
+            [
+                "Afterglow",
+                "Bus Compressor",
+                "Flare",
+                "Gravity",
+                "Horizon",
+                "Iris",
+                "Parallax",
+                "Plate Reverb",
+                "Prism",
+                "Shutter",
+                "Warm Synth"
+            ]
         );
         assert_eq!(find("warm"), ["Warm Synth"]);
-        assert_eq!(find("REVERB"), ["Plate Reverb"]);
-        assert_eq!(find("lumen"), ["Synth"]);
+        assert_eq!(find("REVERB"), ["Plate Reverb", "Afterglow"]);
+        assert_eq!(
+            find("lumen"),
+            [
+                "Afterglow",
+                "Flare",
+                "Gravity",
+                "Horizon",
+                "Iris",
+                "Parallax",
+                "Prism",
+                "Shutter"
+            ]
+        );
         assert_eq!(find("vendor compressor"), ["Bus Compressor"]);
-        assert_eq!(find("dynamics"), ["Bus Compressor"]);
+        assert_eq!(find("dynamics"), ["Bus Compressor", "Gravity", "Horizon"]);
         assert_eq!(find("plate warm"), Vec::<&str>::new());
         assert_eq!(find("zzz"), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn a_built_in_is_found_by_its_kind_tag() {
+        let catalog = Catalog::build(&Cache::new(), builtin_devices());
+        let find = |text: &str| {
+            names(catalog.search(&Query {
+                text,
+                ..Query::default()
+            }))
+        };
+        assert_eq!(find("comp"), ["Gravity"]);
+        assert_eq!(find("reverb"), ["Afterglow"]);
+        assert_eq!(find("eq"), ["Iris"]);
+        assert_eq!(find("limit"), ["Horizon"]);
+        assert_eq!(find("delay"), ["Parallax"]);
+        assert_eq!(find("poly"), ["Flare"]);
+        assert_eq!(find("sidechain"), ["Gravity"]);
+        assert_eq!(find("analyzer"), ["Iris"]);
+        assert_eq!(find("comp reverb"), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn the_source_filter_shows_only_the_built_ins_or_only_the_plugins() {
+        let catalog = sample();
+        let source = |source: Source| {
+            names(catalog.search(&Query {
+                source: Some(source),
+                ..Query::default()
+            }))
+        };
+        assert_eq!(source(Source::Builtin).len(), 8);
+        assert_eq!(
+            source(Source::Vst3),
+            ["Bus Compressor", "Plate Reverb", "Warm Synth"]
+        );
     }
 
     #[test]
@@ -422,7 +724,7 @@ mod tests {
             kind: Some(Kind::Instrument),
             ..Query::default()
         }));
-        assert_eq!(instruments, ["Synth", "Warm Synth"]);
+        assert_eq!(instruments, ["Flare", "Shutter", "Warm Synth"]);
         let favorites: HashSet<String> = [format!("vst3:{}", class_id(&[2; 16]))].into();
         let only = names(catalog.search(&Query {
             only: Some(&favorites),
@@ -444,7 +746,7 @@ mod tests {
         assert_eq!(
             sample().vendors(),
             [
-                ("Lumen".to_string(), 1),
+                ("Lumen".to_string(), 8),
                 ("Vendor A".to_string(), 2),
                 ("Vendor B".to_string(), 1)
             ]

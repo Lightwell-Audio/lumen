@@ -16,6 +16,7 @@ use crate::{fonts, motion, theme, widgets};
 
 const DEVICE_H: f32 = 28.0;
 const VENDOR_H: f32 = 26.0;
+const SECTION_H: f32 = 24.0;
 const PAD: f32 = 6.0;
 const TAG_MIN_WIDTH: f32 = 200.0;
 pub(super) const ICON: f32 = 16.0;
@@ -35,6 +36,7 @@ pub(crate) struct Out {
     pub select: Option<Selection>,
     pub choose: Option<String>,
     pub toggle_fold: Option<String>,
+    pub toggle_group: Option<String>,
     pub toggle_blocked: bool,
     pub favorite: Option<String>,
     pub retry: Option<String>,
@@ -45,14 +47,16 @@ pub(crate) struct Out {
 
 pub(crate) enum Hover {
     Device(usize),
+    Group(&'static str),
     Vendor(String),
     Blocked(usize),
 }
 
 fn height(row: &Row, note: f32) -> f32 {
     match row {
+        Row::Section { .. } => SECTION_H,
         Row::Device(_) | Row::Blocked(_) => DEVICE_H,
-        Row::Vendor { .. } | Row::BlockedHeader { .. } => VENDOR_H,
+        Row::Group { .. } | Row::Vendor { .. } | Row::BlockedHeader { .. } => VENDOR_H,
         Row::BlockedNote(_) => note,
     }
 }
@@ -141,6 +145,27 @@ fn scroll_room() -> f32 {
 
 fn draw_row(ui: &mut Ui, rect: Rect, row: &Row, input: &Input<'_>, out: &mut Out) {
     match row {
+        Row::Section { name, count } => draw_section(ui, rect, name, *count),
+        Row::Group {
+            key,
+            name,
+            count,
+            folded,
+        } => draw_header(
+            ui,
+            Header {
+                rect,
+                id: Id::new(("browser group", key.as_str())),
+                name,
+                count: *count,
+                folded: *folded,
+                selected: input.selected == Some(&Selection::Group(key.clone())),
+                select: Selection::Group(key.clone()),
+                hover: Hover::Group(name),
+            },
+            |out| out.toggle_group = Some(key.clone()),
+            out,
+        ),
         Row::Vendor {
             name,
             count,
@@ -179,6 +204,24 @@ fn draw_row(ui: &mut Ui, rect: Rect, row: &Row, input: &Input<'_>, out: &mut Out
         Row::Blocked(i) => draw_blocked(ui, rect, &input.catalog.blocked()[*i], *i, input, out),
         Row::BlockedNote(i) => draw_note(ui, rect, &input.catalog.blocked()[*i], out),
     }
+}
+
+fn draw_section(ui: &mut Ui, rect: Rect, name: &str, count: usize) {
+    let palette = *theme::p();
+    let spoken = format!("{name} devices, {count}");
+    ui.interact(rect, Id::new(("browser section", name)), Sense::hover())
+        .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, spoken.clone()));
+    let painter = ui.painter();
+    let text = painter.layout_no_wrap(
+        name.to_owned(),
+        fonts::medium(theme::size::CAPTION),
+        palette.text_hint,
+    );
+    painter.galley(
+        pos2(rect.left() + PAD, rect.bottom() - text.size().y - 2.0),
+        text,
+        palette.text_hint,
+    );
 }
 
 struct Header<'a> {
@@ -376,7 +419,9 @@ fn draw_device(
         ));
         right = star.left() - theme::space::XS;
     }
-    let caption = if input.flat {
+    let caption = if device.source == Source::Builtin {
+        Some(device.tag)
+    } else if input.flat {
         Some(device.vendor.as_str())
     } else if shown && rect.width() >= TAG_MIN_WIDTH {
         device.categories.first().map(String::as_str)

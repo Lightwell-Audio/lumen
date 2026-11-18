@@ -309,6 +309,8 @@ pub(crate) enum Command {
     DrumStepsView,
     StepsNextPage,
     StepsPreviousPage,
+    FilterLumen,
+    AddDevice,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -700,6 +702,8 @@ pub(crate) const ALL: &[Info] = &[
     info(Command::DrumStepsView, "view.drum_steps", "Show the step sequencer (Steps)", Area::View, &[], "Shows the opened drum clip as a step grid: a row a sound of its track's drum map, a cell a step. Click a cell to turn it on or off, drag it up or down to set its velocity, Shift-click for an accent. The same notes as the lanes and the piano roll; a clip that fits the grid opens here."),
     info(Command::StepsNextPage, "view.steps_next_page", "Steps: next page", Area::View, &[], "In the step sequencer, shows the next page of steps of a clip longer than one page. Page Down does the same while the grid has the keyboard."),
     info(Command::StepsPreviousPage, "view.steps_previous_page", "Steps: previous page", Area::View, &[], "In the step sequencer, shows the previous page of steps of a clip longer than one page. Page Up does the same while the grid has the keyboard."),
+    info(Command::FilterLumen, "devices.filter_lumen", concat!("Show only ", lumen_core::product_name!(), "'s devices"), Area::Devices, &[], concat!("Leaves only the devices built into ", lumen_core::product_name!(), " in the browser's Devices tab, hiding every plugin, and opens that tab. It combines with the type switch, a category chip and the search, so the built-in compressors are two clicks away. Clear filters shows everything again.")),
+    info(Command::AddDevice, "devices.add_device", "Add device\u{2026}", Area::Devices, &[], "Opens the browser on its Devices tab with the search field ready to type in, so a device can be found by name and added with a double-click, a drag, or Add device to selected track. The track menu's Add device\u{2026} row is the same command."),
 ];
 
 const fn info(
@@ -760,7 +764,7 @@ mod tests {
             assert_eq!(info.command as usize, i, "{} is out of place", info.id);
         }
         assert_eq!(
-            Command::StepsPreviousPage as usize + 1,
+            Command::AddDevice as usize + 1,
             ALL.len(),
             "a command is missing"
         );

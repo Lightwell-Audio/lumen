@@ -148,12 +148,20 @@ fn valid_vst3(class_id: &str, name: &str) -> bool {
 }
 
 fn fresh_device(id: Id, plugin: PluginRef) -> Device {
-    match &plugin {
+    let mut device = match &plugin {
         PluginRef::Builtin { name } if name == SYNTH => {
             super::instrument::synth_device(id, super::instrument::DEFAULT_PRESET)
         }
         _ => Device::new(id, plugin, false, Vec::new()),
+    };
+    let takes_table_defaults = crate::builtin::is_builtin_effect(&device.plugin)
+        || matches!(&device.plugin, PluginRef::Builtin { name } if name == lumen_devices::sampler::NAME);
+    if takes_table_defaults && let PluginRef::Builtin { name } = &device.plugin {
+        for (param, value) in crate::builtin::defaults(name) {
+            device.params.insert(param, f64::from(value));
+        }
     }
+    device
 }
 
 fn with_values(mut device: Device, values: &[(u32, f32)]) -> Device {

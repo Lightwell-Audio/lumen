@@ -31,6 +31,7 @@ pub(crate) enum Chip {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Selection {
     Vendor(String),
+    Group(String),
     BlockedHeader,
     Device(String),
     Blocked(String),
@@ -41,6 +42,7 @@ pub(crate) struct View {
     pub text: String,
     pub kind: TypeFilter,
     pub chip: Chip,
+    pub lumen_only: bool,
     pub folded: HashSet<String>,
     pub blocked_folded: bool,
     pub selected: Option<Selection>,
@@ -62,13 +64,17 @@ impl View {
     }
 
     pub(crate) fn is_filtering(&self) -> bool {
-        !self.text.trim().is_empty() || self.kind != TypeFilter::All || self.chip != Chip::All
+        !self.text.trim().is_empty()
+            || self.kind != TypeFilter::All
+            || self.chip != Chip::All
+            || self.lumen_only
     }
 
     pub(crate) fn clear_filters(&mut self) {
         self.text.clear();
         self.kind = TypeFilter::All;
         self.chip = Chip::All;
+        self.lumen_only = false;
     }
 }
 
@@ -86,7 +92,7 @@ mod tests {
     }
 
     #[test]
-    fn filtering_is_words_a_type_or_a_chip_and_clearing_keeps_folds_and_selection() {
+    fn filtering_is_words_a_type_a_chip_or_lumen_and_clearing_keeps_folds_and_selection() {
         let mut v = View::default();
         assert!(!v.is_filtering());
         v.text = "  ".into();
@@ -101,5 +107,9 @@ mod tests {
         assert!(!v.is_filtering());
         assert!(v.is_folded("a"));
         assert!(v.selected.is_some());
+        v.lumen_only = true;
+        assert!(v.is_filtering());
+        v.clear_filters();
+        assert!(!v.lumen_only);
     }
 }

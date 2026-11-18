@@ -11,7 +11,9 @@ use crate::app::projects::FileDialog;
 use crate::browser::Tab;
 use crate::browser::controls;
 use crate::browser::list::{self, Hover, Input, Out};
-use crate::browser::panel::{self, FOOTER, is_folded, vendor_listed};
+use crate::browser::panel::{
+    self, FOOTER, group_listed, is_folded, is_group_folded, vendor_listed,
+};
 use crate::browser::rows::{self, Rows};
 use crate::browser::view::{Chip, Selection};
 use crate::{App, fonts, theme, widgets};
@@ -208,19 +210,32 @@ impl App {
             to = rows::neighbour(catalog, &rows.list, None, -1);
         } else if key(Key::ArrowLeft) {
             match &from {
+                Some(Selection::Group(key)) if !is_group_folded(rows, key) => {
+                    view.folded.insert(key.clone());
+                }
                 Some(Selection::Vendor(name)) if !is_folded(rows, name) => {
                     view.folded.insert(name.clone());
                 }
                 Some(Selection::Device(id)) => {
-                    to = catalog
-                        .find(id)
-                        .map(|d| Selection::Vendor(d.vendor.to_lowercase()))
-                        .filter(|s| vendor_listed(rows, s));
+                    to = catalog.find(id).and_then(|d| match d.group {
+                        Some(group) => {
+                            let key = Selection::Group(rows::group_key(group));
+                            group_listed(rows, &key).then_some(key)
+                        }
+                        None => Some(Selection::Vendor(d.vendor.to_lowercase()))
+                            .filter(|s| vendor_listed(rows, s)),
+                    });
                 }
                 _ => {}
             }
         } else if key(Key::ArrowRight) {
             match &from {
+                Some(Selection::Group(key)) if is_group_folded(rows, key) => {
+                    view.folded.remove(key);
+                }
+                Some(Selection::Group(_)) => {
+                    to = rows::neighbour(catalog, &rows.list, from.as_ref(), 1);
+                }
                 Some(Selection::Vendor(name)) if is_folded(rows, name) => {
                     view.folded.remove(name);
                 }
@@ -231,6 +246,11 @@ impl App {
             }
         } else if key(Key::Enter) {
             match &from {
+                Some(Selection::Group(key)) => {
+                    if !view.folded.remove(key) {
+                        view.folded.insert(key.clone());
+                    }
+                }
                 Some(Selection::Vendor(name)) => {
                     if !view.folded.remove(name) {
                         view.folded.insert(name.clone());
@@ -260,6 +280,9 @@ impl App {
         }
         if let Some(name) = out.toggle_fold {
             self.browser.view.toggle_fold(&name);
+        }
+        if let Some(key) = out.toggle_group {
+            self.browser.view.toggle_fold(&key);
         }
         if out.toggle_blocked {
             self.browser.view.blocked_folded = !self.browser.view.blocked_folded;
@@ -370,6 +393,11 @@ impl App {
                     Kind::Instrument => ("Instrument", DeviceKind::Instrument),
                     Kind::Effect => ("Effect", DeviceKind::Effect),
                 };
+                let kind = if d.source == Source::Builtin {
+                    d.tag
+                } else {
+                    kind
+                };
                 let info = Info::new(format!("{} · {} · {kind}", d.name, d.vendor));
                 let info = if crate::chain::placeable(d) {
                     let add = self.add_device_label(adds);
@@ -394,6 +422,11 @@ impl App {
                 info.on(Held::NONE, Mouse::RightClick, &menu)
             }
             Hover::Vendor(name) => Info::new(name).on(Held::NONE, Mouse::Click, "fold or open"),
+            Hover::Group(name) => Info::new(format!("{name} \u{b7} built-in devices")).on(
+                Held::NONE,
+                Mouse::Click,
+                "fold or open",
+            ),
             Hover::Blocked(i) => Info::new(format!(
                 "{} is blocked: it will not be loaded",
                 catalog.blocked()[i].name

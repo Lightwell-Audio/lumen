@@ -775,6 +775,15 @@ impl App {
             }
             Command::ExportMidiFile => self.export_midi(ctx, false),
             Command::ExportMidiClip => self.export_midi(ctx, true),
+            Command::FilterLumen => {
+                let on = &mut self.browser.view.lumen_only;
+                *on = !*on;
+                self.show_device_browser();
+            }
+            Command::AddDevice => {
+                self.show_device_browser();
+                self.browser.focus_search = true;
+            }
         }
         ctx.request_repaint();
     }

@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use lumen_plugin_catalog::catalog::{Catalog, Device, Query, Source};
+use lumen_plugin_catalog::catalog::{Catalog, Device, Group, Query, Source};
 
 use super::view::{Chip, Selection, View};
 
@@ -8,6 +8,16 @@ pub(crate) const MAX_CHIPS: usize = 12;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Row {
+    Section {
+        name: &'static str,
+        count: usize,
+    },
+    Group {
+        key: String,
+        name: &'static str,
+        count: usize,
+        folded: bool,
+    },
     Vendor {
         name: String,
         count: usize,
@@ -30,6 +40,10 @@ pub(crate) struct Rows {
     pub total: usize,
 }
 
+pub(crate) fn group_key(group: Group) -> String {
+    format!("lumen:{}", group.key())
+}
+
 pub(crate) fn rows(
     catalog: &Catalog,
     view: &View,
@@ -41,6 +55,7 @@ pub(crate) fn rows(
         text: words,
         kind: view.kind.kind(),
         only: None,
+        source: view.lumen_only.then_some(Source::Builtin),
     };
     let fitting: Vec<&Device> = catalog.search(&query);
 
@@ -90,43 +105,72 @@ pub(crate) fn rows(
     if matches!(view.chip, Chip::Recent) {
         list.extend(shown.iter().map(|d| Row::Device(index(d))));
     } else {
-        let mut groups: Vec<(String, bool, Vec<&Device>)> = Vec::new();
-        for device in &shown {
-            let builtin = device.source == Source::Builtin;
-            match groups
-                .iter_mut()
-                .find(|(v, _, _)| v.eq_ignore_ascii_case(&device.vendor))
-            {
-                Some((_, has_builtin, members)) => {
-                    *has_builtin |= builtin;
-                    members.push(device);
+        let (builtins, plugins): (Vec<&Device>, Vec<&Device>) =
+            shown.iter().partition(|d| d.source == Source::Builtin);
+        if !builtins.is_empty() {
+            list.push(Row::Section {
+                name: lumen_core::product_name!(),
+                count: builtins.len(),
+            });
+            for group in Group::ALL {
+                let mut members: Vec<&Device> = builtins
+                    .iter()
+                    .copied()
+                    .filter(|d| d.group == Some(group))
+                    .collect();
+                if members.is_empty() {
+                    continue;
                 }
-                None => groups.push((device.vendor.clone(), builtin, vec![device])),
+                members.sort_by_cached_key(|d| d.name.to_lowercase());
+                let key = group_key(group);
+                let folded = words.is_empty() && view.is_folded(&key);
+                list.push(Row::Group {
+                    key,
+                    name: group.name(),
+                    count: members.len(),
+                    folded,
+                });
+                if !folded {
+                    list.extend(members.iter().map(|d| Row::Device(index(d))));
+                }
             }
         }
-        groups.sort_by(|a, b| {
-            b.1.cmp(&a.1)
-                .then_with(|| a.0.to_lowercase().cmp(&b.0.to_lowercase()))
-        });
-        let spelled = catalog.vendors();
-        for (vendor, _, members) in groups {
-            let vendor = spelled
-                .iter()
-                .find(|(v, _)| v.eq_ignore_ascii_case(&vendor))
-                .map_or(vendor, |(v, _)| v.clone());
-            let folded = words.is_empty() && view.is_folded(&vendor);
-            list.push(Row::Vendor {
-                name: vendor,
-                count: members.len(),
-                folded,
+        if !plugins.is_empty() {
+            list.push(Row::Section {
+                name: "Plugins",
+                count: plugins.len(),
             });
-            if !folded {
-                list.extend(members.iter().map(|d| Row::Device(index(d))));
+            let mut groups: Vec<(String, Vec<&Device>)> = Vec::new();
+            for device in &plugins {
+                match groups
+                    .iter_mut()
+                    .find(|(v, _)| v.eq_ignore_ascii_case(&device.vendor))
+                {
+                    Some((_, members)) => members.push(device),
+                    None => groups.push((device.vendor.clone(), vec![device])),
+                }
+            }
+            groups.sort_by_key(|a| a.0.to_lowercase());
+            let spelled = catalog.vendors();
+            for (vendor, members) in groups {
+                let vendor = spelled
+                    .iter()
+                    .find(|(v, _)| v.eq_ignore_ascii_case(&vendor))
+                    .map_or(vendor, |(v, _)| v.clone());
+                let folded = words.is_empty() && view.is_folded(&vendor);
+                list.push(Row::Vendor {
+                    name: vendor,
+                    count: members.len(),
+                    folded,
+                });
+                if !folded {
+                    list.extend(members.iter().map(|d| Row::Device(index(d))));
+                }
             }
         }
     }
 
-    if view.chip == Chip::All && view.kind == super::view::TypeFilter::All {
+    if view.chip == Chip::All && view.kind == super::view::TypeFilter::All && !view.lumen_only {
         let needle = words.to_lowercase();
         let blocked: Vec<usize> = catalog
             .blocked()
@@ -179,6 +223,8 @@ pub(crate) fn none_found(catalog: &Catalog) -> bool {
 
 pub(crate) fn selection_of(catalog: &Catalog, row: &Row) -> Option<Selection> {
     match row {
+        Row::Section { .. } => None,
+        Row::Group { key, .. } => Some(Selection::Group(key.clone())),
         Row::Vendor { name, .. } => Some(Selection::Vendor(name.to_lowercase())),
         Row::Device(i) => Some(Selection::Device(catalog.devices()[*i].id.clone())),
         Row::BlockedHeader { .. } => Some(Selection::BlockedHeader),
@@ -280,6 +326,13 @@ mod tests {
         rows.list
             .iter()
             .map(|r| match r {
+                Row::Section { name, count } => format!("={name} {count}"),
+                Row::Group {
+                    name,
+                    count,
+                    folded,
+                    ..
+                } => format!("[{name} {count}{}]", if *folded { " folded" } else { "" }),
                 Row::Vendor {
                     name,
                     count,
@@ -298,14 +351,27 @@ mod tests {
     }
 
     #[test]
-    fn devices_group_by_vendor_with_lumen_first_then_by_name_and_blocked_last() {
+    fn built_ins_come_first_by_group_by_name_and_plugins_by_vendor_with_blocked_last() {
         let c = catalog();
         let r = rows(&c, &view(), &HashSet::new(), &[]);
         assert_eq!(
             names(&c, &r),
             [
-                "[Lumen 1]",
-                "Synth",
+                "=Lumen 8",
+                "[Instruments 2]",
+                "Flare",
+                "Shutter",
+                "[Dynamics 2]",
+                "Gravity",
+                "Horizon",
+                "[EQ 1]",
+                "Iris",
+                "[Time 2]",
+                "Afterglow",
+                "Parallax",
+                "[Utility 1]",
+                "Prism",
+                "=Plugins 5",
                 "[Alpha 3]",
                 "Deep Bass",
                 "Room Reverb",
@@ -317,7 +383,7 @@ mod tests {
                 "!Bad",
             ]
         );
-        assert_eq!((r.matching, r.total), (6, 6));
+        assert_eq!((r.matching, r.total), (13, 13));
     }
 
     #[test]
@@ -328,11 +394,109 @@ mod tests {
         let r = rows(&c, &v, &HashSet::new(), &[]);
         assert!(names(&c, &r).contains(&"[Alpha 3 folded]".to_string()));
         assert!(!names(&c, &r).contains(&"Deep Bass".to_string()));
-        assert_eq!(r.matching, 6, "folded devices still match");
+        assert_eq!(r.matching, 13, "folded devices still match");
 
         v.text = "bass".into();
         let r = rows(&c, &v, &HashSet::new(), &[]);
-        assert_eq!(names(&c, &r), ["[Alpha 1]", "Deep Bass"]);
+        assert_eq!(names(&c, &r), ["=Plugins 1", "[Alpha 1]", "Deep Bass"]);
+    }
+
+    #[test]
+    fn a_folded_kind_group_keeps_its_header_and_a_search_opens_it() {
+        let c = catalog();
+        let mut v = view();
+        let key = group_key(Group::Dynamics);
+        v.toggle_fold(&key);
+        let r = rows(&c, &v, &HashSet::new(), &[]);
+        let list = names(&c, &r);
+        assert!(list.contains(&"[Dynamics 2 folded]".to_string()));
+        assert!(!list.contains(&"Gravity".to_string()));
+        assert!(list.contains(&"[Instruments 2]".to_string()));
+
+        v.text = "gravity".into();
+        let r = rows(&c, &v, &HashSet::new(), &[]);
+        assert_eq!(names(&c, &r), ["=Lumen 1", "[Dynamics 1]", "Gravity"]);
+    }
+
+    #[test]
+    fn the_lumen_filter_shows_only_the_built_ins_in_their_group_order() {
+        let c = catalog();
+        let mut v = view();
+        v.lumen_only = true;
+        let r = rows(&c, &v, &HashSet::new(), &[]);
+        assert_eq!(
+            names(&c, &r),
+            [
+                "=Lumen 8",
+                "[Instruments 2]",
+                "Flare",
+                "Shutter",
+                "[Dynamics 2]",
+                "Gravity",
+                "Horizon",
+                "[EQ 1]",
+                "Iris",
+                "[Time 2]",
+                "Afterglow",
+                "Parallax",
+                "[Utility 1]",
+                "Prism",
+            ]
+        );
+        assert_eq!(r.matching, 8);
+        assert!(
+            !r.list.iter().any(|row| matches!(
+                row,
+                Row::Blocked(_) | Row::BlockedHeader { .. } | Row::Vendor { .. }
+            )),
+            "no plugins and no blocked modules"
+        );
+        assert_eq!(
+            r.chips[0],
+            ("Dynamics".to_string(), 2),
+            "the chips count the built-ins that remain"
+        );
+    }
+
+    #[test]
+    fn the_lumen_filter_combines_with_the_type_the_category_and_the_words() {
+        let c = catalog();
+        let mut v = view();
+        v.lumen_only = true;
+        v.kind = TypeFilter::Effects;
+        let r = rows(&c, &v, &HashSet::new(), &[]);
+        assert!(!names(&c, &r).contains(&"Flare".to_string()));
+        assert_eq!(r.matching, 6);
+
+        v.kind = TypeFilter::All;
+        v.chip = Chip::Category("dynamics".into());
+        let r = rows(&c, &v, &HashSet::new(), &[]);
+        assert_eq!(
+            names(&c, &r),
+            ["=Lumen 2", "[Dynamics 2]", "Gravity", "Horizon"]
+        );
+
+        v.chip = Chip::All;
+        v.text = "reverb".into();
+        let r = rows(&c, &v, &HashSet::new(), &[]);
+        assert_eq!(names(&c, &r), ["=Lumen 1", "[Time 1]", "Afterglow"]);
+    }
+
+    #[test]
+    fn a_search_for_a_kind_tag_finds_the_built_in_that_carries_it() {
+        let c = catalog();
+        let mut v = view();
+        v.text = "comp".into();
+        let r = rows(&c, &v, &HashSet::new(), &[]);
+        assert_eq!(names(&c, &r), ["=Lumen 1", "[Dynamics 1]", "Gravity"]);
+
+        v.text = "eq".into();
+        let r = rows(&c, &v, &HashSet::new(), &[]);
+        assert!(names(&c, &r).contains(&"Iris".to_string()));
+
+        v.text = "utility".into();
+        let r = rows(&c, &v, &HashSet::new(), &[]);
+        assert!(names(&c, &r).contains(&"Prism".to_string()));
     }
 
     #[test]
@@ -344,8 +508,11 @@ mod tests {
         assert_eq!(
             names(&c, &r),
             [
-                "[Lumen 1]",
-                "Synth",
+                "=Lumen 2",
+                "[Instruments 2]",
+                "Flare",
+                "Shutter",
+                "=Plugins 2",
                 "[Alpha 1]",
                 "Deep Bass",
                 "[Zed 1]",
@@ -354,7 +521,7 @@ mod tests {
         );
         v.kind = TypeFilter::Effects;
         let r = rows(&c, &v, &HashSet::new(), &[]);
-        assert_eq!(r.matching, 3);
+        assert_eq!(r.matching, 9);
         assert!(!names(&c, &r).iter().any(|n| n.starts_with("[blocked")));
     }
 
@@ -363,7 +530,7 @@ mod tests {
         let c = catalog();
         let mut v = view();
         let r = rows(&c, &v, &HashSet::new(), &[]);
-        assert_eq!(r.chips[0], ("Reverb".to_string(), 2));
+        assert_eq!(r.chips[0], ("Dynamics".to_string(), 2));
         assert!(r.chips.iter().any(|(n, k)| n == "Bass" && *k == 1));
 
         v.kind = TypeFilter::Instruments;
@@ -378,7 +545,13 @@ mod tests {
         let r = rows(&c, &v, &HashSet::new(), &[]);
         assert_eq!(
             names(&c, &r),
-            ["[Alpha 1]", "Room Reverb", "[Zed 1]", "Plate Reverb"]
+            [
+                "=Plugins 2",
+                "[Alpha 1]",
+                "Room Reverb",
+                "[Zed 1]",
+                "Plate Reverb"
+            ]
         );
     }
 
@@ -397,7 +570,7 @@ mod tests {
         let mut v = view();
         v.chip = Chip::Favorites;
         let r = rows(&c, &v, &favorites, &[]);
-        assert_eq!(names(&c, &r), ["[Alpha 1]", "Tape EQ"]);
+        assert_eq!(names(&c, &r), ["=Plugins 1", "[Alpha 1]", "Tape EQ"]);
 
         v.chip = Chip::Recent;
         let recents = vec![id("Warm Synth"), id("Deep Bass"), "vst3:GONE".to_string()];
@@ -407,6 +580,39 @@ mod tests {
             ["Warm Synth", "Deep Bass"],
             "no vendor rows, and a missing device is skipped"
         );
+    }
+
+    #[test]
+    fn favorites_and_recent_mix_built_ins_with_plugins() {
+        let c = catalog();
+        let id = |name: &str| {
+            c.devices()
+                .iter()
+                .find(|d| d.name == name)
+                .unwrap()
+                .id
+                .clone()
+        };
+        let favorites: HashSet<String> = [id("Gravity"), id("Tape EQ")].into();
+        let mut v = view();
+        v.chip = Chip::Favorites;
+        let r = rows(&c, &v, &favorites, &[]);
+        assert_eq!(
+            names(&c, &r),
+            [
+                "=Lumen 1",
+                "[Dynamics 1]",
+                "Gravity",
+                "=Plugins 1",
+                "[Alpha 1]",
+                "Tape EQ"
+            ]
+        );
+
+        v.chip = Chip::Recent;
+        let recents = vec![id("Prism"), id("Warm Synth")];
+        let r = rows(&c, &v, &favorites, &recents);
+        assert_eq!(names(&c, &r), ["Prism", "Warm Synth"]);
     }
 
     #[test]
@@ -441,7 +647,7 @@ mod tests {
         v.text = "zzzz".into();
         let r = rows(&c, &v, &HashSet::new(), &[]);
         assert!(r.list.is_empty());
-        assert_eq!((r.matching, r.total), (0, 6));
+        assert_eq!((r.matching, r.total), (0, 13));
     }
 
     #[test]
@@ -476,7 +682,7 @@ mod tests {
         let c = catalog();
         let list = rows(&c, &view(), &HashSet::new(), &[]).list;
         let first = neighbour(&c, &list, None, 1).unwrap();
-        assert_eq!(first, Selection::Vendor("lumen".into()));
+        assert_eq!(first, Selection::Group(group_key(Group::Instruments)));
         let second = neighbour(&c, &list, Some(&first), 1).unwrap();
         assert!(matches!(&second, Selection::Device(id) if id == "builtin:synth"));
         assert_eq!(
@@ -512,7 +718,7 @@ mod tests {
         let gone = Selection::Device("vst3:GONE".into());
         assert_eq!(
             neighbour(&c, &list, Some(&gone), 1),
-            Some(Selection::Vendor("lumen".into()))
+            Some(Selection::Group(group_key(Group::Instruments)))
         );
     }
 }

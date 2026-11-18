@@ -37,11 +37,56 @@ fn a_search_needs_every_word_in_the_name_or_the_group() {
 #[test]
 fn headings_say_where_a_sound_came_from() {
     assert_eq!(program(0, "x").heading(), "Factory");
+    assert_eq!(
+        Choice::Factory {
+            preset: lumen_devices::Preset::Pad
+        }
+        .heading(),
+        "Factory"
+    );
     assert_eq!(file("x", true, None).heading(), "Your presets");
     assert_eq!(
         file("x", false, Some("Bass")).heading(),
         "System presets \u{b7} Bass"
     );
+}
+
+#[test]
+fn a_factory_preset_is_named_and_found_ahead_of_your_presets() {
+    let all = [
+        Choice::Factory {
+            preset: lumen_devices::Preset::Bass,
+        },
+        file("Mine", true, None),
+    ];
+    assert_eq!(all[0].name(), "Bass");
+    assert_eq!(all[1].name(), "Mine");
+    assert_eq!(filter(&all, "bass"), [0]);
+    assert_eq!(filter(&all, ""), [0, 1]);
+}
+
+#[test]
+fn the_current_factory_preset_is_found_by_its_id_not_its_name() {
+    let current = Current {
+        name: "Bass".to_owned(),
+        source: Source::Factory { id: "bass" },
+        baseline: None,
+        rev: 0,
+    };
+    assert!(
+        Choice::Factory {
+            preset: lumen_devices::Preset::Bass
+        }
+        .is_current(&current)
+    );
+    assert!(
+        !Choice::Factory {
+            preset: lumen_devices::Preset::Pad
+        }
+        .is_current(&current)
+    );
+    assert!(!file("Bass", true, None).is_current(&current));
+    assert!(!program(0, "Bass").is_current(&current));
 }
 
 #[test]
