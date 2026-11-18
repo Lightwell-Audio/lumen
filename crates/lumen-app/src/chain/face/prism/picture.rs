@@ -271,8 +271,12 @@ pub(super) fn glass(scene: &Scene<'_>, frame: &Frame, a: f32) {
     let mut through = Mesh::default();
     paint::line(
         &mut through,
-        2,
-        |i| if i == 0 { frame.entry() } else { frame.exit() },
+        3,
+        |i| match i {
+            0 => frame.entry(),
+            1 => frame.exit(),
+            _ => frame.root(),
+        },
         (THROUGH * frame.k()).max(1.0),
         lit(white, THROUGH_ALPHA.0 + THROUGH_ALPHA.1 * a),
     );
