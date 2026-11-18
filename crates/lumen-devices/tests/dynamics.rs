@@ -181,7 +181,7 @@ fn at_its_defaults_every_parameter_names_its_bounds() {
         None,
     );
     let want =
-        0.25 * 10f32.powf((compressor::curve_db(-12.04, -18.0, 4.0, 6.0) + 12.04 + 13.5) / 20.0);
+        0.25 * 10f32.powf((compressor::curve_db(-12.04, -18.0, 4.0, 6.0) + 12.04 + 6.0) / 20.0);
     assert!(
         (left[frames - 1] - want).abs() < 1e-3,
         "{} against {want}",
@@ -252,6 +252,10 @@ fn automatic_make_up_keeps_the_loud_end_where_it_was() {
                 at(compressor::TABLE, compressor::RATIO, 4.0),
             ),
             (compressor::KNEE, 0.0),
+            (
+                compressor::MAKEUP,
+                at(compressor::TABLE, compressor::MAKEUP, 1.0),
+            ),
         ],
         &[],
         None,
@@ -1624,31 +1628,31 @@ fn a_golden_render_of_automated_gravity_is_pinned_to_its_samples() {
     let (samples, level, energy, peak) = pinned(&left);
     const PINS: [f32; 20] = [
         0.0,
-        -1.028_203_6,
-        1.768_817_8,
-        -1.476_86,
-        0.385_756_8,
-        0.585_213_84,
-        -0.772_766_65,
-        0.603_440_6,
-        -0.236_126_5,
-        -0.128_319_77,
-        0.341_472_2,
-        -0.344_068_08,
-        0.189_226_42,
-        0.014_762_647,
-        -0.180_116_53,
-        0.247_255_09,
-        -0.191_308_32,
-        0.040_964_693,
-        0.128_095_18,
-        -0.231_132_5,
+        -0.780_561,
+        0.726_639,
+        -0.337_823_66,
+        0.050_177_99,
+        0.058_785_26,
+        -0.080_223_8,
+        0.064_049_66,
+        -0.025_323_242,
+        -0.013_904_348,
+        0.036_992_848,
+        -0.037_439_644,
+        0.020_591_348,
+        0.001_620_143_7,
+        -0.020_364_523,
+        0.028_710_306,
+        -0.022_499_144,
+        0.004_853_710_5,
+        0.015_259_713,
+        -0.027_611_911,
     ];
     for (k, want) in PINS.iter().enumerate() {
         close_sample(f64::from(samples[k]), f64::from(*want), peak);
     }
-    close(level, 1.799_343_980_573_081_4e3);
-    close(energy, 1.665_880_419_708_235_2e3);
+    close(level, 5.118_752_118_971_315e2);
+    close(energy, 3.333_234_516_059_294_5e2);
 }
 
 #[test]
@@ -1713,7 +1717,7 @@ fn the_parameter_tables_are_pinned_by_id_name_and_default() {
         (3, "Attack", 0.157_341),
         (4, "Release", 0.240_092),
         (5, "Knee", 0.25),
-        (6, "Makeup", 1.0),
+        (6, "Makeup", 0.5),
         (7, "Mix", 1.0),
         (8, "Detect", 0.0),
         (9, "Key HPF", 0.0),
@@ -1819,42 +1823,141 @@ fn a_steady_tone_follows_the_curve_within_a_tenth_of_a_decibel() {
 }
 
 #[test]
-fn a_peak_detector_reads_the_wave_and_that_is_its_curve() {
-    let frames = 96_000;
-    let mut worst = 0.0f32;
-    let mut worst_at = 0.0f32;
-    for input_db in [-30.0f32, -21.0, -18.0, -15.0, -12.0, -6.0, -1.0] {
-        for (ratio, knee) in [(4.0f32, 6.0f32), (4.0, 0.0), (12.0, 6.0), (1.5, 12.0)] {
-            let amplitude = 10f32.powf(input_db / 20.0);
-            let (mut left, mut right) = tone(frames, 997.0, amplitude);
-            let mut device = Compressor::new();
-            run(
-                &mut device,
-                &mut left,
-                &mut right,
-                compressor::TABLE,
-                256,
-                &curve_set(-18.0, ratio, knee),
-                &[],
-                None,
-            );
-            let got_db = db_of(loudest(&left[frames - 2_000..]));
-            let want_db = compressor::curve_db(input_db, -18.0, ratio, knee);
-            if (got_db - want_db).abs() > worst {
-                worst = (got_db - want_db).abs();
-                worst_at = input_db;
-            }
-            if input_db < -18.0 - knee - 3.0 {
+fn a_peak_detector_holds_the_wave_and_reaches_the_curve() {
+    let frames = 48_000;
+    for frequency in [20.0f32, 50.0, 100.0, 137.0, 440.0, 997.0] {
+        for input_db in [-30.0f32, -21.0, -18.0, -15.0, -12.0, -6.0, -1.0] {
+            for (ratio, knee) in [(4.0f32, 6.0f32), (4.0, 0.0), (12.0, 6.0), (1.5, 12.0)] {
+                let amplitude = 10f32.powf(input_db / 20.0);
+                let (mut left, mut right) = tone(frames, frequency, amplitude);
+                let mut device = Compressor::new();
+                run(
+                    &mut device,
+                    &mut left,
+                    &mut right,
+                    compressor::TABLE,
+                    256,
+                    &curve_set(-18.0, ratio, knee),
+                    &[],
+                    None,
+                );
+                let got_db = db_of(loudest(&left[frames - 2_000..]));
+                let want_db = compressor::curve_db(input_db, -18.0, ratio, knee);
                 assert!(
-                    (got_db - want_db).abs() < 0.02,
-                    "below the knee at {input_db} dB: {got_db} against {want_db}"
+                    (got_db - want_db).abs() < 0.1,
+                    "{frequency} Hz at {input_db} dB, {ratio}:1, {knee} dB knee: {got_db} against {want_db}"
                 );
             }
         }
     }
+}
+
+fn gain_at(input: &[f32], output: &[f32], at: usize) -> f32 {
+    let from = at.saturating_sub(24);
+    let to = (at + 24).min(output.len());
+    loudest(&output[from..to]) / loudest(&input[from..to])
+}
+
+#[test]
+fn the_peak_hold_costs_a_little_release_time_on_a_low_tone() {
+    let settle = 96_000;
+    let set = |release_ms: f32| {
+        let mut values = curve_set(-30.0, 20.0, 0.0);
+        values.push((
+            compressor::ATTACK,
+            at(compressor::TABLE, compressor::ATTACK, 0.05),
+        ));
+        values.push((
+            compressor::RELEASE,
+            at(compressor::TABLE, compressor::RELEASE, release_ms),
+        ));
+        values
+    };
+    for (frequency, release_ms, most) in [
+        (100.0f32, 20.0f32, 1.35f32),
+        (100.0, 5.0, 1.9),
+        (20.0, 20.0, 2.0),
+        (20.0, 5.0, 5.0),
+    ] {
+        let tau = (release_ms / 1000.0 * RATE as f32) as usize;
+        let frames = settle + RATE as usize;
+        let (mut left, mut right) = (vec![0.0f32; frames], vec![0.0f32; frames]);
+        for k in 0..frames {
+            let amplitude = if k < settle { 0.5 } else { 0.02 };
+            let x = amplitude * (std::f32::consts::TAU * frequency * k as f32 / RATE as f32).sin();
+            left[k] = x;
+            right[k] = x;
+        }
+        let input = left.clone();
+        let mut device = Compressor::new();
+        let values = set(release_ms);
+        run(
+            &mut device,
+            &mut left,
+            &mut right,
+            compressor::TABLE,
+            256,
+            &values,
+            &[],
+            None,
+        );
+        let before = -db_of(gain_at(&input, &left, settle - 48));
+        let target = 0.368 * before;
+        let found = (settle + 48..frames)
+            .step_by(8)
+            .find(|&k| -db_of(gain_at(&input, &left, k)) <= target)
+            .map(|k| k - settle)
+            .expect("the gain lets go");
+        assert!(
+            found as f32 >= 0.9 * tau as f32 && found as f32 <= most * tau as f32,
+            "{frequency} Hz, {release_ms} ms: 37 % at {:.1} ms ({:.2} of the time)",
+            found as f32 / RATE as f32 * 1000.0,
+            found as f32 / tau as f32
+        );
+    }
+}
+
+#[test]
+fn a_fresh_gravity_leaves_a_loud_track_below_full_scale() {
+    let frames = 48_000;
+    let amplitude = 10f32.powf(-12.0 / 20.0);
+    let (mut left, mut right) = tone(frames, 997.0, amplitude);
+    let mut device = Compressor::new();
+    run(
+        &mut device,
+        &mut left,
+        &mut right,
+        compressor::TABLE,
+        256,
+        &[],
+        &[],
+        None,
+    );
+    let peak = loudest(&left[frames - 2_000..]);
+    assert!(peak < 1.0, "a -12 dBFS tone leaves at {} dBFS", db_of(peak));
     assert!(
-        worst < 1.2,
-        "the peak detector is {worst} dB off the curve at {worst_at} dB"
+        (db_of(peak) - (-10.5)).abs() < 0.3,
+        "a -12 dBFS tone leaves at {} dBFS",
+        db_of(peak)
+    );
+
+    let quiet = 10f32.powf(-30.0 / 20.0);
+    let (mut left, mut right) = level(24_000, quiet);
+    let mut device = Compressor::new();
+    run(
+        &mut device,
+        &mut left,
+        &mut right,
+        compressor::TABLE,
+        256,
+        &[],
+        &[],
+        None,
+    );
+    let made_up = db_of(left[23_999] / quiet);
+    assert!(
+        (made_up - 6.0).abs() < 0.1,
+        "the default make-up is {made_up} dB"
     );
 }
 
@@ -2012,6 +2115,10 @@ fn automatic_make_up_is_what_the_loud_end_lost() {
                     at(compressor::TABLE, compressor::RATIO, ratio),
                 ),
                 (compressor::KNEE, 0.0),
+                (
+                    compressor::MAKEUP,
+                    at(compressor::TABLE, compressor::MAKEUP, 1.0),
+                ),
             ],
             &[],
             None,
