@@ -253,7 +253,7 @@ unselected header.
 
 **Built-in device tokens** (`theme::personality`, §7k; round 2, the owner's set pieces): the device hues
 (`UTILITY`, `EQ`), the deep screen (`SCREEN`, the same in both themes), the content colours of a drawing
-(`PRISM_BEAMS`, `PRISM_FAN`, `EQ_SWEEP`, and `EQ_BANDS`, the eight colours of Iris's bands) and a screen's readout (`READOUT_SIZE`, `READOUT_INSET`). The card's own
+(`PRISM_BEAMS`, `EQ_SWEEP`, and `EQ_BANDS`, the eight colours of Iris's bands) and a screen's readout (`READOUT_SIZE`, `READOUT_INSET`). The card's own
 sizes, tints and strokes are in `theme::personality::card`: the header (`HEADER_*`, `POWER_*`, `NAME_*`,
 `SUBTITLE_*`, `PRESET_*`), the screen (`SCREEN_*`), the lit dials (`DIAL_*`, `PILL_*`, `ALL_*`), the short
 and compact steps (`SHORT_*`, `COMPACT_*`), the folded rail (`RAIL_*`), the level floor (`LEVEL_FLOOR_DB`) and

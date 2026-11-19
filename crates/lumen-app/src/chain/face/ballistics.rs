@@ -32,6 +32,10 @@ impl Spring {
         (self.at - target).abs() < SPRING_SETTLED && self.speed.abs() < SPRING_SETTLED * 10.0
     }
 
+    pub(crate) fn raise(&mut self, by: f32, most: f32) {
+        self.at = (self.at + by).min(most);
+    }
+
     pub(crate) fn snap(&mut self, at: f32) {
         self.at = at;
         self.speed = 0.0;

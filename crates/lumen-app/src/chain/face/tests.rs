@@ -77,48 +77,6 @@ fn a_value_is_read_normalised_and_in_its_own_units() {
 }
 
 #[test]
-fn a_prism_handle_maps_its_own_tip_back_to_the_width() {
-    let prism = drawing_of(device::NAME).unwrap();
-    let screen = Rect::from_min_size(pos2(10.0, 20.0), vec2(272.0, 136.0));
-    for norm in [0.2, 0.5, 0.65, 0.9] {
-        let slots = [slot(device::WIDTH, norm)];
-        let values = Values {
-            slots: &slots,
-            table: device::TABLE,
-        };
-        for handle in prism.handles {
-            let grab = (handle.grab)(&values, screen);
-            assert!(screen.contains_rect(grab), "{grab:?} is on the screen");
-            let tip = if handle.name.ends_with("upper") {
-                pos2(grab.center().x, grab.bottom())
-            } else {
-                pos2(grab.center().x, grab.top())
-            };
-            let back = (handle.value_at)(&values, tip, screen);
-            assert!((back - norm).abs() < 0.02, "{norm}: {back}");
-        }
-    }
-}
-
-#[test]
-fn a_prism_handle_clamps_past_the_ends_and_words_the_chip() {
-    let prism = drawing_of(device::NAME).unwrap();
-    let screen = Rect::from_min_size(pos2(0.0, 0.0), vec2(272.0, 136.0));
-    let slots = [slot(device::WIDTH, 0.5)];
-    let values = Values {
-        slots: &slots,
-        table: device::TABLE,
-    };
-    let upper = &prism.handles[0];
-    let above = (upper.value_at)(&values, pos2(200.0, -500.0), screen);
-    let below = (upper.value_at)(&values, pos2(200.0, 900.0), screen);
-    assert!((above - 1.0).abs() < 1e-6, "{above}");
-    assert!(below.abs() < 1e-6, "{below}");
-    assert_eq!((upper.chip)(&values, 0.0), "width 0%");
-    assert_eq!((upper.chip)(&values, 1.0), "width 200%");
-}
-
-#[test]
 fn a_scene_drains_colour_while_dim() {
     let ctx = eframe::egui::Context::default();
     let painter = ctx.layer_painter(eframe::egui::LayerId::background());

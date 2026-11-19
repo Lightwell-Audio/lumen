@@ -126,6 +126,21 @@ pub(super) fn glow_ladder(
     share: f32,
     additive: bool,
 ) {
+    let mut mesh = Mesh::default();
+    glow_into(&mut mesh, centre, radius, colour, share, additive);
+    if !mesh.is_empty() {
+        painter.add(Shape::mesh(mesh));
+    }
+}
+
+pub(super) fn glow_into(
+    mesh: &mut Mesh,
+    centre: Pos2,
+    radius: f32,
+    colour: Color32,
+    share: f32,
+    additive: bool,
+) {
     if radius <= 0.0 || share <= 0.0 {
         return;
     }
@@ -134,7 +149,7 @@ pub(super) fn glow_ladder(
         if additive { ladder::additive(lit) } else { lit }
     };
     let sides = ladder::SIDES;
-    let mut mesh = Mesh::default();
+    let base = mesh.vertices.len() as u32;
     mesh.colored_vertex(centre, tint(ladder::ALPHAS[0]));
     for (stop, alpha) in ladder::STOPS.iter().zip(ladder::ALPHAS).skip(1) {
         let out = radius * stop;
@@ -146,9 +161,9 @@ pub(super) fn glow_ladder(
             );
         }
     }
-    let ring_at = |ring: usize, side: usize| 1 + (ring * sides + side % sides) as u32;
+    let ring_at = |ring: usize, side: usize| base + 1 + (ring * sides + side % sides) as u32;
     for side in 0..sides {
-        mesh.add_triangle(0, ring_at(0, side), ring_at(0, side + 1));
+        mesh.add_triangle(base, ring_at(0, side), ring_at(0, side + 1));
     }
     for ring in 0..ladder::STOPS.len() - 2 {
         for side in 0..sides {
@@ -158,7 +173,6 @@ pub(super) fn glow_ladder(
             mesh.add_triangle(a, d, b);
         }
     }
-    painter.add(Shape::mesh(mesh));
 }
 
 pub(super) fn dashed_line(
