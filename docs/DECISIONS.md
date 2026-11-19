@@ -16351,7 +16351,7 @@ machine. The interface's Makeup control now has three positions; the face
 agent's rebuild reads the parameter's choices, so no face code was changed
 on this branch.
 
-## ADR-XXXX — Prism's Fan face (M8 round 4, F3)
+## ADR-0162 — Prism's Fan face (M8 round 4, F3)
 
 **Context.** The owner found Prism's beams weak and poorly designed (OR-6).
 Round 4 chose **A, Fan** (`docs/specimens/m8/round4.html`, `PrismA`, which is
@@ -16417,3 +16417,5 @@ F0 (ADR-0155) built the motion vocabulary and the repaint cadence, F1 and F2
 (MT-PRISM-1). The wide fan's "stereo" word can sit over the outer wedge at
 200 %, as in the specimen. The WSL performance gate and the macOS cross-target
 clippy were not run on this machine; no audio path changed.
+
+**Parent change after review.** The specimen leaves the stem between the glass's exit and the fan's root empty, and at the default Bass mono (120 Hz, about 0.6 of its range) that gap is wide enough that the fan looked detached from the glass (the complaint OR-7 made of Iris). The white beam now runs on from the exit to the root, so the bass reads as one beam until it splits.
