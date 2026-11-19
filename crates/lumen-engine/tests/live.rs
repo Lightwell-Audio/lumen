@@ -66,6 +66,18 @@ impl Script {
             played: frame,
             source,
             track: None,
+            raw: false,
+            msg,
+        });
+    }
+
+    fn send_raw(&self, frame: u64, source: u8, msg: Msg) {
+        self.0.lock().unwrap().push_back(LiveIn {
+            frame,
+            played: frame,
+            source,
+            track: None,
+            raw: true,
             msg,
         });
     }
@@ -76,6 +88,7 @@ impl Script {
             played: frame,
             source: AUDITION,
             track: Some(track),
+            raw: false,
             msg,
         });
     }
@@ -780,6 +793,49 @@ fn a_sound_the_map_silences_sounds_nothing_from_a_player() {
         sent(&mut rig),
         vec![(1_000, true, 36), (3_000, false, 36)],
         "only the heard note went out"
+    );
+    assert_eq!(rig.held_live(A), 0);
+}
+
+#[test]
+fn a_raw_live_note_skips_the_map_and_its_off_is_raw_even_when_sent_plainly() {
+    let log = Log::default();
+    let mut kit = DrumKit::new();
+    kit.set(
+        36,
+        KitKey {
+            key: 40,
+            channel: None,
+            silent: false,
+        },
+    );
+    kit.set(
+        38,
+        KitKey {
+            key: 38,
+            channel: None,
+            silent: true,
+        },
+    );
+    let mut rig = rig(vec![port_track(A, Vec::new(), Box::new(kit))], &log);
+    rig.live.send_raw(300, KEYS, Msg::note_on(0, 36, 100));
+    rig.live.send_raw(500, KEYS, Msg::note_on(0, 38, 100));
+    rig.live.send(1_000, KEYS, Msg::note_off(0, 36));
+    rig.live.send(1_500, KEYS, Msg::note_off(0, 38));
+    rig.live.send(2_000, KEYS, Msg::note_on(0, 36, 100));
+    rig.live.send_raw(3_000, KEYS, Msg::note_off(0, 36));
+    rig.run(4_096, 128);
+    assert_eq!(
+        sent(&mut rig),
+        vec![
+            (300, true, 36),
+            (500, true, 38),
+            (1_000, false, 36),
+            (1_500, false, 38),
+            (2_000, true, 40),
+            (3_000, false, 40),
+        ],
+        "raw notes bypass the map and its silence; every off ends what its on started"
     );
     assert_eq!(rig.held_live(A), 0);
 }

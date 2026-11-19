@@ -37,6 +37,7 @@ impl Script {
             played,
             source: KEYS,
             track: None,
+            raw: false,
             msg,
         });
     }

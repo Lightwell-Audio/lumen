@@ -486,7 +486,17 @@ impl App {
     }
 
     pub fn drum_map_learning(&self) -> Option<u8> {
-        self.drum_map.learning().map(|(_, input)| input)
+        self.drum_map.learning().map(|(_, learn)| learn.input)
+    }
+
+    pub fn drum_map_learning_column(&self) -> Option<&'static str> {
+        self.drum_map
+            .learning()
+            .map(|(_, learn)| learn.column.name())
+    }
+
+    pub fn live_notes_play_as_they_are(&self) -> bool {
+        self.controllers.tap.as_ref().is_some_and(|tap| tap.raw())
     }
 
     pub fn drum_map_played(&mut self, key: u8) {

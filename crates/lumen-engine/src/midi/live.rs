@@ -14,6 +14,7 @@ pub struct LiveIn {
     pub played: u64,
     pub source: u8,
     pub track: Option<u64>,
+    pub raw: bool,
     pub msg: Msg,
 }
 

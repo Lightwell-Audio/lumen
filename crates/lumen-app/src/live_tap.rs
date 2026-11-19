@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 pub(crate) const TAP_QUEUE: usize = 1024;
 
@@ -63,6 +63,7 @@ impl Taken {
 pub(crate) struct Shared {
     pub(crate) taken: Taken,
     pub(crate) dropped: AtomicU64,
+    pub(crate) raw: AtomicBool,
 }
 
 impl Shared {
@@ -70,6 +71,7 @@ impl Shared {
         Arc::new(Self {
             taken: Taken::new(),
             dropped: AtomicU64::new(0),
+            raw: AtomicBool::new(false),
         })
     }
 }
@@ -99,6 +101,14 @@ impl Tap {
 
     pub fn dropped(&self) -> u64 {
         self.shared.dropped.load(Ordering::Relaxed)
+    }
+
+    pub fn set_raw(&self, raw: bool) {
+        self.shared.raw.store(raw, Ordering::Relaxed);
+    }
+
+    pub fn raw(&self) -> bool {
+        self.shared.raw.load(Ordering::Relaxed)
     }
 }
 

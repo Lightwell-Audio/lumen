@@ -81,19 +81,18 @@ impl MidiPlayer {
         live.pull(start, start + frames as u64, &mut |m: LiveIn| {
             let offset = (m.frame.saturating_sub(start).min(last) as u32).max(floor);
             for track in tracks.iter_mut() {
+                let kit = if m.raw { None } else { track.kit.as_deref() };
                 if m.source != AUDITION && track.record.takes(m.source, m.msg) {
                     let recording = cx.recording && track.record.is_on();
                     let (at, back) = capture::heard(cx, m.played, wrapped);
                     let (position, position_pass) = live_position(track, clock, at, pass, back);
                     let window = record_window(track, position_pass);
                     let wins = recording && (window.0..window.1).contains(&position);
-                    track
-                        .state
-                        .press(m.source, m.msg, wins, track.kit.as_deref());
+                    track.state.press(m.source, m.msg, wins, kit);
                     if let Kind::NoteOn { key, .. } = m.msg.kind()
                         && wins
                     {
-                        let played = track.kit.as_deref().map_or(key, |kit| kit.key(key).key);
+                        let played = kit.map_or(key, |kit| kit.key(key).key);
                         track.state.give_way(played, offset);
                     }
                     if cx.recording {
@@ -148,13 +147,9 @@ impl MidiPlayer {
                     Target::Port { channel, .. } => Some(channel),
                     Target::Instrument => None,
                 };
-                if let Some(msg) = track
-                    .state
-                    .live
-                    .take(m.source, m.msg, out, track.kit.as_deref())
-                {
+                if let Some(msg) = track.state.live.take(m.source, m.msg, out, kit) {
                     if let Kind::NoteOn { key, .. } = msg.kind() {
-                        track.state.choke(track.kit.as_deref(), key, offset);
+                        track.state.choke(kit, key, offset);
                     }
                     let offset = apart_from_its_on(&mut track.state.events, msg, offset, last32);
                     floor = floor.max(offset);
