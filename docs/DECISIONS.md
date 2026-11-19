@@ -16419,3 +16419,78 @@ F0 (ADR-0155) built the motion vocabulary and the repaint cadence, F1 and F2
 clippy were not run on this machine; no audio path changed.
 
 **Parent change after review.** The specimen leaves the stem between the glass's exit and the fan's root empty, and at the default Bass mono (120 Hz, about 0.6 of its range) that gap is wide enough that the fan looked detached from the glass (the complaint OR-7 made of Iris). The white beam now runs on from the exit to the root, so the bass reads as one beam until it splits.
+
+## ADR-XXXX — Iris's Glass face (M8 round 4, F4)
+
+**Context.** The owner found Iris's rays detached from their nodes and its curve
+jittery and jagged (OR-7). ADR-0156 fixed the data (an adaptive curve path, a
+log-spaced analyser with time-based ballistics); round 4 chose **Glass**
+(`docs/specimens/m8/round4.html`, `IrisCard('glass')`, which is the
+specification). F0 to F3 (ADR-0155, 0157, 0161, 0162) built the vocabulary and
+three other faces. This is the fourth. Iris's sound is not changed.
+
+**Decision.**
+1. **The face** is `chain/face/iris/` (it replaces `eq.rs`): `bands` (the eight
+   bands as the face reads them), `plot` (the plot area and the dB and Hz
+   mapping, one place for drawing and hit-testing), `response` (the device's
+   `Curve`, each band's own shape, a gain solver, Ramer-Douglas-Peucker
+   thinning), `parts` (the framework's `Parts` hooks), `picture` (the paint).
+   The screen is the shared `paint::wash` over the deep indigo `EQ_DEEP`.
+2. **One curve, one source of truth.** The curve, the node and the hit area all
+   read the same total response. A node is drawn on the total curve at its
+   band's frequency (not at its own gain), `Parts::at` computes the same point
+   (so `Values` gained the sample rate), and a drag solves for the band's gain
+   by bisection so the node stays under the pointer while other bands add to
+   it. The stem runs from the node's exact centre to the zero line, the
+   bracket is centred on the node's frequency, and each band's pool of colour
+   is sampled with the node's own x included, so every ray, fill and label
+   starts where its node is (the Prism lesson of ADR-0162). Unit tests check
+   the curve through every drawn node at 1, 1.5 and 2 pixels per point, the hit
+   point against the drawn node, and the stem, fill and bracket against it.
+3. **Smooth and cheap.** The curve is the device's path (one point per pixel
+   where it bends), thinned to 0.03 pt, drawn as one feathered ribbon with the
+   sweep colour per point (`paint::line_with`) plus one wider glow ribbon; fills
+   are thinned to the same tolerance; the grid is one mesh of pixel-snapped
+   rectangles; the glows are one mesh. The analyser (479 bins) is decimated to
+   about one point per 1.4 pt before it is drawn.
+4. **Interaction** is the framework's (`card/screen/parts.rs`), the same edit as
+   the dials: a drag is Freq and Gain (a cut only Freq), one undo step merged
+   while dragging; Shift is a tenth, Alt is free, the wheel is Q (a cut's
+   slope), arrow keys nudge, double-click resets the gain (a cut's frequency),
+   Enter types a value. An off band is a dim ring; dragging it turns it on.
+   The picked node is drawn last and larger.
+5. **Rest and wake.** At rest nothing asks for a repaint, the analyser is
+   absent and the curve, fills and nodes are drawn once ("no signal . analyser
+   rests" in the corner). While signal flows the face asks for the 16 ms frame
+   as before. **Reduce motion** now draws the analyser as one still frame
+   (round 4's note): the analyser runs while something is heard (`mist_runs`
+   lost its `reduced` argument), the mist fade no longer waits for motion, and
+   `cadence::again` asks for no repaint under Reduce motion, so the frame
+   updates only when something else repaints the window.
+6. **Steps.** Whole (352 x 176 screen) has the grid words, the analyser, the
+   pools, the glow, stems, bracket and chip; Short has the same without the
+   chip; Compact (22 pt) is the curve and small dots. The "Hz" unit is left out
+   when the 10k word is too near the right edge.
+7. **Cost** (`face_bench`, debug build, whole UI per frame, mean / p95 / worst
+   in ms): Iris now rest 3.193 / 3.725 / 4.443, live 3.476 / 3.937 / 4.453.
+   Today's Iris (measured the same way on `main`): rest 5.093 / 6.405 / 7.934,
+   live 4.983 / 5.525 / 5.877. The others in the same run: Prism rest 2.448,
+   live 2.823; Horizon rest 2.592, live 2.779; Gravity rest 2.966, live 3.065.
+
+**Where it differs from the specimen, and why.**
+- The band pills and dials keep the framework's layout (two rows of four 22 pt
+  pills; the specimen has one row of 18 pt) because every built-in card shares
+  that layout and the tests that hold it.
+- An off band is a dim hollow ring; the specimen shows no off nodes.
+- A node has no hover growth, only the glow (the specimen's own); the framework
+  tracks hover per part.
+- The analyser is the 479-bin display (ADR-0156), not the specimen's 64 bands,
+  so it is finer than the specimen.
+- A playing project that is silent still asks for 16 ms repaints (the
+  framework's existing behaviour).
+
+**What is left.** Nothing has been heard or seen by the owner yet (MT-IRIS-1).
+The face-alone measurement (`card::tests::set_piece_cost`) panics in egui's
+texture handling before it measures anything on this machine, so there is no
+number for the face alone. The WSL performance gate and the macOS cross-target
+clippy were not run here; no audio path changed.
