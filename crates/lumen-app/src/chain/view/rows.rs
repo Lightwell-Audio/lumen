@@ -87,7 +87,6 @@ impl App {
 
     pub(super) fn pump_spectra(&mut self, ctx: &egui::Context, track: Id, rate: u32) {
         let heard = mist_runs(
-            crate::motion::reduced(),
             self.transport.state().playing || self.chain.pretend_spectrum.is_some(),
             crate::chain::card::level_of(self.arrangement.meters.reading(track.0).peak),
         );
@@ -116,8 +115,8 @@ impl App {
             }
             let picture = chain.analyzers.entry(id).or_insert_with(|| {
                 lumen_devices::analyzer::Display::new((
-                    crate::chain::face::eq::LOW,
-                    crate::chain::face::eq::HIGH,
+                    crate::chain::face::iris::LOW,
+                    crate::chain::face::iris::HIGH,
                 ))
             });
             if reader.read() == lumen_devices::Read::Window {
@@ -243,8 +242,8 @@ pub(super) fn ago(age: std::time::Duration) -> String {
     }
 }
 
-pub(super) fn mist_runs(reduced: bool, playing: bool, level: f32) -> bool {
-    !reduced && (playing || level > 0.0)
+pub(super) fn mist_runs(playing: bool, level: f32) -> bool {
+    playing || level > 0.0
 }
 
 pub(super) fn personal_of(

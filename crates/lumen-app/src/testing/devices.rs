@@ -351,6 +351,10 @@ impl App {
         self.chain.pretend_spectrum = Some((device, db.to_vec()));
     }
 
+    pub fn clear_pretend_spectrum(&mut self) {
+        self.chain.pretend_spectrum = None;
+    }
+
     pub fn pretend_track_level(&mut self, peak_db: Option<f32>) {
         self.chain.pretend_level = peak_db;
     }

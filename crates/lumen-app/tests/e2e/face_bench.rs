@@ -43,6 +43,7 @@ fn with_face(name: &str, command: &str) -> (Lumen, Id) {
 #[ignore = "a bench: prints frame times with a face at rest and with signal"]
 fn the_cost_of_a_frame_with_a_face_at_rest_and_with_signal() {
     for (command, label) in [
+        ("Add Iris", "Iris"),
         ("Add Prism", "Prism"),
         ("Add Horizon", "Horizon"),
         ("Add Gravity", "Gravity"),
