@@ -68,6 +68,7 @@ fn a_value_is_read_normalised_and_in_its_own_units() {
     let values = Values {
         slots: &slots,
         table: device::TABLE,
+        rate: 48_000,
     };
     assert!((values.norm(device::WIDTH) - 0.5).abs() < 1e-6);
     let info = lumen_devices::params::find(device::TABLE, device::WIDTH).unwrap();
@@ -89,6 +90,7 @@ fn a_scene_drains_colour_while_dim() {
         values: Values {
             slots: &slots,
             table: device::TABLE,
+            rate: 48_000,
         },
         power,
         level: 0.0,
@@ -100,7 +102,6 @@ fn a_scene_drains_colour_while_dim() {
         parts_lit: [0.0; MAX_PARTS],
         spectrum: None,
         mist: 0.0,
-        rate: 48_000,
         bpm: 120.0,
         reading: None,
         id: eframe::egui::Id::NULL,
