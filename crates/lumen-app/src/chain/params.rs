@@ -191,6 +191,7 @@ impl App {
             let values = super::face::Values {
                 slots: &slots,
                 table,
+                rate: 48_000,
             };
             picked = self
                 .chain

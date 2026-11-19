@@ -120,6 +120,7 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body
     let values = Values {
         slots: personal.slots,
         table: personal.table,
+        rate: personal.rate,
     };
     let mut asked = Vec::new();
     let hot = handles::interact(ui, &plan, drawing, &values, id, &mut asked);
@@ -130,7 +131,7 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body
     });
     let still = motion::reduced();
     let awake = cadence::wake(&ctx, id, personal.level, still);
-    let mist = motion::fade(&ctx, id.with("mist"), personal.spectrum.is_some() && !still);
+    let mist = motion::fade(&ctx, id.with("mist"), personal.spectrum.is_some());
     let picture = painter.with_clip_rect(plan.picture);
     (drawing.draw)(&Scene {
         painter: &picture,
@@ -148,7 +149,6 @@ pub(super) fn paint(ui: &mut Ui, rect: Rect, id: egui::Id, look: &Look<'_>, body
         parts_lit: part_hot.lit,
         spectrum: personal.spectrum,
         mist,
-        rate: personal.rate,
         bpm: personal.bpm,
         reading: personal.reading,
         id,

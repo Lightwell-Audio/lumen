@@ -29,13 +29,9 @@ fn the_output_chip_names_where_the_sound_goes() {
 }
 
 #[test]
-fn the_analyser_runs_only_while_something_is_heard_and_motion_is_not_reduced() {
+fn the_analyser_runs_only_while_something_is_heard() {
     use super::rows::mist_runs;
-    assert!(mist_runs(false, true, 0.0), "playing");
-    assert!(mist_runs(false, false, 0.4), "a meter that reads");
-    assert!(!mist_runs(false, false, 0.0), "stopped and silent");
-    assert!(
-        !mist_runs(true, true, 0.9),
-        "reduced motion is a still screen"
-    );
+    assert!(mist_runs(true, 0.0), "playing");
+    assert!(mist_runs(false, 0.4), "a meter that reads");
+    assert!(!mist_runs(false, 0.0), "stopped and silent");
 }

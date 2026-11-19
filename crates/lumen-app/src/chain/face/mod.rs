@@ -7,9 +7,9 @@ use super::strip::Slot;
 pub(crate) mod afterglow;
 pub(crate) mod ballistics;
 pub(crate) mod cadence;
-pub(crate) mod eq;
 pub(crate) mod gravity;
 pub(crate) mod horizon;
+pub(crate) mod iris;
 mod meter;
 mod paint;
 pub(crate) mod parallax;
@@ -17,14 +17,14 @@ pub(crate) mod prism;
 
 const DRAWINGS: &[(&str, &Drawing)] = &[
     (lumen_devices::utility::NAME, &prism::DRAWING),
-    (lumen_devices::eq::NAME, &eq::DRAWING),
+    (lumen_devices::eq::NAME, &iris::DRAWING),
     (lumen_devices::delay::NAME, &parallax::DRAWING),
     (lumen_devices::reverb::NAME, &afterglow::DRAWING),
     (lumen_devices::dynamics::compressor::NAME, &gravity::DRAWING),
     (lumen_devices::dynamics::limiter::NAME, &horizon::DRAWING),
 ];
 
-const PARTED: &[(&str, &Parts)] = &[(lumen_devices::eq::NAME, &eq::PARTS)];
+const PARTED: &[(&str, &Parts)] = &[(lumen_devices::eq::NAME, &iris::PARTS)];
 
 pub(crate) fn drawing_of(name: &str) -> Option<&'static Drawing> {
     DRAWINGS
@@ -207,6 +207,7 @@ pub(crate) const MAX_PARTS: usize = 8;
 pub(crate) struct Values<'a> {
     pub slots: &'a [Slot],
     pub table: &'static [ParamInfo],
+    pub rate: u32,
 }
 
 impl Values<'_> {
@@ -253,7 +254,6 @@ pub(crate) struct Scene<'a> {
     pub parts_lit: [f32; MAX_PARTS],
     pub spectrum: Option<&'a [f32]>,
     pub mist: f32,
-    pub rate: u32,
     pub bpm: f32,
     pub reading: Option<lumen_devices::MeterReading>,
     pub id: eframe::egui::Id,

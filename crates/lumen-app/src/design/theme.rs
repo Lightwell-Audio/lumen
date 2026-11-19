@@ -542,6 +542,13 @@ pub mod personality {
         Color32::from_rgb(0xB0, 0x7C, 0xFF),
     ];
 
+    pub const EQ_DEEP: Color32 = Color32::from_rgb(0x0B, 0x0D, 0x18);
+
+    pub const EQ_MIST: [Color32; 2] = [
+        Color32::from_rgb(0xA0, 0xAF, 0xFF),
+        Color32::from_rgb(0xCD, 0xD7, 0xFF),
+    ];
+
     pub const EQ_BANDS: [Color32; 8] = [
         Color32::from_rgb(0xFF, 0x5A, 0x6E),
         Color32::from_rgb(0xFF, 0xB5, 0x47),

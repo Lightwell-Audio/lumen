@@ -61,6 +61,7 @@ mod hidden_notes;
 mod hosting;
 mod info;
 mod instance;
+mod iris_face;
 mod keyboard;
 mod keys;
 mod lane_edit;

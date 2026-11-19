@@ -36,6 +36,7 @@ fn values(slots: &[Slot]) -> Values<'_> {
     Values {
         slots,
         table: device::TABLE,
+        rate: 48_000,
     }
 }
 
@@ -144,7 +145,6 @@ fn scene<'a>(
         parts_lit: [0.0; super::super::MAX_PARTS],
         spectrum: None,
         mist: 0.0,
-        rate: 48_000,
         bpm: 120.0,
         reading: None,
         id: eframe::egui::Id::new("test card"),

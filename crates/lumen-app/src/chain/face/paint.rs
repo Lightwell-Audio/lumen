@@ -47,6 +47,16 @@ pub(super) fn line(
     width: f32,
     colour: Color32,
 ) {
+    line_with(mesh, n, at, width, |_| colour);
+}
+
+pub(super) fn line_with(
+    mesh: &mut Mesh,
+    n: usize,
+    at: impl Fn(usize) -> Pos2,
+    width: f32,
+    colour: impl Fn(usize) -> Color32,
+) {
     if n < 2 {
         return;
     }
@@ -63,9 +73,10 @@ pub(super) fn line(
             vec2(1.0, 0.0)
         };
         let across = vec2(-along.y, along.x);
+        let ink = colour(i);
         mesh.colored_vertex(here - across * edge, Color32::TRANSPARENT);
-        mesh.colored_vertex(here - across * core, colour);
-        mesh.colored_vertex(here + across * core, colour);
+        mesh.colored_vertex(here - across * core, ink);
+        mesh.colored_vertex(here + across * core, ink);
         mesh.colored_vertex(here + across * edge, Color32::TRANSPARENT);
     }
     for i in 0..n as u32 - 1 {
