@@ -16421,7 +16421,7 @@ clippy were not run on this machine; no audio path changed.
 **Parent change after review.** The specimen leaves the stem between the glass's exit and the fan's root empty, and at the default Bass mono (120 Hz, about 0.6 of its range) that gap is wide enough that the fan looked detached from the glass (the complaint OR-7 made of Iris). The white beam now runs on from the exit to the root, so the bass reads as one beam until it splits.
 
 
-## ADR-XXXX — Learn for a drum sound's output note
+## ADR-0164 — Learn for a drum sound's output note
 
 **Status.** Proposed (the parent numbers it). Owner's choice, option A,
 2026-11-19.
