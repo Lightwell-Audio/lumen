@@ -16494,3 +16494,100 @@ The face-alone measurement (`card::tests::set_piece_cost`) panics in egui's
 texture handling before it measures anything on this machine, so there is no
 number for the face alone. The WSL performance gate and the macOS cross-target
 clippy were not run here; no audio path changed.
+
+
+## ADR-0164 — Learn for a drum sound's output note
+
+**Status.** Proposed (the parent numbers it). Owner's choice, option A,
+2026-11-19.
+
+**Context.** The drum map editor had one Learn button per sound. It set the
+sound's **input** note, the key you play. The owner's workflow runs the other
+way: open an instrument with a drum kit, play keys until the snare sounds, then
+press Learn on the Snare row to say "the snare is on this note". That is the
+**output** note, the one the map sends to the instrument. Learn left it alone,
+so the row went on sending its old note, and the instrument played whatever it
+had there. The map also translates live notes, so even while the owner hunted
+for the snare, a key played a different sound from the one it is labelled with.
+
+**Options.**
+
+- **A. Two Learn buttons per row**, one beside the input note and one beside
+  the output note. Chosen.
+- B. One Learn button and a toggle for which column it sets.
+- C. One Learn button that sets both the input and the output to the note
+  played.
+
+**Decision.**
+
+1. **Two buttons**, drawn in the row's own columns: Learn beside In and beside
+   Out (`Columns::learn_in`, `learn_out`; the old single column at the row's
+   end is gone). Their accessible names and tooltips are "{sound}: Learn the key
+   you play (sets the input note)" and "{sound}: Learn the instrument's note
+   (sets the output note)". The listening one reads "Listen". They come in the
+   Tab order after the note they belong to.
+2. **One learning state** (`drum_map_window/learn.rs`): which sound and which
+   column. Pressing either button while the other listens switches to it;
+   pressing the one that listens stops it. The notice under the table says what
+   is listening. Esc stops either Learn without closing the window; the next
+   Esc closes it. While a Learn listens, the computer keyboard does not take
+   Esc (it would otherwise leave the keyboard mode and the Learn would stay).
+   Handlers check `App::typing`.
+3. **Learn input** is unchanged.
+4. **Learn output** sets the output through `Document::learn_sound_output`: one
+   undo step, "Learn the drum sound's output note", and a toast that says in
+   full what changed ("Snare now sends note 52 to the instrument instead of
+   38, one undo step"). Two sounds may send the same output (the model allows
+   it; `Action::Output` already did), so a note another sound sends is taken.
+   If the played note already is the sound's output, the toast says so and the
+   Learn keeps listening ("play another note"). Input Learn, as before, stops
+   listening in that case; that difference was left alone because the owner
+   asked for input Learn to behave as it does today.
+5. **While output Learn listens, played notes skip the map.** The map's
+   translation of a live note happens in the engine's player
+   (`midi/player/play.rs`: `LiveState::take` and `choke`, with the track's
+   `DrumKit`). `LiveIn` has a new `raw` flag; when it is set, the player uses no
+   kit for that message, so the note, its channel, its mute and its choke group
+   are the key as played. The flag is stamped where each live message is made:
+   `LiveFeed::pull` reads the shared `raw` bool for a hardware port's message when
+   it is taken off the input queue, and `LiveKeys::push` reads it when the
+   computer keyboard's message is queued (`Keyed.raw`; an audition is never
+   raw). Both routes, the Lumen window and a plugin editor's window for the
+   keyboard (PR #142), and hardware MIDI, therefore feed both kinds of Learn and
+   both are bypassed. The flag is a `bool` in `live_tap::Shared`, set from the
+   frame's end by `App::sync_live_notes_as_played`, so a key that ends a Learn
+   in the middle of a frame is still sent raw: the keyboard code asks the window
+   (`drum_map_heard`) and then queues the note, and the flag only changes after
+   both.
+6. **Notes never hang.** A live note-off is not translated again. The player
+   keeps what each held note sent (`LiveHeld.out`, `out_key`) and a note-off
+   releases that, so a note-on sent raw is released raw, and a mapped one mapped,
+   whichever way the flag has moved in between. An engine test
+   (`a_raw_live_note_skips_the_map_and_its_off_is_raw_even_when_sent_plainly`)
+   sends the off both ways, and a unit test in `live.rs` shows that the flag is
+   stamped when a message is made, not when it is taken. Closing the window or Esc
+   ends the Learn, and the frame's end then clears the flag.
+7. **The bypass is for every track that listens.** A track without a drum map
+   has no kit, so nothing changes for it. A second drum track listening at the
+   same time also plays raw while the learn listens; the user is listening for
+   one instrument, and the window does not know which tracks are armed, so the
+   simpler rule won.
+8. **No command.** The window's Learn is not a command or a palette entry
+   today, so no command was added (`undocumented.txt` is unchanged).
+
+**Consequences.**
+
+- `LiveIn` grew a field, so the engine's test inputs say `raw: false`. The
+  player's loop reads one more bool per live message; it does no work for a
+  message that is not raw. Nothing allocates.
+- The table has one more column: the name column is 50 points narrower. The
+  window's width is unchanged.
+- E2E (`tests/e2e/drums.rs`): output Learn from the computer keyboard sets the
+  output and leaves the input; the instrument sounds the key as played while it
+  listens (an octave under the map's note) and the map answers again after it;
+  a key that already is the output keeps it listening; the two Learns switch;
+  Esc stops each and leaves the window and the keyboard.
+
+**What is left.** Hardware MIDI is covered by the unit and engine tests but not
+by a person: MT-DRUM-LEARN-1 (`docs/manual-tests/M8.md`) waits for the owner's
+instrument and keyboard.

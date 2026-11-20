@@ -6,11 +6,13 @@ use eframe::emath::GuiRounding as _;
 use lumen_project::drums::presets::Preset;
 use lumen_project::model::{DrumMap, Id, Sound};
 
+use self::learn::{Column, Learn};
 use crate::app::projects::FileDialog;
 use crate::widgets::{self, Dialog, Menu, raised};
 use crate::{App, theme};
 
 pub(crate) mod files;
+pub(crate) mod learn;
 pub(crate) mod table;
 
 pub(crate) const WIDTH: f32 = 780.0;
@@ -65,6 +67,7 @@ pub(crate) enum Action {
     },
     Learn {
         input: u8,
+        column: Column,
     },
     Add,
     Remove {
@@ -136,7 +139,7 @@ struct Open {
     users: Vec<files::Saved>,
     job: Option<Job>,
     notice: Option<Notice>,
-    learn: Option<u8>,
+    learn: Option<Learn>,
     pending_export: Option<DrumMap>,
 }
 
@@ -147,11 +150,6 @@ impl State {
 
     pub(crate) fn map(&self) -> Option<Id> {
         self.open.as_ref().and_then(|open| open.map)
-    }
-
-    pub(crate) fn learning(&self) -> Option<(Id, u8)> {
-        let open = self.open.as_ref()?;
-        Some((open.map?, open.learn?))
     }
 
     pub(crate) fn notice(&self) -> Option<&Notice> {
@@ -206,30 +204,6 @@ impl App {
         files::user_folder(self.settings_path.as_deref())
     }
 
-    pub(crate) fn drum_map_heard(&mut self, key: u8) {
-        let Some((map, input)) = self.drum_map.learning() else {
-            return;
-        };
-        if let Some(open) = &mut self.drum_map.open {
-            open.learn = None;
-        }
-        if input == key {
-            self.say(format!(
-                "That sound already answers to note {key}; play another note"
-            ));
-            return;
-        }
-        if self.document.set_sound_input(map, input, key) {
-            self.say(format!(
-                "The sound now answers to note {key}, one undo step"
-            ));
-        } else {
-            self.say(format!(
-                "Another sound already answers to note {key}, so nothing changed"
-            ));
-        }
-    }
-
     pub(crate) fn drum_map_window(&mut self, ctx: &egui::Context) {
         let Some(mut open) = self.drum_map.open.take() else {
             return;
@@ -245,26 +219,31 @@ impl App {
             None => "Drum map".to_owned(),
         };
         let mut action = None;
-        let close = Dialog::new("drum map", &title, WIDTH)
-            .at(
-                pos2(ctx.content_rect().center().x, 64.0),
-                Align2::CENTER_TOP,
-            )
-            .show(ctx, |ui| {
-                match &map {
-                    Some(map) => action = self.drum_map_controls(ui, map, &open, &tracks),
-                    None => action = self.drum_map_chooser(ui, &open, &tracks),
-                }
-                if let Some(notice) = &open.notice {
-                    ui.add_space(theme::space::S);
-                    let colour = if notice.bad {
-                        theme::p().warning
-                    } else {
-                        theme::p().text_secondary
-                    };
-                    ui.label(RichText::new(&notice.words).small().color(colour));
-                }
-            });
+        let was_learning = self.drum_map_escape(&mut open, ctx);
+        let dialog = Dialog::new("drum map", &title, WIDTH).at(
+            pos2(ctx.content_rect().center().x, 64.0),
+            Align2::CENTER_TOP,
+        );
+        let dialog = if was_learning {
+            dialog.esc_to_caller()
+        } else {
+            dialog
+        };
+        let close = dialog.show(ctx, |ui| {
+            match &map {
+                Some(map) => action = self.drum_map_controls(ui, map, &open, &tracks),
+                None => action = self.drum_map_chooser(ui, &open, &tracks),
+            }
+            if let Some(notice) = &open.notice {
+                ui.add_space(theme::space::S);
+                let colour = if notice.bad {
+                    theme::p().warning
+                } else {
+                    theme::p().text_secondary
+                };
+                ui.label(RichText::new(&notice.words).small().color(colour));
+            }
+        });
         open.fresh = false;
         if close {
             self.drum_map.open = None;
@@ -482,19 +461,9 @@ impl App {
             Action::Icon { input, icon } => {
                 self.document.set_sound_icon(map, input, icon);
             }
-            Action::Learn { input } => {
-                open.learn = if open.learn == Some(input) {
-                    None
-                } else {
-                    Some(input)
-                };
-                open.notice = Some(if open.learn.is_some() {
-                    Notice::good(
-                        "Waiting for a note: play it on a MIDI input, and it becomes this sound's note",
-                    )
-                } else {
-                    Notice::good("No longer listening for a note")
-                });
+            Action::Learn { input, column } => {
+                open.learn = learn::pressed(open.learn, Learn { input, column });
+                open.notice = Some(learn::notice_for(open.learn));
             }
             Action::Add => {
                 if let Some(sound) = self.new_drum_sound(map) {
@@ -511,7 +480,7 @@ impl App {
             }
             Action::Remove { input } => {
                 self.document.remove_drum_sound(map, input);
-                if open.learn == Some(input) {
+                if open.learn.is_some_and(|learn| learn.input == input) {
                     open.learn = None;
                 }
             }

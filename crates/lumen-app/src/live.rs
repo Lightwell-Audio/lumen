@@ -81,12 +81,14 @@ impl FrameMap {
 struct Keyed {
     nanos: i64,
     track: Option<u64>,
+    raw: bool,
     msg: Msg,
 }
 
 pub struct LiveKeys {
     tx: rtrb::Producer<Keyed>,
     clock: Arc<StreamClock>,
+    shared: Arc<Shared>,
     sent: u32,
     held: u128,
 }
@@ -102,7 +104,16 @@ impl LiveKeys {
 
     fn push(&mut self, track: Option<u64>, msg: Msg) -> bool {
         let nanos = self.clock.now();
-        let sent = self.tx.push(Keyed { nanos, track, msg }).is_ok();
+        let raw = track.is_none() && self.shared.raw.load(std::sync::atomic::Ordering::Relaxed);
+        let sent = self
+            .tx
+            .push(Keyed {
+                nanos,
+                track,
+                raw,
+                msg,
+            })
+            .is_ok();
         if sent {
             self.sent = self.sent.wrapping_add(1);
             match msg.kind() {
@@ -157,6 +168,7 @@ pub(crate) fn live(
         played: 0,
         source: 0,
         track: None,
+        raw: false,
         msg: Msg::default(),
     };
     (
@@ -176,6 +188,7 @@ pub(crate) fn live(
         LiveKeys {
             tx,
             clock,
+            shared: Arc::clone(&shared),
             sent: 0,
             held: 0,
         },
@@ -301,6 +314,7 @@ impl LiveInput for LiveFeed {
                         played: at,
                         source,
                         track: None,
+                        raw: self.shared.raw.load(std::sync::atomic::Ordering::Relaxed),
                         msg,
                     },
                     take,
@@ -323,6 +337,7 @@ impl LiveInput for LiveFeed {
                         KEYBOARD
                     },
                     track: keyed.track,
+                    raw: keyed.raw,
                     msg: keyed.msg,
                 },
                 take,
@@ -635,6 +650,56 @@ mod tests {
         assert_eq!(
             (notes[0].key, notes[0].velocity, notes[0].source),
             (46, 90, 2)
+        );
+    }
+
+    #[test]
+    fn notes_from_a_port_and_from_the_keyboard_are_raw_only_while_the_flag_is_up() {
+        let clock = StreamClock::new();
+        let (mut tx, rx) = rtrb::RingBuffer::new(16);
+        let (mut feed, mut keys, tap) = live(Some(rx), Arc::clone(&clock));
+        block(&mut feed, &clock, 0, 0);
+        let arrives = at(200);
+        tx.push(timed(&clock, 2, 1, arrives, Msg::note_on(0, 46, 90)))
+            .unwrap();
+        assert!(keys.send(Msg::note_on(0, 50, 90)));
+        assert!(keys.send_to(7, Msg::note_on(0, 51, 90)));
+        let mut plain = Vec::new();
+        for i in 1..4 {
+            plain.extend(block(&mut feed, &clock, i, at(128 * (i as i64 + 1))));
+        }
+        assert_eq!(plain.len(), 3);
+        assert!(plain.iter().all(|m| !m.raw), "the map answers");
+
+        tap.set_raw(true);
+        tx.push(timed(&clock, 2, 2, at(300), Msg::note_on(0, 47, 90)))
+            .unwrap();
+        assert!(keys.send(Msg::note_on(0, 52, 90)));
+        assert!(keys.send_to(7, Msg::note_on(0, 53, 90)));
+        let mut raw = Vec::new();
+        for i in 4..8 {
+            raw.extend(block(&mut feed, &clock, i, at(128 * (i as i64 + 1))));
+        }
+        let by_key = |key: u8| {
+            raw.iter()
+                .find(|m| m.msg == Msg::note_on(0, key, 90))
+                .copied()
+                .expect("the note came through")
+        };
+        assert!(by_key(47).raw, "a port's note");
+        assert!(by_key(52).raw, "the computer keyboard's note");
+        assert!(!by_key(53).raw, "an audition is always mapped");
+
+        assert!(keys.send(Msg::note_off(0, 52)));
+        tap.set_raw(false);
+        let mut off = Vec::new();
+        for i in 8..11 {
+            off.extend(block(&mut feed, &clock, i, at(128 * (i as i64 + 1))));
+        }
+        assert_eq!(off.len(), 1);
+        assert!(
+            off.iter().all(|m| m.raw),
+            "a message sent while the flag was up stays as it was sent"
         );
     }
 

@@ -533,6 +533,7 @@ fn midi_never_touches_the_heap() {
                         played: self.next,
                         source: 3,
                         track: None,
+                        raw: false,
                         msg,
                     });
                     for track in [5, 4] {
@@ -541,6 +542,7 @@ fn midi_never_touches_the_heap() {
                             played: self.next,
                             source: lumen_engine::AUDITION,
                             track: Some(track),
+                            raw: false,
                             msg,
                         });
                     }
@@ -929,6 +931,7 @@ fn a_choking_drum_track_never_touches_the_heap() {
                         played: self.next,
                         source: 3,
                         track: None,
+                        raw: false,
                         msg,
                     });
                 }

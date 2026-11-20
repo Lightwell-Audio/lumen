@@ -541,12 +541,17 @@ fn learn_hears_a_note_from_the_computer_keyboard() {
     assert!(lumen.app().computer_keyboard_on());
     lumen
         .harness
-        .query_all_by_label_contains("learn it from the next note played")
+        .query_all_by_label_contains("Learn the key you play")
         .next()
         .expect("a Learn button")
         .click();
     lumen.frames(3);
     assert_eq!(lumen.app().drum_map_learning(), Some(35));
+    assert_eq!(lumen.app().drum_map_learning_column(), Some("input"));
+    assert!(
+        !lumen.app().live_notes_play_as_they_are(),
+        "input Learn leaves the map in place"
+    );
     lumen.key(Modifiers::NONE, Key::X);
     lumen.key(Modifiers::NONE, Key::X);
     lumen.key(Modifiers::NONE, Key::A);
@@ -556,5 +561,232 @@ fn learn_hears_a_note_from_the_computer_keyboard() {
     assert!(
         map_of(&lumen, map).sound(84).is_some(),
         "the sound answers to the note the keyboard played"
+    );
+}
+
+fn learn_song() -> Project {
+    let mut project = mapped_song();
+    let mut map = Preset::GENERAL_MIDI.map(Id(500));
+    for sound in &mut map.sounds {
+        match sound.input {
+            35 => sound.output = 48,
+            60 => sound.output = 72,
+            _ => {}
+        }
+    }
+    project.drum_maps = vec![map];
+    project
+}
+
+fn learn_editor(name: &str) -> (Lumen, Id) {
+    let mut lumen = launch(name, &learn_song());
+    lumen.harness.get_by_label_contains("Track Drums,").click();
+    lumen.frames(3);
+    palette(&mut lumen, "Drum map");
+    assert!(lumen.app().drum_map_editor_open());
+    lumen.frames(5);
+    lumen.click("Computer keyboard plays notes");
+    lumen.frames(3);
+    assert!(lumen.app().computer_keyboard_on());
+    (lumen, Id(500))
+}
+
+fn press_learn(lumen: &mut Lumen, which: &str) {
+    lumen
+        .harness
+        .query_all_by_label_contains(which)
+        .next()
+        .expect("a Learn button")
+        .click();
+    lumen.frames(3);
+}
+
+fn learn_output(lumen: &mut Lumen) {
+    press_learn(lumen, "Learn the instrument's note");
+}
+
+fn learn_input(lumen: &mut Lumen) {
+    press_learn(lumen, "Learn the key you play");
+}
+
+const PITCH_WINDOW: usize = 4_800;
+
+fn onset(left: &[f32]) -> Option<usize> {
+    left.iter().position(|s| s.abs() > 0.02)
+}
+
+fn press_and_hold(lumen: &mut Lumen, key: Key, pressed: bool) {
+    lumen.harness.event(Event::Key {
+        key,
+        physical_key: None,
+        pressed,
+        repeat: false,
+        modifiers: Modifiers::NONE,
+    });
+    lumen.harness.step();
+}
+
+fn played_pitch(lumen: &mut Lumen, key: Key) -> f64 {
+    let heard = lumen.listen_until(
+        |l| press_and_hold(l, key, true),
+        |heard| {
+            let left: Vec<f32> = heard.iter().map(|f| f[0]).collect();
+            onset(&left).is_some_and(|at| left.len() >= at + PITCH_WINDOW)
+        },
+    );
+    press_and_hold(lumen, key, false);
+    lumen.frames(3);
+    let left: Vec<f32> = heard.iter().map(|f| f[0]).collect();
+    let onset = onset(&left).expect("the note is heard");
+    let window = &left[onset..onset + PITCH_WINDOW];
+    let crossings = window
+        .windows(2)
+        .filter(|pair| pair[0] <= 0.0 && pair[1] > 0.0)
+        .count();
+    crossings as f64 / (window.len() as f64 / RATE)
+}
+
+fn octave_apart(low: f64, high: f64) -> bool {
+    let ratio = high / low;
+    (1.8..2.2).contains(&ratio)
+}
+
+fn same_pitch(a: f64, b: f64) -> bool {
+    (a / b - 1.0).abs() < 0.08
+}
+
+#[test]
+fn output_learn_from_the_computer_keyboard_sets_the_output_and_leaves_the_input() {
+    let (mut lumen, map) = learn_editor("drums-learn-out");
+    learn_output(&mut lumen);
+    assert_eq!(lumen.app().drum_map_learning(), Some(35));
+    assert_eq!(lumen.app().drum_map_learning_column(), Some("output"));
+    lumen.key(Modifiers::NONE, Key::A);
+    lumen.frames(3);
+    assert_eq!(lumen.app().drum_map_learning(), None, "learning ended");
+    let sound = map_of(&lumen, map).sound(35).cloned().expect("still on 35");
+    assert_eq!(
+        sound.output, 60,
+        "the output is the key the keyboard played"
+    );
+    assert_eq!(sound.input, 35, "the input did not move");
+    assert_eq!(
+        lumen.app().undo_label(),
+        Some("Learn the drum sound's output note"),
+        "one undo step"
+    );
+    let note = lumen.app().note().expect("a toast says what changed");
+    assert!(
+        note.contains("now sends note 60") && note.contains("instead of 48"),
+        "{note}"
+    );
+    lumen.key(Modifiers::COMMAND, Key::Z);
+    lumen.frames(3);
+    assert_eq!(
+        map_of(&lumen, map).sound(35).map(|s| (s.input, s.output)),
+        Some((35, 48)),
+        "one undo gave the output back"
+    );
+}
+
+#[test]
+fn while_output_learn_listens_the_instrument_gets_the_key_as_played() {
+    let (mut lumen, _map) = learn_editor("drums-learn-raw");
+    let mapped = played_pitch(&mut lumen, Key::A);
+    learn_output(&mut lumen);
+    lumen.wait_for("the bypass", |app| app.live_notes_play_as_they_are());
+    let raw = played_pitch(&mut lumen, Key::A);
+    assert!(
+        octave_apart(raw, mapped),
+        "the map sends 60 to note 72, an octave above the note as played: {mapped} Hz mapped, {raw} Hz raw"
+    );
+    assert!(
+        lumen.app().computer_keyboard_held().is_empty(),
+        "no note is left held"
+    );
+    lumen.wait_for("the map back", |app| !app.live_notes_play_as_they_are());
+    let after = played_pitch(&mut lumen, Key::A);
+    assert!(
+        same_pitch(after, mapped),
+        "learning ended, so the map answers again: {after} Hz against {mapped} Hz"
+    );
+}
+
+#[test]
+fn a_key_that_already_is_the_output_keeps_output_learn_listening() {
+    let (mut lumen, map) = learn_editor("drums-learn-same");
+    learn_output(&mut lumen);
+    lumen.key(Modifiers::NONE, Key::Z);
+    lumen.key(Modifiers::NONE, Key::A);
+    lumen.frames(3);
+    assert_eq!(
+        lumen.app().drum_map_learning_column(),
+        Some("output"),
+        "note 48 is already the output, so it keeps listening"
+    );
+    let note = lumen.app().note().expect("a toast says why");
+    assert!(note.contains("already sends note 48"), "{note}");
+    assert_eq!(map_of(&lumen, map).sound(35).map(|s| s.output), Some(48));
+    assert_eq!(lumen.app().undo_label(), None, "nothing was changed");
+}
+
+#[test]
+fn the_two_learns_switch_and_a_second_press_of_the_same_one_stops_it() {
+    let (mut lumen, map) = learn_editor("drums-learn-switch");
+    learn_input(&mut lumen);
+    assert_eq!(lumen.app().drum_map_learning_column(), Some("input"));
+    assert!(!lumen.app().live_notes_play_as_they_are());
+    learn_output(&mut lumen);
+    assert_eq!(
+        lumen.app().drum_map_learning_column(),
+        Some("output"),
+        "the output Learn took over from the input"
+    );
+    lumen.wait_for("the bypass", |app| app.live_notes_play_as_they_are());
+    learn_input(&mut lumen);
+    assert_eq!(lumen.app().drum_map_learning_column(), Some("input"));
+    lumen.wait_for("the map back", |app| !app.live_notes_play_as_they_are());
+    learn_input(&mut lumen);
+    assert_eq!(
+        lumen.app().drum_map_learning(),
+        None,
+        "the same press stops it"
+    );
+    learn_output(&mut lumen);
+    learn_output(&mut lumen);
+    assert_eq!(lumen.app().drum_map_learning(), None);
+    assert_eq!(map_of(&lumen, map).sound(35).map(|s| s.output), Some(48));
+    assert_eq!(
+        lumen.app().undo_label(),
+        None,
+        "learning alone changes nothing"
+    );
+}
+
+#[test]
+fn escape_stops_either_learn_and_leaves_the_window_and_the_keyboard() {
+    let (mut lumen, map) = learn_editor("drums-learn-esc");
+    for learn in [learn_input as fn(&mut Lumen), learn_output] {
+        learn(&mut lumen);
+        assert!(lumen.app().drum_map_learning().is_some());
+        lumen.key(Modifiers::NONE, Key::Escape);
+        lumen.frames(3);
+        assert_eq!(lumen.app().drum_map_learning(), None, "Esc stopped it");
+        assert!(lumen.app().drum_map_editor_open(), "the window stays");
+        assert!(lumen.app().computer_keyboard_on(), "the keyboard stays on");
+        lumen.wait_for("the map back", |app| !app.live_notes_play_as_they_are());
+        assert_eq!(map_of(&lumen, map).sound(35).map(|s| s.output), Some(48));
+    }
+    lumen.key(Modifiers::NONE, Key::Escape);
+    lumen.frames(3);
+    assert!(
+        !lumen.app().computer_keyboard_on(),
+        "Esc with nothing to stop leaves the keyboard as before"
+    );
+    lumen.key(Modifiers::NONE, Key::Escape);
+    lumen.frames(3);
+    assert!(
+        !lumen.app().drum_map_editor_open(),
+        "and the next Esc closes the window as before"
     );
 }

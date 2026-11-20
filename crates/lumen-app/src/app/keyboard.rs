@@ -208,6 +208,7 @@ impl App {
         }
         let typing = ctx.text_edit_focused() || self.typing || self.rebind.is_some();
         let free = !typing && !self.window_open();
+        let learning = self.drum_map.learning().is_some();
         let mut out = Vec::new();
         let mut leave = false;
         let keyboard = &mut self.keyboard;
@@ -233,7 +234,7 @@ impl App {
                     ..
                 } if free && keyboard.is_on() => {
                     let plain = !modifiers.command && !modifiers.alt && !modifiers.shift;
-                    if plain && key == Key::Escape {
+                    if plain && key == Key::Escape && !learning {
                         leave = true;
                         false
                     } else if plain && is_taken(key) {

@@ -1864,8 +1864,9 @@ Export…) as ordinary buttons. Under them a table of sounds: a caption row
 with the sound's icon at the left (a button: click for its grid, drag to move
 the row), its name in a sunken field, its input and output notes, channel,
 choke and a colour swatch in `widgets::number` fields, 20 pt lettered M and S
-toggles (the lanes' 20 × 18), Quantize and Length dropdowns, a Learn button
-and Remove. Each number is type-in, wheel and double-click reset (DESIGN §5);
+toggles (the lanes' 20 × 18), Quantize and Length dropdowns, a 44 pt Learn
+button beside each of the input and the output note ("Learn the key you play"
+and "Learn the instrument's note"; the listening one reads Listen) and Remove. Each number is type-in, wheel and double-click reset (DESIGN §5);
 Enter or Tab in a name commits it and takes the keyboard to the note. The
 icon popover is a 5 × 3 grid of the fifteen drawings, each named, the current
 one lit, its ring opening on it and the arrows moving it. A track without a

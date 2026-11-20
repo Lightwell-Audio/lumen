@@ -29,6 +29,18 @@ impl Document {
         true
     }
 
+    pub fn learn_sound_output(&mut self, map: Id, input: u8, key: u8) -> bool {
+        let Some(sound) = self.drum_map(map).and_then(|m| m.sound(input)) else {
+            return false;
+        };
+        if key > 127 || sound.output == key {
+            return false;
+        }
+        self.edit_sound(map, input, "Learn the drum sound's output note", |sound| {
+            sound.output = key;
+        })
+    }
+
     pub fn set_sound_color(&mut self, map: Id, input: u8, color: Color) -> bool {
         self.edit_sound(map, input, "Change the drum sound's colour", |sound| {
             sound.color = color;
@@ -189,6 +201,47 @@ mod tests {
         assert_eq!(sound(&doc, map, 30).map(|s| s.name), Some("Kick".into()));
         assert_eq!(doc.undo().as_deref(), Some("Change the drum sound's note"));
         assert!(sound(&doc, map, 36).is_some());
+    }
+
+    #[test]
+    fn a_learned_output_note_changes_only_the_output_in_one_undo_step() {
+        let (mut doc, _track, map) = kit();
+        let before = sound(&doc, map, 38).expect("the snare");
+        assert!(doc.learn_sound_output(map, 38, 52));
+        let after = sound(&doc, map, 38).expect("the snare is still on its input");
+        assert_eq!(after.output, 52);
+        assert_eq!(after.input, 38);
+        assert_eq!(after.name, before.name);
+        assert_eq!(
+            doc.undo().as_deref(),
+            Some("Learn the drum sound's output note")
+        );
+        assert_eq!(sound(&doc, map, 38), Some(before));
+    }
+
+    #[test]
+    fn an_output_note_another_sound_already_sends_is_allowed() {
+        let (mut doc, _track, map) = kit();
+        let kick = sound(&doc, map, 36).expect("the kick").output;
+        assert!(doc.learn_sound_output(map, 38, kick));
+        assert_eq!(sound(&doc, map, 38).map(|s| s.output), Some(kick));
+        assert_eq!(sound(&doc, map, 36).map(|s| s.output), Some(kick));
+    }
+
+    #[test]
+    fn learning_the_note_a_sound_already_sends_or_a_missing_one_changes_nothing() {
+        let (mut doc, _track, map) = kit();
+        let held = sound(&doc, map, 38).expect("the snare").output;
+        let label = doc.history().undo_label().map(str::to_owned);
+        assert!(!doc.learn_sound_output(map, 38, held), "no change");
+        assert!(!doc.learn_sound_output(map, 38, 200), "past 127");
+        assert!(!doc.learn_sound_output(map, 99, 40), "no such sound");
+        assert!(!doc.learn_sound_output(Id(99_999), 38, 40), "no such map");
+        assert_eq!(
+            doc.history().undo_label().map(str::to_owned),
+            label,
+            "nothing was recorded"
+        );
     }
 
     #[test]

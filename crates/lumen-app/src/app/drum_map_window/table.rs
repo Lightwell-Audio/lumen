@@ -7,6 +7,7 @@ use lumen_core::time::{PPQ, Ticks};
 use lumen_project::model::{Color, DrumIcon, Quantize, Sound};
 
 use super::Action;
+use super::learn::{Column, Learn};
 use crate::design::icons::{DrumGlyph, paint_drum_glyph};
 use crate::theme;
 use crate::widgets::number::{self, Number};
@@ -32,7 +33,9 @@ const NAME_LEAST: f32 = 80.0;
 pub(crate) struct Columns {
     pub name: (f32, f32),
     pub input: f32,
+    pub learn_in: f32,
     pub output: f32,
+    pub learn_out: f32,
     pub channel: f32,
     pub mute: f32,
     pub solo: f32,
@@ -40,7 +43,6 @@ pub(crate) struct Columns {
     pub length: f32,
     pub choke: f32,
     pub colour: f32,
-    pub learn: f32,
     pub remove: f32,
 }
 
@@ -55,26 +57,29 @@ impl Columns {
             + LEN
             + CHOKE
             + COLOUR
-            + LEARN
+            + LEARN * 2.0
             + REMOVE
-            + GAP * 12.0;
+            + GAP * 13.0;
         let name_width = (width - fixed).max(NAME_LEAST);
         let name_at = ICON + GAP;
         let input = name_at + name_width + GAP;
-        let output = input + IN + GAP;
-        let channel = output + OUT + GAP;
+        let learn_in = input + IN + GAP;
+        let output = learn_in + LEARN + GAP;
+        let learn_out = output + OUT + GAP;
+        let channel = learn_out + LEARN + GAP;
         let mute = channel + CH + GAP;
         let solo = mute + LETTER + GAP;
         let quantize = solo + LETTER + GAP;
         let length = quantize + Q + GAP;
         let choke = length + LEN + GAP;
         let colour = choke + CHOKE + GAP;
-        let learn = colour + COLOUR + GAP;
-        let remove = learn + LEARN + GAP;
+        let remove = colour + COLOUR + GAP;
         Self {
             name: (name_at, name_width),
             input,
+            learn_in,
             output,
+            learn_out,
             channel,
             mute,
             solo,
@@ -82,7 +87,6 @@ impl Columns {
             length,
             choke,
             colour,
-            learn,
             remove,
         }
     }
@@ -94,7 +98,11 @@ impl Columns {
             + GAP
             + IN
             + GAP
+            + LEARN
+            + GAP
             + OUT
+            + GAP
+            + LEARN
             + GAP
             + CH
             + GAP
@@ -110,15 +118,13 @@ impl Columns {
             + GAP
             + COLOUR
             + GAP
-            + LEARN
-            + GAP
             + REMOVE
     }
 }
 
 pub(crate) struct Input<'a> {
     pub sounds: &'a [Sound],
-    pub learning: Option<u8>,
+    pub learning: Option<Learn>,
     pub focus_first: bool,
 }
 
@@ -260,7 +266,6 @@ fn caption_row(ui: &mut Ui, cols: &Columns) {
     at(cols.length, LEN, "Length");
     at(cols.choke, CHOKE, "Choke");
     at(cols.colour, COLOUR, "Col");
-    at(cols.learn, LEARN, "");
     at(cols.remove, REMOVE, "");
 }
 
@@ -276,7 +281,8 @@ struct RowIds {
     length: Id,
     choke: Id,
     colour: Id,
-    learn: Id,
+    learn_in: Id,
+    learn_out: Id,
     remove: Id,
 }
 
@@ -295,7 +301,8 @@ impl RowIds {
             length: row.with("len"),
             choke: row.with("choke"),
             colour: row.with("colour"),
-            learn: row.with("learn"),
+            learn_in: row.with("learn in"),
+            learn_out: row.with("learn out"),
             remove: row.with("remove"),
         }
     }
@@ -313,7 +320,8 @@ impl RowIds {
             self.length,
             self.choke,
             self.colour,
-            self.learn,
+            self.learn_in,
+            self.learn_out,
             self.remove,
         ];
         ui.ctx().memory(|m| ids.iter().any(|id| m.has_focus(*id)))
@@ -432,6 +440,12 @@ fn draw_row(
             });
         }
     }
+    if learn_button(ui, input, cols, sound, rect, row, Column::Input) {
+        action.get_or_insert(Action::Learn {
+            input: sound.input,
+            column: Column::Input,
+        });
+    }
     if let Some(note) = number::number(
         ui,
         cell(rect, cols.output, OUT),
@@ -452,6 +466,12 @@ fn draw_row(
                 to,
             });
         }
+    }
+    if learn_button(ui, input, cols, sound, rect, row, Column::Output) {
+        action.get_or_insert(Action::Learn {
+            input: sound.input,
+            column: Column::Output,
+        });
     }
     let channel_shown = match sound.channel {
         Some(c) => (c + 1).to_string(),
@@ -592,20 +612,6 @@ fn draw_row(
             });
         }
         ui.close();
-    }
-    let learning = input.learning == Some(sound.input);
-    if word_button(
-        ui,
-        cell(rect, cols.learn, LEARN),
-        row.learn,
-        if learning { "Listen" } else { "Learn" },
-        learning,
-        &format!(
-            "{} input note: learn it from the next note played",
-            sound.name
-        ),
-    ) {
-        action.get_or_insert(Action::Learn { input: sound.input });
     }
     let remove_rect = cell(rect, cols.remove, REMOVE);
     let response = ui
@@ -857,6 +863,34 @@ fn colour_grid(ui: &mut Ui, current: Color) -> Option<Option<Color>> {
     picked.map(Some)
 }
 
+fn learn_button(
+    ui: &mut Ui,
+    input: &Input<'_>,
+    cols: &Columns,
+    sound: &Sound,
+    rect: Rect,
+    row: &RowIds,
+    column: Column,
+) -> bool {
+    let (at, id) = match column {
+        Column::Input => (cols.learn_in, row.learn_in),
+        Column::Output => (cols.learn_out, row.learn_out),
+    };
+    let learning = input.learning
+        == Some(Learn {
+            input: sound.input,
+            column,
+        });
+    word_button(
+        ui,
+        cell(rect, at, LEARN),
+        id,
+        if learning { "Listen" } else { "Learn" },
+        learning,
+        &format!("{}: {}", sound.name, column.tooltip()),
+    )
+}
+
 fn word_button(ui: &mut Ui, rect: Rect, id: Id, label: &str, on: bool, name: &str) -> bool {
     let response = ui.interact(rect, id, Sense::click());
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name));
@@ -1004,16 +1038,17 @@ mod tests {
         let cols = Columns::of(width);
         assert_eq!(cols.name.0, ICON + GAP);
         assert!(cols.name.1 >= NAME_LEAST);
-        assert_eq!(cols.output, cols.input + IN + GAP);
-        assert_eq!(cols.channel, cols.output + OUT + GAP);
+        assert_eq!(cols.learn_in, cols.input + IN + GAP);
+        assert_eq!(cols.output, cols.learn_in + LEARN + GAP);
+        assert_eq!(cols.learn_out, cols.output + OUT + GAP);
+        assert_eq!(cols.channel, cols.learn_out + LEARN + GAP);
         assert_eq!(cols.mute, cols.channel + CH + GAP);
         assert_eq!(cols.solo, cols.mute + LETTER + GAP);
         assert_eq!(cols.quantize, cols.solo + LETTER + GAP);
         assert_eq!(cols.length, cols.quantize + Q + GAP);
         assert_eq!(cols.choke, cols.length + LEN + GAP);
         assert_eq!(cols.colour, cols.choke + CHOKE + GAP);
-        assert_eq!(cols.learn, cols.colour + COLOUR + GAP);
-        assert_eq!(cols.remove, cols.learn + LEARN + GAP);
+        assert_eq!(cols.remove, cols.colour + COLOUR + GAP);
         let right = cols.remove + REMOVE;
         assert!((right - width).abs() < 0.01, "{right} against {width}");
         let wider = Columns::of(width + 100.0);

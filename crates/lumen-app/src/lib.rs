@@ -762,6 +762,7 @@ impl eframe::App for App {
         self.update_controllers(&ctx);
         self.answer_map_requests();
         self.keep_learning_note(&ctx);
+        self.sync_live_notes_as_played();
         self.record_automation(&ctx, rate);
         if self.transport.animating() || meters_moving {
             ctx.request_repaint();
