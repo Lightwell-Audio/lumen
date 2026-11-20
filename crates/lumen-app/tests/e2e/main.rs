@@ -243,6 +243,29 @@ impl Lumen {
         heard
     }
 
+    pub fn listen_until(
+        &mut self,
+        start: impl FnOnce(&mut Self),
+        done: impl Fn(&[[f32; 4]]) -> bool,
+    ) -> Vec<[f32; 4]> {
+        self.frames(1);
+        self.app_mut().heard_all();
+        start(self);
+        let started = Instant::now();
+        let mut heard = self.app_mut().heard_all();
+        while !done(&heard) {
+            assert!(
+                started.elapsed() < patience(),
+                "heard {} frames without what was waited for",
+                heard.len()
+            );
+            std::thread::sleep(Duration::from_millis(10));
+            self.frames(1);
+            heard.extend(self.app_mut().heard_all());
+        }
+        heard
+    }
+
     pub fn wait_for(&mut self, what: &str, done: impl Fn(&App) -> bool) {
         let started = Instant::now();
         loop {

@@ -609,14 +609,36 @@ fn learn_input(lumen: &mut Lumen) {
     press_learn(lumen, "Learn the key you play");
 }
 
+const PITCH_WINDOW: usize = 4_800;
+
+fn onset(left: &[f32]) -> Option<usize> {
+    left.iter().position(|s| s.abs() > 0.02)
+}
+
+fn press_and_hold(lumen: &mut Lumen, key: Key, pressed: bool) {
+    lumen.harness.event(Event::Key {
+        key,
+        physical_key: None,
+        pressed,
+        repeat: false,
+        modifiers: Modifiers::NONE,
+    });
+    lumen.harness.step();
+}
+
 fn played_pitch(lumen: &mut Lumen, key: Key) -> f64 {
-    let heard = lumen.listen_from(|l| l.key(Modifiers::NONE, key), 12_000);
+    let heard = lumen.listen_until(
+        |l| press_and_hold(l, key, true),
+        |heard| {
+            let left: Vec<f32> = heard.iter().map(|f| f[0]).collect();
+            onset(&left).is_some_and(|at| left.len() >= at + PITCH_WINDOW)
+        },
+    );
+    press_and_hold(lumen, key, false);
+    lumen.frames(3);
     let left: Vec<f32> = heard.iter().map(|f| f[0]).collect();
-    let onset = left
-        .iter()
-        .position(|s| s.abs() > 0.02)
-        .expect("the note is heard");
-    let window = &left[onset..(onset + 4_800).min(left.len())];
+    let onset = onset(&left).expect("the note is heard");
+    let window = &left[onset..onset + PITCH_WINDOW];
     let crossings = window
         .windows(2)
         .filter(|pair| pair[0] <= 0.0 && pair[1] > 0.0)
